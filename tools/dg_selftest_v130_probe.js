@@ -257,7 +257,8 @@ async function armed(opts) {
     CHECK(w.document.getElementById('dst-ca').getAttribute('aria-pressed') === 'true',
       '量測儀開關：連上了 ⇒ aria-pressed=true');
     /* 其餘的鈕都是**瞬時動作**，沒有狀態可言 —— 逐顆列出來，證明是查過的不是漏的。 */
-    console.log('    無狀態（瞬時動作）的鈕：dst-probe／dst-run／dst-stop／dst-xlsx／'
+    /* 🔴 v1.13.0（B1）：dst-xlsx 已從這份清單拿掉 —— 那顆鈕整顆移除了。 */
+    console.log('    無狀態（瞬時動作）的鈕：dst-probe／dst-run／dst-stop／'
       + 'dst-log-copy／dst-log-clear／dst-fail-retry／dst-fail-abort');
     CHECK(ids.length === 5, '有狀態的鈕共 5 顆（四顆色鈕 ＋ 對位切換鈕）');
   }
@@ -306,15 +307,20 @@ async function armed(opts) {
     CHECK(typeof P.exportCsv === 'undefined', 'dstProbe.exportCsv 已移除');
     CHECK(!/dstCsvText|dstExportCsv/.test(CODE), '程式碼裡沒有 dstCsvText／dstExportCsv（死碼已清）');
     CHECK(!/'dst\.btnCsv'/.test(I18NCODE), 'i18n 的 dst.btnCsv 已刪除');
-    CHECK(/dstXlsxBytes/.test(CODE), '（對照）XLSX 那一條還在');
-    /* 🔴 前 24 欄一字未動 —— v1.4.0 在**後面**追加了 Drive_R/G/B 三欄
-       （Bruce 2026-09-20：「x/y/Y 旁邊補上該階實際的 R/G/B」）。
-       這一項的語意因此從「表頭完全相同」改成「**前 24 欄**完全相同」：
-       追加在尾端不會動到任何既有欄位的位置，拿舊檔對照的人不受影響。 */
-    EQ(P.exportHeader().slice(0, 24), ['Gray', 'W_x', 'W_y', 'W_Y', 'W_T', 'W_duv',
-      'R_x', 'R_y', 'R_Y', 'G_x', 'G_y', 'G_Y', 'B_x', 'B_y', 'B_Y',
-      'C_x', 'C_y', 'C_Y', 'M_x', 'M_y', 'M_Y', 'Y_x', 'Y_y', 'Y_Y'],
-      'XLSX 的前 24 欄與 v1.2.0 完全相同（既有欄位位置未動）');
+    /* ═══ 🔴 dgself v1.13.0（B1）：XLSX 那一條**也不在了** ═══════════════════════
+       v1.3.0 這裡拿 XLSX 當「CSV 真的被拿掉、而不是整組匯出都壞了」的對照組。
+       Bruce 2026-09-22 裁示把本頁的匯出整組移除（收斂到 DG 的「光學資料比較」）
+       ⇒ 對照組本身消失了，這兩條的對象都不存在。
+       🔴 不是放寬：期望值翻面成「兩種匯出都不在頁面上」，任何人接回來都會紅。
+       🔴 XLSX 的**版面規格**（24 欄、Drive_R/G/B…）沒有消失，它在 DG 那一端的
+          `dgSlotExportXlsx()`。本輪沒有動那一支，也沒有把驗證搬過來（一次只改
+          一件事），已在回報列出。 */
+    CHECK(!/dstXlsxBytes|dstExportXlsx/.test(CODE),
+      '🔴（B1）程式碼裡也沒有 dstXlsxBytes／dstExportXlsx 了（匯出整組移除）');
+    CHECK(typeof P.exportHeader === 'undefined' && typeof P.exportXlsx === 'undefined',
+      '🔴（B1）夾具觀測口 exportHeader／exportXlsx 已隨匯出一起移除');
+    CHECK(w.document.getElementById('dst-xlsx') === null,
+      '🔴（B1）#dst-xlsx 這顆鈕也不存在');
   }
 
   /* ═══ 卡片改名與定位說明 ═══════════════════════════════════════════════ */

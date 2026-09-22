@@ -295,35 +295,33 @@ async function armed(opts) {
       '🔴 掃描送出去的仍然是 plan 的 r/g/b，沒有被 DG 狀態動過');
   }
 
-  /* ═══ E. XLSX 欄位 ══════════════════════════════════════════════════════ */
-  H('E. XLSX 尾端追加 Drive_R/G/B，前 24 欄一格不動');
+  /* ═══ E. XLSX 欄位 —— 🔴 dgself v1.13.0（B1）整段退役 ══════════════════════
+     v1.4.0 這一節驗的是「XLSX 尾端追加 Drive_R/G/B，前 24 欄一格不動」
+     （Bruce 2026-09-20：「x/y/Y 旁邊補上該階實際的 R/G/B」）。
+     Bruce 2026-09-22 裁示把**本頁的匯出整組移除**（收斂到 DG 的「光學資料比較」）
+     ⇒ `exportHeader` / `exportRows` 這兩個觀測口與它們背後的產品函式都不存在了，
+       這一節原本驗的欄位版面**沒有對象可驗**。
+     🔴 不是刪掉了事：換成正面釘住「它們真的不在」，接回來一樣會紅。
+     🔴 這一節真正該保住的那一半 —— **「DG 開著、LUT 讀不到 ⇒ 不拿送出值冒充」**
+        —— 沒有隨匯出消失：它的單一真相是 `dstDriveOf()`（`P.driveOf`），
+        下面兩條直接驗那一支，比原本繞過匯出表格去看第 25–27 欄更直接。
+     ═══════════════════════════════════════════════════════════════════════════ */
+  H('E. 匯出已移除（B1）；「不拿送出值冒充」改直接驗 driveOf');
   {
     const { P } = await armed({ dg: 0x00 });
     await P.readDgEn();
-    const head = P.exportHeader();
-    EQ(head.slice(0, 24), ['Gray', 'W_x', 'W_y', 'W_Y', 'W_T', 'W_duv',
-      'R_x', 'R_y', 'R_Y', 'G_x', 'G_y', 'G_Y', 'B_x', 'B_y', 'B_Y',
-      'C_x', 'C_y', 'C_Y', 'M_x', 'M_y', 'M_Y', 'Y_x', 'Y_y', 'Y_Y'], '前 24 欄逐字不動');
-    EQ(head.slice(24), ['Drive_R', 'Drive_G', 'Drive_B'], '第 25–27 欄是 Drive_R/G/B');
-
-    P.__setRowsForTest([
-      { key: 'L0', idx: 0, r12: 0, g12: 0, b12: 0, drv: { r: 0, g: 0, b: 0, from: 'sent' }, x: .31, y: .33, lv: 1 },
-      { key: 'L1', idx: 1, r12: 16, g12: 16, b12: 16, drv: { r: 16, g: 16, b: 16, from: 'sent' }, x: .31, y: .33, lv: 2 },
-      { key: 'L255', idx: 255, r12: 4080, g12: 4080, b12: 4080, drv: { r: 4080, g: 4080, b: 4080, from: 'sent' }, x: .31, y: .33, lv: 300 }
-    ]);
-    const d = P.exportRows();
-    EQ(d.rows[0].slice(0, 4), [0, 0.31, 0.33, 1], 'L0 那一列的 Gray/x/y/Y 沒變');
-    EQ(d.rows[1].slice(24), [16, 16, 16], 'L1 的 Drive_R/G/B ＝ 16（DG 關 ⇒ 送出值）');
-    EQ(d.rows[2].slice(24), [4080, 4080, 4080], 'L255 的 Drive_R/G/B ＝ 4080');
-    EQ(d.rows[0][0], 0, 'Gray 欄仍然是 0…255（本來就是，沒被這一版動到）');
-
-    /* DG 開、LUT 讀不到 ⇒ 三欄留空（不是 0） */
+    ['exportHeader', 'exportRows', 'xlsxBytes', 'exportXlsx'].forEach(k => {
+      CHECK(typeof P[k] === 'undefined', '🔴（B1）夾具觀測口 ' + k + ' 已移除', typeof P[k]);
+    });
+    /* DG 關 ⇒ 面板收到的就是送出去的 12-bit 值 */
+    EQ(P.driveOf(8, 128, 128, 128), { r: 128, g: 128, b: 128, from: 'sent' },
+      'DG 關 ⇒ 該階實際被驅動的碼 ＝ 送出去的值');
+    /* DG 開、LUT 讀不到 ⇒ **不猜**（不是 0，也不是送出值） */
     const b = await armed({ dg: 0x01 });
     await b.P.readDgEn();
-    b.P.__setRowsForTest([{ key: 'L8', idx: 8, r12: 128, g12: 128, b12: 128,
-      drv: b.P.driveOf(8, 128, 128, 128), x: .31, y: .33, lv: 5 }]);
-    EQ(b.P.exportRows().rows[0].slice(24), ['', '', ''],
-      '🔴 讀不到 LUT ⇒ 三欄是空字串，**不是 0**（0 會被當成「量到黑」）');
+    const d = b.P.driveOf(8, 128, 128, 128);
+    CHECK(!d || d.r == null || d.from !== 'sent',
+      '🔴 DG 開、讀不到 LUT ⇒ 不拿送出值冒充（0 會被當成「量到黑」）', d);
   }
 
   /* ═══ F. 連線卡片砍六項 ═════════════════════════════════════════════════ */

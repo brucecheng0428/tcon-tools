@@ -288,98 +288,39 @@ async function armed(mesFn, opts) {
       'dg.html 用的也是同一套 .container 斷點（1200px）');
   }
 
-  /* ═══ ⑤ 匯出格式 ═══════════════════════════════════════════════════════ */
-  H('5. 匯出版面逐欄照上游工具');
+  /* ═══ ⑤ 匯出 ═══════════════════════════════════════════════════════════════
+     ═══ 🔴 dgself v1.13.0（B1）：本頁的匯出**整組移除**，這一節整段退役 ══════════
+     Bruce 2026-09-22：「在 TCON 自檢畫面量測裡面的『量測與調整 Gamma 所需步驟』
+     第三個步驟做完以後，不要有匯出 XLSX 的按鈕，應該要讓統一匯出表格這件事情回到
+     DG 網頁裡面的『光學資料比較』。」
+
+     ⇒ 產品端 `dstExportHeader` / `dstExportRows` / `dstXlsxBytes` / `dstStamp` /
+       `dstExportName` / `dstExportXlsx` 與對應的夾具觀測口全部不存在了。
+     🔴 **不是放寬，也不是刪掉了事**：原本驗的那些東西（24 欄版面、Gray 欄刻度、
+        Time 空一列、Sheet1、檔名…）**其對象已經不存在**，留著只會永遠紅。
+        換成的新斷言是它的反面 —— 任何人把匯出接回自檢頁，這裡一樣會失敗。
+     🔴 「這一輪完整跑完沒有」那件事**沒有失去驗證**：它本來就由 `P.runOk()` 與
+        作廢橫幅（`#dst-void`）在驗，下面 7b／7c／7d 三組原封不動。匯出鈕的
+        disabled 只是它的一個轉述。
+     ⚠ 匯出那份**版面規格**（逐欄照上游工具）並沒有消失，它在 DG 的
+       「光學資料比較」那一端，由 `dg.html` 的 `dgSlotExportXlsx()` 負責。
+       本輪沒有動那一支，也沒有把它的驗證搬過來 —— 一次只改一件事，已在回報列出。
+     ═══════════════════════════════════════════════════════════════════════════ */
+  H('5. 匯出：本頁已整組移除（B1）');
   {
     const dom = await load();
     const P = dom.window.dstProbe;
-    const HEAD = ['Gray', 'W_x', 'W_y', 'W_Y', 'W_T', 'W_duv',
-      'R_x', 'R_y', 'R_Y', 'G_x', 'G_y', 'G_Y', 'B_x', 'B_y', 'B_Y',
-      'C_x', 'C_y', 'C_Y', 'M_x', 'M_y', 'M_Y', 'Y_x', 'Y_y', 'Y_Y'];
-    EQ(P.exportHeader().slice(0, 24), HEAD, '表頭前 24 欄，逐字＋順序與 BasicMeaForm.cs:1781–1804 相同（v1.4.0 在尾端追加 Drive_R/G/B）');
-
-    // 擺一輪 8-bit 的結果進去（含三個純色端點）
-    const rows = [];
-    for (let u = 0; u <= 255; u++) {
-      rows.push({ key: 'L' + u, r12: u * 16, g12: u * 16, b12: u * 16,
-        x: 0.3127, y: 0.329, lv: u });
-    }
-    rows.push({ key: 'R', r12: 4080, g12: 0, b12: 0, x: 0.64, y: 0.33, lv: 60 });
-    rows.push({ key: 'G', r12: 0, g12: 4080, b12: 0, x: 0.30, y: 0.60, lv: 200 });
-    rows.push({ key: 'B', r12: 0, g12: 0, b12: 4080, x: 0.15, y: 0.06, lv: 20 });
-    P.__setRowsForTest(rows);
-
-    const d = P.exportRows();
-    console.log('    資料列數：' + d.rows.length);
-    console.log('    第 1 列：' + JSON.stringify(d.rows[0]));
-    console.log('    第 2 列：' + JSON.stringify(d.rows[1]));
-    console.log('    最後一列：' + JSON.stringify(d.rows[d.rows.length - 1]));
-    CHECK(d.rows.length === 256, '256 個灰階 ⇒ 256 個資料列（R/G/B 併進最亮那一列）', d.rows.length);
-    CHECK(d.rows[0][0] === 0 && d.rows[255][0] === 255, 'Gray 欄 ＝ 12-bit 值 ÷ 16 ⇒ 0…255',
-      [d.rows[0][0], d.rows[255][0]]);
-    CHECK(d.rows[0][4] === '' && d.rows[0][5] === '', 'W_T／W_duv 留空（儀器回應沒解析這兩欄，不猜）');
-    CHECK(d.rows[255][6] === 0.64 && d.rows[255][8] === 60, 'R 的端點落在最亮那一列',
-      [d.rows[255][6], d.rows[255][8]]);
-    CHECK(d.rows[0][6] === '' && d.rows[100][9] === '', '其餘列的 R／G 欄留空');
-    CHECK(d.rows[255].slice(15, 24).every(v => v === ''), 'C／M／Y 九欄全部留空');
-
-    // Gray 欄在 10／12-bit 也必須是 0…255（原廠的 num4 與使用者深度無關）
-    for (const bits of [10, 12]) {
-      const dom2 = await load();
-      const P2 = dom2.window.dstProbe;
-      P2.setBits(bits);
-      const vals = P2.scanValues(bits);
-      const r2 = vals.map((v, i) => ({ key: 'L' + (i * P2.scanStep(bits)), r12: v, g12: v, b12: v,
-        x: 0.3, y: 0.3, lv: i }));
-      P2.__setRowsForTest(r2);
-      const d2 = P2.exportRows();
-      CHECK(d2.rows[0][0] === 0 && d2.rows[d2.rows.length - 1][0] === 255,
-        bits + '-bit：Gray 欄同樣是 0…255（與原廠 num4 = 2^(8−12) 一致）',
-        [d2.rows[0][0], d2.rows[d2.rows.length - 1][0]]);
-    }
-
-    /* ═══ dgself v1.3.0：CSV 整個移除 ════════════════════════════════════════
-       v1.2.0 這裡驗的是「CSV 產得出來而且版面對」。Bruce 2026-09-20 裁示把匯出
-       CSV 拿掉（原廠 UI 只匯 XLSX），所以這一段改驗**它真的不見了**。
-       🔴 不是放寬：舊斷言的對象（CSV 產生器）已經不存在，留著只會永遠紅；
-          換成的新斷言是它的反面，一樣會在有人偷偷接回來時失敗。
-       🔴 XLSX 那一半的斷言**一條都沒有拿掉** —— 版面（24 欄、Time 空一列、
-          W_T/W_duv 留空…）全部還在下面。 */
-    const stamp = P.stamp(new Date(2026, 8, 20, 21, 30, 15, 42));
-    CHECK(/^\d{17}$/.test(stamp), '時間戳是 yyyyMMddHHmmssfff（17 碼）', stamp);
-    CHECK(stamp === '20260920213015042', '時間戳算得對', stamp);
-    CHECK(typeof P.csvText === 'undefined', 'csvText 掛勾已移除', typeof P.csvText);
-    CHECK(typeof P.exportCsv === 'undefined', 'exportCsv 掛勾已移除', typeof P.exportCsv);
-
-    // XLSX
-    const bytes = P.xlsxBytes(stamp);
-    CHECK(bytes[0] === 0x50 && bytes[1] === 0x4B, 'XLSX 真的是 zip（PK 開頭）');
-    const buf = Buffer.from(bytes);
-    const all = buf.toString('latin1');
-    CHECK(all.indexOf('xl/worksheets/sheet1.xml') >= 0, 'zip 裡有 xl/worksheets/sheet1.xml');
-    const xml = all.slice(all.indexOf('<worksheet'), all.indexOf('</worksheet>') + 12);
-    const rowCount = (xml.match(/<row r="/g) || []).length;
-    console.log('    XLSX sheet 列數（含表頭與 Time）：' + rowCount);
-    CHECK(rowCount === 258, 'XLSX：1 表頭 ＋ 256 資料 ＋ 1 Time（空的那一列沒有儲存格 ⇒ 不寫出來）', rowCount);
-    CHECK(/<c r="A1"[^>]*><is><t[^>]*>Gray</.test(xml), 'A1 是 Gray');
-    CHECK(/<c r="F1"[^>]*><is><t[^>]*>W_duv</.test(xml), 'F1 是 W_duv');
-    CHECK(/<c r="X1"[^>]*><is><t[^>]*>Y_Y</.test(xml), 'X1 是 Y_Y（第 24 欄）');
-    const timeRow = /<row r="(\d+)"><c r="A(\d+)"[^>]*><is><t[^>]*>Time: /.exec(xml);
-    console.log('    XLSX 的 Time 落在第 ' + (timeRow && timeRow[1]) + ' 列（資料最後一列是 257）');
-    CHECK(timeRow && timeRow[1] === '259',
-      'XLSX：Time 在資料最後一列（257）之後空一列 ⇒ 第 259 列（原廠 Cells[2+length+1,1]）',
-      timeRow && timeRow[1]);
-    CHECK(/name="Sheet1"/.test(all), '工作表名 Sheet1');
-    CHECK(P.exportName('xlsx', stamp) === 'TCON_Gamma_20260920213015042.xlsx',
-      '檔名 TCON_Gamma_<時間戳>.xlsx（去商標化，其餘一字不差）', P.exportName('xlsx', stamp));
-    // 走按鈕自己那條路
-    let dl = null;
-    /* jsdom 沒有 URL.createObjectURL／<a>.click() 的下載行為 ——
-       🔴 這是補兩個瀏覽器 API，產品那一段一字未動。 */
-    dom.window.URL.createObjectURL = () => 'blob:fake';
-    dom.window.URL.revokeObjectURL = () => {};
-    dom.window.HTMLAnchorElement.prototype.click = function () { dl = this.download; };
-    CHECK(P.exportXlsx() === true && /\.xlsx$/.test(dl || ''), '按鈕那條路真的觸發下載 .xlsx', dl);
+    ['exportHeader', 'exportRows', 'xlsxBytes', 'exportName', 'exportXlsx',
+     'exportBlocked', 'stamp', 'csvText', 'exportCsv'].forEach(k => {
+      CHECK(typeof P[k] === 'undefined', '🔴（B1）夾具觀測口 ' + k + ' 已移除', typeof P[k]);
+    });
+    CHECK(dom.window.document.getElementById('dst-xlsx') === null,
+      '🔴（B1）畫面上找不到匯出 XLSX 那一顆');
+    CHECK(dom.window.document.getElementById('dst-csv') === null,
+      'CSV 鈕已從畫面移除（v1.3.0）');
+    /* 🔴 連 xlsx 產生器本身都不該再被這一頁載入（本頁只有匯出在用 TCONXlsx）。 */
+    CHECK(typeof dom.window.TCONXlsx === 'undefined',
+      '🔴（B1）本頁不再載入 common/xlsx.js（沒有東西在用它）', typeof dom.window.TCONXlsx);
   }
 
   /* ═══ ⑦ 量測失敗不准跳過 ═══════════════════════════════════════════════ */
@@ -404,8 +345,9 @@ async function armed(mesFn, opts) {
     CHECK(rows.length === 3, 'prim 模式跑完三階', rows.length);
     CHECK(rows.every(r => r.x !== null), '沒有任何一列是 null');
     CHECK(P.runOk() === true, 'dstRunOk = true');
-    CHECK(P.exportBlocked() === null, '匯出沒有被擋', P.exportBlocked());
-    CHECK(w.document.getElementById('dst-xlsx').disabled === false, 'XLSX 鈕是亮的');
+    /* 🔴 v1.13.0（B1）：匯出已整組移除 ⇒ 這一輪「有沒有被擋」改由 runOk 與作廢
+       橫幅代表（上一行已驗 runOk===true）。這裡正面釘住匯出鈕真的不在。 */
+    CHECK(w.document.getElementById('dst-xlsx') === null, '🔴（B1）匯出鈕不存在');
     CHECK(w.document.getElementById('dst-void').textContent === '', '作廢橫幅是空的');
     CHECK(P.failOpen() === false, '沒有跳過失敗視窗');
     /* dgself v1.3.0 起：整輪掃描一次 window.confirm 都不准呼叫。 */
@@ -448,7 +390,6 @@ async function armed(mesFn, opts) {
     EQ(rows.map(r => r.key), ['R', 'G', 'B'], '三階的順序與階名都對，沒有缺漏');
     CHECK(rows.every(r => r.x === 0.3127), '每一階都拿到真的數據（沒有 null、沒有沿用上一階）');
     CHECK(P.runOk() === true, '完整跑完 ⇒ dstRunOk = true');
-    CHECK(P.exportBlocked() === null, '可以匯出');
   }
 
   H('7d. 跳視窗之後按「中止整輪」⇒ 作廢');
@@ -465,12 +406,22 @@ async function armed(mesFn, opts) {
     CHECK(P.rows().length === 1, '只留下中止前量到的那一階（表格保留，供診斷）', P.rows().length);
     CHECK(/作廢/.test(voidTxt), '畫面上明講「作廢」', voidTxt.slice(0, 30));
     CHECK(/1\/3/.test(voidTxt), '講了量到第幾階', voidTxt.slice(0, 30));
-    CHECK(P.exportBlocked() !== null, '匯出被擋', P.exportBlocked());
-    CHECK(w.document.getElementById('dst-xlsx').disabled === true, 'XLSX 鈕是灰的');
+    /* 🔴 v1.13.0（B1）：匯出已整組移除 ⇒ 「作廢的一輪不准匯出」不再有對象可驗。
+       作廢這件事本身由上面三條（runOk=false、只留一階、橫幅寫「作廢」）在驗，
+       而且那三條讀的是產品狀態，比讀一顆鈕的 disabled 更直接。 */
+    CHECK(w.document.getElementById('dst-xlsx') === null, '🔴（B1）匯出鈕不存在');
     CHECK(w.document.getElementById('dst-csv') === null, 'CSV 鈕已從畫面移除（v1.3.0）');
-    CHECK(P.exportXlsx() === false, '直接呼叫匯出也會被拒絕');
+    /* ═══ 🔴 v1.13.0（B1）：這一條原本是**假的** —— 它驗到的字不是中止流程寫的 ═════
+       原本的順序是：上一行 `P.exportXlsx() === false` 會走進 `dstExportXlsx()` 的
+       閘門，把 `dst.expVoid`（「這一輪沒有完整跑完…已作廢」）寫進 `#dst-say-run`，
+       然後這一條才去讀它 —— **「作廢」兩個字是上一行的測試動作自己放進去的**，
+       不是產品在中止時講的。匯出移除之後那一行沒了，這一條就跟著露餡。
+       ⇒ 改成驗中止流程**真正寫進去的那一句**（`dst.abortedAt`：面板現在停在哪一張
+         畫面，他可能要自己復原）。「作廢」那件事由上面的 `#dst-void` 橫幅在驗
+         （`/作廢/` 與 `/1\/3/` 兩條），沒有失去驗證。 */
     const say = w.document.getElementById('dst-say-run').textContent;
-    CHECK(/作廢|完整跑完/.test(say), '說話行也講了原因', say.slice(0, 40));
+    CHECK(/已停止/.test(say) && /R=0 G=4080 B=0/.test(say),
+      '🔴 說話行講出面板現在停在哪一張畫面（中止流程自己寫的那一句）', say.slice(0, 60));
     CHECK(P.failOpen() === false, '視窗已經收起來');
   }
 

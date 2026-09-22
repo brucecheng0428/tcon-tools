@@ -1595,7 +1595,10 @@
              啟動時由 dgSlotSyncLabels() 依 DG_SLOT_NEW_LABEL 覆寫（單一來源）。
              🔴 id 不動 —— 改了會動到事件綁定與既有驗證腳本，沒有好處。 -->
         <button class="dg-btn primary" id="dg-btn-slot-new">＋ 匯入或量測</button>
-        <button class="dg-btn" id="dg-btn-slot-xlsx">匯出多組比較（.xlsx）</button>
+        <!-- v1.73.0 改名為「匯出 Excel」。這裡的字只是首屏 fallback，啟動時與每次
+             清單變動時由 dgSlotSyncLabels() 依 dgSlotXlsxLabel() 覆寫（單一來源）。
+             🔴 id 不動 —— 改了會動到事件綁定與既有驗證腳本。 -->
+        <button class="dg-btn" id="dg-btn-slot-xlsx">匯出 Excel</button>
         <button class="dg-btn" id="dg-btn-slot-clear">清空全部</button>
       </div>
       <div class="dg-info-src" id="dg-info-slots2">
@@ -2274,12 +2277,12 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20260922dg1721"></script>
-<script src="common/i18n.js?v=20260922dg1721"></script>
+<script src="common/version.js?v=20260922dg1730"></script>
+<script src="common/i18n.js?v=20260922dg1730"></script>
 <!-- v1.68.1：xlsx 產生器（原本在本頁，現在與 dg-selftest.html 共用）。
      🔴 必須在本頁的 inline script 之前載入。 -->
-<script src="common/xlsx.js?v=20260922dg1721"></script>
-<script src="common/common.js?v=20260922dg1721"></script>
+<script src="common/xlsx.js?v=20260922dg1730"></script>
+<script src="common/common.js?v=20260922dg1730"></script>
 <script>
 /* ════════════════════════════════════════════════════════════════════════
    DG — Digital Gamma 迭代校正
@@ -7100,11 +7103,29 @@
         HTML 裡先寫好同樣的字當首屏 fallback（避免閃爍），啟動時由 dgSlotSyncLabels()
         用這個常數覆寫按鈕與每一個 .dg-slot-new-name，兩邊不可能再分岔。 */
   var DG_SLOT_NEW_LABEL = '＋ 匯入或量測';
+  /* ═══ 🔴 v1.73.0（B2）：匯出鈕改名 ═══════════════════════════════════════════
+     舊名「匯出多組比較（.xlsx）」在**只有 1 組**時名不副實 —— 而 1 組本來就匯得出來
+     （`dgSlotExportXlsx()` 唯一的閘門是 `!DG_SLOTS.length`，不是「至少 2 組」）。
+     自檢頁的匯出移除之後，這顆鈕變成**唯一**的 Excel 出口，名字不能再讓人以為
+     「我只有一組，這顆不是給我用的」。
+     🔴 新名字講的是它實際會發生的事：把清單裡現有的每一組寫成一個 Excel 檔。
+     🔴 組數寫進名字裡（`dgSlotSyncLabels()` 每次清單變動都會重填）—— 按鈕自己
+        就說得出「現在會匯幾組」，不必再寫一句說明。
+     🔴 **id 不動**（`dg-btn-slot-xlsx`）：改了會動到事件綁定與既有驗證腳本。
+     ⚠ 三語：`dg.html` 的這張卡片**本來就沒有走 i18n**（全頁只有 23 個 data-i18n，
+        都在工作模式／量測二選一那兩處）。這一顆鈕過去也是寫死的繁中字面 ——
+        所以「三語一起改」在這裡沒有第二、第三語可以改。已在回報中點名。 */
+  function dgSlotXlsxLabel() {
+    var n = DG_SLOTS.length;
+    return n ? ('匯出 Excel（目前 ' + n + ' 組）') : '匯出 Excel';
+  }
   function dgSlotSyncLabels() {
     var b = $('dg-btn-slot-new');
     if (b) b.textContent = DG_SLOT_NEW_LABEL;
     var ns = document.querySelectorAll('.dg-slot-new-name');
     for (var i = 0; i < ns.length; i++) ns[i].textContent = DG_SLOT_NEW_LABEL;
+    var x = $('dg-btn-slot-xlsx');
+    if (x) x.textContent = dgSlotXlsxLabel();
   }
 
   function dgSlotColor(i) { return DG_SLOT_COLORS[i % DG_SLOT_COLORS.length]; }
@@ -7283,6 +7304,11 @@
   function dgSlotRender() {
     var host = $('dg-slot-list');
     if (!host) return;
+    /* 🔴 v1.73.0（B2）：匯出鈕的字帶著組數 ⇒ 清單一變就要重填。掛在 dgSlotRender()
+       是因為它是本頁「清單變了要重畫」的唯一匯流點（新增／刪除／清空／匯入都會叫它）
+       —— 在每一條變動路徑上各補一次，漏一條的症狀是「刪掉一組但鈕上還寫舊的組數」，
+       而那種漏不會有人發現。 */
+    dgSlotSyncLabels();
     /* 抄自 wfg.html:11794-11797（v2.97.409 的 labelNameEditActive）：
        正在編輯名稱的 contenteditable 若被 innerHTML 重建，焦點會掉、還沒提交的字會被洗掉
        （使用者打字打到一半游標就跳走）。判準同樣是「activeElement 帶那個 data 屬性、且在本容器內」；
@@ -7596,20 +7622,36 @@
   }
 
   /* \u2500\u2500 來源一：第 2 部分 \u2192 轉出成一組 \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
-  function dgSlotAddFromPart2() {
+  /* ═══ 🔴 v1.73.0（B5）：這一支多一個 `quiet` 參數 ═════════════════════════════
+     Bruce 2026-09-22：「每一輪量完就自動建一組，這個是 OK 的。」
+     ⇒ 即時量測那條路要**自動**叫這一支，但它原本每一條出口都直接寫 `#dg-status`，
+       而呼叫端（dgApplyLiveRows）緊接著也會寫同一個狀態列 —— 後寫的會把它蓋掉，
+       使用者就只看到「已帶入第 2 部分」，看不到「而且已經自動存成第 N 組」。
+     🔴 **不另寫第二套加組邏輯**（Bruce 明示）：`quiet` 只改「寫不寫狀態列」，
+        每一條判斷、每一句措辭、回傳值一個字都沒動。按鈕那條路傳 undefined
+        ⇒ `quiet` 是 falsy ⇒ 行為與改動前**逐字相同**。
+     🔴 說明字串一律經過 `say()`，同時存進 `DG_SLOT_P2_NOTE` 給呼叫端接 ——
+        兩邊講的必定是同一句話，不可能分岔。 */
+  var DG_SLOT_P2_NOTE = '';
+  function dgSlotAddFromPart2(quiet) {
+    DG_SLOT_P2_NOTE = '';
+    function say(text, cls) {
+      DG_SLOT_P2_NOTE = text;
+      if (!quiet) dgSetStatus('dg-status', text, cls);
+    }
     var rows = dgSlotRowsFromText($('dg-in-gray').value);
     if (rows.length < 2) {
-      dgSetStatus('dg-status', '第 2 部分現在沒有可以轉出的白灰階資料（至少要 2 階）。', 'err');
+      say('第 2 部分現在沒有可以轉出的白灰階資料（至少要 2 階）。', 'err');
       return 0;
     }
     var same = dgSlotFindSame(rows);
     if (same >= 0) {
-      dgSetStatus('dg-status', '這一份與' + dgSlotRefName(same)
+      say('這一份與' + dgSlotRefName(same)
         + '逐值相同，沒有重複新增。\n到「光學資料比較」分頁就能看到它。', '');
       return 0;
     }
     if (DG_SLOTS.length >= DG_SLOT_MAX) {
-      dgSetStatus('dg-status', '光學量測組已滿 ' + DG_SLOT_MAX + ' 組，沒有轉出。'
+      say('光學量測組已滿 ' + DG_SLOT_MAX + ' 組，沒有轉出。'
         + '\n到「光學資料比較」分頁刪掉其中一組再試一次。', 'err');
       return 0;
     }
@@ -7630,7 +7672,7 @@
        （DG_ROUND）。這一顆鈕就是 Bruce 說的「使用者選擇同步到光學資料比較」，
        只是他是主動按的、不是被問的 —— 沒有理由兩邊叫不一樣的名字。 */
     if (no) { dgSlotStoreName(no - 1, dgSlotUniqueName(dgRoundName(DG_ROUND), no - 1)); dgSlotRender(); }
-    dgSetStatus('dg-status', '已把第 2 部分這一份（' + rows.length + ' 階）轉出成「光學資料比較」的第 '
+    say('已把第 2 部分這一份（' + rows.length + ' 階）轉出成「光學資料比較」的第 '
       + no + ' 組（' + dgSlotDisplayName(no - 1) + '）。\n第 2 部分的資料原封不動，計算結果不受影響。'
       + '\n到「光學資料比較」分頁可以改名、勾選要不要疊在圖上。', 'ok');
     return no;
@@ -11457,6 +11499,37 @@
     // v1.45.0：白灰階之後的三個純色端點 → 第 3 部分（沒量齊就是空字串，什麼都不做）
     var primNote = dgApplyGrayTailPrim(meta.prim, label);
 
+    /* ═══ 🔴 v1.73.0（B5）：量完一輪 ⇒ **自動**存成「光學資料比較」的一組 ═══════
+       Bruce 2026-09-22：「目前我記得上線應該不是 10 組吧，所以每一輪量完就自動建
+       一組，這個是 OK 的。而且通常迭代不會迭代這麼多輪，通常 1 到 2 輪可能就搞定了。」
+       （上限確實是 10（`DG_SLOT_MAX`），已如實告知，他知道了仍要自動建組。）
+
+       🔴 **重用 `dgSlotAddFromPart2()`，沒有第二套加組邏輯**（Bruce 明示）。
+          那一支已經會做齊這幾件事，不必也不該再寫一遍：
+            · 把第 3 部分的純色端點一起帶進同一組（`DG_SLOTS[no-1].prim = dgReadPrim()`）
+            · 組名用輪數 `dgRoundName(DG_ROUND)`
+            · 耗時／換階等待從 `DG_GRAY_META` 跟著過去
+       🔴 **順序不能動**：要在 `dgApplyGray()`（寫第 2 部分）、`DG_GRAY_META` 指派、
+          `dgApplyGrayTailPrim()`（寫第 3 部分）**之後**才叫 —— 那一支讀的是
+          `#dg-in-gray` 與 `#dg-in-prim` 的當下內容。早一步叫就會抓到上一輪的資料。
+       🔴 **不重複建組**：去重走的是那一支既有的 `dgSlotFindSame()`（逐值比對，
+          `dgSlotSameRows()`）—— 使用者自己按過「轉出到光學資料比較」之後再量回來、
+          或同一份資料進來兩次，都只會有一組。**沒有為這條路另開判準。**
+       🔴 **滿 10 組不自動蓋、不靜默丟**：`dgSlotAddFromPart2()` 在滿的時候回 0，
+          且**一個欄位都不動**（第 2／3 部分維持原樣），理由寫進 `DG_SLOT_P2_NOTE`
+          由下面那句狀態列接著講「先刪一組再來」。
+       🔴 `quiet = true`：狀態列由這一支的呼叫端統一寫（見下方 `msg`），
+          不然兩句話會互相蓋掉。
+
+       ⚠ **範圍：兩條即時量測的路都會走到這裡**（自檢頁與 `dg-measure.html` 的電腦
+          畫面）。Bruce 交辦時講的是自檢頁，但判準寫成「這一份是即時量測來的」比
+          「是哪一頁送來的」乾淨 —— 兩條路對使用者而言都是「量完一輪」。
+          已在回報中點名請覆核；要只限自檢頁的話，判準是 `meta.kind === 'tcon'`。
+       ⚠ **第 4 部分（確認量測）不在這裡**：那一條走 `dgConfApplyLive()`，維持原本
+          「問過再存」（`dgGrayRecordAsk`）。他沒有交辦那一條，不自行改。 */
+    var autoSlotNo = dgSlotAddFromPart2(true);
+    var autoSlotNote = DG_SLOT_P2_NOTE;
+
     /* v1.11.0：他人在量測那一頁，切回來時要一眼看到「資料真的進來了」。
        徽章要點開才注意得到，所以借用匯入檔案那個同一個可見方框（dg-fmt-box），
        不另做一套通知元件。 */
@@ -11471,7 +11544,19 @@
       /* v1.45.0：純色端點有沒有跟著回來，一句話講完。
          🔴 沒回來時**要講使用者接下來該做什麼**（第 3 部分自己量），不能只說沒有。 */
       + (primNote ? ('<br><b>✔ ' + primNote + '</b>')
-                  : '<br>這一輪沒有帶回純色端點，<b>第 3 部分仍需自行量測</b>。');
+                  : '<br>這一輪沒有帶回純色端點，<b>第 3 部分仍需自行量測</b>。')
+      /* ═══ 🔴 v1.73.0（B3＋B5）：講完結果，**一定要講下一步在哪** ═══════════════
+         Bruce 2026-09-22：自檢頁的匯出拿掉之後，Excel 只能從「光學資料比較」出來
+         ⇒ 收尾訊息不能只說「資料進來了」，要直接指路到匯出在哪，而且**點得到**。
+         🔴 指路那一段是**可點的**（`dgSwitchMode('cmp')` ＝ 頁首那顆分頁鈕走的同一支
+            函式，不是另寫一個跳轉）。
+         🔴 成功／沒成功講的是同一件事的兩面，措辭直接取 `autoSlotNote`
+            （＝ dgSlotAddFromPart2 自己那句），不在這裡重寫一遍。 */
+      + (autoSlotNo
+          ? ('<br><b>✔ 這一輪已自動存成「光學資料比較」的第 ' + autoSlotNo + ' 組（'
+             + dgXe(dgSlotDisplayName(autoSlotNo - 1)) + '）。</b>'
+             + '<br>要存成 Excel：到 <a href="#" onclick="dgSwitchMode(\'cmp\');return false;"><b>「光學資料比較」</b></a> 分頁按「匯出 Excel」。')
+          : ('<br>' + dgXe(autoSlotNote).replace(/\n/g, '<br>')));
 
     var miss = dgMissingParts();
     var msg = '已從「即時量測」分頁帶入第 2 部分：白灰階 ' + rs.length + ' 階（Gray '
@@ -11481,14 +11566,28 @@
       + '光學確認圖表已經畫出這條曲線。\n'
       // v1.45.0
       + (primNote ? (primNote + '\n') : '這一輪沒有帶回純色端點，第 3 部分仍需自行量測。\n')
+      /* v1.73.0（B3＋B5）：自動建組的結果 ＋ 匯出在哪，接在同一則訊息裡。 */
+      + (autoSlotNo
+          ? ('這一輪已自動存成「光學資料比較」的第 ' + autoSlotNo + ' 組（'
+             + dgSlotDisplayName(autoSlotNo - 1) + '）。要存成 Excel：到「光學資料比較」分頁按「匯出 Excel」。\n')
+          : (autoSlotNote ? (autoSlotNote + '\n') : ''))
       + (miss.length
         ? ('還缺 ' + miss.length + ' 份：' + miss.map(function (p) { return DG_PART_NO[p]; }).join('、') + '。')
         : '三份都齊了，下一步：按「計算」。');
     dgSetStatus('dg-status', msg, miss.length ? '' : 'ok');
-    // v1.26.0：即時量測也是「第 2 部分有新資料」的一條路
-    dgGrayRecordAsk(rs, label || '（即時量測）', dgRoundName(DG_ROUND), function () {
-      if (DG_REC_NOTE) dgSetStatus('dg-status', msg + '\n' + DG_REC_NOTE, miss.length ? '' : 'ok');
-    }, DG_GRAY_META);   // v1.45.0
+    /* ═══ 🔴 v1.73.0（B5）：這裡原本會跳出「要記錄到『光學資料比較』嗎？」═════════
+       （v1.26.0 起的 `dgGrayRecordAsk()`。）Bruce 2026-09-22 裁示**每一輪量完就自動
+       建一組** ⇒ 那個問題已經有答案了，再問一次就是問一個他已經回答過的問題。
+       🔴 上面的自動建組**完整覆蓋**這一支原本會處理的三種情況，所以不是「拿掉一道
+          守門」：
+            · 逐值相同 → `dgSlotFindSame()`（兩支用的是同一支去重）
+            · 已滿 10 組 → `DG_SLOT_MAX` 閘門，兩支的判準也相同
+            · 不足 2 階 → 上面 `rs.length < 2` 早就 return 了
+          而且自動那條**多做了一件**：把第 3 部分的純色端點一起帶進同一組。
+       🔴 `dgGrayRecordAsk()` 本身**一個字都沒改**，其餘五個呼叫端（手動填寫、匯入
+          檔案、第 4 部分…）照舊會問 —— 這一版只動「即時量測量完」這一條路。
+       🔴 這一支的 `done` callback 在這條路上只做一件事（把 DG_REC_NOTE 接在狀態列
+          後面），沒有別的流程在等它，所以不叫它不會卡住任何東西。 */
     return true;        // v1.72.0：真的落地了
   }
 

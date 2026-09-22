@@ -204,8 +204,19 @@ const GROUP_EXPECT = {
 };
 /* 🔴 反面：量測儀那一組**不可以**裝這些（Bruce 回報的正是 DG_EN 跑進去了）。 */
 const METER_FORBID = ['dst-v-dg', 'dst-dg-ck', 'dst-dg-warn', 'dst-dl-box', 'dst-probe'];
-/* 🔴 搬進「量測」那一格的三個控制項。 */
-const MOVED_TO_GROUP23 = ['dst-settle', 'dst-stop', 'dst-xlsx'];
+/* 🔴 搬進「量測」那一格的控制項。
+   ═══ 🔴 v1.13.0：三個變一個（Bruce 2026-09-22 兩道裁示）═══════════════════════
+     · `dst-settle`（換階等待）→ 搬進第一張卡「光學量測儀」那一組（E）
+       ——「那個『換接等待』的選項，應該要移到『光學量測儀』上面那張卡片的那個
+         group 裡面吧。」它是儀器設定，不是步驟。
+     · `dst-xlsx`（匯出 XLSX）→ **整顆移除**（B1），匯出收斂到 DG 的「光學資料比較」。
+     · `dst-stop`（停止）→ 留在原地，它是量測當下的動作。
+   🔴 離開的那兩個各自補了**正面斷言**（見第 ⑤ 組），不是把名單縮短了事。 */
+const MOVED_TO_GROUP23 = ['dst-stop'];
+/* 🔴 v1.13.0（E）：搬到「光學量測儀」那一組（`#dst-hwgrp-meter`）的控制項。 */
+const MOVED_TO_METER = ['dst-settle'];
+/* 🔴 v1.13.0（B1）：全頁都不該再存在的控制項。 */
+const REMOVED_CTRLS = ['dst-xlsx'];
 /* 🔴 量測**結果**留在下面那張卡的東西。 */
 const STAY_IN_MEASURE = ['dst-res-wrap', 'dst-res', 'dst-v-hz', 'dst-prog', 'dst-progtxt'];
 
@@ -349,11 +360,22 @@ function renderLang(w, lang) {
       EQ(P.inMeasureCard(id), false,
         '🔴 ' + id + ' **已經不在**下面那張「量測」卡（原處沒留第二份）');
     });
-    /* 換階等待要排在按鈕**之前**（設定要先於動作） */
+    /* ═══ 🔴 v1.13.0（E）：換階等待搬進「光學量測儀」那一組 ═══════════════════════
+       原本這裡驗的是「它排在 ② 那一列之前」。Bruce 2026-09-22 把它整個移出這一格
+       ⇒ 期望值換成三件事：在新家、全頁只有一份、舊家沒有留第二份。 */
     const g = doc.getElementById('dst-group23');
     const sel = doc.getElementById('dst-settle'), gray = doc.getElementById('dst-step-gray');
-    CHECK(sel.compareDocumentPosition(gray) & 4,
-      '🔴 換階等待排在 ② 那一列之前（按下去之前要先決定的事）');
+    MOVED_TO_METER.forEach(id => {
+      EQ(doc.querySelectorAll('#' + id).length, 1, '🔴（E）' + id + ' 全頁只有一個');
+      CHECK(doc.getElementById('dst-hwgrp-meter').contains(doc.getElementById(id)),
+        '🔴（E）' + id + ' 已搬進「光學量測儀」那一組');
+      CHECK(!g.contains(doc.getElementById(id)),
+        '🔴（E）' + id + ' 已不在 ②③ 那一格（舊家沒留第二份）');
+      EQ(P.inMeasureCard(id), false, '🔴（E）' + id + ' 也不在下面那張「量測」卡');
+    });
+    REMOVED_CTRLS.forEach(id => {
+      EQ(doc.getElementById(id), null, '🔴（B1）' + id + ' 已整顆移除，全頁找不到');
+    });
     /* 停止就在主鈕旁邊（同一列） */
     CHECK(gray.contains(doc.getElementById('dst-stop')),
       '🔴「停止」與「開始量測」在同一列');
@@ -368,7 +390,6 @@ function renderLang(w, lang) {
       '🔴 v1.12.0：預設改成 300 ms（Bruce 指定）', sel.value);
     EQ(P.settleChoices(), [300, 400, 500, 600, 700, 800, 900, 1000],
       '🔴 清單一格都沒少（他要調回 700 仍然選得到）');
-    CHECK(g.contains(doc.getElementById('dst-xlsx')), '🔴 匯出 XLSX 在 ②③ 那一格裡');
   }
   {
     /* 🔴 搬過去之後**事件與狀態照舊**：量測中「停止」要能按、按下去真的會停。
@@ -376,8 +397,8 @@ function renderLang(w, lang) {
           `dst.whyRunning` 的唯一來源就是 `dstRunning`），不另開一個只給測試用的旗標。 */
     const isRunning = P => P.runWhyKey() === 'dst.whyRunning';
     const { P, doc } = await loadReady({ qs: '?mode=prim&task=21&step=prim' });
-    EQ([doc.getElementById('dst-stop').disabled, doc.getElementById('dst-xlsx').disabled],
-      [true, true], '前置條件：還沒量 ⇒ 停止與匯出都是灰的');
+    /* 🔴 v1.13.0（B1）：匯出鈕已整顆移除 ⇒ 這一行只剩「停止」可驗。 */
+    EQ(doc.getElementById('dst-stop').disabled, true, '前置條件：還沒量 ⇒ 停止是灰的');
     const done = P.stepScan('prim');
     await waitFor(() => isRunning(P), 3000);
     EQ(isRunning(P), true, '前置條件：量測真的開始了');
@@ -476,11 +497,18 @@ function renderLang(w, lang) {
     await sleep(60);
     EQ(P.stepDone().lut, true, '① 已完成（走的是畫面上那顆鈕）');
     EQ(opener.msgs.length, before + 1, '🔴 而且真的送了一則出去（只有一則）');
-    EQ(P.backSent(), true, '🔴 v1.12.0：真的送出去了 ⇒ ④ 自動打勾');
-    EQ(P.backRowTick(), '✔', '🔴 ④ 那一列自動變成 ✔（不必按任何東西）');
-    EQ(P.backRowDone(), true, '🔴 ④ 有 done（它現在代表「資料真的離開這一頁了」）');
-    EQ(P.backWarnText(), '已送回 DG，請切回 DG 分頁繼續。',
-      '🔴 提示自動換成「已送回 DG，請切回 DG 分頁繼續。」');
+    /* ═══ 🔴 v1.13.0（A）：期望值翻面 —— ① 送出去**不代表** ④ 完成 ═══════════════
+       Bruce 2026-09-22 實機：「為什麼在第三步驟還在量的時候，第四步驟的資料自動
+       回傳 DG 就已經打勾了？…這個等於是先偷跑囉。」根因就是 `dstDgSendLut()`
+       （這一段走的正是它）也設了 `dstBackSent = true` ⇒ v1.12.0 這幾條驗的是那個
+       bug 本身（綠著的假綠）。④ 現在只看 ②③ 那一組。
+       🔴 「②③ 都送 ⇒ ④ 會打勾」那個正面在 v1120／v180 兩支夾具各釘一組，
+          不是改成「永遠不打勾」的假安全。 */
+    EQ(P.backSent(), false, '🔴（A）① 送出去了但 ②③ 還沒 ⇒ ④ **不打勾**');
+    EQ(P.backRowTick(), '○', '🔴（A）④ 那一列維持 ○');
+    EQ(P.backRowDone(), false, '🔴（A）④ 沒有 done');
+    CHECK((P.backWarnText() || '').indexOf('自動回傳') >= 0,
+      '🔴（A）提示仍然是「量完會自動回傳」，不能提前說已送回', P.backWarnText());
     EQ(P.stepRowOrder()[3], 'dst-step-back', '🔴 ④ 仍然排在第四項');
     CHECK(!doc.defaultView.closed, '🔴 **不關頁**（關頁會丟掉 I2C 連線與 IC 識別）');
 
@@ -637,18 +665,28 @@ function renderLang(w, lang) {
     EQ(P.ctrlInGroup23('dst-stop'), { n: 2, inGroup: false },
       '🔴 突變後「全頁只有一個 dst-stop」變紅 ⇒ 證明「搬移不是複製」那一條在驗東西');
   }
-  /* ── M3-b（③）：換階等待留在原處沒搬走 ── */
+  /* ── M3-b（③）：換階等待沒搬到「光學量測儀」那一組（🔴 v1.13.0 換了新家）── */
   {
     const orig = '<select id="dst-settle" class="dst-sel"></select>';
     CHECK(SELF_SRC.indexOf(orig) > 0, 'M3-b：找得到換階等待那個下拉');
     const mut = SELF_SRC.replace(orig, '<select id="dst-settle-moved" class="dst-sel"></select>')
       .replace('<div class="dst-kv"><span data-i18n="dst.kvHz">',
                orig + '<div class="dst-kv"><span data-i18n="dst.kvHz">');
-    const { P } = await loadSelf({ src: mut, opener: null });
-    EQ(P.ctrlInGroup23('dst-settle').inGroup, false,
-      '🔴 突變後「換階等待在 ②③ 那一格」變紅');
+    const { P, doc } = await loadSelf({ src: mut, opener: null });
+    CHECK(!doc.getElementById('dst-hwgrp-meter').contains(doc.getElementById('dst-settle')),
+      '🔴（E）突變後它不在「光學量測儀」那一組 ⇒ E 那一條會紅');
     EQ(P.inMeasureCard('dst-settle'), true,
-      '🔴 突變後它回到「量測」卡 ⇒「原處沒留第二份」那一條也會紅');
+      '🔴（E）突變後它掉回「量測」卡 ⇒「新家沒收到」那一條也會紅');
+  }
+  /* ── 🔴 v1.13.0 新增 MB1：把匯出鈕接回 ②③ 那一格 ⇒ B1 那一條必須紅 ── */
+  {
+    const anchor = '<div class="dst-note" id="dst-group23-note">';
+    CHECK(SELF_SRC.indexOf(anchor) > 0, 'MB1：找得到 ②③ 那一格的指路行（插入點）');
+    const mut = SELF_SRC.replace(anchor,
+      '<button class="dst-btn" id="dst-xlsx" disabled>匯出 XLSX</button>' + anchor);
+    const { doc } = await loadSelf({ src: mut, opener: null });
+    CHECK(!!doc.getElementById('dst-xlsx'),
+      '🔴（B1）突變後匯出鈕又回到頁面上 ⇒ B1 那一條會紅');
   }
   /* ── M4（④）：把結果表搬進上面那張步驟卡 ── */
   {
@@ -679,18 +717,25 @@ function renderLang(w, lang) {
      ⇒ 突變成**永遠顯示「還沒送出去」那一句**（＝回傳成功了畫面卻不說）
        ⇒ 「提示自動換成已送回 DG」那幾條必須紅。 */
   {
-    const orig = "      : (dstBackSent ? dstT('dst.backSwitchTab') : dstT('dst.backHint'));";
+    /* 🔴 v1.13.0：錨點與前置條件都跟著 A 改了 ——
+       · 錨點：產品端那一行現在讀的是本地變數 `sent`（＝ `dstBackSent()` 算一次的結果）
+       · 前置：「送出去了」的定義變成 **②③ 都送出去**，所以這裡改成一次送齊
+         白灰階 ＋ 三個純色端點（走產品端 primSent 那條路），不再只按 ①。 */
+    const orig = "      : (sent ? dstT('dst.backSwitchTab') : dstT('dst.backHint'));";
     CHECK(SELF_SRC.indexOf(orig) > 0, 'M5-a2：找得到那一行三選一的提示');
     const mut = SELF_SRC.replace(orig, "      : dstT('dst.backHint');");
     const opener = fakeWin();
-    /* 🔴 `mem` 不能省：① 讀回 LUT 要真的讀到東西才會回傳，沒有記憶體內容就
-       不會送出去，那樣測到的紅是「沒送出去」而不是突變造成的。 */
-    const { P, doc } = await loadReady({ src: mut, opener, mem: buildSram(N, VALS),
-                                        qs: '?task=1&step=lut' });
-    doc.getElementById('dst-go-lut').click();
-    await waitFor(() => P.stepDone().lut, 5000);
-    await sleep(60);
-    EQ(P.backSent(), true, '突變前置：確實送出去了');
+    const { P } = await loadReady({ src: mut, opener, qs: '?task=1&step=gray' });
+    P.__setRowsForTest([
+      { key: 'L0', group: 'gray', idx: 0, r12: 0, x: 0.25, y: 0.25, lv: 0 },
+      { key: 'L255', group: 'gray', idx: 255, r12: 4080, x: 0.31, y: 0.33, lv: 300 },
+      { key: 'R', group: 'prim', idx: 255, r12: 4080, x: 0.64, y: 0.33, lv: 60 },
+      { key: 'G', group: 'prim', idx: 255, r12: 4080, x: 0.30, y: 0.60, lv: 200 },
+      { key: 'B', group: 'prim', idx: 255, r12: 4080, x: 0.15, y: 0.06, lv: 25 }
+    ]);
+    CHECK(P.dgSend() === true, '突變前置：②③ 確實都送出去了');
+    await sleep(20);
+    EQ(P.backSent(), true, '突變前置：④ 已完成');
     EQ(P.backWarnIsSwitchTab(), false,
       '🔴 突變後送出去了畫面卻還在講「量完會自動回傳」（＝沒告訴他該切分頁了）⇒ 那一條會紅');
   }
@@ -748,7 +793,9 @@ function renderLang(w, lang) {
      不能是『我送了，不知道有沒有到』。」
      ⇒ 突變成「不管送沒送出去都打勾」⇒「沒有 opener ⇒ ④ 維持 ○」那幾條必須紅。 */
   {
-    const orig = "  if (bt) bt.textContent = dstBackSent ? '✔' : '○';";
+    /* 🔴 v1.13.0：錨點跟著 A 改了（`dstBackSent` 從變數變成推導函式，
+       這一行現在讀的是本地變數 `sent`）。突變目標與要釘的事情一件都沒變。 */
+    const orig = "  if (bt) bt.textContent = sent ? '✔' : '○';";
     CHECK(SELF_SRC.indexOf(orig) > 0, 'M5-c：找得到 ④ 那一列的打勾判定');
     const mut = SELF_SRC.replace(orig, "  if (bt) bt.textContent = '✔';");
     const { P } = await loadSelf({ src: mut, opener: null });
