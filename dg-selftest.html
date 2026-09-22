@@ -12,7 +12,7 @@
 <title>TCON 自檢畫面量測 — TCON FAE專用工具箱</title>
 <link rel="stylesheet" href="common/common.css?v=20260903help">
 <!-- 🔴 version.js 必須最先載入（common/version.js 開頭那條規則）。 -->
-<script src="common/version.js?v=20260922dst1160"></script>
+<script src="common/version.js?v=20260922dst1170"></script>
 <style>
   /* ═══ 本頁專屬樣式 ════════════════════════════════════════════════════════
      只寫這一頁真的需要、而 common.css 沒有的東西。顏色一律走 common.css 的
@@ -224,6 +224,18 @@
   /* 「目前這一步」＝ 從 DG 哪一個部分按進來的。只換顏色與粗細，不動位置。 */
   .dst-step.cur .dst-step-txt { color: var(--accent); font-weight: 700; }
   .dst-step-to { color: var(--text-sub); font-size: 13px; }
+  /* 🔴 v1.17.0（D）：這一步為什麼按不下去（已完成／前一步還沒做）。
+     用 `--warn` 而不是 `--text-sub`：它是「這顆鈕為什麼是灰的」的答案，
+     與旁邊那句「→ 回 DG 的第 N 部分」（純資訊）不該長得一樣。
+     🔴 沒有字的時候這個 span 是空的 ⇒ 不佔位、不留空白格。 */
+  .dst-step-why { color: var(--warn); font-size: 13px; }
+  .dst-step-why:not(:empty) { margin-left: 6px; }
+  /* 🔴 v1.17.0（D）：重做／跳過的收合區塊。刻意樸素 —— 它不該跟步驟鈕搶注意力，
+     但 summary 那一行仍然是可讀的正常字級（「不顯眼」不等於「看不清楚」）。 */
+  .dst-seq { margin-top: 10px; }
+  .dst-seq > summary { cursor: pointer; font-size: 13px; color: var(--text-sub); }
+  .dst-seq > summary:hover { color: var(--text); }
+  .dst-seq .dst-row { margin-top: 8px; }
 
   /* ═══ 🔴 v1.10.0：②③ 綁成同一組 ═══════════════════════════════════════════
      Bruce 2026-09-21：「第三部分『量 RGB 純色 Pattern』，這不要誤導成要另外量，
@@ -670,8 +682,13 @@
       <div class="dst-box">
         <div class="dst-step" id="dst-step-lut">
           <span class="dst-step-tick" id="dst-tick-lut">○</span>
+          <!-- 🔴 v1.17.0（D）：這一步被順序鎖住時的原因就寫在這裡（停用必須說得出
+               為什麼）。字由 dstRenderSteps() 填，**不掛 `data-i18n`** —— 掛了的話
+               common.js 切語言時會把它洗成固定那一句，而它有兩種內容（已完成／前一步
+               還沒做）也可能是空的。本頁在 applyLang 的時序上已經栽過兩次。 -->
           <span class="dst-step-txt"><span data-i18n="dst.stepLut">① 讀回目前的 RGB LUT</span>
-            <span class="dst-step-to" id="dst-to-lut"></span></span>
+            <span class="dst-step-to" id="dst-to-lut"></span>
+            <span class="dst-step-why" id="dst-why-lut"></span></span>
           <button class="dst-btn" id="dst-go-lut" data-i18n="dst.goLut">讀回並回傳</button>
           <!-- 沒有 opener 時的退路：TSV 進剪貼簿，格式與 DG 的「一鍵複製 RGB」相同 -->
           <button class="dst-btn dst-hidden" id="dst-copy-lut" data-i18n="dst.copyLut">複製到剪貼簿</button>
@@ -706,8 +723,10 @@
              · **停止** 留在原地（它是量測當下的動作，不是設定）。 -->
         <div class="dst-step" id="dst-step-gray">
           <span class="dst-step-tick" id="dst-tick-gray">○</span>
+          <!-- 🔴 v1.17.0（D）：同 ① 那一列，順序鎖住的原因寫在這裡。 -->
           <span class="dst-step-txt"><span data-i18n="dst.stepGray">② 量白灰階</span>
-            <span class="dst-step-to" id="dst-to-gray"></span></span>
+            <span class="dst-step-to" id="dst-to-gray"></span>
+            <span class="dst-step-why" id="dst-why-gray"></span></span>
           <!-- ═══ 🔴 v1.14.0：兩段式取消，這一顆**直接就是「開始量測」** ══════════
                ── 這不是 Bruce 改主意，是前提變了（務必連同底下這段一起讀）────────
                兩段式（第一段「對位畫面」→ 第二段「開始量測」）是 Bruce 2026-09-21
@@ -770,6 +789,25 @@
       </div>
       <!-- 🔴 停用時才有字，可按時一個字都不出現（本頁既有準則）。 -->
       <div class="dst-note" id="dst-steps-why"></div>
+      <!-- ═══ 🔴 v1.17.0（D）：重做／跳過某一步的退路 ═══════════════════════════════
+           Bruce 2026-09-22 要求步驟依序開放（做完的鎖住、還沒到的也鎖住），同時交辦
+           「某一步做完但結果不對、想重做怎麼辦？全鎖死就沒有出口」。
+           🔴 **放這裡的理由**：使用者發現按鈕是灰的、旁邊寫著「已完成」的那一刻，
+              視線就在這幾列上；退路擺在同一張卡、緊接在清單下面，不必去別的地方找。
+           🔴 **怎麼呈現**：原生 `<details>`，預設收合 ⇒ 平常畫面上只有一行小字，
+              不與步驟鈕搶注意力（Bruce：「不預設露出來、但找得到」）。
+              不自己寫開合是刻意的 —— 自己寫就會多一份「現在是開還是關」的狀態。
+           🔴 解除之後**藍色 highlight 一個字都不變**：它仍然指著照順序該做的那一步，
+              解除只是允許你按別的。兩者讀同一個 `dstCurGroupIdx()`。 -->
+      <details class="dst-seq" id="dst-seq-box">
+        <summary data-i18n="dst.seqMore">要重做或跳過某一步？</summary>
+        <div class="dst-note" data-i18n="dst.seqNote">步驟預設照 ①→②③→④ 的順序開放：做完的會鎖起來，還沒輪到的也按不下去。某一步的結果不對想重做，就在這裡解除限制。</div>
+        <div class="dst-row">
+          <button class="dst-btn" id="dst-seq-unlock" data-i18n="dst.seqUnlock">解除依序限制</button>
+        </div>
+        <!-- 字由 dstRenderSteps() 填（解除時才有字），所以不掛 data-i18n。 -->
+        <div class="dst-note" id="dst-seq-state"></div>
+      </details>
       <div class="dst-say" id="dst-say-steps"></div>
 
       <!-- ═══ 🔴 v1.10.0：進度條也放這裡一份 ═════════════════════════════════
@@ -953,8 +991,8 @@
   </div>
 </div>
 
-<script src="common/i18n.js?v=20260922dst1160"></script>
-<script src="common/common.js?v=20260922dst1160"></script>
+<script src="common/i18n.js?v=20260922dst1170"></script>
+<script src="common/common.js?v=20260922dst1170"></script>
 <script>
 /* ═════════════════════════════════════════════════════════════════════════
    TCON 自檢畫面量測 — dg-selftest.html
@@ -1266,9 +1304,58 @@ if (typeof I18N === 'object' && I18N) {
     'zh-CN': '初次量测 —— 已切到{dest}。下一步：按「{btn}」。'
   };
   I18N['dst.dgTaskConf'] = {
-    'zh-TW': '確認量測 —— 新的 RGB LUT 已經寫進 T-CON，請重新量一次白灰階與 RGB 純色。已切到{dest}。下一步：按「{btn}」。',
-    'en': 'Confirmation measurement — the new RGB LUT has been written into the T-CON, so measure the white gray scale and the RGB primaries again. Switched to {dest}. Next: press “{btn}”.',
-    'zh-CN': '确认量测 —— 新的 RGB LUT 已经写进 T-CON，请重新量一次白灰阶与 RGB 纯色。已切到{dest}。下一步：按「{btn}」。'
+    'zh-TW': '確認量測 —— 新的 RGB LUT 已經寫進 T-CON 並讀回核對相符，請重新量一次白灰階與 RGB 純色。已切到{dest}。下一步：按「{btn}」。',
+    'en': 'Confirmation measurement — the new RGB LUT has been written into the T-CON and read back to match, so measure the white gray scale and the RGB primaries again. Switched to {dest}. Next: press “{btn}”.',
+    'zh-CN': '确认量测 —— 新的 RGB LUT 已经写进 T-CON 并读回核对相符，请重新量一次白灰阶与 RGB 纯色。已切到{dest}。下一步：按「{btn}」。'
+  };
+  /* ═══ 🔴 v1.17.0：同樣是確認量測，但 LUT **不是** DG 寫進去的那一種 ════════════
+     電腦畫面那條路是使用者自己更新的：DG 沒有寫入、也沒有讀回核對，本頁更不知道
+     面板裡是哪一張表。⇒ 這一句**不宣稱任何關於 T-CON 內容的事**，改成提醒他自己確認。
+     🔴 分岔點是 `lutKnown`（＝「寫進去並讀回核對相符」那個事實），與 ① 能不能算已完成
+        綁在同一個判準上 —— 兩處不得各判各的。 */
+  I18N['dst.dgTaskConfSelf'] = {
+    'zh-TW': '確認量測 —— 這一次的 RGB LUT 不是由 DG 寫進去的，本頁無從得知 T-CON 裡現在是哪一張表。確認更新真的生效了，再重新量一次白灰階與 RGB 純色。已切到{dest}。下一步：按「{btn}」。',
+    'en': 'Confirmation measurement — this round’s RGB LUT was not written by DG, so this page cannot know which table the T-CON currently holds. Make sure your update really took effect, then measure the white gray scale and the RGB primaries again. Switched to {dest}. Next: press “{btn}”.',
+    'zh-CN': '确认量测 —— 这一次的 RGB LUT 不是由 DG 写进去的，本页无从得知 T-CON 里现在是哪一张表。确认更新真的生效了，再重新量一次白灰阶与 RGB 纯色。已切到{dest}。下一步：按「{btn}」。'
+  };
+  /* ═══ 🔴 v1.17.0（C）：① 是「沿用剛剛核對相符的那張表」，不是現讀的 ═══════════
+     🔴 這一句**必須講出它的來歷**：勾看起來與「剛剛按了讀回並回傳」一模一樣，
+        不講的話他會以為這一次真的去讀了 T-CON。 */
+  I18N['dst.lutCarry'] = {
+    'zh-TW': '① 沿用上一次更新後讀回、並逐筆核對相符的那張 RGB LUT（這一次沒有再讀一次 T-CON）。',
+    'en': 'Step ① reuses the RGB LUT that was read back and matched entry by entry after the last update (the T-CON was not read again this time).',
+    'zh-CN': '① 沿用上一次更新后读回、并逐笔核对相符的那张 RGB LUT（这一次没有再读一次 T-CON）。'
+  };
+  /* ═══ 🔴 v1.17.0（D）：依序開放的三句 ═════════════════════════════════════════
+     🔴 停用必須說得出為什麼（Bruce 明示：看不到原因的灰鈕就是死路）。
+     🔴 「前一步」不寫成「① 還沒做」之類的具體步驟名：順序是從畫面上那幾個框算出來的，
+        句子裡寫死步驟名會在框變動時變成假的。 */
+  I18N['dst.seqWhyDone'] = {
+    'zh-TW': '已完成', 'en': 'Done', 'zh-CN': '已完成'
+  };
+  I18N['dst.seqWhyEarlier'] = {
+    'zh-TW': '前一步還沒做', 'en': 'An earlier step is not done yet', 'zh-CN': '前一步还没做'
+  };
+  I18N['dst.seqMore'] = {
+    'zh-TW': '要重做或跳過某一步？',
+    'en': 'Need to redo or skip a step?',
+    'zh-CN': '要重做或跳过某一步？'
+  };
+  I18N['dst.seqNote'] = {
+    'zh-TW': '步驟預設照 ①→②③→④ 的順序開放：做完的會鎖起來，還沒輪到的也按不下去。某一步的結果不對想重做，就在這裡解除限制。',
+    'en': 'Steps unlock in order (①→②③→④): finished ones are locked, and ones whose turn has not come cannot be pressed. If a step turned out wrong and you want to redo it, lift the restriction here.',
+    'zh-CN': '步骤预设照 ①→②③→④ 的顺序开放：做完的会锁起来，还没轮到的也按不下去。某一步的结果不对想重做，就在这里解除限制。'
+  };
+  I18N['dst.seqUnlock'] = {
+    'zh-TW': '解除依序限制', 'en': 'Lift the step order restriction', 'zh-CN': '解除依序限制'
+  };
+  I18N['dst.seqRelock'] = {
+    'zh-TW': '恢復依序限制', 'en': 'Restore the step order restriction', 'zh-CN': '恢复依序限制'
+  };
+  I18N['dst.seqUnlocked'] = {
+    'zh-TW': '已解除：任何一步都按得下去。藍色標示的仍然是照順序現在該做的那一步。',
+    'en': 'Lifted: every step can be pressed. The blue highlight still marks the step that is next in order.',
+    'zh-CN': '已解除：任何一步都按得下去。蓝色标示的仍然是照顺序现在该做的那一步。'
   };
   I18N['dst.dgTaskPlain'] = {
     'zh-TW': '已切到{dest}。下一步：按「{btn}」。',
@@ -1591,7 +1678,11 @@ var dstDgRound = dstRoundOf(dstQs('round'));
        仍然按得下去、仍然會單獨指派 prim。這一點如實記在這裡，不當作已經消失。
 
    ── 採用的判準：**用途變了，或輪數變了** ──────────────────────────────────────
-     DG 從 v1.74.0 起多送一個 `job` 用途碼：第 1／2／3 部分同屬 `main`（蒐集這一輪
+     ⚠ 這裡原本寫「DG 從 **v1.74.0** 起多送一個 `job`」，**是寫錯的**（v1.17.0 更正）：
+       `job` 是 **dg v1.73.2** 加的（CHANGELOG「dgself v1.16.0 ＋ dg v1.73.2」那一條）。
+       v1.74.0 這個號碼在寫下那句時還不存在，現在它是另一件事（電腦畫面的自行更新層
+       ＋ `lutKnown`）—— 留著會讓下一個人去 v1.74.0 找 `job` 而找不到。
+     DG 從 v1.73.2 起多送一個 `job` 用途碼：第 1／2／3 部分同屬 `main`（蒐集這一輪
      的計算輸入），`conf`（第 4 部分確認）與 `slot`（光學資料比較）各自是另一份工作。
      本頁把 **`round` ＋ `job` 兩個欄位合起來**當作「這一份工作的身分」（`dstPassKey`）：
        第一輪 lut → gray → prim ：1/main → 1/main → 1/main  ⇒ 不清（① 的勾留著）✓
@@ -1618,6 +1709,41 @@ var dstDgJob = dstJobOf(dstQs('job'));
    鈕上印另一個名字」。做法是把鈕面原樣引號夾住，句子其餘部分走本頁的 i18n。
    收不到這個欄位（舊版 DG）時改用不提鈕名的那一句（`dst.dgConfNextNoBtn`）。 */
 var dstDgNextBtn = dstQs('nextBtn');
+
+/* ═══ 🔴 v1.17.0：第九個欄位 `lutKnown`（只走訊息，不走網址）═══════════════════════
+   Bruce 2026-09-22：「回到第二輪 TCON 自檢畫面，裡面的第一步『讀回目前 RGB LUT』
+   是不是就可以不用了？因為從 DG 跳到這邊之前就已經更新過 RGB，所以這 RGB 早就已經
+   知道是最新的，直接把它記錄下來就好。」
+
+   ── 這個旗標代表什麼、不代表什麼 ────────────────────────────────────────────
+     DG 送 true ＝「**DG 目前輸出的那一份表**，已經由這一頁寫進 T-CON 並逐筆讀回
+     核對相符」（DG 端比對的是表的指紋，表被重算或換深度就自動變 false）。
+     🔴 它**不是**「使用者按過更新鈕」。DG 那一端只有在本頁回報 `ok` 時才留指紋。
+
+   ── 🔴 本頁**不能只聽它**：兩半都要成立 ─────────────────────────────────────
+     DG 說「更新過了」是它那一端的事實，而「T-CON 裡現在是哪一張表」要由**本頁**的
+     寫入＋讀回核對來撐。所以本頁另外留一份 `dstLutVerified`（見它的宣告處），
+     只有「DG 說已知」**且**「本頁手上有核對相符的那張表」時，① 才算已完成。
+     ⇒ 電腦畫面那條路（使用者自己更新的）：DG 永遠送 false，而本頁也不會有那份紀錄
+       —— **兩道各自獨立地擋住它**，① 照樣要讀。
+     ⇒ 更新失敗／核對不符：`dstLutVerified` 被清成 null（見 `dstDgOnLutWrite`），
+       DG 那邊也不留指紋 —— 同樣兩道都擋。
+   🔴 這正是 `feedback_requirement_fidelity` 講的「代理指標」那一族：**「我送出去了」
+      不等於「面板裡就是這張」**。唯一能撐起「已完成」的事實是**讀回核對相符**，
+      所以判準綁在那個事實上，不綁在「按過更新鈕」。
+   🔴 **網址那條路刻意不帶它**（與 `round`／`job` 的理由不同，不是逐字相同）：
+      剛開出來的分頁不可能有 `dstLutVerified`（那是記憶體狀態），帶過去只會被忽略。
+      一個結構上只能被忽略的參數會讓下一個人以為它有作用。 */
+var dstDgLutKnown = false;
+
+/* 🔴 本頁手上「寫進去並且逐筆讀回核對相符」的那一張表。
+   ── 為什麼存的是 `dstLut`（讀回來的那一份）而不是 DG 送來的 rows ──────────────
+     `dstWriteDgLut()` 的第 ④ 步就是「立刻讀回核對」，走的是 `dstReadDgLut()`，
+     所以它回 ok 的那一刻，`dstLut` **就是從 T-CON 讀回來、而且逐筆與送出的值相符**
+     的那張表。存讀回來的那一份，等於「① 讀回目前的 RGB LUT」真的做過了一次。
+   🔴 **只有 `ok` 才留，其餘一律清成 null**：寫到一半、核對不符、匯流排失敗之後，
+      T-CON 裡是什麼我們不知道 —— 不知道就不能留著當證據。 */
+var dstLutVerified = null;
 
 /* 這一份工作的身分。🔴 兩半都拿得到才算數 —— 只知道一半就不能宣稱知道是哪一份。 */
 function dstPassKeyOf(round, job) {
@@ -5273,7 +5399,13 @@ var DST_STEP_PART = { lut: '第 1 部分', gray: '第 2 部分', prim: '第 3 �
 
 /* 清單為什麼整組停用。可按 ⇒ 回傳 null（一個字都不顯示）。
    🔴 順序＝「先發生的先講」，與 dstRunWhyKey() 同一個準則，不另立第二套。
-   🔴 **沒有「前一步沒做」這種條件** —— 三步彼此獨立（Bruce 明示）。 */
+   ═══ 🔴 v1.17.0 更正上面原本的第三行 ════════════════════════════════════════════
+   原文是「**沒有「前一步沒做」這種條件** —— 三步彼此獨立（Bruce 明示）」（v1.8.0）。
+   **那一條已被 Bruce 2026-09-22 的裁示推翻**：「第一個步驟做完以後，除了打勾之外，
+   還要把按鈕灰化、變成不能再按……還沒到的步驟也同樣不開放使用者去按對應的按鈕。」
+   ⇒ 依序的判斷**不放進這一支**（這一支管的是「整組」為什麼停用：正在量、沒連上、
+     認不出 IC），而是放在 `dstRenderSteps()` 裡逐步算（`dstSeqWhyKey()`）——
+     因為它的答案每一步不同，塞進整組那一行就指不出是哪一步。 */
 function dstStepsWhyKey() {
   if (dstRunning) return 'dst.stepsWhyRun';
   if (!dstLinked) return 'dst.stepsWhyLink';
@@ -5338,6 +5470,18 @@ function dstCurGroupIdx() {
   return -1;
 }
 
+/* ═══ 🔴 v1.17.0（D）：依序開放 —— 「已解除」這個例外的唯一狀態 ═══════════════════
+   Bruce 2026-09-22：「第一個步驟做完以後，除了打勾之外，還要把按鈕灰化、變成不能再按
+   ……另外，還沒到的步驟也同樣不開放使用者去按對應的按鈕。」
+   🔴 這一條**推翻了 `dstStepsWhyKey()` 上方那句「三步彼此獨立（Bruce 明示）」**（v1.8.0
+      寫的）。同一個人、後來的裁示，以新的為準 —— 舊那一句已就地更正，沒有留著兩套。
+   🔴 但全鎖死就沒有出口：某一步做完卻發現結果不對、想重做怎麼辦？
+      ⇒ 這個旗標就是那條退路（`feedback_guard_must_leave_a_way_out`）。它**預設關著**、
+        收在一個收合區塊裡（不預設露出來），但一定找得到。
+      ⇒ 解除之後**藍色 highlight 不變**：藍色仍然指著「照順序現在該做的那一步」，
+        解除只是允許你按別的。兩者讀同一個 `dstCurGroupIdx()`，不會各算各的。 */
+var dstSeqUnlock = false;
+
 function dstRenderSteps() {
   var card = $('dst-steps-card');
   if (!card) return;
@@ -5346,9 +5490,37 @@ function dstRenderSteps() {
   /* 🔴 v1.13.0：藍色一次算完、一次貼完（含 ④ 那一列）—— 不再由各段各自 toggle，
      那正是舊版 ②（黏著不走）與 ④（送過任何一步就亮）各講各的的原因。 */
   var curIdx = alive ? dstCurGroupIdx() : -1;
-  dstStepGroups().forEach(function (rows, gi) {
+  var groups = dstStepGroups();
+  groups.forEach(function (rows, gi) {
     rows.forEach(function (r) { r.el.classList.toggle('cur', gi === curIdx); });
   });
+  /* ═══ 🔴 v1.17.0（D）：哪一步可按 ═══════════════════════════════════════════════
+     🔴 **與藍色 highlight 同一個事實來源**（上面那個 `curIdx`）：Bruce 明示不要出現
+        「藍色在這一步、可按的是另一步」。所以這裡不另算一次順序，直接用它。
+     🔴 **判準不列舉步驟名**（列舉必漏）：順序來自畫面上框在一起的那幾個框
+        （`dstStepGroups()`），日後多一個步驟框會自動排進去。
+     🔴 **閘在「組」而不是「單一步驟」**：②③ 共用一顆鈕，而 ② 打勾、③ 沒打勾是真的
+        會發生的（純色沒湊齊三筆時 `dstDgSend()` 不打 ③）。閘在單一步驟的話，那顆
+        共用鈕會因為 ② 已完成而鎖死，③ 就再也補不起來 —— 那是自己做出來的死路。
+     🔴 **只在「從 DG 開過來」時生效**（`alive`）：直接開這一頁（首頁／書籤）時 ④ 永遠
+        不會完成，而且根本沒有 DG 的流程可言 —— 那時鎖住只是讓人按不動，與藍色
+        highlight 在同一個條件下不標色是同一個理由。 */
+  var seqOn = alive && !dstSeqUnlock;
+  var seqGroupOf = {};
+  groups.forEach(function (rows, gi) {
+    rows.forEach(function (r) { seqGroupOf[r.key] = gi; });
+  });
+  /* 這一步為什麼被鎖住（null ＝ 沒被順序鎖住）。
+     🔴 停用**必須說得出為什麼** —— 看不到原因的灰鈕就是死路（Bruce 明示）。 */
+  function dstSeqWhyKey(k) {
+    if (!seqOn) return null;
+    var gi = seqGroupOf[k];
+    if (gi == null) return null;
+    if (curIdx < 0) return 'dst.seqWhyDone';      // 全部做完 ⇒ 這一步當然也做完了
+    if (gi < curIdx) return 'dst.seqWhyDone';
+    if (gi > curIdx) return 'dst.seqWhyEarlier';
+    return null;                                   // 就是現在該做的這一組
+  }
   DST_STEPS.forEach(function (k) {
     var row = $('dst-step-' + k);
     if (!row) return;
@@ -5361,12 +5533,35 @@ function dstRenderSteps() {
     /* 🔴 v1.10.0：③ 那一列**沒有**自己的動作鈕（$() 回 null ⇒ 這裡什麼都不做）
        —— 它與 ② 共用那一顆，多一顆會讓人以為純色要再量一次。 */
     var go = $('dst-go-' + k);
+    /* 🔴 v1.17.0（D）：這一步被順序鎖住的原因，寫在**那一列自己旁邊**（不是清單底下
+       那一行 `#dst-steps-why`）—— 底下那一行講的是「整組為什麼停用」，而順序是
+       逐步不同的，混在一起就指不出是哪一步。
+       🔴 ③ 沒有自己的鈕，也就不會被順序鎖住 ⇒ 它那一格永遠是空的（`seqGroupOf` 有
+          它，但下面只在有鈕時才寫字）。 */
+    var seqKey = go ? dstSeqWhyKey(k) : null;
+    var wy = $('dst-why-' + k);
+    if (wy) wy.textContent = seqKey ? dstT(seqKey) : '';
     if (go) {
       /* ① 那一步多一道條件：這顆 IC 要有 DG LUT 的讀取規格
          （與「讀取 DG LUT」那顆鈕逐字相同的判準，不放寬）。 */
-      go.disabled = !!why || (k === 'lut' && !(dstIc && dstIc.dgLut)) || dstBusy || dstLutBusy;
+      go.disabled = !!why || !!seqKey || (k === 'lut' && !(dstIc && dstIc.dgLut)) || dstBusy || dstLutBusy;
+      /* 滑過去也看得到同一句（鍵盤使用者靠上面那一行，滑鼠使用者靠這裡）。 */
+      go.title = seqKey ? dstT(seqKey) : '';
     }
   });
+  /* ═══ 🔴 v1.17.0（D）：重做／跳過的退路 ═══════════════════════════════════════
+     🔴 收在 `<details>` 裡 ＝ **預設不露出來**（`<summary>` 那一行是收合的），但它
+        固定長在步驟清單正下方 ⇒ 一定找得到。用原生 `<details>` 不自己寫開合：
+        鍵盤、螢幕閱讀器、列印都自動對，而且沒有第二份「現在是開還是關」的狀態。
+     🔴 **整塊只在從 DG 開過來時出現**：沒有 opener 時依序限制本來就沒生效
+        （`seqOn` 為 false），擺一顆「解除限制」在那裡是在解除一個不存在的東西。
+     🔴 鈕面字**等於它按下去會發生的事**（本專案既有紀律），所以兩種狀態兩句話。 */
+  var sbox = $('dst-seq-box');
+  if (sbox) sbox.classList.toggle('dst-hidden', !alive);
+  var sbtn = $('dst-seq-unlock');
+  if (sbtn) sbtn.textContent = dstT(dstSeqUnlock ? 'dst.seqRelock' : 'dst.seqUnlock');
+  var snote = $('dst-seq-state');
+  if (snote) snote.textContent = dstSeqUnlock ? dstT('dst.seqUnlocked') : '';
   /* ═══ 🔴 v1.14.0：②③ 共用那一顆鈕**只有一種字面**：開始量測 ══════════════════
      兩段式（對位畫面 → 開始量測）取消，理由寫在 `#dst-go-gray` 上方那一整段。
      🔴 `.pri` 恆為真：它永遠是「這是現在該按的」那一顆（HTML class 上也有一份，
@@ -5720,6 +5915,14 @@ function dstCopyLut() {
    沒清什麼）逐字相同，因為被清的東西本來就是同一組。 */
 function dstClearRound(n, roundChanged) {
   dstStepDone = { lut: false, gray: false, prim: false };
+  /* 🔴 v1.17.0（D）：依序限制的解除是**這一份工作**的例外，不跟著跨到下一份。
+     換了工作還留著解除狀態，下一份一開始四顆鈕就全開 —— 那等於這條規則沒生效過。 */
+  dstSeqUnlock = false;
+  /* 🔴 v1.17.0（C）：`dstLutVerified` **刻意不在這裡清**。
+     它記的不是「這一輪做了什麼」，而是「T-CON 裡現在是哪一張表」—— 那是面板的現況，
+     不隨 DG 換一份工作而改變。它的清除點只有一個：下一次寫入沒有核對相符
+     （見 `dstDgOnLutWrite`）。在這裡順手清掉的話，C 條那個「② 之前不必再讀一次 ①」
+     永遠不會成立，因為換工作與清空本來就是同一時刻發生的。 */
   dstRows = [];
   dstRunOk = false;
   dstVoid('');
@@ -5750,10 +5953,68 @@ function dstClearRound(n, roundChanged) {
       鈕面的字是那一支填的，反過來寫會讀到上一次的字。
    🔴 ③（prim）那一列**沒有自己的鈕**（②③ 共用一顆），所以退路是 `#dst-go-gray`；
       再退一層才是 i18n 的預設值（DOM 被改壞時不要整句消失）。 */
+/* ═══ 🔴 v1.17.0（D）：改成指**現在真的按得下去**的那一顆 ═══════════════════════
+   v1.16.0 這一支讀的是 `dst-go-<dstDgStep>` ＝ **DG 指派的那一步**。加上依序開放之後
+   那會說謊：DG 指派 conf（step='gray'）而 ① 還沒做時，句子會寫「下一步：按『開始量
+   測』」，而那顆鈕**是灰的**。
+   ⇒ 改成讀「現在該做的那一組」（`dstCurGroupIdx()`）裡的那顆鈕 —— 與藍色 highlight、
+     與「哪一顆可按」**同一個事實來源**，三者不可能各講各的。
+   🔴 那一組裡不見得每一列都有鈕（③ 與 ② 共用一顆），所以是「該組第一顆找得到的」。
+   🔴 全部做完（`curIdx < 0`）或那一組沒有鈕時，退回 DG 指派的那一步、再退回
+     `#dst-go-gray`、最後退回 i18n 預設值 —— 每一層退路都留著，句子不會整句消失。 */
 function dstCurGoText() {
-  var b = $('dst-go-' + dstDgStep) || $('dst-go-gray');
+  var b = null;
+  var gs = dstStepGroups(), ci = dstCurGroupIdx();
+  if (ci >= 0 && gs[ci]) {
+    gs[ci].forEach(function (r) { if (!b) b = $('dst-go-' + r.key); });
+  }
+  b = b || $('dst-go-' + dstDgStep) || $('dst-go-gray');
   var t = b && b.textContent ? String(b.textContent).trim() : '';
   return t || dstT('dst.goMeasure');
+}
+
+/* ═══ 🔴 v1.17.0（C）：把「已經核對相符的那張表」當成這一份工作的 ① ═══════════════
+   Bruce 2026-09-22：「從 DG 跳到這邊之前就已經更新過 RGB，所以這 RGB 早就已經知道是
+   最新的，直接把它記錄下來就好。也就是第一步其實是已經做完的。」
+
+   ── 🔴 沒有新增「把 ① 標成完成」的第二個寫入點 ──────────────────────────────────
+     本支做的是**真的把那張表送回 DG 的第 1 部分**（走既有的 `dstDgSendLut()`），
+     `dstStepDone.lut` 仍然只在那一支裡、緊貼 `postMessage` 沒丟例外之後被設 true。
+     ⇒ 「打勾 ＝ 東西真的到 DG 那邊了」這條保證原封不動（v1.13.0 建立的結構）。
+        直接寫 `dstStepDone.lut = true` 的話，勾會在 DG 的第 1 部分其實是空的時候亮起來
+        —— 那就是把「我知道」冒充成「他收到了」。
+   ── 要同時成立的四個條件（缺一不做）──────────────────────────────────────────
+     ① DG 說這一份表已知（`lutKnown`）—— 它那一端的指紋還對得上；
+     ② 本頁手上有**核對相符**的那張表（`dstLutVerified`）—— 面板現況的證據在這裡；
+     ③ ① 這一步還沒打勾（已經做過就不要再送一次）；
+     ④ 🔴 **DG 這一次指派的不是第 1 部分**：他按「第 1 部分 → 從 T-CON 讀回」就是
+        要一份**現讀的**表，這時候拿舊的頂上去等於不做他要的事。
+   🔴 條件裡**沒有列舉 job 用途碼**：判準是上面那四個事實，不是「哪一種工作」。
+      列舉 job 的話，日後 DG 多一個用途碼就會漏掉（本檔已有多次列舉漏一筆的前例）。 */
+function dstLutCarry() {
+  if (!dstDgLutKnown || !dstLutVerified) return false;
+  if (dstStepDone.lut) return false;
+  if (dstDgStep === 'lut') return false;
+  if (!dstDgAlive()) return false;
+  /* 「記錄下來」＝ 把那張表放回「DG LUT（RGB）檢視」那張卡。它讀的就是 `dstLut`，
+     而這張表正是上一次從 T-CON 讀回來、逐筆核對相符的那一份 ⇒ 卡名「目前的」為真。 */
+  dstLut = dstLutVerified;
+  dstLutErr = null;
+  dstRenderLut();
+  /* 🔴 `dstClearRound()` 剛寫進 `dst-say-steps` 的那一句（清了什麼）要保住：
+     `dstDgSendLut()` 會覆寫同一行。先接住、送完再把三段接回去。
+     🔴 用空白接不用 `\n`：`.dst-say` 沒有 `white-space: pre-wrap`（v1.16.0 已踩過）。 */
+  var e = $('dst-say-steps');
+  var prev = e ? String(e.textContent || '').trim() : '';
+  if (!dstDgSendLut()) {
+    /* 送失敗（筆數不足／對面不在）⇒ **什麼都不宣稱**，① 照樣是空心圈，
+       使用者按「讀回並回傳」重來一次即可。失敗原因由 `dstDgSendLut()` 自己寫。 */
+    return false;
+  }
+  var sent = e ? String(e.textContent || '').trim() : '';
+  dstSay('dst-say-steps', (prev ? prev + ' ' : '') + dstT('dst.lutCarry') + (sent ? ' ' + sent : ''));
+  dstLog('== step ① carried over from the verified LUT write (no re-read)', 'o');
+  return true;
 }
 
 /* ═══ 🔴 v1.16.0：「這一次 DG 要你做什麼」——**一句講完** ═════════════════════════
@@ -5770,7 +6031,14 @@ function dstCurGoText() {
       （四份句子分開維護，遲早有一份漏改）。 */
 function dstDgTaskText() {
   var v = { dest: dstDgDest || 'DG', btn: dstCurGoText() };
-  var body = (dstDgJob === 'conf') ? dstT('dst.dgTaskConf', v)
+  /* ═══ 🔴 v1.17.0：確認量測那一句**不可以無條件宣稱表已經寫進去了** ══════════════
+     v1.16.0 的 `dst.dgTaskConf` 寫死「新的 RGB LUT 已經寫進 T-CON」。加上電腦畫面那
+     條路（dg v1.74.0 的 `pcupd`）之後那句話會說謊：那條路是**使用者自己更新的**，
+     DG 沒有寫入、也沒有讀回核對，本頁更不知道。
+     ⇒ 分成兩句，分岔點就是 `lutKnown`（＝「寫進去並讀回核對相符」那個事實本身），
+       與 ① 能不能算已完成**綁在同一個判準上**，不另立第二套。 */
+  var body = (dstDgJob === 'conf')
+      ? dstT(dstDgLutKnown ? 'dst.dgTaskConf' : 'dst.dgTaskConfSelf', v)
     : (dstDgJob === 'main') ? dstT('dst.dgTaskFirst', v)
     : dstT('dst.dgTaskPlain', v);
   return (dstDgRound !== null ? dstT('dst.dgRoundTag', { n: dstDgRound }) : '') + body;
@@ -5814,7 +6082,15 @@ function dstDgApplyTask(d) {
   /* v1.8.0：換任務也要換「目前這一步」。🔴 `d.step` 缺席時退回 `d.mode`
      （舊版 DG 不帶這個欄位）—— 與網址那條路同一支 dstDgStepOf()，不是第二套。 */
   dstDgStep = dstDgStepOf(d.step, dstDgMode);
+  /* 🔴 v1.17.0（C）：**每一則指派都重設**（收不到就是 false）。留到下一份工作的話，
+     DG 重算過表、指紋早就對不上了，本頁卻還以為「已知」—— 那是最典型的假綠燈。
+     舊版 DG 不送這個欄位 ⇒ 永遠 false ⇒ 行為與 v1.16.0 逐字相同。 */
+  dstDgLutKnown = (d.lutKnown === true);
   dstRenderSteps();
+  /* 🔴 順序：`dstLutCarry()` 要在 `dstRenderSteps()` **之後**（它自己會再 render 一次），
+     而且要在下面那一行寫狀態列**之前** —— `dstDgTaskText()` 讀的是「現在該做哪一步」，
+     ① 剛被補完，那一句必須是補完之後的結果。 */
+  dstLutCarry();
   dstRenderDgBits();     // v1.2.0：換任務之後 gray/prim 可能變了，警語要跟著重算
   dstSayInfo('dst-say-run', dstDgTaskText());
   dstLog('== DG task ' + dstDgTask + ': mode=' + dstDgMode + ' step=' + dstDgStep
@@ -5863,6 +6139,13 @@ async function dstDgOnLutWrite(d) {
   var res = await dstWriteDgLut(d, function (stage, done, total) {
     post({ type: 'dg-lut-write-progress', stage: stage, done: done, total: total });
   });
+  /* ═══ 🔴 v1.17.0（C）：這一次的結果就是「① 可不可以算已完成」的唯一本地證據 ══════
+     🔴 `res.ok` ＝ 寫進去 **且** 立刻讀回來逐筆核對相符（`dstWriteDgLut()` 的第 ④ 步）。
+        那一刻 `dstLut` 就是從 T-CON 讀回來、而且與送出的值相符的那張表。
+     🔴 **失敗一律清成 null**（含寫到一半、核對不符、匯流排失敗）：T-CON 裡是什麼
+        我們不知道，不知道就不能留著當證據。這一行寫在這裡、緊貼結果，不另找地方清
+        —— 另找地方就會有「漏清一條路」的那一天。 */
+  dstLutVerified = res.ok ? dstLut : null;
   var text = res.ok ? dstT('dst.lwOk', { n: res.n }) : dstT(res.whyKey, res.vars || {});
   dstSay('dst-say-steps', text);
   post({ type: 'dg-lut-write-result', ok: !!res.ok, stage: res.stage,
@@ -5954,6 +6237,18 @@ function dstBind() {
         一個綁在不存在元素上的監聽（`$()` 回 null 會當場丟例外，整支 dstBind 斷掉）。 */
   $('dst-go-gray').addEventListener('click', function () { dstStepGrayGo(); });
   $('dst-copy-lut').addEventListener('click', dstCopyLut);
+  /* 🔴 v1.17.0（D）：解除／恢復依序限制。這一顆**只切一個旗標再重畫**，不碰任何勾、
+     不碰任何量測狀態 —— 它改的是「能不能按」，不是「做過沒有」。
+     🔴 `$()` 回 null 時不綁（這一顆長在 `<details>` 裡，DOM 被改壞時不該讓整支
+        `dstBind()` 斷掉，那會連前面幾十顆鈕一起失效）。 */
+  (function () {
+    var b = $('dst-seq-unlock');
+    if (!b) return;
+    b.addEventListener('click', function () {
+      dstSeqUnlock = !dstSeqUnlock;
+      dstRenderSteps();
+    });
+  })();
 
   /* ═══ 🔴 v1.8.1：左上角的返回出口 ═══════════════════════════════════════
      有 opener ⇒ 攔掉導覽，改成把**既有那個 DG 視窗**叫到前面。
@@ -6336,10 +6631,48 @@ window.dstProbe = {
     var row = $('dst-step-' + k), go = $('dst-go-' + k), to = $('dst-to-' + k),
         tick = $('dst-tick-' + k);
     if (!row) return null;
+    /* 🔴 v1.17.0（D）：多回一個 `why` ＝ 那一列旁邊寫的停用原因。
+       「鈕是灰的」與「講不講得出為什麼」是兩件事，要分得開才驗得出第二件。 */
+    var wy = $('dst-why-' + k);
     return { done: row.classList.contains('done'), cur: row.classList.contains('cur'),
              tick: tick ? tick.textContent : null,
              to: to ? to.textContent : null,
+             why: wy ? wy.textContent : null,
              disabled: go ? !!go.disabled : null };
+  },
+  /* 🔴 v1.17.0（D）：依序限制的現況（唯讀）＋ 產品那顆鈕的薄包裝。
+     **沒有**「直接把 dstSeqUnlock 設成 true」的寫入口：要解除就得走那顆鈕，
+     驗到的才算是使用者真的做得到的事。 */
+  seqState: function () {
+    var b = $('dst-seq-unlock'), box = $('dst-seq-box'), st = $('dst-seq-state');
+    return { unlocked: dstSeqUnlock, curGroup: dstCurGroupIdx(),
+             btn: b ? b.textContent : null,
+             hidden: !!(box && box.classList.contains('dst-hidden')),
+             state: st ? st.textContent : null };
+  },
+  seqToggle: function () { var b = $('dst-seq-unlock'); if (b) b.click(); },
+  /* ═══ 🔴 v1.17.0（C）：「上一次寫入有沒有核對相符」的唯讀狀態 ═══════════════════ */
+  lutVerified: function () { return !!dstLutVerified; },
+  /* ═══ 🔴 v1.17.0（C）：**硬體替身**，與 `__attachFakeWs`／`__attachFakeMeter` 同一類
+     ───────────────────────────────────────────────────────────────────────────
+     `dstLutVerified` 記的是「上一次寫進 T-CON 的表，已經讀回來逐筆核對相符」——
+     那是**面板告訴我們的事**。沒有面板與 I2C 治具的機器上做不出那一次，所以這裡
+     提供一個替身，讓「核對相符之後畫面會變成什麼樣子」看得到。
+     🔴 **它不是把 ① 標成完成的捷徑**：① 的勾仍然只能由 `dstDgSendLut()` 裡那一行
+        （緊貼 `postMessage` 沒丟例外之後）產生。這個替身只是替代「面板回話」那一段，
+        後面該走的產品路徑一步都沒有少 —— 這正是 `__attachFakeWs` 的同一個分界。
+     🔴 產品路徑上**唯一**寫 `dstLutVerified` 的地方仍然只有 `dstDgOnLutWrite()`，
+        而且失敗一律寫 null。這一支不在那條路上，不會被使用者走到。 */
+  __setLutVerifiedForTest: function (entries, depth) {
+    var n = entries || 257, d = depth || 12, k = Math.pow(2, d - 8);
+    var a = [], i;
+    for (i = 0; i < n; i++) a.push(i === n - 1 ? Math.pow(2, d) - 1 : i * k);
+    dstLutVerified = {
+      icKey: dstIc ? dstIc.key : '?', cfg: dstIc ? dstIc.dgLut : null,
+      mask: Math.pow(2, d) - 1, depth: d, entries: n, entryBits: 8, mode: null,
+      rgb: { r: a.slice(), g: a.slice(), b: a.slice() }, nBytes: n * 6, bus: null
+    };
+    return true;
   },
   /* ═══ v1.10.0：外接硬體那三列（唯讀）════════════════════════════════════
      🔴 這裡**沒有**「直接把某一樣標成通了」的寫入口 —— 圈圈只能由真的連上
