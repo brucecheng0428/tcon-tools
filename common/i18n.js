@@ -2684,8 +2684,12 @@ var I18N = {
                           'en': 'Press once for the alignment picture, press again to go back.',
                           'zh-CN': '按一次出对位画面，再按一次回到原本的画面。' },
   /* 🔴 `dst.btnRun`（「開始掃描」）於 dgself v1.10.1 移除：那顆鈕依 Bruce 2026-09-21
-     裁示整顆拿掉，量測只留步驟卡那一個兩段式入口（「對位畫面」→「開始量測」，
-     走 dst.goAlign／dst.goMeasure）。留著一個沒有任何頁面會用的 key 就是死碼。 */
+     裁示整顆拿掉，量測只留步驟卡那一個入口。留著一個沒有任何頁面會用的 key 就是死碼。
+     🔴 dgself v1.14.0：那個入口原本是**兩段式**（「對位畫面」→「開始量測」，走
+     dst.goAlign／dst.goMeasure）。v1.13.0 把「畫面測試」卡搬到步驟卡正上方之後，
+     第一段變成同一件事的第二顆鈕 ⇒ Bruce 2026-09-22 裁示直接開始量，`dst.goAlign`
+     與 `dst.goRealign` 一併刪除（那兩個 key 住在 dg-selftest.html 的內嵌 I18N）。
+     🔴 對位畫面本身沒有消失：它在「畫面測試」卡，走下面的 dst.btnAlign／dst.btnAlignOn。 */
   'dst.btnStop':        { 'zh-TW': '■ 停止', 'en': '■ Stop', 'zh-CN': '■ 停止' },
   /* 🔴 dgself v1.3.0：`dst.btnCsv` 已刪除（匯出 CSV 整顆移除，原廠 UI 只匯 XLSX）。 */
   'dst.btnCopyLog':     { 'zh-TW': '複製紀錄', 'en': 'Copy log', 'zh-CN': '复制纪录' },
@@ -2932,8 +2936,11 @@ var I18N = {
   /* 🔴 dgself v1.3.0：「離開出圖模式」那顆鈕已移除 ⇒ 這一行改指現在真的做得到的
      兩條路。按一次「對位畫面」會出對位圖（此時它變成開啟中），再按一次就離開。 */
   /* 🔴 v1.13.0：兩件事 —— ①（F）「它亮起來之後再按一次就會…」是旁白式口語
-     ②「開始掃描」那顆鈕 **v1.10.1 起已經不存在**（現在是兩段式的「對位畫面／開始量測」），
-        指向一顆不存在的鈕比講得囉嗦更糟。改成指「畫面測試」卡那一顆真的會 toggle 回去的鈕。 */
+     ②「開始掃描」那顆鈕 **v1.10.1 起已經不存在**（當時是兩段式的「對位畫面／開始量測」），
+        指向一顆不存在的鈕比講得囉嗦更糟。改成指「畫面測試」卡那一顆真的會 toggle 回去的鈕。
+     🔴 dgself v1.14.0：兩段式取消，步驟卡那顆鈕**恆為「開始量測」** ⇒ 這一句裡的
+        兩個指路**逐字仍然正確**（「畫面測試」卡的「對位畫面」還在；「開始量測」現在
+        永遠叫這個名字，不再有叫「對位畫面」的那一段）⇒ 三語一個字都沒動。 */
   'dst.abortedAt':      { 'zh-TW': '已停止。TCON 現在{what}。要回到正常畫面：到「畫面測試」卡按「對位畫面」，再按一次即回到原本畫面；按「開始量測」也會先送出離開出圖模式的序列。',
                           'en': 'Stopped. The TCON is now: {what}. To return to the normal image: in the “Picture test” card press “Alignment picture”, then press it again to go back. Pressing “Start measuring” also sends the leave-pattern-mode sequence first.',
                           'zh-CN': '已停止。TCON 现在{what}。要回到正常画面：到「画面测试」卡按「对位画面」，再按一次即回到原本画面；按「开始量测」也会先送出离开出图模式的序列。' },
@@ -2984,7 +2991,12 @@ var I18N = {
   'dst.dgTooFew':       { 'zh-TW': '只量到 {n} 筆（需要 {need} 筆），沒有回傳給 DG。',
                           'en': 'Only {n} rows measured ({need} needed) — nothing was sent back to DG.',
                           'zh-CN': '只量到 {n} 笔（需要 {need} 笔），没有回传给 DG。' },
-  'dst.dgSwitched':     { 'zh-TW': '已切到{dest}。按「開始掃描」量這一次。', 'en': 'Switched to {dest}. Press “Start scan” for this round.', 'zh-CN': '已切到{dest}。按「开始扫描」量这一次。' },
+  /* 🔴 dgself v1.14.0：這一句原本寫「按『開始掃描』」—— 那顆鈕 **v1.10.1 起已經不
+     存在**（依 Bruce 2026-09-21 裁示整顆移除），這一句從那時起就在指一顆找不到的鈕，
+     九個版本沒有任何測試會紅。v1.14.0 掃兩段式文案時撞到，一併更正成那顆鈕**現在
+     真的寫的字**（「開始量測」＝ dst.goMeasure，三語逐字相同）。
+     🔴 指路要指得到：這正是本輪 H 條「文案與行為不一致就是在騙人」的同一條準則。 */
+  'dst.dgSwitched':     { 'zh-TW': '已切到{dest}。按「開始量測」量這一次。', 'en': 'Switched to {dest}. Press “Start measuring” for this round.', 'zh-CN': '已切到{dest}。按「开始量测」量这一次。' },
   'dst.dlBtn':          { 'zh-TW': '下載 I2C Bridge', 'en': 'Download I2C Bridge', 'zh-CN': '下载 I2C Bridge' },
   /* 🔴 dgself v1.12.0：砍成一句。 */
   'dst.dlShared':       { 'zh-TW': '與「I2C 讀寫測試」那一頁是<b>同一支程式</b>，載過就直接執行。',

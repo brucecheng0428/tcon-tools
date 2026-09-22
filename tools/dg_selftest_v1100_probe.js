@@ -306,52 +306,34 @@ async function loadReady(opts) {
   }
 
   /* ═══════════════════════════════════════════════════════════════════════
-     ③ ②③ 那顆鈕是兩段式，而且退得回對位
-     ═══════════════════════════════════════════════════════════════════════ */
-  H('③ ②③ 那顆鈕：兩段式 ＋ 退得回對位');
+     ③ ②③ 那顆鈕：**按下去就開始量**
+     ═══════════════════════════════════════════════════════════════════════
+     🔴 v1.14.0 改寫。原本這一組驗的是**兩段式**（第一段「對位畫面」→ 第二段
+        「開始量測」）＋「重新對位」。那個設計是 Bruce 2026-09-21 指定的，前提是
+        **當時「畫面測試」卡排在步驟卡下面**；v1.13.0（G）把它搬到步驟卡正上方之後，
+        第一段變成同一件事的第二顆鈕 ⇒ Bruce 2026-09-22 裁示直接開始量。
+     🔴 斷言**只收緊不放寬**：原本驗「第一次按不會量」的那幾條，現在反過來釘成
+        「第一次按就一定會量」；原本驗「重新對位在第二段才出現」，現在釘成
+        「那顆鈕整個不存在」。對位畫面本身另有一組（`#dst-align`）在別處驗。 */
+  H('③ ②③ 那顆鈕：按下去就開始量（v1.14.0 起沒有第一段）');
   {
     const { P, ws, doc } = await loadReady({ settle: 300, opener: fakeWin() });
-    /* 第一段的長相 */
-    EQ(P.grayArmed(), false, '一進來是第一段');
-    EQ(P.goGrayText(), '對位畫面', '🔴 第一段：鈕上寫「對位畫面」');
-    EQ(P.goGrayIsPri(), false, '第一段不是強調色（沿用 v1.4.0 對位鈕的判準）');
-    EQ(P.realignHidden(), true, '🔴 第一段：「重新對位」不顯示（主鈕自己就是對位畫面）');
+    /* 長相：只有一種 */
+    EQ(P.goGrayText(), '開始量測', '🔴 鈕上寫的就是「開始量測」（沒有「對位畫面」那一段）');
+    EQ(P.goGrayIsPri(), true, '🔴 它恆為強調色（這永遠是現在該按的那一顆）');
+    EQ(P.realignExists(), false, '🔴「重新對位」那顆鈕**整顆不存在**（不留空殼）');
+    EQ(typeof P.grayArmed, 'undefined',
+      '🔴 `grayArmed` 這個觀測口也拿掉了（沒有「現在是第幾段」這個狀態）');
     EQ(P.showing(), null, '前置條件：畫面上還沒有東西');
 
-    /* ── 第一次按：出對位畫面，**不會開始量測** ── */
-    const nBefore = ws.trace.length;
+    /* ── 按一次：**直接開始量**（不再先出對位畫面） ── */
+    EQ(P.rows().length, 0, '前置：一筆數據都還沒量');
     P.goGrayClick();
     await sleep(120);
-    EQ(P.showing(), 'align', '🔴 第一次按 ⇒ 出對位畫面（L127 ＋ 中心十字）');
-    EQ(P.runWhyKey(), null, '🔴 第一次按**沒有**開始量測（沒有「正在量測」這個原因）');
-    EQ(P.rows().length, 0, '🔴 第一次按一筆數據都沒有量');
-    CHECK(ws.trace.length > nBefore, '真的送了出圖序列出去', ws.trace.length - nBefore);
-    /* 第二段的長相 */
-    EQ(P.grayArmed(), true, '🔴 按過之後進到第二段');
-    EQ(P.goGrayText(), '開始量測', '🔴 第二段：同一顆鈕變成「開始量測」');
-    EQ(P.goGrayIsPri(), true, '🔴 第二段才轉強調色（這是現在該按的）');
-    EQ(P.realignHidden(), false, '🔴 第二段：「重新對位」出現（不把人鎖死）');
-    /* 🔴 「畫面測試」那張卡的對位鈕也跟著亮 —— 同一個畫面狀態只有一種長相 */
-    const pick = P.pickLabels().filter(x => x.id === 'dst-align')[0];
-    EQ(pick.on, true, '🔴「畫面測試」那張卡的對位鈕同時亮起（同一個畫面狀態）');
-
-    /* ── 退回對位：把對位畫面叫回來，仍停在第二段 ── */
-    const nBefore2 = ws.trace.length;
-    P.realignClick();
-    await sleep(120);
-    CHECK(ws.trace.length > nBefore2, '🔴「重新對位」真的把對位畫面重送了一次',
-      ws.trace.length - nBefore2);
-    EQ(P.showing(), 'align', '重送之後畫面仍是對位畫面');
-    EQ(P.grayArmed(), true, '🔴 退回對位之後仍停在第二段（不必再按一次才能開始量）');
-    EQ(P.goGrayText(), '開始量測', '🔴 鈕上仍寫「開始量測」');
-    EQ(P.rows().length, 0, '🔴 到這裡為止一筆數據都還沒量');
-
-    /* ── 第二次按：真的開始量 ── */
-    P.goGrayClick();
-    await sleep(80);
-    EQ(P.dgState().mode, 'gray', '🔴 第二次按 ⇒ 進到白灰階那一輪');
+    EQ(P.dgState().mode, 'gray', '🔴 按下去 ⇒ 直接進到白灰階那一輪');
     EQ(P.runWhyKey(), 'dst.whyRunning', '🔴 真的在量了（閘門的理由變成「正在量測」）');
-    EQ(P.grayArmed(), false, '🔴 開始量的當下退回第一段（下一輪要重新對位）');
+    EQ(P.showing() === 'align', false,
+      '🔴 按下去**不會**停在對位畫面（dstRun 開頭先送離開出圖模式的序列）');
     /* 卡片內那條進度條在量測中就有字了（第 ⑦ 組的另一半） */
     CHECK((P.stepsProgText() || '').trim().length > 0,
       '🔴 量測中，卡片內那條進度條已經在講話了', P.stepsProgText());
@@ -359,8 +341,26 @@ async function loadReady(opts) {
     P.abort();
     await sleep(400);
     EQ(P.runWhyKey() === 'dst.whyRunning', false, '中止之後不再是「正在量測」');
-    EQ(doc.getElementById('dst-go-gray').textContent, '對位畫面',
-      '🔴 中止之後鈕回到第一段（對位畫面）');
+    EQ(doc.getElementById('dst-go-gray').textContent, '開始量測',
+      '🔴 中止之後鈕上的字**沒有變**（本來就只有這一種字面）');
+  }
+
+  /* ── 對位畫面的退路：在「畫面測試」那張卡，而且它按得到 ─────────────────
+     🔴 這一組是 v1.14.0「重新對位可以刪掉」那個判斷的**正面驗證** ——
+        刪掉一顆鈕之前要先確認「拿掉之後他還能做什麼」，這裡把那條退路釘住。 */
+  H('③-b 對位畫面的退路：「畫面測試」卡那顆切換鈕');
+  {
+    const { P, ws } = await loadReady({ settle: 300, opener: fakeWin() });
+    const before = ws.trace.length;
+    await P.alignToggle();
+    await sleep(120);
+    EQ(P.showing(), 'align', '🔴 上一張卡那顆 `#dst-align` 真的打得出對位畫面');
+    CHECK(ws.trace.length > before, '真的送了出圖序列出去', ws.trace.length - before);
+    const pick = P.pickLabels().filter(x => x.id === 'dst-align')[0];
+    EQ(pick.on, true, '🔴 它亮起來（同一個畫面狀態只有一種長相）');
+    await P.alignToggle();
+    await sleep(120);
+    EQ(P.showing(), null, '🔴 再按一次就回到原本的畫面（它是切換鈕，隨時可按）');
   }
 
   /* ═══════════════════════════════════════════════════════════════════════
@@ -602,8 +602,10 @@ async function loadReady(opts) {
      ═══════════════════════════════════════════════════════════════════════ */
   H('⑧ i18n 三語齊全');
   {
+    /* 🔴 v1.14.0：`dst.goAlign`／`dst.goRealign` 從名單移走 —— 兩段式取消之後
+       它們已從產品端刪除。下面 `dead` 那一組反過來釘住「真的刪乾淨了」。 */
     const keys = ['dst.hdHw', 'dst.hwNote', 'dst.hwBridge', 'dst.hwTcon', 'dst.hwMeter',
-                  'dst.goAlign', 'dst.goMeasure', 'dst.goRealign', 'dst.group23',
+                  'dst.goMeasure', 'dst.group23',
                   'dst.dgSentBoth'];
     const { w } = await loadSelf({ opener: null });
     const bad = [];
@@ -613,6 +615,10 @@ async function loadReady(opts) {
       for (const lang of ['zh-TW', 'en', 'zh-CN']) if (!e[lang]) bad.push(k + ':' + lang);
     }
     EQ(bad, [], `本版新增的 ${keys.length} 個 key 三語全部齊全`);
+    /* 🔴 v1.14.0：死 key 的**反面** —— 刪掉的 key 不可以還留在 I18N 裡。
+       （留著沒人用的 key 就是死碼；本頁已有 dst.btnRun／dst.btnCsv 兩次前例。） */
+    const dead = ['dst.goAlign', 'dst.goRealign'].filter(k => w.I18N && w.I18N[k]);
+    EQ(dead, [], '🔴 兩段式那兩個 key 真的從 I18N 裡刪掉了（不留死碼）', dead);
     /* 畫面上不可以出現未翻譯的 key 本身（取 .container，理由見 v1.8.0 夾具）。 */
     const shown = (w.document.querySelector('.container') || { textContent: '' }).textContent || '';
     CHECK(shown.indexOf('dst.hw') < 0 && shown.indexOf('dst.go') < 0
@@ -663,36 +669,44 @@ async function loadReady(opts) {
     EQ([P.stepDone().lut, opener.msgs.length], [false, 0],
       '🔴 突變後按了只讀不回傳、也不打勾 ⇒ 證明第 ② 組那三條真的在驗東西');
   }
-  /* ── M3（③）：拿掉第一段 ⇒ 第一次按就直接開始量 ── */
+  /* ── M3（③）：v1.14.0 改寫 —— 把第一段「裝回去」⇒「按下去就開始量」必須紅 ──
+     🔴 這是舊 M3 的**反向**。舊版突變的是「拿掉第一段」（當時第一段是產品行為），
+        現在第一段已經不存在，能證明第 ③ 組在驗東西的突變是「把它塞回來」。 */
   {
-    const orig = '  if (!dstGrayArmed) return dstGuard(dstStepAlign);';
-    CHECK(SELF_SRC.indexOf(orig) > 0, 'M3：找得到兩段式那一行（唯一的那一份）');
-    /* 🔴 這個突變第一次跑時**抓到了真的問題**：當時同一個 if 也寫在 click
-       處理器裡，把這裡改壞行為卻沒變 ⇒ 產品端已改成只有這一份判斷。 */
-    const mut = SELF_SRC.replace(orig, '  if (false) return dstGuard(dstStepAlign);');
+    const orig = 'function dstStepGrayGo() {\n  return dstStepScan(\'gray\');\n}';
+    CHECK(SELF_SRC.indexOf(orig) > 0, 'M3：找得到 ②③ 主鈕那一支（唯一的那一份）');
+    const mut = SELF_SRC.replace(orig,
+      'function dstStepGrayGo() {\n  return Promise.resolve(false);\n}');
     const { P } = await loadReady({ src: mut, settle: 300, opener: fakeWin() });
     P.goGrayClick();
-    await sleep(80);
-    EQ(P.runWhyKey(), 'dst.whyRunning',
-      '🔴 突變後第一次按就直接開始量了 ⇒ 證明第 ③ 組「第一次按不會量」真的在驗東西');
-    P.abort();
-    await sleep(400);
+    await sleep(120);
+    EQ(P.runWhyKey() === 'dst.whyRunning', false,
+      '🔴 突變後按下去**不會**開始量 ⇒ 證明第 ③ 組「按一次就開始量」真的在驗東西');
+    EQ(P.rows().length, 0, '🔴 突變後一筆數據都沒量');
   }
-  /* ── M3-b（③）：「重新對位」變成什麼都不做 ⇒「退得回對位」必須紅 ── */
+  /* ── M3-b（③）：把「重新對位」那顆鈕塞回 HTML ⇒「整顆不存在」必須紅 ──
+     🔴 同樣是反向突變：現在要釘的是「它真的不在了」，所以突變就是把它加回去。 */
   {
-    const orig = 'function dstStepRealign() { return dstStepAlign(); }';
-    CHECK(SELF_SRC.indexOf(orig) > 0, 'M3-b：找得到「重新對位」那一支');
+    const orig = '<button class="dst-btn danger" id="dst-stop"';
+    CHECK(SELF_SRC.indexOf(orig) > 0, 'M3-b：找得到 ②③ 那一列的「停止」鈕（插入點）');
     const mut = SELF_SRC.replace(orig,
-      'function dstStepRealign() { return Promise.resolve(false); }');
-    const { P, ws } = await loadReady({ src: mut, settle: 300, opener: fakeWin() });
-    P.goGrayClick();
+      '<button class="dst-btn dst-hidden" id="dst-go-realign">x</button>' + orig);
+    const { P } = await loadReady({ src: mut, settle: 300, opener: fakeWin() });
+    EQ(P.realignExists(), true,
+      '🔴 突變後 `#dst-go-realign` 又出現了 ⇒ 證明「整顆不存在」那一條真的在驗東西');
+  }
+  /* ── M3-c（③-b）：把對位畫面那支打壞 ⇒ 退路那一組必須紅 ──
+     🔴 「重新對位」刪得掉的**唯一理由**是退路還在（上一張卡的 `#dst-align`）。
+        這個突變確保「退路還在」不是靠看的，而是真的驗過。 */
+  {
+    const orig = 'async function dstAlignPattern() {';
+    CHECK(SELF_SRC.indexOf(orig) > 0, 'M3-c：找得到 dstAlignPattern()');
+    const mut = SELF_SRC.replace(orig, 'async function dstAlignPattern() { return null;');
+    const { P } = await loadReady({ src: mut, settle: 300, opener: fakeWin() });
+    await P.alignToggle();
     await sleep(120);
-    EQ(P.grayArmed(), true, '前置條件：已經進到第二段');
-    const n0 = ws.trace.length;
-    P.realignClick();
-    await sleep(120);
-    EQ(ws.trace.length, n0,
-      '🔴 突變後「重新對位」一個 byte 都不送 ⇒ 證明第 ③ 組那條真的在驗東西');
+    EQ(P.showing() === 'align', false,
+      '🔴 突變後上一張卡那顆對位鈕也打不出對位畫面 ⇒ 證明 ③-b 那一組真的在驗退路');
   }
   /* ── M4（④）：拿掉 ③ 的連帶打勾 ⇒「②③ 一起打勾」必須紅 ── */
   {

@@ -12,7 +12,7 @@
 <title>TCON 自檢畫面量測 — TCON FAE專用工具箱</title>
 <link rel="stylesheet" href="common/common.css?v=20260903help">
 <!-- 🔴 version.js 必須最先載入（common/version.js 開頭那條規則）。 -->
-<script src="common/version.js?v=20260922dst1130"></script>
+<script src="common/version.js?v=20260922dst1140"></script>
 <style>
   /* ═══ 本頁專屬樣式 ════════════════════════════════════════════════════════
      只寫這一頁真的需要、而 common.css 沒有的東西。顏色一律走 common.css 的
@@ -145,6 +145,13 @@
   /* 說話行：正常路徑上是空的，只有出事才有字（沿用其他頁「錯誤才說話」的做法） */
   .dst-say { margin-top: 8px; font-size: 14px; line-height: 1.6; color: var(--error); }
   .dst-say:empty { display: none; }
+  /* 🔴 v1.14.0：說話行有一則**不是**壞消息 ——「這是第 N 輪，上一輪的東西清掉了」。
+     `.dst-say` 一律用 `--error`（紅），把它印成紅的，等於在他眼前把「我幫你清乾淨了」
+     說成「出事了」—— 而那一句存在的唯一理由就是**不要讓他以為是 bug**（Bruce 明示）。
+     ⇒ 只為這一則開一個中性色的變體，**不動 `.dst-say` 本身**（那會一次改掉整頁四條
+       說話行的顏色，超出本輪範圍）。加／退這個 class 由 `dstSay()`／`dstSayInfo()`
+       兩支互相負責，不會有人忘記退掉（見那兩支）。 */
+  .dst-say.dst-say-info { color: var(--accent); }
   .dst-note { font-size: 13px; color: var(--text-sub); line-height: 1.6; margin-top: 6px; }
 
   /* 進度 */
@@ -701,19 +708,43 @@
           <span class="dst-step-tick" id="dst-tick-gray">○</span>
           <span class="dst-step-txt"><span data-i18n="dst.stepGray">② 量白灰階</span>
             <span class="dst-step-to" id="dst-to-gray"></span></span>
-          <!-- ═══ 🔴 v1.10.0：這一顆是**兩段式**的 ════════════════════════════
-               Bruce 2026-09-21：「『開始量』那個按鈕，一開始應該先是對位畫面，
-               按下去之後會出現 L127 加中心十字。按完之後，按鈕會變成『開始量測』，
-               這時候再按下去才真的開始量。」
-               🔴 `data-i18n` 刻意拿掉：字要依「現在是第幾段」二選一，留著的話
-                  common.js 切語言時會把它洗回固定那一句（本頁 v1.8.0 已經栽過
-                  applyLang 的時序一次，同一個坑不踩第二次）。文字由
-                  dstRenderSteps() 填。 -->
-          <button class="dst-btn" id="dst-go-gray">對位畫面</button>
-          <!-- 🔴 「不要把人鎖死」：進到第二段之後，發現沒對正可以隨時把對位畫面
-               叫回來（按完仍停在第二段，直接按「開始量測」就好）。
-               第一段時整顆不顯示 —— 那時主鈕自己就是對位畫面。 -->
-          <button class="dst-btn dst-hidden" id="dst-go-realign">重新對位</button>
+          <!-- ═══ 🔴 v1.14.0：兩段式取消，這一顆**直接就是「開始量測」** ══════════
+               ── 這不是 Bruce 改主意，是前提變了（務必連同底下這段一起讀）────────
+               兩段式（第一段「對位畫面」→ 第二段「開始量測」）是 Bruce 2026-09-21
+               指定的，原話留在下面 `dstStepScan` 一帶的註解裡。**當時「畫面測試」
+               那張卡排在這張步驟卡的下面** —— 使用者站在步驟卡上，往上看不到任何
+               一顆對位鈕，所以對位必須由步驟卡自己的鈕帶出來。
+               v1.13.0（G 條）把「畫面測試」整張卡搬到**這張卡的正上方**，那裡本來
+               就有一顆隨時可按的對位切換鈕（`#dst-align`，L127 ＋ 中心十字）。
+               ⇒ Bruce 2026-09-22：「對位畫面既然測試畫面上面都有，對位畫面就不用了，
+                 也就是它可以直接開始。」第一段從「唯一入口」變成「同一件事的第二顆
+                 鈕」，留著就是同一個動作在同一個畫面上有兩顆鈕。
+
+               🔴 下一個人看到這裡請不要繞回兩段式：兩段式的前提是「步驟卡上面沒有
+                  對位鈕」，那個前提在 v1.13.0 已經不存在了。真要繞回去，先確認
+                  「畫面測試」卡有沒有被搬回步驟卡下面。
+
+               🔴 `data-i18n` **放回來**：字不再依段數二選一，固定就是 `dst.goMeasure`，
+                  common.js 的 applyLang 洗回去洗到的就是正確那一句。
+                  dstRenderSteps() 仍會再填一次同一個 key（`dst.group23` 的 `{btn}`
+                  要用同一個變數）—— 兩處讀同一個 key，不可能分岔。
+               🔴 `.pri` 直接寫在 class 上：它永遠是「這是現在該按的」那一顆。 -->
+          <button class="dst-btn pri" id="dst-go-gray" data-i18n="dst.goMeasure">開始量測</button>
+          <!-- 🔴 v1.14.0：「重新對位」（`#dst-go-realign`）**整顆移除**，不留空殼。
+               它存在的理由是「進到第二段後發現沒對正，可以隨時把對位畫面叫回來」。
+               ── 刪之前先問「拿掉之後他還能做什麼」，逐格查過可用性 ──────────────
+                 退路 ＝ 上一張卡的 `#dst-align`（切換鈕，按一次出、再按一次回）。
+                 · 量測中：`#dst-align` 由 `dstRenderBtns()` 的 `canWrite` 擋
+                   （含 `!dstRunning`）⇒ 停用；`#dst-go-realign` 由
+                   `dstStepsWhyKey()` 的 `dstRunning` 擋 ⇒ **也停用**。兩者相同。
+                 · 未連線／認不出 IC：兩者同樣停用（`canWrite` 與 `why` 都含這兩條）。
+                 · 唯一有差的格子：IC 認得出來但 `patternOk === false`。那時
+                   `#dst-align` 停用、舊的「重新對位」可按 —— 但按下去走的是
+                   `dstAlignPattern()`，它第一行就 `throw dstNoPatternText()`，
+                   而且同一顆 IC 連 `dstRun()` 都進不去（同一條 patternOk 檢查）。
+                   ⇒ 那不是一條退路，是一顆按了只會跳錯誤的鈕。
+                 結論：**沒有任何情境是「往上按不到、只有這顆按得到」**，可以刪。 -->
+
           <!-- 🔴 v1.10.1：從下面「量測」那張卡搬過來的同一顆（同一個 id、同一支
                處理器、同一條 `dstRenderBtns()` 的 `disabled = !dstRunning`）。
                🔴 `data-i18n` 保留 —— 這一顆的字是固定的（不像主鈕要依段數二選一），
@@ -732,7 +763,7 @@
         <div class="dst-note" id="dst-run-why"></div>
         <!-- 🔴 v1.12.1：`data-i18n` 刻意拿掉，字由 dstRenderSteps() 填（要帶入那顆鈕
              當下的字面）。這裡留的是 JS 還沒跑到時的預設字，**不帶佔位符**。 -->
-        <div class="dst-note" id="dst-group23-note">按「對位畫面」開始：②③ 會一次量完，第 3 項不必再量一次。</div>
+        <div class="dst-note" id="dst-group23-note">按「開始量測」開始：②③ 會一次量完，第 3 項不必再量一次。</div>
         <!-- 🔴 v1.13.0：`#dst-xlsx`（匯出 XLSX）**整顆移除**，這裡不留空殼、不留
              `.dst-row`。匯出收斂到 DG 的「光學資料比較」分頁 —— 理由與查證寫在
              JS 端 `dstExport*` 被刪掉的那一段。 -->
@@ -922,8 +953,8 @@
   </div>
 </div>
 
-<script src="common/i18n.js?v=20260922dst1130"></script>
-<script src="common/common.js?v=20260922dst1130"></script>
+<script src="common/i18n.js?v=20260922dst1140"></script>
+<script src="common/common.js?v=20260922dst1140"></script>
 <script>
 /* ═════════════════════════════════════════════════════════════════════════
    TCON 自檢畫面量測 — dg-selftest.html
@@ -1161,16 +1192,37 @@ if (typeof I18N === 'object' && I18N) {
   I18N['dst.stepPrim'] = { 'zh-TW': '③ 量 RGB 純色 Pattern', 'en': '③ Measure the RGB primaries', 'zh-CN': '③ 量 RGB 纯色 Pattern' };
   I18N['dst.goLut']    = { 'zh-TW': '讀回並回傳', 'en': 'Read and send back', 'zh-CN': '读回并回传' };
   /* ═══ v1.10.0：②③ 那一組 ══════════════════════════════════════════════
-     🔴 `dst.goAlign`／`dst.goMeasure` 是**同一顆鈕的兩段**（見 dstRenderSteps）。
-     🔴 措辭與「畫面測試」那張卡的對位鈕同一組字（L127 ＋ 中心十字），不另造。 */
-  I18N['dst.goAlign']   = { 'zh-TW': '對位畫面', 'en': 'Alignment pattern', 'zh-CN': '对位画面' };
+     ═══ 🔴 v1.14.0：`dst.goAlign` 與 `dst.goRealign` **已刪除** ═══════════════
+     兩段式取消（理由寫在 `#dst-go-gray` 上方那一整段：「畫面測試」卡在 v1.13.0
+     搬到步驟卡正上方之後，第一段變成同一件事的第二顆鈕），那顆鈕現在固定是
+     「開始量測」、「重新對位」整顆移除 ⇒ 這兩個 key 沒有任何頁面會用到。
+     留著沒人用的 key 就是死碼（v1.10.1 的「開始掃描」、v1.3.0 的「匯出 CSV」已有兩次
+     前例 —— 那兩個 key 的名字刻意不在這裡寫出來：夾具用字串 grep 驗「死碼真的清掉了」，
+     在註解裡提一次就會讓它誤判）。
+     🔴 對位畫面本身**沒有消失**：它在「畫面測試」那張卡，走的是 `dst.btnAlign`／
+        `dst.btnAlignOn`（另一組 key，一個字都沒動）。 */
   I18N['dst.goMeasure'] = { 'zh-TW': '開始量測', 'en': 'Start measuring', 'zh-CN': '开始量测' };
-  I18N['dst.goRealign'] = { 'zh-TW': '重新對位', 'en': 'Align again', 'zh-CN': '重新对位' };
+  /* ═══ 🔴 v1.14.0：換到新的一輪時，**講出來**清了什麼、沒清什麼 ════════════════
+     Bruce 2026-09-22 明示不要靜默清掉：他前一秒看到四個勾、下一秒全空，沒有說明
+     會以為是 bug。
+     🔴 後半句「連線…維持原樣」不是廢話：那正是他最怕被清掉的東西（v1.10.1／v1.11.0
+        當初不用 window.close() 就是為了保住它們），一併講掉比讓他自己去確認省事。
+     🔴 字面由**本頁**組（不借 DG 的 `dgRoundName()`）：那一支產出的是繁中寫死的
+        「第二輪」，而 DG 那張卡整片沒走 i18n ⇒ 借過來會讓英文／簡中畫面冒出繁中。 */
+  I18N['dst.roundNew']  = {
+    'zh-TW': '這是第 {n} 輪 —— 上一輪的步驟、量測結果與讀回的 LUT 已清空。硬體連線、IC 識別、位元深度、換階等待都維持原樣。',
+    'en': 'This is round {n} — the previous round’s steps, measurements and read-back LUT have been cleared. Hardware links, IC identification, bit depth and settle time are unchanged.',
+    'zh-CN': '这是第 {n} 轮 —— 上一轮的步骤、量测结果与读回的 LUT 已清空。硬件连线、IC 识别、位元深度、换阶等待都维持原样。'
+  };
   /* 🔴 v1.12.0：砍成一句（通則：說明文字少一點）。②③ 現在被同一個框框在一起，
      「它們是一組」畫面自己講完了，這一行只要講「不必再量第二次」。
      🔴 v1.12.1：「上面那一顆」指不出是哪一顆（上面有未連線／重新識別／讀回並回傳／
         對位畫面好幾顆）⇒ 改成 `{btn}`，由 dstRenderSteps() 帶入**那顆鈕當下的字面**
-        （填進鈕上的同一個變數，不可能分岔）。 */
+        （填進鈕上的同一個變數，不可能分岔）。
+     🔴 v1.14.0：那顆鈕不再是兩段式，`{btn}` 現在恆等於「開始量測」。**佔位符保留** ——
+        它仍然是「這一行寫的字＝鈕上的字」這條保證的實作方式，寫死回去只是把保證換成
+        人工記得。這一行也因此**不必**跟著改字：兩段式那一版它讀起來是「按『對位畫面』
+        開始」，這一版自動變成「按『開始量測』開始」，都對。 */
   I18N['dst.group23']   = {
     'zh-TW': '按「{btn}」開始：②③ 會一次量完，第 3 項不必再量一次。',
     'en': 'Press “{btn}” to start: ② and ③ are measured in one run, so step ③ does not need measuring again.',
@@ -1361,9 +1413,10 @@ var DST_PKG = (typeof HELPER_PKG !== 'undefined' && HELPER_PKG) ? HELPER_PKG : {
    DG 的「即時量測」現在會先問「電腦畫面量測／T-CON 自檢畫面量測」，選了後者
    就開這一頁。
 
-   🔴 **協定逐字沿用 `dg-measure.html` 那一套，一個欄位都不新增**：
-        開新頁   → 網址 `?mode=&task=&dest=&what=&v=`
-        換任務   → `postMessage {type:'dg-measure-task', task, mode, dest, what}`
+   🔴 **協定沿用 `dg-measure.html` 那一套**（v1.8.0 加了 `step`、v1.14.0 加了 `round`，
+      兩個都**缺席時退回舊行為**，所以新舊互接不會壞）：
+        開新頁   → 網址 `?mode=&task=&dest=&what=&step=&round=&v=`
+        換任務   → `postMessage {type:'dg-measure-task', task, mode, step, round, dest, what}`
         回報版號 → `postMessage {type:'dg-measure-hello', version, task, running}`
         回傳結果 → `postMessage {type:'dg-measure-result', mode, label, task, at,
                                  rows, prim, durMs, settleMs}`
@@ -1409,6 +1462,30 @@ function dstDgStepOf(v, mode) {
   return (DST_STEPS.indexOf(v) >= 0) ? v : ((mode === 'prim') ? 'prim' : 'gray');
 }
 var dstDgStep = dstDgStepOf(dstQs('step'), dstDgMode);
+
+/* ═══ 🔴 v1.14.0：第六個參數 `round`（DG 的迭代輪數）═══════════════════════════
+   Bruce 2026-09-22：「回到 DG 網頁進到第二輪的時候，是不是應該要把『自檢』畫面的
+   數據再重新清除？」—— 對的。`dstDgApplyTask()` 換任務時從來沒碰過 `dstStepDone`，
+   所以第二輪回到這一頁，①②③ 還掛著上一輪的勾、④ 也還是 ✔（`dstBackSent()` 是
+   `dstStepDone` 的函數）。那與 v1.13.0 修掉的「④ 偷跑」是同一類：**畫面在說一件
+   這一輪沒發生的事**。
+
+   ── 判準是「輪數變了」，不是「收到任務訊息」──────────────────────────────
+     同一輪裡 DG 會派好幾次任務（第 2 部分、第 3 部分、第 4 部分確認…）。
+     每收到一則就清，會把這一輪**真的做完**的步驟洗掉 —— 那比不清更糟。
+   ── `null` ＝ 不知道是第幾輪，此時**一律不清** ────────────────────────────
+     🔴 舊版 DG（v1.73.0 以前）不帶這個欄位，直接開這一頁（首頁／書籤）也沒有。
+        不知道輪數就不能假裝知道：寧可留著舊勾，也不要在使用者沒換輪的時候
+        把他剛做完的四個勾清光。
+     🔴 `null → 數字` **不算變**（那是「第一次知道自己在第幾輪」，不是換輪）。
+        這也是為什麼 DG 開新分頁那條路要把 `round` 寫進網址：少了它，第一輪開頁
+        時 `dstDgRound` 是 null，第二輪的訊息就變成 `null → 2` ⇒ 不清 ⇒ bug 照舊。 */
+function dstRoundOf(v) {
+  var n = parseInt(v, 10);
+  return (isFinite(n) && n >= 1) ? n : null;
+}
+var dstDgRound = dstRoundOf(dstQs('round'));
+
 /* 哪幾步已經送出去過。🔴 只有「真的送出去了」才打勾 —— 讀到一半失敗、掃描中止、
    沒有 opener 都不算（打了假勾等於騙他「東西在 DG 那邊了」）。 */
 var dstStepDone = { lut: false, gray: false, prim: false };
@@ -1930,7 +2007,18 @@ function dstHex(a) {
 function dstAddrText(a) { return '0x' + ('000' + a.toString(16).toUpperCase()).slice(-4); }
 function dstErrMsg(e) { return (e && e.message) ? e.message : String(e); }
 /* 「錯誤才說話」：正常路徑上這三行是空的。 */
-function dstSay(id, s) { var e = $(id); if (e) e.textContent = s || ''; }
+/* 🔴 v1.14.0：`dstSay()` 每次寫都會把中性色**退掉** —— 所以「忘記退」這件事
+   結構上做不到：任何一則後續訊息（多半是真的壞消息）都會自動回到紅色。
+   `dstSayInfo()` 是唯一會掛上它的入口。 */
+function dstSay(id, s) {
+  var e = $(id);
+  if (e) { e.textContent = s || ''; e.classList.remove('dst-say-info'); }
+}
+function dstSayInfo(id, s) {
+  dstSay(id, s);
+  var e = $(id);
+  if (e && s) e.classList.add('dst-say-info');
+}
 
 /* ═══ 白名單 —— 🔴 這是防止寫壞 IC 的唯一一道硬防線 ══════════════════════
    為什麼不能用固定區間：不同 IC 的 ptg base 不同（0x1200／0x0C00／0x0200），
@@ -4248,7 +4336,8 @@ function dstRenderPick() {
   }
 }
 /* 純函式：「開始量測」為什麼還不能按。可按 ⇒ 回 null（⇒ 畫面上什麼都不出現）。
-   🔴 v1.10.1 起它擋的是**步驟卡那顆兩段式鈕的第二段**（「開始掃描」那一顆已移除），
+   🔴 v1.10.1 起它擋的是**步驟卡那顆「開始量測」**（「開始掃描」那一顆已移除；
+      v1.14.0 起那顆不再是兩段式，這道閘門一律成立，不再只掛在第二段），
       並且餵搬進 ②③ 那一格的 `#dst-run-why`。函式名沿用，沒有改 —— 改名要動六支
       夾具，而它的語意一個字都沒變（「為什麼還不能開始量」）。
    🔴 條件與 `dstRun()` 開頭那三道檢查**同一組布林、同一個順序**，寫成一支就不會
@@ -4833,12 +4922,14 @@ function dstStepsWhyKey() {
   return null;
 }
 
-/* ═══ 🔴 v1.10.0：②③ 那顆鈕的兩段 ═══════════════════════════════════════════
-   false ＝ 下一次按是「對位畫面」（出 L127 ＋ 中心十字）
-   true  ＝ 對位畫面已經出來了，下一次按才**真的開始量**
-   🔴 只有三個地方會動它：按了對位（→true）、真的開始量（→false）、
-      以及「重新對位」（**不動**，見 dstStepRealign 的說明）。 */
-var dstGrayArmed = false;
+/* ═══ 🔴 v1.14.0：`dstGrayArmed`（②③ 那顆鈕的兩段）**整個變數拿掉** ═══════════
+   v1.10.0～v1.13.0 這顆鈕是兩段式的：第一段「對位畫面」、第二段才「開始量測」，
+   `dstGrayArmed` 就是「現在是第幾段」。那是 Bruce 2026-09-21 指定的，**前提是
+   當時「畫面測試」那張卡排在步驟卡下面**（步驟卡上看不到任何對位鈕）。
+   v1.13.0（G 條）把「畫面測試」搬到步驟卡正上方 ⇒ Bruce 2026-09-22：「對位畫面
+   既然測試畫面上面都有，對位畫面就不用了，也就是它可以直接開始。」
+   ⇒ 沒有第二段了，也就沒有「現在是第幾段」這個狀態。整段說明見 `#dst-go-gray`
+     上方那一段（連同「重新對位」為什麼刪得掉的逐格查核）。 */
 
 /* ═══ 🔴 v1.13.0：藍色（`.cur`）＝「**現在做到哪一步**」，重新定義 ═══════════════
    Bruce 2026-09-22 實機：「為什麼第二步驟『量白灰階』的字要用藍色來 highlight？
@@ -4917,39 +5008,34 @@ function dstRenderSteps() {
       go.disabled = !!why || (k === 'lut' && !(dstIc && dstIc.dgLut)) || dstBusy || dstLutBusy;
     }
   });
-  /* ═══ 🔴 v1.10.0：②③ 共用那一顆鈕的兩段文案 ═══════════════════════════════
-     第一段「對位畫面」是灰鈕、第二段「開始量測」才是強調色 —— 同一頁裡
-     「這是現在該按的」只有 `.pri` 一種長相（沿用 v1.8.1 對 `.pri` 的用法）。
-     🔴 第一段刻意不給 `.pri`：理由與「畫面測試」那張卡的對位鈕逐字相同
-        （v1.4.0：藍底會讓它在還沒按的時候就看起來像按下去了）。 */
+  /* ═══ 🔴 v1.14.0：②③ 共用那一顆鈕**只有一種字面**：開始量測 ══════════════════
+     兩段式（對位畫面 → 開始量測）取消，理由寫在 `#dst-go-gray` 上方那一整段。
+     🔴 `.pri` 恆為真：它永遠是「這是現在該按的」那一顆（HTML class 上也有一份，
+        這裡再確保一次 —— 兩處寫的是同一件事，不是兩套判斷）。
+     🔴 字仍然在這裡填一次（HTML 的 `data-i18n` 也會填）：`goTxt` 要餵給下面
+        `dst.group23` 的 `{btn}`，兩處讀**同一個 key**，不可能分岔。 */
   var gg = $('dst-go-gray');
-  var goTxt = dstT(dstGrayArmed ? 'dst.goMeasure' : 'dst.goAlign');
+  var goTxt = dstT('dst.goMeasure');
   if (gg) {
     gg.textContent = goTxt;
-    gg.classList.toggle('pri', dstGrayArmed);
-    /* ═══ 🔴 v1.10.1：第二段多一條閘門 ——「沒接量測儀不能開始量」════════════════
+    gg.classList.add('pri');
+    /* ═══ 🔴 v1.10.1：這一條閘門 ——「沒接量測儀不能開始量」════════════════════
        這一條原本掛在「量測」那張卡的「開始掃描」上（`dstRunWhyKey()` 的第三條）。
        那顆鈕依 Bruce 裁示移除之後，如果不接手，使用者會拿到一顆**按得下去、按了
        卻只跳一行錯誤**的「開始量測」—— 那正是「移除之後留下沒人管的狀態」。
-       🔴 只加在**第二段**：第一段是出對位畫面（L127 ＋ 十字），那件事根本用不到
-          量測儀，連著沒連都能做。
        🔴 也**不加進 `dstStepsWhyKey()`**：那一支管整份清單，加進去會連 ①「讀回
           RGB LUT」都因為沒接量測儀而變灰 —— 讀 LUT 不需要量測儀，那是假的閘門。
        🔴 條件直接讀 `dstRunWhyKey()`（不是另寫一組布林）：它與 `dstRun()` 開頭那
           三道檢查是同一個準則，寫成兩份遲早分岔，而分岔的下場是「鈕可以按、按了
-          卻不動」。 */
-    if (dstGrayArmed && dstRunWhyKey()) gg.disabled = true;
+          卻不動」。
+       🔴 v1.14.0：`dstGrayArmed &&` 這個前綴拿掉 —— 這顆鈕現在**每一次按都是真的
+          開始量**，所以那道閘門一律成立。（兩段式時它只掛在第二段，因為第一段
+          出對位畫面根本用不到量測儀。） */
+    if (dstRunWhyKey()) gg.disabled = true;
   }
-  var ra = $('dst-go-realign');
-  if (ra) {
-    ra.textContent = dstT('dst.goRealign');
-    /* 第一段時整顆不顯示 —— 那時主鈕自己就是對位畫面，兩顆一樣的鈕是噪音。 */
-    ra.classList.toggle('dst-hidden', !dstGrayArmed);
-    ra.disabled = !!why || dstBusy || dstLutBusy;
-  }
-  /* 🔴 停用時才有字，可按時一個字都不出現（本頁既有準則，v1.10.0 不動它）。
-     兩段式按鈕**不另加一行說明** —— 鈕上的字（對位畫面／開始量測）字面就是
-     按下去會發生的事，再寫一句是重複，違反「畫面只留使用者會按的」。 */
+  /* 🔴 停用時才有字，可按時一個字都不出現（本頁既有準則）。
+     這顆鈕**不另加一行說明** —— 鈕上的字（開始量測）字面就是按下去會發生的事，
+     再寫一句是重複，違反「畫面只留使用者會按的」。 */
   var w = $('dst-steps-why');
   if (w) w.textContent = why ? dstT(why) : '';
   /* ═══ 🔴 v1.12.1：「按上面那一顆」指不出是哪一顆 ═══════════════════════════
@@ -5143,51 +5229,25 @@ function dstDgSendLut() {
    🔴 走的是**下面「開始掃描」那一顆的同一支 `dstRun()`**，這裡只先把量測模式
       切成那一步要的（與 DG 換任務時 dstDgApplyTask() 做的同一件事）。
       沒有第二份掃描實作，也沒有第二套閘門。 */
-/* ═══ 🔴 v1.10.0：②③ 那顆鈕的兩段 ═══════════════════════════════════════════
-   Bruce 2026-09-21：「『開始量』那個按鈕，一開始應該先是對位畫面，按下去之後會
-   出現 L127 加中心十字。按完之後，按鈕會變成『開始量測』，這時候再按下去才真的
-   開始量。」
+/* ═══ 🔴 v1.14.0：②③ 那顆鈕**按下去就開始量** ═══════════════════════════════
+   ── 沿革（請整段讀完再決定要不要動它）────────────────────────────────────
+   v1.10.0～v1.13.0 這顆鈕是兩段式的，Bruce 2026-09-21 原話：「『開始量』那個按鈕，
+   一開始應該先是對位畫面，按下去之後會出現 L127 加中心十字。按完之後，按鈕會變成
+   『開始量測』，這時候再按下去才真的開始量。」
+   **那時「畫面測試」那張卡排在這張步驟卡的下面**，步驟卡上看不到任何對位鈕 ⇒
+   對位只能由這顆鈕帶出來。v1.13.0（G 條）把「畫面測試」搬到步驟卡正上方之後，
+   Bruce 2026-09-22：「對位畫面既然測試畫面上面都有，對位畫面就不用了，也就是它
+   可以直接開始。」
+   ⇒ 第一段（`dstStepAlign`）與「重新對位」（`dstStepRealign`）**兩支一起刪除**，
+     `dstGrayArmed` 也跟著消失。要對位就按上一張卡的 `#dst-align`（切換鈕，隨時可按）。
 
-   ── 第一段：出對位畫面 ───────────────────────────────────────────────────
-   🔴 走的是**既有的 `dstAlignPattern()`**（v1.3.0 那一支，一個字沒改）——
-      L127 灰底 ＋ 正中心紅十字是它一次設好的，這裡沒有第二份出圖實作。
-   🔴 失敗時訊息寫在**這張卡自己的說話行**（不是「畫面測試」那張卡的）——
-      他是在這裡按的，訊息就要出現在他眼睛所在的地方；而且失敗時
-      **不進第二段**（沒有對位畫面卻說「開始量測」是騙人的）。 */
-async function dstStepAlign() {
-  dstSay('dst-say-steps', '');
-  try {
-    await dstAlignPattern();
-  } catch (e) {
-    dstSay('dst-say-steps', dstErrMsg(e));
-    dstLog('!  ' + dstErrMsg(e), 'e');
-    return false;
-  }
-  dstGrayArmed = true;
-  dstRenderPick();        // 「畫面測試」那張卡的對位鈕也要跟著亮（同一個畫面狀態）
-  dstRenderSteps();
-  return true;
-}
-
-/* ── 「重新對位」：把對位畫面叫回來，**留在第二段** ─────────────────────────
-   Bruce：「要能退回對位（使用者發現沒對正時），不要把人鎖死。」
-   🔴 這裡**不把 dstGrayArmed 設回 false**：他要的是「畫面回到對位」，不是
-      「再按一次同一顆鈕才能再按開始量測」。設回 false 會讓他多按一次
-      （對位畫面 → 開始量測），與「按的次數越少越好」直接衝突。 */
-function dstStepRealign() { return dstStepAlign(); }
-
-/* ── 主鈕：第一段按 ⇒ 出對位畫面；第二段按 ⇒ 真的開始量 ───────────────────
-   🔴 「現在是第幾段」的判斷**只寫在這一支裡**。第一版把同一個 if 也寫進了
-      click 處理器（等於兩份），夾具的突變測試當場抓到：把這裡改壞，行為卻
-      沒變 —— 因為真正在決定的是另一份。兩份判斷遲早會分岔，合成一份。
-   🔴 第一段包 `dstGuard`（它會送 I2C，與「畫面測試」那張卡的對位鈕共用同一個
-      忙碌旗標）；第二段**不包**，理由與 v1.8.0 相同：`dstRun()` 自己有
-      `dstRunning` 防重入，包了會跟出圖那條路互相卡。 */
+   🔴 `dstAlignPattern()`／`dstAlignToggle()`／`DST_ALIGN_L` **一個字都沒動** ——
+      「畫面測試」那張卡的對位鈕還在用它們。這一版刪的只是步驟卡上的**第二個入口**，
+      不是對位畫面本身。
+   🔴 **不包 `dstGuard`**：理由與 v1.8.0 相同 —— `dstRun()` 自己有 `dstRunning`
+      防重入，包了會跟出圖那條路互相卡。（兩段式時第一段要包，因為它會送 I2C；
+      那一段已經不在了。） */
 function dstStepGrayGo() {
-  if (!dstGrayArmed) return dstGuard(dstStepAlign);
-  /* 🔴 開始量的當下就退回第一段：這一輪量完之後，下一輪本來就該重新對位一次
-     （掃描開頭會先離開出圖模式、十字會被關掉，見 dstRun 的 ①）。 */
-  dstGrayArmed = false;
   return dstStepScan('gray');
 }
 
@@ -5254,11 +5314,79 @@ function dstCopyLut() {
   return true;
 }
 
+/* ═══ 🔴 v1.14.0：換到新的一輪 ⇒ 把「上一輪的產物」清乾淨 ══════════════════════
+   Bruce 2026-09-22：「回到 DG 網頁進到第二輪的時候，是不是應該要把『自檢』畫面的
+   數據再重新清除？」
+
+   ── 清什麼（一律是「這一輪還沒發生、畫面卻在說有」的東西）─────────────────
+     · `dstStepDone` 四個步驟的勾 —— ④ 連帶變回 ○（`dstBackSent()` 是它的函數，
+       沒有自己的寫入點，v1.13.0 A 條就是為了這個改成推導的）。
+       清完 `cur`（藍色）自然回到 ①：`dstCurGroupIdx()` 讀的也是同一份。
+     · 上一輪的量測結果表（`dstRows` ⇒ `#dst-res-wrap` 自動收起來）、作廢橫幅
+       （`dstVoid`）、`dstRunOk`。
+     · 兩條進度條（`dstProg` 一次寫兩個出口）—— 停在「259/259 掃描完成」的進度條
+       與沒清掉的勾是同一種謊。
+     · 步驟卡與量測卡的說話行（`dst-say-steps`／`dst-say-run`）。
+     · `dstLut`／`dstLutErr`（讀回的 DG LUT）—— 理由見下面單獨那一段。
+
+   ── 🔴 不准清（清了他每一輪都要重接一次）───────────────────────────────
+     I2C Bridge 連線（`dstLinked`／port）、光學量測儀連線（`dstCaLinked`／序列埠）、
+     IC 識別結果（`dstIc`）、位元深度（`dstBits`／`#dst-dgbits`）、換階等待
+     （`#dst-settle`）。當初不用 `window.close()` 改用 postMessage 換任務，
+     為的就是保住這些連線（v1.10.1／v1.11.0 的決策紀錄）。
+     🔴 `#dst-say-link` 也**不清**：它寫的是連線與 IC 識別的結果，屬於上面這一組。
+        （所以「清掉所有 `dst-say-*`」這種寫法是錯的，要逐個指名。）
+     🔴 `#dst-say-pattern` 也不清：它講的是**面板現在被打成什麼樣**，那不是輪次
+        產物 —— 面板此刻確實還停在那張畫面上，清掉反而是把真的事情藏起來。
+
+   ── `dstLut` 為什麼是「清」（Bruce 要求兩種判斷都講得通時把理由寫出來）──────
+     ① 的勾代表「這一輪把 LUT 回傳給 DG 了」，那是輪次產物、跟著清沒有疑義。
+     LUT **內容**本身是面板現況、不是輪次產物 —— 所以「留著」也講得通。
+     採「清」，理由是**實際查過的時序**：DG 的第 4 部分會用 `dg-lut-write` 把新算出
+     的 LUT 推進 T-CON（v1.11.0），而 `dstDgOnLutWrite()` **不會**把 `dstLut` 更新
+     成新值（逐行查過，那一支只做寫入＋讀回核對＋回報，沒有碰 `dstLut`）。
+     ⇒ 進到下一輪時，「DG LUT（RGB）檢視」那張卡上掛的是**寫入之前**的舊表，而它的
+       卡名說的是「目前的」。那與沒清掉的勾是同一類謊。
+     🔴 代價是零：① 的勾本來就被清掉了，他這一輪本來就要再按一次「讀回並回傳」。
+
+   ── 為什麼「第 N 輪」這幾個字是本頁自己組的 ─────────────────────────────
+     本頁的規矩是「名稱由 DG 給、不自己造第二套」（`dest`／`what` 都是這樣）。
+     這一條**刻意例外**，理由查得到：DG 的 `dgRoundName()` 產出的是**繁中寫死**的
+     「第二輪」，而 DG 的那張卡整片沒有走 i18n（v1.13.0 B2 已如實列出）。把它原樣
+     帶過來，英文／簡中介面上會冒出一句繁中。⇒ 這裡只收**數字** `round`，字面走本頁
+     自己的 `dst.roundNew`（三語齊全）。 */
+function dstClearRound(n) {
+  dstStepDone = { lut: false, gray: false, prim: false };
+  dstRows = [];
+  dstRunOk = false;
+  dstVoid('');
+  dstLut = null; dstLutErr = null;
+  dstSay('dst-say-steps', '');
+  dstSay('dst-say-run', '');
+  dstProg('step', 0, 0, '');      // 兩條進度條同時歸零（DST_PROG_OUT 一份計算兩個出口）
+  dstRenderRows();                // 結果表清空 ⇒ #dst-res-wrap 自動收起來
+  dstRenderLut();
+  dstRenderSteps();
+  /* 🔴 **不靜默清掉**（Bruce 明示）：他前一秒看到四個勾、下一秒全空，沒有說明
+     會以為是 bug。這一句寫在步驟卡自己的說話行 —— 被清掉的東西就在它正上方。 */
+  dstSayInfo('dst-say-steps', dstT('dst.roundNew', { n: n }));
+  dstLog('== new round ' + n + ': steps/rows/LUT cleared (links kept)', 'w');
+}
+
 /* 換任務（DG 在分頁已經開著時只發訊息、不重新導航 —— 頁面不重載，
    I2C Bridge 與量測儀的連線都不會斷）。 */
 function dstDgApplyTask(d) {
   /* 🔴 正在量就先中止：切了任務還讓舊的那一輪跑完，資料會回到錯的地方。 */
   if (dstRunning) { dstAbort = true; dstLog('== task switched, aborting current run', 'w'); }
+  /* 🔴 v1.14.0：輪數**變了**才清（不是「收到任務訊息就清」）。同一輪裡 DG 會派
+     好幾次任務，每次都清會把這一輪真的做完的步驟洗掉。
+     🔴 `null`（沒有 round 欄位 ＝ 舊版 DG／直接開這一頁）一律不清，`null → 數字`
+        也不算變 —— 不知道輪數就不能假裝知道。判準寫在 `dstDgRound` 宣告處。
+     🔴 清在最前面：下面那幾行（dstRenderSteps／dstRenderDgBits／dstSay）要看到的是
+        清完之後的狀態，反過來寫會讓這一則訊息被清空覆蓋掉。 */
+  var nr = dstRoundOf(d.round);
+  if (nr !== null && dstDgRound !== null && nr !== dstDgRound) dstClearRound(nr);
+  if (nr !== null) dstDgRound = nr;
   dstDgTask = (typeof d.task === 'number') ? d.task : 0;
   dstDgMode = (d.mode === 'prim') ? 'prim' : 'gray';
   dstDgDest = d.dest || '';
@@ -5401,10 +5529,10 @@ function dstBind() {
         I2C 動作共用的那一個，不另開第二套。 */
   $('dst-go-lut').addEventListener('click', function () { dstGuard(dstStepLut); });
   /* ═══ 🔴 v1.10.0：②③ 只有這一顆（③ 那一顆已移除）══════════════════════════
-     🔴 這裡**不判「現在是第幾段」** —— 那個判斷只住在 dstStepGrayGo() 裡面
-        （見那一支上面的說明：寫成兩份會分岔，而且分岔時突變測試看不出來）。 */
+     🔴 v1.14.0：兩段式取消 ⇒ 這裡沒有「現在是第幾段」可判，按下去就是開始量。
+        `#dst-go-realign`（重新對位）整顆移除，連帶這一行的事件也刪掉 —— 不留
+        一個綁在不存在元素上的監聽（`$()` 回 null 會當場丟例外，整支 dstBind 斷掉）。 */
   $('dst-go-gray').addEventListener('click', function () { dstStepGrayGo(); });
-  $('dst-go-realign').addEventListener('click', function () { dstGuard(dstStepRealign); });
   $('dst-copy-lut').addEventListener('click', dstCopyLut);
 
   /* ═══ 🔴 v1.8.1：左上角的返回出口 ═══════════════════════════════════════
@@ -5661,6 +5789,11 @@ window.dstProbe = {
      `__setSerialForTest` 只是把 `navigator.serial` 換成假的（真瀏覽器才有它）。 */
   caOpen: function () { return dstCaOpen(); },
   caLinked: function () { return dstCaLinked; },
+  /* 🔴 v1.14.0：I 條「換輪不准清掉連線／IC／位元深度」要驗得到這三樣的真值
+     （只讀，不改狀態）。畫面上的字另有 `icText`／`caText` 在驗，這裡要的是旗標本身。 */
+  i2cLinked: function () { return dstLinked; },
+  icKey: function () { return dstIc ? dstIc.key : null; },
+  bits: function () { return dstBits; },
   caText: function () { var e = $('dst-ca-txt'); return e ? e.textContent : null; },
   caPressed: function () { var e = $('dst-ca'); return e ? e.getAttribute('aria-pressed') : null; },
   lutText: function (id) { var e = $(id); return e ? e.textContent : null; },
@@ -5800,14 +5933,12 @@ window.dstProbe = {
     if (all.length !== 1 || !card) return { n: all.length, inCard: false };
     return { n: all.length, inCard: card.contains(all[0]) };
   },
-  /* v1.10.0：②③ 那顆兩段式鈕的可觀測狀態 */
-  grayArmed: function () { return dstGrayArmed; },
+  /* 🔴 v1.14.0：`grayArmed`／`realignHidden`／`realignClick` 三個觀測口**已刪除** ——
+     兩段式與「重新對位」都不存在了，留著只會讓夾具驗一個沒有的東西。
+     `realignExists` 是它們的**反面**：夾具要驗得到「那顆鈕真的不在了」。 */
   goGrayText: function () { var e = $('dst-go-gray'); return e ? e.textContent : null; },
   goGrayIsPri: function () { var e = $('dst-go-gray'); return e ? e.classList.contains('pri') : null; },
-  realignHidden: function () {
-    var e = $('dst-go-realign'); return e ? e.classList.contains('dst-hidden') : null;
-  },
-  realignClick: function () { var e = $('dst-go-realign'); if (e) e.click(); },
+  realignExists: function () { return !!$('dst-go-realign'); },
   goGrayClick: function () { var e = $('dst-go-gray'); if (e) e.click(); },
   /* 🔴 ③ 那一列有沒有自己的開始鈕（要驗「沒有」，所以要回得了 null）。 */
   hasGoBtn: function (k) { return !!$('dst-go-' + k); },
@@ -5941,9 +6072,26 @@ window.dstProbe = {
   /* 🔴 走的是產品那兩顆鈕呼叫的同一支（不是夾具自己組流程）。 */
   stepLut: function () { return dstStepLut(); },
   stepScan: function (m) { return dstStepScan(m); },
-  stepAlign: function () { return dstStepAlign(); },
+  /* 🔴 v1.14.0：`dstStepAlign` 已整支移除（兩段式取消）。這一支保留成一個**明確
+     會失敗**的殘根，讓還在呼叫它的舊夾具拿到 false 而不是 TypeError ——
+     TypeError 會讓那支夾具從該行起整個不跑，紅的地方就不是真正該紅的地方。
+     （同一招 v1.12.0 已對 `backToDg` 用過。）
+     要打對位畫面請用 `dstProbe.alignPattern()`／`alignToggle()`，那兩支還在。 */
+  stepAlign: function () { return false; },
   stepGrayGo: function () { return dstStepGrayGo(); },
   stepOf: dstDgStepOf,
+  /* v1.14.0：輪次切換。`round()` 回 null ＝ 這一頁不知道自己在第幾輪（舊版 DG／
+     直接開頁），那個狀態下**永遠不清**，夾具要驗得到它。 */
+  round: function () { return dstDgRound; },
+  /* 🔴 v1.14.0：夾具要驗「中性色退得掉」—— 走的是產品那一支 `dstSay()` 本身。 */
+  __say: function (id, s) { return dstSay(id, s); },
+  roundOf: dstRoundOf,
+  clearRound: function (n) { return dstClearRound(n); },
+  resWrapHidden: function () {
+    var e = $('dst-res-wrap'); return e ? e.classList.contains('dst-hidden') : null;
+  },
+  /* 🔴 `progText`／`rows`／`sayRun` 這一組已經在上面／下面了，不再開第二份。 */
+  hasLut: function () { return !!dstLut; },
   /* v1.8.0：I2C Bridge 狀態碼對照表（唯讀）。夾具驗「區塊在、預設收起、
      每一列都有字、不含未翻譯的 key、也不含管理者權限那句」。 */
   scCodes: function () { return DST_STATUS_CODES.slice(); },
