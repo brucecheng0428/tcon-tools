@@ -2302,12 +2302,12 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20260922dg1732"></script>
-<script src="common/i18n.js?v=20260922dg1732"></script>
+<script src="common/version.js?v=20260922dg1733"></script>
+<script src="common/i18n.js?v=20260922dg1733"></script>
 <!-- v1.68.1：xlsx 產生器（原本在本頁，現在與 dg-selftest.html 共用）。
      🔴 必須在本頁的 inline script 之前載入。 -->
-<script src="common/xlsx.js?v=20260922dg1732"></script>
-<script src="common/common.js?v=20260922dg1732"></script>
+<script src="common/xlsx.js?v=20260922dg1733"></script>
+<script src="common/common.js?v=20260922dg1733"></script>
 <script>
 /* ════════════════════════════════════════════════════════════════════════
    DG — Digital Gamma 迭代校正
@@ -2421,9 +2421,25 @@
                              'zh-CN': 'DG 这一页重整过，和原本那个自检分页的连结断了（那个分页多半还开着，可以直接关掉）。已帮你开一个新的，请在新的那一页连上 I2C 工装再回来按一次。' },
       /* 🔴 v1.72.0：分頁切換一律改成中性提示 —— 瀏覽器不允許網頁把另一個分頁
          切到前景，寫「已切過去」是假話（Bruce 2026-09-21 實測按了沒反應）。 */
+      /* ═══ 🔴 v1.73.3：上面那句「瀏覽器不允許」是**過度斷言**，在此更正 ═════════
+         Bruce 2026-09-21 那次實測的是**反方向**：自檢頁按鈕呼叫 `window.opener
+         .focus()` 想把 DG 分頁帶到前面（`dg-selftest.html` v1.10.1 那一整段註解），
+         結果沒反應。那是「被開的頁去搶開它的頁」。
+         🔴 本版要加的是**另一個方向** —— DG 這一頁對 `window.open()` 回傳的那個
+            視窗參照呼叫 `focus()`。這個方向**從來沒有在真 Chrome 上試過**，
+            v1.72.0 把兩個方向寫成同一件事，是推論不是實測。
+         ⇒ 所以：focus() 加回來試（見 `dgLiveGo()` 重用那一段），但**文案不得因此
+           改成肯定句**。`dg.assignedTcon` 這一句一個字都不動（focus() 丟例外時仍用
+           它）；另立 `dg.assignedTconTry` 給「真的呼叫出去了」那一種情況，而它講的
+           也只是「試過」，不是「切好了」。
+         🔴 為什麼不共用一個 key：開新分頁那條路（`window.open` 本身就是前景）不需要
+            也不該講「不一定切得過去」—— 那裡講了反而是多餘的疑慮。 */
       'dg.assignedTcon': { 'zh-TW': '已指派，請切到自檢分頁繼續。',
                            'en': 'Handed over — switch to the self-test tab to carry on.',
                            'zh-CN': '已指派，请切到自检分页继续。' },
+      'dg.assignedTconTry': { 'zh-TW': '已指派（並嘗試切到自檢分頁）。瀏覽器不一定允許網頁切分頁，畫面沒跳過去的話請自己切到自檢分頁繼續。',
+                              'en': 'Handed over — a tab switch was attempted. Browsers do not always let a page switch tabs, so if nothing moved, switch to the self-test tab yourself to carry on.',
+                              'zh-CN': '已指派（并尝试切到自检分页）。浏览器不一定允许网页切分页，画面没跳过去的话请自己切到自检分页继续。' },
       /* ═══ 🔴 v1.72.0：從自檢分頁回來之後的導引 ═══════════════════════════════
          Bruce 2026-09-21：「我回到第 7 頁，突然不知道要做什麼。」
          🔴 導引**不寫狀態列**（理由見 `dgGuideAfterLive`），所以這裡只有標題列
@@ -14520,6 +14536,10 @@
           DG_LIVE_TASKS[task] = p[4];
           DG_LIVE_TASK_KIND[task] = kind;   // v1.71.0
           var reused = dgLiveAlive(kind);
+          /* 🔴 v1.73.3：這一次有沒有**真的把 focus() 呼叫出去**（沒有丟例外）。
+             它只決定下面那一句話要用哪一個 key —— **不是「切過去了」的證據**：
+             `focus()` 沒有回傳值，網頁也沒有任何辦法知道對面是不是到了前景。 */
+          var focusTried = false;
 
           if (reused) {
             /* 重用：**只送訊息**，不重新導航、不改視窗大小位置、也不搶焦點。
@@ -14583,6 +14603,39 @@
                 round: DG_ROUND, job: job, nextBtn: nextBtn,
                 what: DG_LIVE_WHAT[step] || DG_LIVE_WHAT[mode] },
               window.location.origin);
+            /* ═══ 🔴 v1.73.3：**只有自檢那條路**把 focus() 加回來 ════════════════
+               Bruce 2026-09-22：「第二輪量測在 DG 按下去以後，可不可以在 DG 分頁
+               那邊自動跳到 TCON 自檢畫面，而不要手動再自己切過去？」
+
+               ── 為什麼 `kind === 'pc'` **不准一起加回去** ─────────────────────────
+                 v1.27.0 拿掉這一行的理由對電腦畫面那條路**今天仍然成立**：
+                 `dg-measure.html` 會進全螢幕（本檔 grep：該頁 `requestFullscreen`
+                 **8 處**），而 focus() 會把它踢出全螢幕 —— Bruce 2026-09-09 回報過，
+                 `_tmp_dg1270/probe5.py` 的 S4（走產品那顆真按鈕）量到 fs=false。
+                 🔴 那個代價**只存在那一條路**：`dg-selftest.html` 的
+                    `requestFullscreen` 是 **0 處**（同一次 grep）⇒ 自檢頁沒有全螢幕
+                    可以被弄掉，這一行在它身上沒有已知的副作用。
+                 ⇒ 所以分路加，不是整支加回來。上面 v1.27.0 那一整段說明**刻意留著**
+                    （它記錄的是「為什麼曾經拿掉」，刪掉等於讓下一個人再踩一次）。
+
+               ── 🔴 它到底會不會生效：**不知道，而且我們驗不出來** ────────────────
+                 · 手上唯一的真機證據是**反方向**的：自檢頁 `window.opener.focus()`
+                   想把 DG 分頁帶到前面，Bruce 2026-09-21 實測沒反應
+                   （`dg-selftest.html` v1.10.1 那一段）。
+                 · 本版這個方向（對 `window.open()` 回傳的視窗參照呼叫 focus()）
+                   **沒有人在真 Chrome 上試過**；headless 也試不出來（沒有分頁 UI、
+                   沒有前景的概念）。
+                 · `focus()` **沒有回傳值**，成功與失敗長得一模一樣。
+                 ⇒ 因此：①「請切到自檢分頁繼續」那一句**一律保留**，不因為加了這一行
+                   就拿掉；② 文案只能寫「嘗試」，不得寫成「已經幫你切過去了」。
+
+               🔴 擺在 postMessage **後面**：指派才是主要目的，focus() 是附加的。
+                  try/catch 是為了「就算這一行在某個瀏覽器上丟例外，指派也已經送出去
+                  了、後面的狀態列也照樣會寫」—— 不是為了吞掉錯誤不讓人知道。 */
+            if (kind === 'tcon') {
+              try { page.win.focus(); focusTried = true; }
+              catch (e) { focusTried = false; }
+            }
           } else {
             /* v1.27.0：開新頁時把**步驟名稱**一起帶過去（重用那條路是走上面那則
                訊息的 dest 欄位）。🔴 名稱就是 p[2] —— 主頁面在用的那組字，
@@ -14673,6 +14726,12 @@
                 v1.27.0 就把 `focus()` 拿掉了（那一行還會害量測分頁掉出全螢幕），
                 而且就算留著也無效。⇒ 文案一律改成中性的「已指派，請切到自檢分頁
                 繼續」，不再寫「已切換到…」那種像是幫他切好了的話。
+             ═══ 🔴 v1.73.3 更正上面那一句 ════════════════════════════════════════
+                「就算留著也無效」是**推論，不是實測**：當時手上的實測只有反方向的
+                （自檢頁 `opener.focus()` → DG 分頁，沒反應）。本版把 focus() 只對
+                自檢那條路加回來試（完整理由寫在 postMessage 底下那一段）。
+                🔴 **文案的結論沒有因此改變**：那一句中性提示一個字都沒動，只是在
+                   「focus() 真的呼叫出去了」時換成同樣不肯定的 `assignedTconTry`。
              🔴 走自檢這條路時，現場提示取**自檢頁那三顆鈕自己的那一句**（入口表同一
                 份，不另抄一份）：第 4 部分與光學資料比較那兩個入口的 p[3] 寫的是
                 「探頭對準紅圈、按右上角開始量測」，那是電腦畫面那一頁的做法，
@@ -14682,16 +14741,22 @@
             var e = DG_LIVE_ENTRY['dg-btn-tcon-' + step];
             return (e && e[3]) ? e[3] : p[3];
           })();
+          /* 🔴 v1.73.3：重用分頁時的第一句。`focusTried` 只有在「重用 ＋ 自檢那條路
+             ＋ focus() 沒丟例外」三者同時成立時才是 true ⇒ 開新分頁那條路與電腦畫面
+             那條路拿到的必然是原本那一句（`dg.assignedTcon`），逐字不變。
+             🔴 兩句都**不是肯定句**：一句說「請自己切過去」，另一句說「試過了，沒跳
+                過去請自己切」。網頁沒有辦法知道對面是不是到了前景，所以不能宣稱。 */
+          var assigned = dgT(focusTried ? 'dg.assignedTconTry' : 'dg.assignedTcon');
           if (p[4] === 'lut') {
             say(reused
-              ? (dgT('dg.assignedTcon') + '\n'
+              ? (assigned + '\n'
                 + '目的地是這一頁的' + p[2] + '。自檢分頁沒有被重開 —— 它跟 I2C 治具的連線維持原樣。\n'
                 + '切過去之後，' + p[3] + '。\n' + tail)
               : ('已開啟「T-CON 自檢」分頁（' + p[2] + '）。' + dgT('dg.assignedTcon') + '\n'
                 + '在那一頁先連上 I2C、等它認出 IC，' + p[3] + '。\n' + tail), '');
           } else if (kind === 'tcon') {
             say(reused
-              ? (dgT('dg.assignedTcon') + '\n'
+              ? (assigned + '\n'
                 + '目的地是這一頁的' + p[2] + '。自檢分頁沒有被重開 —— 它跟 I2C 治具的連線維持原樣。\n'
                 + '切過去之後，' + tconHint + '。\n' + tail)
               : ('已開啟「T-CON 自檢」分頁（' + p[2] + '）。' + dgT('dg.assignedTcon') + '\n'
