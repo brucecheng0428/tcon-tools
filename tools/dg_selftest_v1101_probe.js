@@ -555,16 +555,13 @@ function renderLang(w, lang) {
       CHECK(meas.contains(doc.getElementById(id)), '「量測」卡仍有 ' + id));
   }
   {
-    /* 🔴 接手檢查一：沒接量測儀時，第二段必須是**灰的**（不是按得下去卻不動）。
-       這一條原本掛在「開始掃描」上，那顆鈕沒了就得有人接。 */
+    /* 🔴 接手檢查一：沒接量測儀時，「開始量測」必須是**灰的**（不是按得下去卻不動）。
+       這一條原本掛在「開始掃描」上，那顆鈕沒了就得有人接。
+       🔴 v1.14.0 **收緊**：兩段式取消之後這一條從「只擋第二段」變成「一進來就擋」
+          —— 那顆鈕現在每一次按都是真的開始量，沒有「用不到量測儀」的那一段了。 */
     const { P, doc } = await loadReady({ meter: false, qs: '?task=1&step=gray' });
     const gg = doc.getElementById('dst-go-gray');
-    EQ([P.grayArmed(), gg.disabled], [false, false],
-      '前置條件：第一段（對位畫面）不需要量測儀 ⇒ 可以按');
-    await P.stepAlign();
-    await sleep(20);
-    EQ(P.grayArmed(), true, '按過對位 ⇒ 進到第二段');
-    EQ(gg.disabled, true, '🔴 沒接量測儀 ⇒ 第二段「開始量測」是灰的');
+    EQ(gg.disabled, true, '🔴 沒接量測儀 ⇒ 「開始量測」一進來就是灰的（不必先按什麼）');
     EQ(P.runWhyKey(), 'dst.whyNoMeter', '🔴 而且畫面上講得出原因：沒有量測儀');
     CHECK((P.runWhyText() || '').indexOf('量測儀') >= 0,
       '🔴 那一行原因真的印在 ②③ 那一格裡', P.runWhyText());
@@ -573,21 +570,19 @@ function renderLang(w, lang) {
       '🔴 沒接量測儀**不會**連帶把 ①「讀回 RGB LUT」鎖住（那是假的閘門）');
   }
   {
-    /* 🔴 接手檢查二：兩段式仍然完整走得完，而且量測中的狀態更新照舊。 */
+    /* 🔴 接手檢查二：那顆鈕仍然完整走得完，而且量測中的狀態更新照舊。
+       🔴 v1.14.0 **收緊**：原本是「按兩次才開始量」，現在釘成「按**一次**就開始量」，
+          並且多釘一條「按之前一筆資料都沒有」（證明第一次按不是白按的）。 */
     const isRunning = P => P.runWhyKey() === 'dst.whyRunning';
     const { P, doc } = await loadReady({ qs: '?mode=prim&task=21&step=prim' });
     const gg = doc.getElementById('dst-go-gray');
-    EQ([P.grayArmed(), gg.textContent, gg.disabled], [false, '對位畫面', false],
-      '第一段：字是「對位畫面」、可以按');
+    EQ([gg.textContent, gg.disabled], ['開始量測', false],
+      '鈕上就是「開始量測」、可以按（沒有「對位畫面」那一段）');
+    EQ(P.realignExists(), false, '🔴「重新對位」那顆鈕整顆不存在');
+    EQ(isRunning(P), false, '前置：還沒開始量');
     gg.click();
-    await waitFor(() => P.grayArmed(), 3000);
-    await sleep(20);
-    EQ([P.grayArmed(), doc.getElementById('dst-go-gray').textContent],
-      [true, '開始量測'], '🔴 按一次 ⇒ 第二段，字變成「開始量測」');
-    EQ(P.realignHidden(), false, '第二段才出現「重新對位」');
-    doc.getElementById('dst-go-gray').click();
     await waitFor(() => isRunning(P), 5000);
-    EQ(isRunning(P), true, '🔴 再按一次 ⇒ 真的開始量（沒有「開始掃描」也走得通）');
+    EQ(isRunning(P), true, '🔴 按**一次**就真的開始量（沒有「開始掃描」也走得通）');
     EQ(doc.getElementById('dst-stop').disabled, false, '量測中「停止」可以按');
     doc.getElementById('dst-stop').click();
     await waitFor(() => !isRunning(P), 8000);
@@ -767,14 +762,15 @@ function renderLang(w, lang) {
      這是「移除之後留下沒人管的狀態」那個破口的配對突變：拿掉之後，沒接量測儀時
      「開始量測」會變成一顆**按得下去、按了只跳一行錯誤**的鈕。 */
   {
-    const orig = "    if (dstGrayArmed && dstRunWhyKey()) gg.disabled = true;";
-    CHECK(SELF_SRC.indexOf(orig) > 0, 'M6-b：找得到第二段那道閘門');
+    /* 🔴 v1.14.0：兩段式取消 ⇒ 這道閘門的前綴 `dstGrayArmed &&` 也拿掉了，
+       突變的目標字串跟著改；驗的事情一個字都沒變（拿掉閘門 ⇒ 鈕又按得下去）。 */
+    const orig = "    if (dstRunWhyKey()) gg.disabled = true;";
+    CHECK(SELF_SRC.indexOf(orig) > 0, 'M6-b：找得到「沒接量測儀不能開始量」那道閘門');
     const mut = SELF_SRC.replace(orig, '');
-    const { P, doc } = await loadReady({ src: mut, meter: false, qs: '?task=1&step=gray' });
-    await P.stepAlign();
+    const { doc } = await loadReady({ src: mut, meter: false, qs: '?task=1&step=gray' });
     await sleep(20);
     EQ(doc.getElementById('dst-go-gray').disabled, false,
-      '🔴 突變後沒接量測儀也按得下去 ⇒ 第 ⑥ 組「第二段是灰的」那一條會紅');
+      '🔴 突變後沒接量測儀也按得下去 ⇒ 第 ⑥ 組「開始量測是灰的」那一條會紅');
   }
   /* ── 🔴 M6-c（⑥）：把量測儀那一條**加進 dstStepsWhyKey()**（錯誤的接手方式）──
      這樣做也會讓第二段變灰，但**同時會把 ①「讀回 RGB LUT」一起鎖住** ——

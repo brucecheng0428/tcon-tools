@@ -357,9 +357,20 @@ async function loadDg(src) {
     const { P } = await loadSelf({ ws, ic: 'EM01A1', qs: '?step=lut' });
     EQ(P.stepsWhyKey(), null, '🔴 連上 ＋ 認出 IC ⇒ 沒有原因');
     EQ(P.stepsWhyText(), '', '🔴 可按時畫面上一個字都不出現');
-    /* 🔴 同上：v1.10.0 起 ③ 沒有自己的鈕 ⇒ 第三個值是 null。 */
+    /* 🔴 同上：v1.10.0 起 ③ 沒有自己的鈕 ⇒ 第三個值是 null。
+       ═══ 🔴 v1.14.0：② 這一顆多一條前提 —— **要接上量測儀** ══════════════════
+       兩段式取消之後（Bruce 2026-09-22），那顆鈕按下去就是真的開始量 ⇒ 沒接量測儀
+       就該是灰的（否則就是一顆按得下去、按了只跳一行錯誤的鈕）。
+       這一段原本沒掛假量測儀，所以 ② 現在是灰的 —— **不是退步，是新的正確行為**。
+       ⇒ 分成兩格驗，把「量測儀這一維真的有在管」釘住（這是收緊，不是遷就）。 */
     EQ([P.stepRow('lut').disabled, P.stepRow('gray').disabled, P.stepRow('prim').disabled],
-       [false, false, null], '🔴 ①② 兩顆動作鈕都可以按（③ v1.10.0 起沒有自己的鈕）');
+       [false, true, null],
+       '🔴 ① 可按；② 沒接量測儀 ⇒ 灰的（v1.14.0）；③ 沒有自己的鈕');
+    EQ(P.runWhyKey(), 'dst.whyNoMeter', '🔴 而且 ② 灰掉的原因講得出來：沒有量測儀');
+    P.__attachFakeMeter(cmd => 'OK');
+    await sleep(20);
+    EQ([P.stepRow('lut').disabled, P.stepRow('gray').disabled],
+       [false, false], '🔴 接上量測儀 ⇒ ①② 兩顆都可以按（反面：閘門不是永遠成立）');
     /* 🔴 三步彼此獨立：①②③ 沒有任何一顆因為「前一步沒做」而變暗 —— 上面那一行
        已經證明（三步都沒打勾，三顆都可按）。這一行把它寫成明示的斷言。 */
     EQ(P.stepDone(), { lut: false, gray: false, prim: false },
@@ -765,9 +776,12 @@ async function loadDg(src) {
        ②③ 自 v1.10.0 起共用一顆兩段式的鈕（`dst.goAlign`／`dst.goMeasure`），
        `dst.goScan` 從那時起就沒有任何引用點（逐檔 grep 過：產品端 0 筆），
        這一輪把死掉的 key 定義刪掉，名單也跟著刪。
-       🔴 它接手的那兩個 key **加進名單裡**，驗的事情沒有少一件。 */
+       🔴 它接手的那兩個 key **加進名單裡**，驗的事情沒有少一件。
+       🔴 v1.14.0：同樣的事情發生在 `dst.goAlign` 上 —— 兩段式取消，那顆鈕固定是
+          「開始量測」⇒ `dst.goAlign` 沒有引用點了，定義與名單一起刪。
+          「真的刪乾淨了」由 v1100 夾具的 `dead` 那一條反面釘住，不是刪掉就沒人管。 */
     const keys = ['dst.hdSteps', 'dst.stepLut', 'dst.stepGray', 'dst.stepPrim', 'dst.goLut',
-                  'dst.goAlign', 'dst.goMeasure',
+                  'dst.goMeasure',
                   'dst.copyLut', 'dst.backDg', 'dst.stepTo', 'dst.stepsWhyRun',
                   'dst.stepsWhyLink', 'dst.stepsWhyIc', 'dst.stepLutNoDg', 'dst.dgLabelLut',
                   'dst.dgSentLut', 'dst.dgLutTooFew', 'dst.copyOk', 'dst.copyFail',

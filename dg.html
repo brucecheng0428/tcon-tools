@@ -2277,12 +2277,12 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20260922dg1730"></script>
-<script src="common/i18n.js?v=20260922dg1730"></script>
+<script src="common/version.js?v=20260922dg1731"></script>
+<script src="common/i18n.js?v=20260922dg1731"></script>
 <!-- v1.68.1：xlsx 產生器（原本在本頁，現在與 dg-selftest.html 共用）。
      🔴 必須在本頁的 inline script 之前載入。 -->
-<script src="common/xlsx.js?v=20260922dg1730"></script>
-<script src="common/common.js?v=20260922dg1730"></script>
+<script src="common/xlsx.js?v=20260922dg1731"></script>
+<script src="common/common.js?v=20260922dg1731"></script>
 <script>
 /* ════════════════════════════════════════════════════════════════════════
    DG — Digital Gamma 迭代校正
@@ -14477,8 +14477,22 @@
                自檢頁收不到這個欄位時會退回 mode ⇒ 舊版的自檢頁分頁照舊能用，
                只是不會換高亮那一列。`what` 的鍵也從 mode 換成 step，但 gray／prim
                兩步的 step 就等於 mode ⇒ 既有四個入口送出去的字**逐字不變**。 */
+            /* ═══ 🔴 v1.74.0：多帶 `round`（現在是第幾輪迭代）════════════════════
+               Bruce 2026-09-22：「回到 DG 網頁進到第二輪的時候，是不是應該要把
+               『自檢』畫面的數據再重新清除？」
+               ⇒ 自檢頁要判斷「這是不是新的一輪」，而它手上**沒有任何線索**：
+                 `task` 每次換任務都會 ++（同一輪裡也會），`step`／`dest` 更不是。
+                 輪數的唯一來源是這一頁的 `DG_ROUND`（v1.25.0 起），從來沒送出去過。
+               🔴 只送**數字**，不送 `dgRoundName()` 那個字串：那一支產出的是繁中
+                  寫死的「第二輪」（本頁這一帶沒有走 i18n），送過去會讓自檢頁的
+                  英文／簡中介面冒出一句繁中。字面由自檢頁自己的 i18n 組。
+               🔴 自檢頁收不到這個欄位時**不清**（舊版自檢頁分頁照舊能用，只是不會
+                  自動清上一輪的勾）—— 與 `step` 那一條同一個相容策略。
+               🔴 `dg-measure.html`（電腦畫面那條路）不讀它，多一個它看不懂的欄位
+                  對它沒有任何影響。 */
             page.win.postMessage(
               { type: 'dg-measure-task', task: task, mode: mode, step: step, dest: p[2],
+                round: DG_ROUND,
                 what: DG_LIVE_WHAT[step] || DG_LIVE_WHAT[mode] },
               window.location.origin);
           } else {
@@ -14515,10 +14529,17 @@
                既有的是 mode／task／dest／what／v 五個，`step` 不與任何一個相撞；
                dg-measure.html 不讀它（那一頁沒有三步清單），多帶一個它看不懂的
                參數對它沒有任何影響 —— 所以兩條路的網址仍然只差檔名。 */
+            /* 🔴 v1.74.0：第六個參數 `round`。**開新分頁這條路也一定要帶**，不是
+               可有可無：自檢頁只在「輪數從一個已知值變成另一個」時才清，開頁時沒收到
+               round ⇒ 它的 `dstDgRound` 是 null ⇒ 下一輪的訊息變成 `null → 2`，
+               依「不知道輪數就不能假裝知道」那一條**不會清** ⇒ bug 原封不動。
+               已 grep 兩頁的 QS 讀取：既有的是 mode／task／dest／what／step／v 六個，
+               `round` 不與任何一個相撞；`dg-measure.html` 不讀它（那一頁沒有步驟清單）。 */
             var url = page.file + p[1] + (p[1] ? '&' : '?') + 'task=' + task
               + '&dest=' + encodeURIComponent(p[2])
               + '&what=' + encodeURIComponent(DG_LIVE_WHAT[step] || DG_LIVE_WHAT[mode])
               + '&step=' + encodeURIComponent(step)
+              + '&round=' + encodeURIComponent(DG_ROUND)
               + '&v=' + encodeURIComponent(DG_SELF_VER);
             page.win = window.open(url, '_blank');
             if (!page.win) {

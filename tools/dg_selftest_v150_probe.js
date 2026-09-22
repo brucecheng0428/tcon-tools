@@ -137,30 +137,31 @@ function fitScroll(win, el, rowH, viewH) {
     CHECK(rows[2].disabled === rows[3].disabled,
       '🔴 儀器未連：對位開／關 ⇒ ②③ 那顆鈕的 disabled **相同**', [rows[2].disabled, rows[3].disabled]);
     CHECK(rows[0].disabled === false, '儀器連著 ⇒ 可按', rows[0].disabled);
-    /* 🔴 v1.10.1 起語意改了（這是**產品的刻意改動**，不是夾具遷就）：那顆鈕是兩段式的，
-       第一段只是出對位畫面 —— 那件事根本用不到量測儀，所以未連時第一段照樣可按。
-       「沒接儀器不能量」那道閘門搬到**第二段**，下面那一組專門驗它。 */
-    CHECK(rows[2].disabled === false,
-      '🔴 儀器未連 ⇒ 第一段（出對位畫面）仍可按（用不到儀器）', rows[2].disabled);
+    /* ═══ 🔴 v1.14.0：這一條**翻面了**（產品的刻意改動，不是夾具遷就）═══════════
+       v1.10.1～v1.13.0 那顆鈕是兩段式的，第一段只是出對位畫面 —— 用不到量測儀，
+       所以未連時第一段照樣可按。v1.14.0 兩段式取消（「畫面測試」卡在 v1.13.0 搬到
+       步驟卡正上方，第一段變成同一件事的第二顆鈕，Bruce 2026-09-22 裁示直接開始量）
+       ⇒ 那顆鈕現在**每一次按都是真的開始量** ⇒ 沒接量測儀就該是灰的。
+       🔴 這是**收緊**：原本「未連也可按」，現在「未連一律不可按」。 */
+    CHECK(rows[2].disabled === true,
+      '🔴 儀器未連 ⇒ 那顆鈕是灰的（它現在按下去就直接開始量）', rows[2].disabled);
   }
-  H('① 沒接量測儀 ⇒ 第二段（開始量測）才變灰');
+  H('① 沒接量測儀 ⇒「開始量測」一進來就是灰的');
   {
     const { doc, P } = await load({ ca: false });
-    await P.goGrayClick(); await sleep(80);
-    EQ(P.grayArmed(), true, '前置：第一段按完，進到第二段');
+    EQ(P.realignExists(), false, '前置：「重新對位」那顆鈕已整顆移除（v1.14.0）');
     CHECK(doc.getElementById('dst-go-gray').disabled === true,
-      '🔴 真正讓它變灰的是「儀器沒連」，而且是在第二段（v1.10.1 起）',
+      '🔴 真正讓它變灰的是「儀器沒連」，而且**不必先按任何東西**（v1.14.0 起）',
       doc.getElementById('dst-go-gray').disabled);
+    EQ(P.runWhyKey(), 'dst.whyNoMeter', '🔴 而且畫面上講得出原因：沒有量測儀');
   }
   H('① 按下「開始量測」會自動離開對位畫面再掃（v1.3.0 起就在做）');
   {
     const { doc, P } = await load({});
     doc.getElementById('dst-settle').value = '300';
-    await P.alignToggle(); await sleep(60);
+    await P.alignToggle(); await sleep(60);       // 對位走「畫面測試」卡那顆切換鈕
     EQ(P.showing(), 'align', '前置：對位畫面開著');
-    await P.goGrayClick(); await sleep(80);       // 第一段：對位畫面（仍然開著）
-    EQ(P.grayArmed(), true, '第一段按完 ⇒ 鈕進到「開始量測」那一段');
-    P.goGrayClick();                              // 第二段：真的開始量
+    P.goGrayClick();                              // 🔴 v1.14.0：按**一次**就真的開始量
     await sleep(300);
     EQ(P.showing(), null, '🔴 按下去之後對位畫面**自動關掉**（dstRun 開頭的離開序列）');
     CHECK(/1\/256/.test(P.progText() || ''), '🔴 而且掃描真的跑起來了', P.progText());
