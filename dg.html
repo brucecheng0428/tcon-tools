@@ -2577,12 +2577,12 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20260923dg1753"></script>
-<script src="common/i18n.js?v=20260923dg1753"></script>
+<script src="common/version.js?v=20260923dg1754"></script>
+<script src="common/i18n.js?v=20260923dg1754"></script>
 <!-- v1.68.1：xlsx 產生器（原本在本頁，現在與 dg-selftest.html 共用）。
      🔴 必須在本頁的 inline script 之前載入。 -->
-<script src="common/xlsx.js?v=20260923dg1753"></script>
-<script src="common/common.js?v=20260923dg1753"></script>
+<script src="common/xlsx.js?v=20260923dg1754"></script>
+<script src="common/common.js?v=20260923dg1754"></script>
 <script>
 /* ════════════════════════════════════════════════════════════════════════
    DG — Digital Gamma 迭代校正
@@ -8081,6 +8081,10 @@
      🔴 說明字串一律經過 `say()`，同時存進 `DG_SLOT_P2_NOTE` 給呼叫端接 ——
         兩邊講的必定是同一句話，不可能分岔。 */
   var DG_SLOT_P2_NOTE = '';
+  /* v1.75.4（E）：`dgApplyLiveRows()` 這一次自動建組的結果，給訊息處理那一層回報給
+     量測分頁用（`{ no, name, note }`；null ＝ 這一次沒有跑到自動建組那一步）。
+     🔴 這裡**不是第二份加組邏輯**，只是把既有那一支的回傳值放在一個看得到的地方。 */
+  var DG_LIVE_SLOT = null;
   function dgSlotAddFromPart2(quiet) {
     DG_SLOT_P2_NOTE = '';
     function say(text, cls) {
@@ -12123,6 +12127,18 @@
           「問過再存」（`dgGrayRecordAsk`）。他沒有交辦那一條，不自行改。 */
     var autoSlotNo = dgSlotAddFromPart2(true);
     var autoSlotNote = DG_SLOT_P2_NOTE;
+    /* ═══ 🔴 v1.75.4（E）：把這個結果**留給訊息處理那一層回報給量測分頁** ══════════
+       Bruce 2026-09-23：「已經量完以後…保存到光學比較，可以直接在這個頁面直接做操控。」
+       查證結果：加組這件事 v1.73.0 起就已經自動做了（上面那一段），**缺的只是量測分頁
+       那邊看不到結果** —— 他人在自檢頁，組建在這個分頁裡。
+       🔴 **不在這裡 postMessage**：這一支拿不到 `e.source`（它被匯入檔案那條路也叫得到，
+          那條路根本沒有來源視窗）。⇒ 只把結果放在這兩個變數上，由訊息處理那一層
+          （有 `e.source`）決定要不要回報。這樣「誰負責回話」只有一個地方。
+       🔴 存的是 `no` 與**當下的顯示名**，不是重新推導的名字：名字由 `dgSlotAddFromPart2()`
+          寫進去（`dgSlotUniqueName(dgRoundName(DG_ROUND))`），這裡只讀回來。 */
+    DG_LIVE_SLOT = { no: autoSlotNo,
+                     name: autoSlotNo ? dgSlotDisplayName(autoSlotNo - 1) : '',
+                     note: autoSlotNote || '' };
 
     /* v1.11.0：他人在量測那一頁，切回來時要一眼看到「資料真的進來了」。
        徽章要點開才注意得到，所以借用匯入檔案那個同一個可見方框（dg-fmt-box），
@@ -15728,7 +15744,20 @@
       // v1.18.0：白灰階量完要進哪裡，由「是誰按的即時量測」決定（見 DG_LIVE_DEST）
       if (dest === 'slot') dgSlotAddFromLive(d.rows, d.at || d.label, meta);
       else if (dest === 'conf') dgConfApplyLive(d.rows, d.at || d.label, meta);   // v1.24.0
-      else guide(dgApplyLiveRows(d.rows, d.at || d.label, meta));
+      else {
+        /* 🔴 v1.75.4（E）：先清掉上一次的結果，再跑，再回報 —— 不清的話
+           `dgApplyLiveRows()` 提早 return（筆數不足那一支）時會把**上一輪**的組號
+           當成這一輪的回報送出去，而那正是「代理指標」那一族的謊。 */
+        DG_LIVE_SLOT = null;
+        guide(dgApplyLiveRows(d.rows, d.at || d.label, meta));
+        if (DG_LIVE_SLOT && e.source) {
+          try {
+            e.source.postMessage({ type: 'dg-slot-auto', task: d.task,
+                                   no: DG_LIVE_SLOT.no, name: DG_LIVE_SLOT.name,
+                                   note: DG_LIVE_SLOT.note }, window.location.origin);
+          } catch (err) { /* 對方已經關了：那一頁自己看不到回報，這邊不需要處理 */ }
+        }
+      }
     });
 
     // v1.8.0：說明浮動視窗。內容直接取自頁面上那些 display:none 的區塊，不維護第二份文字。
