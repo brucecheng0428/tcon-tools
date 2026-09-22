@@ -2,6 +2,183 @@
 
 ---
 
+## Digital Gamma 迭代校正 (dg) v1.75.2 — 2026-09-23 ｜ PATCH
+
+Bruce 2026-09-23：
+
+> 「在**重新整理 DG 頁面**的時候，下面原本**應該隱藏的卡片，居然會在還沒重新整理完的過程中顯露出來**，直到全部重新整理完才隱藏起來。這樣的做法不對，請想辦法修正。」
+
+### 病因（覆核過，屬實）
+
+`#dg-main-cards`（未選工作模式前要整袋收起來的那一袋，v1.71.0 起）在 HTML 裡**沒有任何隱藏標記**，要等 `dgWmodeSync()` 跑到這一行才被藏起來：
+
+```js
+var bag = $('dg-main-cards');
+if (bag) bag.style.display = (DG_WMODE || DG_PQ) ? '' : 'none';
+```
+
+`dgWmodeSync()` 在 `dgInit()` 裡、掛在 DOMContentLoaded 上；而主 script 的起點在 `<body>` 中段、`dg.html` 有 **1.1 MB** ⇒ 瀏覽器**先把整袋卡片畫出來、之後才被藏掉**。
+
+### 修法：把答案寫進靜態 HTML／CSS，不靠 JS 事後修正
+
+| 位置 | 內容 |
+|---|---|
+| `<html>` | 多一個寫死的屬性 `data-dg-boot`（**不是 JS 加的**） |
+| `<head>` `<style>` | `html[data-dg-boot] [data-dg-bootgate] { display: none !important; }` |
+| `#dg-main-cards` | 多掛 `data-dg-bootgate` |
+| `dgWmodeSync()` | 寫完 inline display 的**下一行**放行：`document.documentElement.removeAttribute('data-dg-boot')` |
+
+🔴 **這不是「讓 JS 跑得更早」。** 那種解法只是把時間差縮小、消滅不了它。這裡是瀏覽器讀到 `<html>` 那一行時狀態就已經成立，**時間差為零**。
+
+#### 🔴 敢用純 CSS（不必讀 localStorage）的依據
+
+`dgInit()` 末尾寫死 `DG_WMODE = null;`（v1.71.0，Bruce 第 6 條：「重整之後仍然跳出這個二選一，不自動套用上次的選擇」），而 `DG_PQ` 的宣告初值是 `false`、全檔只有「匯入 PQ Tools 檔案」這個**使用者動作**會把它設成 true。
+⇒ `(DG_WMODE || DG_PQ)` 在**第一次 paint 當下恆為 false**，正確狀態就是「隱藏」，而且不必讀任何儲存就能斷定。
+
+⇒ 因此**不存在**「重整時本來就該顯示、卻先空白一片」的反向閃爍。
+⚠ 這條 CSS 與 `DG_WMODE = null;` 那一行**綁在一起**：哪天改成「重整後沿用上次選的模式」，這個預設就會變成反向閃爍。**兩處都寫了指向對方的註解**，避免只改一邊。
+
+#### 判準用屬性、不列舉卡片 id
+
+沿用 `data-wmode-only` 那一套的理由（`dgWmodeSync()` 上方註解）：列舉式清單漏一個不會有任何錯誤訊息。
+
+### 🔴 範圍確認：`[data-wmode-only]` 那些鈕**不在**袋子裡，但**不需要一起處理**
+
+grep 的結果（不是假設）：`#dg-main-cards` 是第 999～1645 行，5 個 `[data-wmode-only]` 在第 1886／1987／1988／2137／2138 行 —— **全部在袋子外面**，藏袋子救不到它們。
+
+但它們 5 顆全部落在 `#dg-modal-lut`／`#dg-modal-gray`／`#dg-modal-prim` 這三個 `.dg-modal` 裡，而 `.dg-modal` 的 CSS 預設就是 `display: none`（要按鈕開了才加 `.open`）⇒ **它們在第一次 paint 當下本來就看不到，沒有先畫再藏的問題。** `dgWmodeSync()` 底下那圈 `.dg-lut-opt` 同理（全部在 modal 內）。
+
+### JS 沒跑起來時的退路（[[feedback_guard_must_leave_a_way_out]]）
+
+這道閘門的作用方向是「隱藏」，壞掉的方向就是「看不到東西」，所以三條路都留了出口：
+
+| 情況 | 誰放行 | 畫面 | 實測 |
+|---|---|---|---|
+| JS 被關掉 | `<noscript>` 裡的覆蓋規則 | 卡片全部看得到（＝v1.75.1 的樣子） | computed `display = block` |
+| JS 開著、主 script 掛在表態之前 | head 裡那段 watchdog（`window` 的 `load`） | 同上 | 強制 `dgInit()` 不被呼叫後量到 `display=block`、高度 1178px |
+| 正常 | `dgWmodeSync()`，與寫 inline display 同一個 tick | 正確隱藏 | 見下方時序量測 |
+
+⚠ **仍然蓋不到的一種情況（不假裝完備）**：某個同源子資源卡住不回 ⇒ `load` 永遠不觸發、主 script 也跑不到 ⇒ 閘門留著。那時畫面上是「標題列 ＋ 最上方那張三選一的入口卡」，**不是整頁空白**，按了沒反應看得出這頁沒載完。
+🔴 **刻意不補 setTimeout 兜底**：秒數只能用猜的，猜短了會在慢網路下先放行、再被 `dgWmodeSync()` 藏回去 —— 那是自己製造一次閃爍，去救一個更罕見的情況。
+
+### 順帶：`dgApi.wmodeCardsVisible()` 多判一次閘門
+
+這一支的語意是「畫面上看不看得到」，而本版之後 inline display 不再是唯一決定因素。閘門還沒放行時，inline display 即使是 `''` 畫面上仍然是空的 ⇒ 只看 inline style 會回報一個與畫面相反的答案，而這支的存在意義就是拿來覆核畫面。
+
+### 🔴 **沒有**改的東西
+
+- **一個字面文字都沒動** ⇒ 三語（zh-TW／zh-CN／en）不受影響，沒有新增／修改任何 i18n key。
+- `dgWmodeSync()` 的判斷式 `(DG_WMODE || DG_PQ)` 一個字沒改；`dgWmodeSet()`／`dgWmodeClear()`／自動保存還原一律沒碰。
+- `[data-wmode-only]`／`.dg-lut-opt` 那兩圈邏輯一個字沒改（理由見上）。
+
+### 判定依據：dg v1.75.2
+
+| 逐項判 | 結果 | 說明 |
+|---|---|---|
+| §1・功能增減 | **不增不減** | 沒有新入口、沒有新按鈕、沒有移除任何東西 |
+| §1・操作流程 | **不變** | 控制項一個都沒移位；選模式 → 卡片展開，逐步相同 |
+| §1・既有功能的輸出 | **不變** | 計算結果、匯出檔一個位元組都沒碰 |
+| R1（修 bug） | **適用 ⇒ PATCH** | 「該隱藏的東西在載入途中露出來」是錯誤行為，修正是讓它回到本來就該有的樣子 |
+| R3（能做的事多一件？） | **沒有** | 使用者能做的事完全一樣 |
+| R4（起始狀態／預設值） | **沒改** | 起始狀態仍然是「還沒選、袋子收著」；改的是**這個狀態在第幾格畫面才成立**，不是狀態本身 |
+| §2 案例 3（改 UI 不動功能） | 不適用 | 穩態版面一個像素都沒變 |
+| R2 | 不適用 | 不開新波 |
+| 🔴 **取最高者** | **PATCH** | dg v1.75.1 → **v1.75.2** |
+
+🔴 **不掛 `⚠ 輸出變更`**：數值類零變動；版面／構圖類的判準是「用截圖／匯出圖片功能存下來的成果，同一組設定重跑會不會長得不一樣」—— 本版改的只有**載入途中那幾格畫面**，穩態版面與所有輸出完全相同，拿舊版建立的基線一條都不會失效。
+
+### cache buster
+
+`dg.html`／`index.html` 的 `common/*.js?v=`：`20260922dg1751` → `20260923dg1752`（`common/version.js` 有改動，兩頁都引用它、兩頁都有 `data-tool-version="dg"`；`index.html` 本身只改這一個字串，依 `docs/VERSIONING.md` §3 不另外進版）。
+
+### 🔴 驗到哪裡、沒驗到哪裡
+
+**怎麼驗「第一次 paint」**：靜態截圖抓不到時序，所以用 CDP 的 `Page.addScriptToEvaluateOnNewDocument`，在**頁面任何 script 之前**植入取樣器，於每一個 `requestAnimationFrame` 讀 `getComputedStyle(#dg-main-cards).display`。🔴 rAF callback 跑在瀏覽器的 frame rendering steps 裡、**在 paint 之前** ⇒「第 N 個 rAF 看到的狀態」就是「第 N 格畫面畫出來的樣子」。另加 CPU throttling ×12 把載入拉長，確保早期那幾格一定取得到樣本。自己的 headless Chrome、獨立 `--user-data-dir`，**沒有碰 Bruce 的 Chrome**。
+
+🔴 **對照組是必要的**（不然「量不到閃爍」可能只代表這個量法測不到東西）—— 同一套方法跑 HEAD `f99cbc1` 的舊檔：
+
+| | 主 script 就緒前、元素已在 DOM 的 frame | 其中 `display != none` |
+|---|---|---|
+| 舊版 v1.75.1 | 7 格 | **7 格**（高度由 358px 長到 1178px） |
+| 新版 v1.75.2 | 7 格 | **0 格** |
+
+⇒ 量法測得到這個 bug；新版在**主 script 表態之前的每一格畫面**都是隱藏的。
+
+- **實際量到的**：上表；`load` watchdog（強制 `dgInit()` 不被呼叫 ⇒ `data-dg-boot` 在 load 後消失、卡片 `display=block`、高度 1178px）；`<noscript>` 那條路（CDP 關掉 JS 後用 `CSS.getComputedStyleForNode` 讀到 `display=block`）；功能沒壞（載入後 `display=none`／`wmodeCardsVisible()=false`，按下「電腦畫面量測」後 `display=block`、高度 1230px、`wmodeCardsVisible()=true`）。
+- **讀程式碼＋grep 確認的**：`[data-wmode-only]` 的 5 個位置與它們所在的 `.dg-modal` 預設 `display:none`；`DG_WMODE = null` 與 `DG_PQ = false` 是每次載入的起點。
+- **完全沒驗的**：真機／手機瀏覽器（只在 macOS 的 headless Chrome 上量過）；Safari／Firefox 的行為沒量過（用的都是 `display` 與屬性選擇器這類基本能力，但沒量就是沒量）。三語沒有實際切過去看 —— 本版一個字面文字都沒動，所以沒有可看的差異。
+- 🔴 依 `CLAUDE.md` 2026-09-22 裁示，**沒有新增／修改／執行任何 `tools/*_probe.js`**；上述驗證用的是一次性腳本，跑完即刪，不進版控。
+
+---
+
+## TCON 自檢畫面量測 (dgself) v1.17.2 — 2026-09-23 ｜ PATCH
+
+Bruce 2026-09-23 順帶指定：查本頁有沒有與 dg v1.75.2 同一個毛病（卡片先畫再藏）。**查了，有一處。**
+
+### 盤點結果（全檔逐個看過，不是抽樣）
+
+本頁完全不動 `style.display`（全檔 grep `.display` ＝ 0 筆），隱藏一律走 `.dst-hidden { display: none !important }`。載入時會被 JS 藏起來的元素共 7 個，其中 **6 個在 markup 裡本來就帶著 `dst-hidden`**（`dst-dl-box`／`dst-alt`／`dst-dg-warn`／`dst-copy-lut`／`dst-lut-body`／`dst-res-wrap`）⇒ 第一次 paint 就是隱藏的，沒問題。
+
+**唯一的例外是 `#dst-seq-box`**（「要重做或跳過某一步？」那塊 `<details>`，v1.17.0 加的退路 UI）：markup 沒有 `dst-hidden`，要等 `dstRenderSteps()` 跑到 `sbox.classList.toggle('dst-hidden', !alive)` 才被藏起來 ⇒ **不是從 DG 開過來時（`alive` 為 false），它會先畫出來再被藏掉**。本檔 493 KB，看得見。
+
+`dst-back-warn` 看起來像同一類，但它那一行是**無條件** `remove('dst-hidden')`＝最終一定看得到、markup 也是看得到 ⇒ 沒有先畫再藏，**不動它**。
+
+### 修法：與 dg v1.75.2 同一套閘門，多一行 head script
+
+`data-dst-boot`（寫死在 `<html>`）＋ `html[data-dst-boot] [data-dst-bootgate] { display:none !important }` ＋ `#dst-seq-box` 掛 `data-dst-bootgate`，由 `dstRenderSteps()` 在設完 class 的下一行放行。
+
+🔴 **這裡比 dg.html 多一行 JS，理由不同**：dg.html 的正確狀態恆為隱藏，純 CSS 寫得出來；本頁該不該顯示取決於 `dstDgAlive()` ＝ `!!(window.opener && !window.opener.closed)`，**只有執行期才知道**，靜態 HTML 裡沒有東西對應得到。
+但這**仍然不是「讓 JS 跑得更早」**：那一行放在 `<head>` 的**同步（parser-blocking）script** 裡，瀏覽器在它跑完之前**不可能**畫出 `<body>` 的任何東西 —— 這是規格上的保證，不是搶在前面的競速。時間差不是被縮小，是不存在。
+
+⇒ 兩種情況在第一次 paint 當下都已經是對的：從 DG 開過來 ⇒ 一開始就看得到（**不製造反向閃爍**，而這是常見路徑）；單獨開 ⇒ 一開始就是隱藏的。
+
+### 退路
+
+🔴 這一塊本身就是**退路 UI**，把退路藏住是最不該犯的錯，所以放行方向一律是「露出來」：`<noscript>` 覆蓋規則（JS 關掉）＋ `window` 的 `load`（主 script 掛掉）。蓋不到的情況與 dg 那邊相同，理由寫在 `dg.html` 的 head 註解裡。
+
+### 🔴 **沒有**改的東西
+
+- **一個字面文字都沒動** ⇒ 三語不受影響，沒有新增／修改任何 i18n key。
+- `dstRenderSteps()` 的 `alive` 判斷、`dstDgAlive()`、其餘 6 個 `dst-hidden` 元素一個字沒碰。
+
+### 判定依據：dgself v1.17.2
+
+| 逐項判 | 結果 | 說明 |
+|---|---|---|
+| §1・功能增減 | **不增不減** | — |
+| §1・操作流程 | **不變** | 控制項一個都沒移位 |
+| §1・既有功能的輸出 | **不變** | 量測數值、回傳 DG 的內容一個字沒碰 |
+| R1（修 bug） | **適用 ⇒ PATCH** | 「該隱藏的東西在載入途中露出來」是錯誤行為 |
+| R3 | **沒有** | 能做的事完全一樣 |
+| R4（起始狀態） | **沒改** | 改的是這個狀態在第幾格畫面才成立 |
+| R2 | 不適用 | 不開新波 |
+| 🔴 **取最高者** | **PATCH** | dgself v1.17.1 → **v1.17.2** |
+
+🔴 **不掛 `⚠ 輸出變更`**：穩態版面與所有輸出完全相同，只有載入途中那幾格畫面不一樣。
+
+### cache buster
+
+`dg-selftest.html` 的 `common/*.js?v=`：`20260922dst1171` → `20260923dst1172`。
+
+### 🔴 驗到哪裡、沒驗到哪裡
+
+方法與 dg v1.75.2 相同（rAF 取樣 ＋ CPU throttling ×12 ＋ HEAD 舊檔對照組，自己的 headless Chrome、獨立 `--user-data-dir`）：
+
+| `#dst-seq-box` | 元素已在 DOM 的 frame | 其中 `display != none` | 最終 |
+|---|---|---|---|
+| 舊版 v1.17.1、單獨開（該隱藏） | 87 格 | **4 格**（高度 16～18px） | `none` |
+| 新版 v1.17.2、單獨開（該隱藏） | 76 格 | **0 格** | `none` |
+| 新版 v1.17.2、`window.opener` 活著（該顯示） | 83 格 | **83 格** | `block` |
+
+第三列是「反向閃爍」那一題的實測：該顯示的情況下，它從**第一格就在**，沒有先空白再冒出來。
+
+- **實際量到的**：上表；`<noscript>` 路徑（CDP 關掉 JS ⇒ `display=block`）；`load` watchdog（強制 `dstRenderSteps()` 那條路不被呼叫 ⇒ `data-dst-boot` 在 load 後消失、`display=block`）。
+- **讀程式碼＋grep 確認的**：另外 6 個 `dst-hidden` 元素 markup 裡本來就有；`dst-back-warn` 是無條件顯示。
+- **完全沒驗的**：真機（I2C 治具／量測儀不在這台機器上）；真正從 DG 按「T-CON 自檢畫面量測」開分頁的那條路 —— 上表第三列是用 CDP 注入一個假的 `window.opener` 模擬的，**不是真的 `window.open()`**。判斷式與 `dstDgAlive()` 逐字相同，但這是讀程式碼確認的，不是量到的。
+- 🔴 **沒有新增／修改／執行任何 `tools/*_probe.js`**。
+
+---
+
 ## Digital Gamma 迭代校正 (dg) v1.75.1 — 2026-09-22 ｜ PATCH
 
 **起因：v1.75.0 是拿合成檔驗的，這一輪拿到真檔了。**
