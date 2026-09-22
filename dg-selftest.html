@@ -1127,8 +1127,27 @@
   </div>
 </div>
 
-<script src="common/i18n.js?v=20260923dst1180"></script>
-<script src="common/common.js?v=20260923dst1180"></script>
+<!-- ═══ 🔴 v1.19.0（D／E）：一般用途的「問一句」浮動視窗 ═══════════════════════════
+     🔴 **不用 `window.confirm`**（Bruce 2026-09-23 明示）。本頁 v1.3.0 起刻意不跳瀏覽器
+        確認視窗，而那條決定的**範圍**（`dstRun()` 開頭那一整段）寫得很清楚：擋的是
+        「動作前問一次」，**「出事了要你決定」不在此列**（`dstFailAsk` 因此保留）。
+        這一顆屬於後者：核取方塊的字面是「強制」，**沒有**寫「並作廢剛才量到的資料」——
+        後果超出鈕面字宣告的範圍，所以 v1.3.0 的判準（「他按的鈕字面就是那個動作
+        ⇒ 不要再問一次」）在這一格**本來就不成立**。
+     🔴 沿用既有的 `.dst-modal*` 一整組樣式，不新增任何色票或元件。 -->
+<div class="dst-modal" id="dst-modal-ask">
+  <div class="dst-modal-box">
+    <div class="dst-modal-title" id="dst-ask-title"></div>
+    <div class="dst-modal-body" id="dst-ask-body"></div>
+    <div class="dst-modal-act">
+      <button class="dst-btn pri" id="dst-ask-yes"></button>
+      <button class="dst-btn" id="dst-ask-no"></button>
+    </div>
+  </div>
+</div>
+
+<script src="common/i18n.js?v=20260923dst1190"></script>
+<script src="common/common.js?v=20260923dst1190"></script>
 <script>
 /* ═════════════════════════════════════════════════════════════════════════
    TCON 自檢畫面量測 — dg-selftest.html
@@ -1642,6 +1661,38 @@ if (typeof I18N === 'object' && I18N) {
   I18N['dst.dgRecKeep']    = { 'zh-TW': '維持現狀', 'en': 'Keep as is', 'zh-CN': '维持现状' };
   I18N['dst.dgRec2']       = { 'zh-TW': 'DG_EN 關著，量到的不是新表。', 'en': 'DG_EN is off — this will not measure the new table.', 'zh-CN': 'DG_EN 关着，量到的不是新表。' };
   I18N['dst.dgRec2Go']     = { 'zh-TW': '開啟 DG_EN', 'en': 'Turn DG_EN on', 'zh-CN': '开启 DG_EN' };
+  /* ═══ 🔴 v1.19.0：DG_EN 沒確定之前不准量 ═══════════════════════════════════════════
+     Bruce 2026-09-23：「DGEN 關掉的時候，它會影響到光學量測的結果，所以光學量測一定要在
+     DGEN 確定以後才能進行喔。」
+     🔴 三句**同一個結構**（狀態 ＋ 破折號 ＋ 指向那一行的鈕），因為擋住的原因是同一種：
+        「上面那一行還在等你決定」。三語同長度，不解釋理由（鈕面字已經寫明會發生什麼）。
+     🔴 「上面那一行」指得到 —— 被擋住的時候 `#dst-dg-rec` 一定是顯示的（兩者讀同一支
+        `dstDgRecKind()`），不可能出現「句子叫他去按一行看不到的鈕」。 */
+  I18N['dst.whyDgOn1']     = { 'zh-TW': 'DG_EN 還開著 —— 先按上面那一行的鈕。', 'en': 'DG_EN is still on — use the buttons on the line above.', 'zh-CN': 'DG_EN 还开着 —— 先按上面那一行的钮。' };
+  I18N['dst.whyDgOff2']    = { 'zh-TW': 'DG_EN 關著 —— 先按上面那一行的鈕。', 'en': 'DG_EN is off — use the buttons on the line above.', 'zh-CN': 'DG_EN 关着 —— 先按上面那一行的钮。' };
+  I18N['dst.whyDgUnk']     = { 'zh-TW': 'DG_EN 讀不到 —— 先按上面那一行的鈕。', 'en': 'DG_EN cannot be read — use the buttons on the line above.', 'zh-CN': 'DG_EN 读不到 —— 先按上面那一行的钮。' };
+  /* 第五格（DG_EN 讀不到）那一行。**陳述事實、不猜該開還是該關** —— 猜的話就是 v1.18.0
+     那一段「不知道的事不要編」被繞過去。主鈕是「重新讀」，那是這一格唯一做得到的事。 */
+  I18N['dst.dgRecUnk']     = { 'zh-TW': 'DG_EN 讀不到，先確定再量。', 'en': 'DG_EN cannot be read — settle it before measuring.', 'zh-CN': 'DG_EN 读不到，先确定再量。' };
+  I18N['dst.dgRecUnkGo']   = { 'zh-TW': '重新讀 DG_EN', 'en': 'Read DG_EN again', 'zh-CN': '重新读 DG_EN' };
+  /* DG_EN 真的變了 ⇒ ②③ 作廢那一句（一行一句）。 */
+  I18N['dst.dgVoid23']     = { 'zh-TW': 'DG_EN 變了，剛才量的不算數。', 'en': 'DG_EN changed — the earlier measurement no longer counts.', 'zh-CN': 'DG_EN 变了，刚才量的不算数。' };
+
+  /* ═══ 🔴 v1.19.0（D）：量完之後才會問的那一句 ══════════════════════════════════════
+     Bruce 2026-09-23：「已經量完以後，如果使用者不小心按到 DGEN toggle，這時候一定要
+     跳出警示：『確定要這樣子按嗎？按了以後會有什麼後果？』」
+     🔴 **後果要寫出來**（他明示），但仍然**一行一句**：一句講後果、一句問。
+     🔴 兩顆鈕的字面 ＝ 按下去真的會發生的事（「改並重量」／「不要改」）。 */
+  I18N['dst.askDgTitle']   = { 'zh-TW': '⚠ 改 DG_EN 會讓剛才量的作廢', 'en': '⚠ Changing DG_EN voids what you just measured', 'zh-CN': '⚠ 改 DG_EN 会让刚才量的作废' };
+  I18N['dst.askDgBody']    = { 'zh-TW': 'DG_EN 一改，剛才量的就不算數，要重量。', 'en': 'Once DG_EN changes, the measurement no longer counts and must be redone.', 'zh-CN': 'DG_EN 一改，刚才量的就不算数，要重量。' };
+  I18N['dst.askDgYes']     = { 'zh-TW': '還是要改（重量一次）', 'en': 'Change it anyway (measure again)', 'zh-CN': '还是要改（重量一次）' };
+  I18N['dst.askDgNo']      = { 'zh-TW': '不要改', 'en': 'Leave it alone', 'zh-CN': '不要改' };
+
+  /* ═══ 🔴 v1.19.0（E）：存進「光學資料比較」的結果回報 ══════════════════════════════
+     🔴 三句都由 **DG 真的回報的數字**填（`no` 來自 DG 的 `dgSlotAddFromPart2()` 回傳值），
+        本頁**不猜、不預測**。沒有 opener、DG 沒回、或 DG 說沒存成 ⇒ 一律不准寫「已存」。 */
+  I18N['dst.slotSaved']    = { 'zh-TW': '✔ 已存成「光學資料比較」第 {n} 組（{name}）。', 'en': '✔ Saved as optical-comparison set {n} ({name}).', 'zh-CN': '✔ 已存成「光学资料比较」第 {n} 组（{name}）。' };
+  I18N['dst.slotNotSaved'] = { 'zh-TW': '沒有存進「光學資料比較」：{why}', 'en': 'Not saved to the optical comparison: {why}', 'zh-CN': '没有存进「光学资料比较」：{why}' };
   I18N['dst.dgLutTooFew']  = { 'zh-TW': '只解出 {n} 筆（至少要 2 筆），沒有回傳。', 'en': 'Only {n} entries were decoded (at least 2 are needed); nothing was sent.', 'zh-CN': '只解出 {n} 笔（至少要 2 笔），没有回传。' };
   I18N['dst.copyOk']       = { 'zh-TW': '✔ {n} 筆已複製。到 DG 第 1 部分的表格點一下任一格再貼上。', 'en': '✔ {n} entries copied. Click any cell in DG part 1’s table and paste.', 'zh-CN': '✔ {n} 笔已复制。到 DG 第 1 部分的表格点一下任一格再贴上。' };
   I18N['dst.copyFail']     = { 'zh-TW': '瀏覽器拒絕了複製。', 'en': 'The browser refused the copy.', 'zh-CN': '浏览器拒绝了复制。' };
@@ -4475,6 +4526,35 @@ function dstFailAsk(step, total, p, res) {
   });
 }
 
+/* ═══ 🔴 v1.19.0（D／E）：一般用途的「問一句」═══════════════════════════════════════
+   回傳 Promise<boolean>（true ＝ 按了主鈕）。
+   🔴 **不是 `window.confirm`**：理由與適用範圍寫在 `#dst-modal-ask` 那一段 HTML 上方
+      （v1.3.0 那條決定擋的是「動作前問一次」，不含「後果超出鈕面字宣告範圍」這一種）。
+   🔴 結構抄 `dstFailAsk()`（同一組 `.dst-modal*`、同一個 resolve-once 的寫法），
+      沒有第二套視窗機制。
+   🔴 **重入防護**：上一個問句還開著就直接回 false —— 兩個問句疊在一起時使用者分不出
+      自己在回答哪一個（DG 那一頁 v1.26.0 的「一個視窗解決一件事」同一條紀律）。 */
+var dstAskResolve = null;
+function dstAsk(titleKey, bodyKey, yesKey, noKey) {
+  if (dstAskResolve) return Promise.resolve(false);
+  var m = $('dst-modal-ask');
+  if (!m) return Promise.resolve(true);      // DOM 被改壞時不要把流程卡死
+  var t = $('dst-ask-title'); if (t) t.textContent = dstT(titleKey);
+  var b = $('dst-ask-body');  if (b) b.textContent = dstT(bodyKey);
+  var y = $('dst-ask-yes');   if (y) y.textContent = dstT(yesKey);
+  var n = $('dst-ask-no');    if (n) n.textContent = dstT(noKey);
+  m.classList.add('open');
+  dstLog('== asking: ' + titleKey, 'w');
+  return new Promise(function (resolve) {
+    dstAskResolve = function (ans) {
+      dstAskResolve = null;
+      m.classList.remove('open');
+      dstLog('== answer: ' + (ans ? 'yes' : 'no'), ans ? 'w' : 'o');
+      resolve(!!ans);
+    };
+  });
+}
+
 function dstSleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 async function dstWaitOrAbort(ms) {
   var step = 50;
@@ -5076,11 +5156,44 @@ function dstRenderPick() {
       分岔 —— 分岔的下場是「鈕可以按、按了卻不動」，比沒有說明還糟。
    🔴 對位畫面**不在**這裡面，因為它本來就不在 disabled 的條件裡（v1.5.0 四格
       矩陣實測）。要是哪天有人把它加進 disabled，這一支不會跟著變 ⇒ 夾具會紅。 */
-function dstRunWhyKey() {
+/* 🔴 v1.19.0（B）：原本的三條原封不動搬進這一支。**函式拆開的理由是循環依賴**：
+   建議／警告那一行的鈕面字要判斷「關掉 DG_EN 之後量得起來嗎」，而新加的 DG_EN 那一道
+   閘門本身就是由那一行決定的 —— 如果那裡讀完整版，`rec1` 會永遠判成「量不起來」，
+   v1.18.0（C）那顆「關掉 DG_EN 並開始量」就變成永遠只寫「關掉 DG_EN」、也永遠不會
+   順便開始量。⇒ 那一行讀 Base（不含 DG_EN 那一條），②③ 那顆鈕讀完整版。 */
+function dstRunWhyKeyBase() {
   if (dstRunning) return 'dst.whyRunning';
   if (!dstLinked) return 'dst.whyNoI2c';
   if (!dstCaLinked) return 'dst.whyNoMeter';
   return null;
+}
+/* ═══ 🔴 v1.19.0（B）：DG_EN 沒確定之前不准量 ═══════════════════════════════════════
+   Bruce 2026-09-23：「DGEN 關掉的時候，它會影響到光學量測的結果，所以光學量測一定要在
+   DGEN 確定以後才能進行喔。」⇒ 這是**量測有效性**的限制，不是 UI 偏好。
+
+   🔴 判準**直接讀 `dstDgRecKind()`**，不另寫一組布林 —— 那一支就是 v1.18.0（C）定案的
+      四格狀態表，而「畫面上那一行還在等你決定」與「還不能量」本來就是同一件事。
+      寫成兩份的下場是「一行不見了卻還擋著」或「還掛著卻按得下去」。
+   🔴 出路：**「維持現狀」那顆鈕**（`dstDgRecDismissed`）。它撐得過重畫（旗標不是每次
+      重算的），而且**不是會過期的布林** —— 它的生命週期綁在兩件事上：
+        ① 換了新的一份工作（`dstClearRound()` 清它，v1.18.0 就有）
+        ② DG_EN 真的被改過（`dstDgEnApply()` 清它，v1.19.0 新增）
+      ⇒ 狀態一變就重新問，狀態沒變就不再煩他。
+   🔴 四格以外的三格（`dstDgRound === null`／沒連線／認不出 IC／這顆沒有 `dgEn` 位址）
+      `dstDgRecKind()` 一律回 null ⇒ **不擋**。理由是死路：那幾種情況畫面上**不會出現
+      那一行**，沒有任何鈕能讓它變成「已確定」，擋了就是把人關在門外。
+   🔴 第五格（DG_EN 讀不到）是 v1.19.0 新加的：Bruce 說「讀不到就是沒確定 ⇒ 應該擋，
+      但要給得出原因與出路」。⇒ 擋，**並且讓那一行出現**（主鈕「重新讀 DG_EN」＋
+      「維持現狀」），所以它有原因也有兩條出路，不是死路。 */
+function dstDgWhyKey() {
+  var kind = dstDgRecKind();
+  if (kind === 'rec1') return 'dst.whyDgOn1';
+  if (kind === 'warn2') return 'dst.whyDgOff2';
+  if (kind === 'unk') return 'dst.whyDgUnk';
+  return null;
+}
+function dstRunWhyKey() {
+  return dstRunWhyKeyBase() || dstDgWhyKey();
 }
 function dstRenderBtns() {
   var canWrite = dstLinked && !!dstIc && !!dstIc.patternOk && !dstRunning && !dstBusy;
@@ -6091,12 +6204,69 @@ function dstStep1Auto(why) {
       真的要跳過，既有的「解除依序限制」還在。
    🔴 寫失敗（`dstSetDgEn()` 回 false）⇒ **什麼都不清、什麼都不重取**：IC 裡的狀態沒變，
       畫面上那張表也還是對的。失敗原因由 `dstSetDgEn()` 自己寫在 `#dst-say-link`。 */
+/* 🔴 v1.19.0（C2）：②③ 已經量過時，DG_EN 一變就把那兩步**作廢**。
+   Bruce 2026-09-23：「DGEN 關掉的時候，它會影響到光學量測的結果」⇒ DG_EN 一變，先前
+   量到的東西的前提就不同了。畫面上留著兩個勾＝在說「這一輪三步都做完了」，而那三份
+   資料不是同一個條件下的。
+
+   🔴 **作廢 ≠ 刪掉**：`dstRows` 刻意**留著**（結果表還在），只清掉勾與 `dstRunOk`，
+      並掛上本頁既有的作廢橫幅（`dstVoid()`）。那正是 v1.2.0 給那個橫幅的語意
+      （量測失敗中止時也是資料留著、橫幅說作廢）。留著的理由：他花了幾分鐘量的東西
+      還看得到，只是不再算數；刪掉才是把成本變成不可逆。
+   🔴 **不碰**硬體連線、IC 識別、位元深度、換階等待、`dstLut`、`dstSeqUnlock` ——
+      那幾樣與 DG_EN 無關（`dstClearRound()` 上方那一段列的「不准清」照舊有效）。
+   🔴 `dstStepDone.lut` 不在這一支裡清：它由 `dstDgEnApply()` 自己清（v1.18.0 就有），
+      理由不同（① 的**內容**換了），分開寫才看得出兩件事。 */
+function dstVoidGrayPrim() {
+  if (!dstStepDone.gray && !dstStepDone.prim) return false;
+  dstStepDone.gray = false;
+  dstStepDone.prim = false;
+  dstRunOk = false;
+  dstVoid(dstT('dst.dgVoid23'));
+  dstProg('step', 0, 0, '');
+  dstSay('dst-say-run', '');
+  dstRenderRows();
+  dstRenderSteps();
+  dstLog('== DG_EN changed -> steps 2/3 voided (rows kept on screen)', 'w');
+  return true;
+}
+
 function dstDgEnApply(on, why) {
+  /* 🔴 v1.19.0（C 覆核）：量測中不准改 DG_EN。
+     現況本來就擋得住（兩顆控制項的 `disabled` 都含 `dstRunning`：核取方塊在
+     `dstRenderBtns()`、建議列主鈕在 `dstRenderDgRec()`，disabled 的控制項不會發事件）。
+     但 `dstGuard()` 只看 `dstBusy`、**不看 `dstRunning`** ⇒ 那一層不是第二道防線。
+     這一行就是補上的第二道防線，寫在**所有入口的共同出口**上。 */
+  if (dstRunning) return Promise.resolve(false);
+  var changed = false;
+  /* 🔴 v1.19.0（D）：量過才問，沒量過直接改。問句與後果見 `dst.askDg*` 那一組。
+     取消 ⇒ **什麼都不做**，並重畫一次讓核取方塊回到 IC 的真實狀態
+     （`dstRenderDg()` 是 `#dst-dg-ck` 的 checked 的唯一寫入點）。 */
+  var needAsk = (dstStepDone.gray || dstStepDone.prim);
+  return (needAsk
+    ? dstAsk('dst.askDgTitle', 'dst.askDgBody', 'dst.askDgYes', 'dst.askDgNo')
+    : Promise.resolve(true)
+  ).then(function (ok) {
+    if (!ok) {
+      dstLog('== DG_EN change cancelled by the user (steps 2/3 already measured)', 'w');
+      dstRenderDg();
+      return false;
+    }
+    return dstDgEnApply2(on, why);
+  });
+}
+
+function dstDgEnApply2(on, why) {
   var changed = false;
   return dstGuard(async function () {
     if (!(await dstSetDgEn(on))) return;
     changed = true;
     dstStepDone.lut = false;
+    /* 🔴 v1.19.0（B）：DG_EN 真的變了 ⇒「維持現狀」那個決定失效，要重新問。
+       這是它的第二個清除點（第一個在 `dstClearRound()`）—— 兩個都是「狀態變了」，
+       不是計時、不是次數，所以它撐得過重畫卻不會過期。 */
+    dstDgRecDismissed = false;
+    dstVoidGrayPrim();            // v1.19.0（C2）：量過才會真的作廢，沒量過這一支什麼都不做
     dstRenderSteps();
   }).then(function () {
     /* 🔴 放在 guard **外面**：guard 期間 `dstBusy` 是 true，而自動那一支的第一道門
@@ -6132,7 +6302,13 @@ function dstDgRecKind() {
   if (dstDgRound === null) return null;
   if (dstDgRecDismissed) return null;
   if (!(dstLinked && dstIc && dstIc.dgEn)) return null;
-  if (dstDg.state !== 'on' && dstDg.state !== 'off') return null;
+  /* 🔴 v1.19.0（B）：這一行原本 `return null`（「不知道的事不要編」）。改成第五格
+     `'unk'` —— 它**不是編出來的推薦**，是一句事實陳述（「DG_EN 讀不到」）＋一顆做得到
+     的鈕（重新讀）。v1.18.0 那一段禁的是「猜該開還是該關」，這一格一個字都沒猜。
+     🔴 上面那四道門已經把「認不出 IC」「這顆沒有 dgEn 位址」「沒連線」全濾掉了
+        （`dstReadDgEn()` 的 `dgWhyNoIc`／`dgWhyNoAddr` 兩種 unknown 走不到這裡），
+        所以落在這一格的只剩「匯流排讀回 0xFF」與「讀取失敗」兩種**真的可以重試**的。 */
+  if (dstDg.state !== 'on' && dstDg.state !== 'off') return 'unk';
   if (dstDgRound <= 1) return (dstDg.state === 'on') ? 'rec1' : null;
   return (dstDg.state === 'off') ? 'warn2' : null;
 }
@@ -6142,10 +6318,12 @@ function dstRenderDgRec() {
   if (!box) return;
   var kind = dstDgRecKind();
   box.classList.toggle('dst-hidden', !kind);
-  box.classList.toggle('warn', kind === 'warn2');
+  // v1.19.0：第五格（讀不到）與第 2 輪警告同一個嚴重度 ⇒ 同一個外框顏色，不新增色票
+  box.classList.toggle('warn', kind === 'warn2' || kind === 'unk');
   if (!kind) return;
   var t = $('dst-dg-rec-txt');
-  if (t) t.textContent = dstT(kind === 'rec1' ? 'dst.dgRec1' : 'dst.dgRec2');
+  if (t) t.textContent = dstT(kind === 'rec1' ? 'dst.dgRec1'
+                            : (kind === 'unk' ? 'dst.dgRecUnk' : 'dst.dgRec2'));
   var go = $('dst-dg-rec-go');
   if (go) {
     /* 🔴 鈕面字 ＝ 按下去**真的**會發生的事（本專案既有紀律）。第 1 輪那一顆他給的字
@@ -6153,17 +6331,26 @@ function dstRenderDgRec() {
        `dstRunWhyKey()`）。前提不成立時仍然印「並開始量」就是承諾做不到的事 ——
        那正是 v1.16.0 修掉的同一族（句子指著一顆灰掉的鈕）。
        ⇒ 前提不成立時只印「關掉 DG_EN」：字更短，而且它一定做得到。 */
+    /* 🔴 v1.19.0（B）：這裡讀的是 **`dstRunWhyKeyBase()`**，不是完整版。
+       完整版含「這一行還掛著就不准量」那一條，而這一行掛著正是 kind 非 null 的意思
+       ⇒ 讀完整版會恆為真，鈕面字永遠退成「關掉 DG_EN」、`alsoMeasure` 永遠是 false，
+         v1.18.0（C）那顆一鍵鈕等於被自己新加的閘門鎖死。判準沒變（「按下去之後量得
+         起來嗎」），變的只是「不要把自己算進前提」。 */
     go.textContent = (kind === 'rec1')
-      ? dstT(dstRunWhyKey() ? 'dst.dgRec1GoOnly' : 'dst.dgRec1Go')
-      : dstT('dst.dgRec2Go');
+      ? dstT(dstRunWhyKeyBase() ? 'dst.dgRec1GoOnly' : 'dst.dgRec1Go')
+      : dstT(kind === 'unk' ? 'dst.dgRecUnkGo' : 'dst.dgRec2Go');
     go.disabled = dstBusy || dstRunning || dstLutBusy;
   }
   var keep = $('dst-dg-rec-keep');
   if (keep) {
-    /* 「維持現狀」只給第 1 輪那一格：第 2 輪那一句是警告，不是二選一 —— 給它一顆
-       「維持現狀」等於在說「繼續白量也可以」。要忽略它就直接按「開始量測」，
-       那顆鈕本來就沒有被這一行擋住。 */
-    keep.classList.toggle('dst-hidden', kind !== 'rec1');
+    /* 🔴 v1.19.0（B）：**三格都給「維持現狀」**。
+       v1.18.0 只給第 1 輪，理由是「第 2 輪那一句是警告，不是二選一；要忽略它就直接按
+       『開始量測』，那顆鈕本來就沒有被這一行擋住」。**那個理由在這一版失效了** ——
+       ②③ 現在真的被這一行擋住，不給出路就是把第 2 輪／讀不到那兩格關成死路
+       （[[feedback_guard_must_leave_a_way_out]]）。如實改，不留一句與行為對不上的註解。
+       🔴 「維持現狀」在三格的字面都成立：第 1 輪＝保持 DG_EN 開、第 2 輪＝保持 DG_EN 關、
+          讀不到＝不去動它。所以沿用同一個 key，不另造三句。 */
+    keep.classList.toggle('dst-hidden', false);
     keep.textContent = dstT('dst.dgRecKeep');
   }
 }
@@ -6173,10 +6360,19 @@ function dstRenderDgRec() {
 function dstDgRecMain() {
   var kind = dstDgRecKind();
   if (!kind) return Promise.resolve(false);
+  /* 🔴 v1.19.0（B）：第五格的主鈕是「重新讀 DG_EN」—— 這一格**不寫任何值**。
+     不知道現在是開是關，寫哪一個都是猜；而且 `dstSetDgEn()` 是靠讀回確認來判斷成功的，
+     讀不回來的情況下寫進去也只會得到一個「寫入沒生效」的錯誤訊息。
+     讀成功 ⇒ `dstReadDgEn()` 自己會重畫，這一行就換成 rec1／warn2 或整行消失。 */
+  if (kind === 'unk') {
+    return dstGuard(async function () { await dstReadDgEn(); })
+      .then(function () { dstRenderBtns(); dstRenderDgRec(); return false; });
+  }
   var wantOn = (kind !== 'rec1');
   /* 按下去的那一刻就決定要不要順便開始量 —— 鈕面字是照同一個判準寫的，
-     兩者讀同一支 `dstRunWhyKey()`，不可能出現「字說會量、按了不量」。 */
-  var alsoMeasure = (kind === 'rec1') && !dstRunWhyKey();
+     兩者讀同一支 `dstRunWhyKeyBase()`，不可能出現「字說會量、按了不量」。
+     🔴 v1.19.0：讀 Base 的理由與 `dstRenderDgRec()` 那一處逐字相同（循環依賴）。 */
+  var alsoMeasure = (kind === 'rec1') && !dstRunWhyKeyBase();
   return dstDgEnApply(wantOn, 'dgrec').then(function (done) {
     if (!alsoMeasure || !done) return false;
     /* 🔴 再問一次：剛剛那幾秒裡量測儀可能掉線了。 */
@@ -6624,6 +6820,29 @@ window.addEventListener('message', function (e) {
      擺在 `dg-measure-task` **前面**是因為它不是換任務：它不動 mode／step／dest，
      也不回 hello（DG 那一端等的是這一則自己的結果，不是版號）。 */
   if (d && d.type === 'dg-lut-write') { dstDgOnLutWrite(d); return; }
+  /* ═══ 🔴 v1.19.0（E）：DG 那邊「已自動存成光學資料比較第 N 組」的回報 ═══════════════
+     Bruce 2026-09-23：「已經量完以後，其實是可以保存在 DG 網頁那邊的…保存完以後，DG
+     網頁那邊也不用再確認要不要記錄這一筆。」
+
+     🔴🔴 **查證結果：這件事 DG v1.73.0 起已經是現況，本輪沒有新增任何加組邏輯。**
+        `dgApplyLiveRows()`（dg.html，收白灰階那一支）在寫完第 2、3 部分之後就會叫
+        `dgSlotAddFromPart2(true)` 自動建一組：組名走 `dgRoundName(DG_ROUND)`（輪數）、
+        去重走 `dgSlotFindSame()`（逐值比對）、滿 10 組（`DG_SLOT_MAX`）回 0 且一個欄位
+        都不動。**而且那條路根本不經過 `dgGrayRecordAsk()`** ⇒「DG 不用再確認」不是靠
+        抑制機制成立的，是那條路從來沒有問過。
+     🔴 所以本輪唯一缺的是**回報**：他人在自檢頁，組建在 DG 那個分頁裡，他看不到。
+        ⇒ DG 多回這一則，自檢頁照原話顯示在步驟卡既有的說話行上。
+     🔴 `no` 與 `name` 一律用 **DG 給的**，本頁不猜；`no` 不是正數就走「沒有存」那一句，
+        把 DG 的理由（滿 10 組／逐值相同／筆數不足）原話接上去。 */
+  if (d && d.type === 'dg-slot-auto') {
+    var sn = (typeof d.no === 'number' && d.no > 0) ? d.no : 0;
+    dstSayInfo('dst-say-steps', sn
+      ? dstT('dst.slotSaved', { n: sn, name: String(d.name || '') })
+      : dstT('dst.slotNotSaved', { why: String(d.note || '') }));
+    dstLog('== DG optical-comparison auto-save: ' + (sn ? ('set ' + sn) : 'not saved')
+      + (d.note ? (' (' + String(d.note).replace(/\n/g, ' ') + ')') : ''), sn ? 'o' : 'w');
+    return;
+  }
   if (!d || d.type !== 'dg-measure-task') return;
   dstDgPostHello(d.task);       // 🔴 第一行、在任何 DOM 工作之前（順序與 dg-measure.html 相同）
   dstDgApplyTask(d);
@@ -6829,6 +7048,11 @@ function dstBind() {
     dstDgEnApply(want, 'dgen-toggle');
   });
 
+  /* 🔴 v1.19.0（D／E）：問句視窗的兩顆鈕。點暗色區域不算回答（要他明確選一個）—— 與
+     `#dst-modal-fail` 一致（那一個也沒有「點外面關掉」）。 */
+  $('dst-ask-yes').addEventListener('click', function () { if (dstAskResolve) dstAskResolve(true); });
+  $('dst-ask-no').addEventListener('click', function () { if (dstAskResolve) dstAskResolve(false); });
+
   /* 🔴 v1.18.0（C）：建議／警告那一行的兩顆鈕。 */
   $('dst-dg-rec-go').addEventListener('click', function () { dstDgRecMain(); });
   $('dst-dg-rec-keep').addEventListener('click', function () {
@@ -6836,7 +7060,14 @@ function dstBind() {
        生命週期是「這一份工作」（`dstClearRound()` 會清），所以換一輪還會再問一次。 */
     dstDgRecDismissed = true;
     dstLog('== DG_EN recommendation dismissed by the user (this job only)', 'w');
-    dstRenderDgRec();
+    /* 🔴 v1.19.0：這裡原本只叫 `dstRenderDgRec()`（v1.18.0 時這個旗標只影響那一行本身）。
+       本版起它同時是 ②③ 的閘門（`dstDgWhyKey()` 讀 `dstDgRecKind()`），只重畫那一行的話
+       **那一行消失了、鈕卻還是灰的、而且原因那一句還指著一行已經不見的東西** ——
+       這正是本頁一再修掉的「句子指著一顆（一行）不存在的東西」。
+       ⇒ 改叫 `dstRenderBtns()`，它會把 `dstRenderSteps()` → `dstRenderDgRec()` 一路帶下去，
+         不必也不該在這裡列舉要重畫哪幾處。
+       （本機 headless 截圖抓到的，第一版就是只重畫那一行。） */
+    dstRenderBtns();
   });
 
   $('dst-bits').addEventListener('change', function () { dstSetBits(parseInt(this.value, 10)); });
@@ -7479,7 +7710,42 @@ window.dstProbe = {
     return true;
   },
   /* v1.11.0 驗證用（唯讀）：量測儀的埠被關過幾次。 */
-  caCloseCount: function () { return dstCaCloseCount; }
+  caCloseCount: function () { return dstCaCloseCount; },
+  /* ═══ 🔴 v1.19.0：交付前用自己的 headless Chrome 看畫面時，用來擺出那五格狀態 ═══
+     真機上這些值只有「接上 I2C Bridge ＋ 接上量測儀 ＋ 從 DG 開這一頁」才湊得出來，
+     headless 裡湊不到 —— 而視覺／版面改動一律要看實際畫面（CLAUDE.md §驗證）。
+     🔴 **只設旗標 ＋ 走既有的重畫**，一個判斷都沒有複製：`dstRunWhyKey()`／
+        `dstDgRecKind()`／`dstRenderDgRec()` 全部是產品自己那幾支。
+     🔴 沿用本檔既有的 `__set*ForTest` 命名（`__setRowsForTest`／`__setRunOkForTest`／
+        `__setRunningForTest`），不另立一套。 */
+  __setStateForTest: function (o) {
+    o = o || {};
+    if ('linked' in o) dstLinked = !!o.linked;
+    if ('caLinked' in o) dstCaLinked = !!o.caLinked;
+    if ('round' in o) dstDgRound = o.round;
+    if ('dismissed' in o) dstDgRecDismissed = !!o.dismissed;
+    if ('gray' in o) dstStepDone.gray = !!o.gray;
+    if ('prim' in o) dstStepDone.prim = !!o.prim;
+    if ('lut' in o) dstStepDone.lut = !!o.lut;
+    // 沒有 opener 時 dstDgAlive() 恆為 false ⇒ 那一行永遠不出現。只在測試時換掉這一支。
+    if (o.alive) dstDgAlive = function () { return true; };
+    dstRenderCa();          // 量測儀那一格的字（旗標變了畫面才跟著變）
+    dstRenderBtns(); dstRenderDgRec();
+    return { why: dstRunWhyKey(), kind: dstDgRecKind() };
+  },
+  askOpen: function () { var m = $('dst-modal-ask'); return !!(m && m.classList.contains('open')); },
+  askAnswer: function (v) { if (dstAskResolve) { dstAskResolve(v); return true; } return false; },
+  dgRecKind: function () { return dstDgRecKind(); },
+  dgRecKeepClick: function () { var e = $('dst-dg-rec-keep'); if (e) e.click(); },
+  dgCkDispatch: function (v) {
+    var e = $('dst-dg-ck');
+    if (!e) return false;
+    e.checked = !!v;
+    e.dispatchEvent(new Event('change', { bubbles: true }));
+    return true;
+  },
+  voidText: function () { var e = $('dst-void'); return e ? e.textContent : null; },
+  goGrayDisabled: function () { var e = $('dst-go-gray'); return e ? !!e.disabled : null; }
 };
 
 })();
