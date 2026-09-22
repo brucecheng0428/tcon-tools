@@ -14,7 +14,7 @@
 <title>TCON 自檢畫面量測 — TCON FAE專用工具箱</title>
 <link rel="stylesheet" href="common/common.css?v=20260903help">
 <!-- 🔴 version.js 必須最先載入（common/version.js 開頭那條規則）。 -->
-<script src="common/version.js?v=20260923dst1172"></script>
+<script src="common/version.js?v=20260923dst1180"></script>
 <style>
   /* ═══ 本頁專屬樣式 ════════════════════════════════════════════════════════
      只寫這一頁真的需要、而 common.css 沒有的東西。顏色一律走 common.css 的
@@ -156,7 +156,7 @@
   .dst-say.dst-say-info { color: var(--accent); }
   .dst-note { font-size: 13px; color: var(--text-sub); line-height: 1.6; margin-top: 6px; }
 
-  /* ═══ 🔴 v1.18.0：「已送回 DG，請切回 DG 分頁繼續」要明顯到不會被忽略 ═══════════
+  /* ═══ 🔴 v1.17.1：「已送回 DG，請切回 DG 分頁繼續」要明顯到不會被忽略 ═══════════
      Bruce 2026-09-22：「請用閃爍加 highlight 的方式，把『已送回 DG，請切回 DG 分頁
      繼續』這句話特別 highlight 出來，讓使用者一定會注意到。」
 
@@ -220,6 +220,19 @@
                   background: #2b2207; font-size: 14px; line-height: 1.65; }
   /* v1.4.0：只有一行的警告（DG 開啟時）。不用框，框會把一行字撐成一個區塊。 */
   .dst-warn-line { margin-top: 8px; font-size: 14px; line-height: 1.6; color: var(--warn); }
+
+  /* ═══ 🔴 v1.18.0（C）：步驟卡最上面那一行「建議／警告」═══════════════════════
+     這一條**有框**（與上面那個 `.dst-warn-line` 不同）：它底下帶著要按的鈕，
+     一行字加兩顆鈕不圈起來就跟下面的步驟框混在一起，看不出是同一件事。
+     🔴 顏色沿用既有的兩個變數，不新增色票：
+        建議 → `--accent`（這是「往前走」的提示，與 `.dst-say-info` 同一個意思）
+        警告 → `--warn`（與 `#dst-dg-warn` 同一個意思：量到的不是你以為的那個） */
+  .dst-dgrec { margin: 0 0 12px; padding: 9px 11px; border-radius: 8px;
+               border: 1.5px solid var(--accent); }
+  .dst-dgrec.warn { border-color: var(--warn); }
+  .dst-dgrec-txt { display: block; font-size: 14px; line-height: 1.6; color: var(--accent); }
+  .dst-dgrec.warn .dst-dgrec-txt { color: var(--warn); }
+  .dst-dgrec .dst-row { margin-top: 8px; }
 
   /* ═══ v1.6.0：DG LUT 檢視 ════════════════════════════════════════════════
      🔴 一樣不寫死色碼（R/G/B 三條曲線除外 —— 那三個顏色**就是資料本身的意義**，
@@ -773,6 +786,25 @@
   <div class="card" id="dst-steps-card">
     <div class="card-header dst-hd-act"><span class="icon">🧭</span><span data-i18n="dst.hdSteps">量測與調整 Gamma 所需步驟</span></div>
     <div class="card-body">
+      <!-- ═══ 🔴 v1.18.0（C）：DG_EN 的建議（第 1 輪）／警告（第 2 輪以後）══════════
+           🔴 **一行字 ＋ 一到兩顆鈕，就這樣**（Bruce 2026-09-23：「不要冗長的白話，
+              越簡單越好、越無腦越好。廢話太多、文字太多，使用者反而不會看。」）。
+              不解釋理由 —— 按鈕名稱已經寫明按下去會發生什麼事。
+           🔴 **擺在步驟清單最上面**：DG_EN 同時決定 ① 的內容（等距表 ⇄ 讀回來的表）
+              與 ②③ 量到的是誰的曲線，它是整張卡的前提，不屬於其中某一步。
+           🔴 markup 裡就帶著 `dst-hidden` ⇒ 第一次 paint 就是收起來的，沒有「先畫再藏」
+              （v1.17.2 那一版盤點過的同一個毛病，新增元素一律照這個規矩）。
+           🔴 四格中的兩格**什麼都不出現**（第 1 輪已經關著／第 2 輪已經開著）——
+              狀態已經對了就不要打擾。判定全在 `dstDgRecKind()`。 -->
+      <div class="dst-dgrec dst-hidden" id="dst-dg-rec">
+        <span class="dst-dgrec-txt" id="dst-dg-rec-txt"></span>
+        <div class="dst-row">
+          <!-- 兩顆的字都由 dstRenderDgRec() 填（主鈕有兩種字面，見那一支的註解），
+               所以都不掛 data-i18n。 -->
+          <button class="dst-btn pri" id="dst-dg-rec-go"></button>
+          <button class="dst-btn dst-hidden" id="dst-dg-rec-keep"></button>
+        </div>
+      </div>
       <!-- 🔴 v1.12.0：一個步驟一個框（Bruce 2026-09-21：「步驟一應該是很單純的
            一個外框，要把它框起來。」）。框與硬體那三組共用 `.dst-box`。
            🔴 這一格**沒有 legend**：步驟名「① 讀回目前的 RGB LUT」本來就在列上，
@@ -787,7 +819,11 @@
           <span class="dst-step-txt"><span data-i18n="dst.stepLut">① 讀回目前的 RGB LUT</span>
             <span class="dst-step-to" id="dst-to-lut"></span>
             <span class="dst-step-why" id="dst-why-lut"></span></span>
-          <button class="dst-btn" id="dst-go-lut" data-i18n="dst.goLut">讀回並回傳</button>
+          <!-- 🔴 v1.18.0（B）：`data-i18n` 刻意拿掉 —— 這一顆的字有兩種（DG_EN 開著是
+               「讀回並回傳」、關著是「用等距表並回傳」），由 dstRenderSteps() 依
+               `dstStep1UsesIdentity()` 填。留著 data-i18n 的話，common.js 切語言時會
+               把它洗回固定那一句。這裡留的是 JS 還沒跑到時的預設字。 -->
+          <button class="dst-btn" id="dst-go-lut">讀回並回傳</button>
           <!-- 沒有 opener 時的退路：TSV 進剪貼簿，格式與 DG 的「一鍵複製 RGB」相同 -->
           <button class="dst-btn dst-hidden" id="dst-copy-lut" data-i18n="dst.copyLut">複製到剪貼簿</button>
         </div>
@@ -1091,8 +1127,8 @@
   </div>
 </div>
 
-<script src="common/i18n.js?v=20260923dst1172"></script>
-<script src="common/common.js?v=20260923dst1172"></script>
+<script src="common/i18n.js?v=20260923dst1180"></script>
+<script src="common/common.js?v=20260923dst1180"></script>
 <script>
 /* ═════════════════════════════════════════════════════════════════════════
    TCON 自檢畫面量測 — dg-selftest.html
@@ -1579,6 +1615,33 @@ if (typeof I18N === 'object' && I18N) {
   I18N['dst.stepLutNoDg']  = { 'zh-TW': '已讀回 {n} 筆。這一頁不是從 DG 開的，按「複製到剪貼簿」帶到 DG 第 1 部分貼上。', 'en': 'Read {n} entries. This page was not opened from DG — use “Copy to clipboard” and paste into DG part 1.', 'zh-CN': '已读回 {n} 笔。这一页不是从 DG 开的，按「复制到剪贴板」带到 DG 第 1 部分贴上。' };
   I18N['dst.dgLabelLut']   = { 'zh-TW': '從 T-CON 讀回', 'en': 'Read back from the T-CON', 'zh-CN': '从 T-CON 读回' };
   I18N['dst.dgSentLut']    = { 'zh-TW': '✔ {n} 筆 RGB LUT 已回到 DG 的{dest}。', 'en': '✔ {n} RGB LUT entries are back in DG ({dest}).', 'zh-CN': '✔ {n} 笔 RGB LUT 已回到 DG 的{dest}。' };
+
+  /* ═══ 🔴 v1.18.0（B）：DG_EN 關著那一條路的四句 ══════════════════════════════════
+     🔴 **一句都不可以說「讀回」** —— 那條路一個 LUT byte 都沒讀（見 `dstLutLoadIdentity()`）。
+        Bruce 2026-09-23 紅線：「送等距表就不准寫『從 T-CON 讀回』。那是說謊。」
+     🔴 `dst.dgLabelIdent` 的繁中字面與 dg.html 第 1 部分那個徽章**逐字相同**
+        （「出廠等距表（DG_EN 關閉）」，dg.html `dgPartBadgeInfo()`）—— 同一張表在兩頁
+        上要叫同一個名字，否則他會以為是兩種東西。 */
+  I18N['dst.goLutIdent']   = { 'zh-TW': '用等距表並回傳', 'en': 'Use the linear table and send back', 'zh-CN': '用等距表并回传' };
+  I18N['dst.lutIdent']     = { 'zh-TW': '出廠等距表（沒有讀 T-CON）', 'en': 'factory linear table (T-CON not read)', 'zh-CN': '出厂等距表（没有读 T-CON）' };
+  I18N['dst.dgLabelIdent'] = { 'zh-TW': '出廠等距表（DG_EN 關閉）', 'en': 'Factory linear table (DG_EN off)', 'zh-CN': '出厂等距表（DG_EN 关闭）' };
+  I18N['dst.dgSentIdent']  = { 'zh-TW': '✔ 出廠等距表 {n} 筆已回到 DG 的{dest}（DG_EN 關著，沒有讀 T-CON）。', 'en': '✔ {n} entries of the factory linear table are back in DG ({dest}) — DG_EN is off, the T-CON was not read.', 'zh-CN': '✔ 出厂等距表 {n} 笔已回到 DG 的{dest}（DG_EN 关着，没有读 T-CON）。' };
+  I18N['dst.stepLutNoDgIdent'] = {
+    'zh-TW': 'DG_EN 關著 ⇒ 出廠等距表 {n} 筆。這一頁不是從 DG 開的，按「複製到剪貼簿」帶到 DG 第 1 部分貼上。',
+    'en': 'DG_EN is off ⇒ the factory linear table, {n} entries. This page was not opened from DG — use “Copy to clipboard” and paste into DG part 1.',
+    'zh-CN': 'DG_EN 关着 ⇒ 出厂等距表 {n} 笔。这一页不是从 DG 开的，按「复制到剪贴板」带到 DG 第 1 部分贴上。'
+  };
+
+  /* ═══ 🔴 v1.18.0（C）：建議／警告那一行 ══════════════════════════════════════════
+     🔴 **一行一句、不解釋理由**（Bruce 2026-09-23 明示的硬限制）。按鈕名稱已經寫明
+        按下去會發生什麼事，再補一句「因為…」就是他說的「文字太多反而不會看」。
+     🔴 三語**同一個長度**：英文不准寫成一整段。下面每一句英文都是一個短句。 */
+  I18N['dst.dgRec1']       = { 'zh-TW': '建議先關 DG_EN，量原始 Gamma。', 'en': 'Turn DG_EN off first to measure the raw gamma.', 'zh-CN': '建议先关 DG_EN，量原始 Gamma。' };
+  I18N['dst.dgRec1Go']     = { 'zh-TW': '關掉 DG_EN 並開始量', 'en': 'Turn DG_EN off and measure', 'zh-CN': '关掉 DG_EN 并开始量' };
+  I18N['dst.dgRec1GoOnly'] = { 'zh-TW': '關掉 DG_EN', 'en': 'Turn DG_EN off', 'zh-CN': '关掉 DG_EN' };
+  I18N['dst.dgRecKeep']    = { 'zh-TW': '維持現狀', 'en': 'Keep as is', 'zh-CN': '维持现状' };
+  I18N['dst.dgRec2']       = { 'zh-TW': 'DG_EN 關著，量到的不是新表。', 'en': 'DG_EN is off — this will not measure the new table.', 'zh-CN': 'DG_EN 关着，量到的不是新表。' };
+  I18N['dst.dgRec2Go']     = { 'zh-TW': '開啟 DG_EN', 'en': 'Turn DG_EN on', 'zh-CN': '开启 DG_EN' };
   I18N['dst.dgLutTooFew']  = { 'zh-TW': '只解出 {n} 筆（至少要 2 筆），沒有回傳。', 'en': 'Only {n} entries were decoded (at least 2 are needed); nothing was sent.', 'zh-CN': '只解出 {n} 笔（至少要 2 笔），没有回传。' };
   I18N['dst.copyOk']       = { 'zh-TW': '✔ {n} 筆已複製。到 DG 第 1 部分的表格點一下任一格再貼上。', 'en': '✔ {n} entries copied. Click any cell in DG part 1’s table and paste.', 'zh-CN': '✔ {n} 笔已复制。到 DG 第 1 部分的表格点一下任一格再贴上。' };
   I18N['dst.copyFail']     = { 'zh-TW': '瀏覽器拒絕了複製。', 'en': 'The browser refused the copy.', 'zh-CN': '浏览器拒绝了复制。' };
@@ -1854,7 +1917,7 @@ function dstPassKey() { return dstPassKeyOf(dstDgRound, dstDgJob); }
 /* 哪幾步已經送出去過。🔴 只有「真的送出去了」才打勾 —— 讀到一半失敗、掃描中止、
    沒有 opener 都不算（打了假勾等於騙他「東西在 DG 那邊了」）。 */
 var dstStepDone = { lut: false, gray: false, prim: false };
-/* 🔴 v1.18.0：「已送回 DG」那一行**這一份工作閃過了沒**。
+/* 🔴 v1.17.1：「已送回 DG」那一行**這一份工作閃過了沒**。
    它不是第二份「送出去了沒」的真相 —— 那個真相只有 `dstBackSent()`；這一個純粹
    記「動畫播過了沒」，唯一的用途是不要每次重畫都重播。清除點只有 `dstClearRound()`
    一處（與 `dstSeqUnlock` 同一行附近），所以「換一份工作 ⇒ 會再閃一次」是白送的。 */
@@ -3345,55 +3408,140 @@ function dstLutSpecText(icKey, cfg, mask, depth, entries, modeInfo) {
     + ' (' + depth + '-bit)';
 }
 
+/* ═══ 🔴 v1.18.0（B）：規格判定**抽成一支**，讀表與等距表兩條路共用 ═══════════════
+   Bruce 2026-09-23：DG_EN 關著時第一步要給**等距表**、不要去讀 T-CON。等距表一樣
+   需要「深度（要遮幾位）」與「筆數／每筆幾位」這兩件事，而它們原本埋在
+   `dstReadDgLut()` 的前半段。抄一份出來就是本專案已經吃過三次虧的那種寫法
+   （`check_*_code_import.js` 那兩支釘的就是「同一件事兩套標準」），所以整段抽出來。
+
+   🔴 這一支**只讀兩顆 byte**（DG_EN 那顆 ＋ EM01 的 LUT_MODE 那顆），不碰 AHB 視窗、
+      不動 bus-enable ⇒ 走等距表那條路時 I2C 匯流排幾乎不佔用。
+   🔴 失敗一律**設好 `dstLutErr` 並回 null**，呼叫端只要 `if (!sp) return;` ——
+      錯誤訊息與 log 的字一個都沒改，與抽出來之前逐字相同。
+   回 { mask, depth, entries, entryBits, modeInfo }。 */
+async function dstLutResolveSpec(ic, cfg) {
+  /* ① 深度：走既有的 DG_EN 讀取（同一顆 byte）。EM01 用不到（mask 固定）。 */
+  await dstReadDgEn();
+  var mask = dstLutMask(cfg, dstDg.depth);
+  if (!mask) {
+    /* 🔴 深度旗標讀不到 ⇒ 不知道要遮幾位 ⇒ **停住**。用 12-bit 硬跑的話，
+       10-bit 的表會多出兩位垃圾，而且畫面上看起來完全正常。 */
+    dstLutErr = { stepKey: 'dst.lutErrDepth',
+                  detail: ic.key + (ic.dgEn ? ' ' + dstAddrText(ic.dgEn.addr) : '') };
+    dstLog('!  DG LUT: depth flag unreadable on ' + ic.key + ' -> stop (no default)', 'e');
+    return null;
+  }
+  var depth = dstLutDepthOfMask(mask);
+
+  /* ①-2 🔴 v1.7.1：LUT_MODE ⇒ 筆數。只有 EM01 有 `modeSel`。
+     讀不到、或那個模式根本不是 DG LUT ⇒ **停住**，不退回任何預設筆數。 */
+  var entries = cfg.entries, entryBits = cfg.entryBits, modeInfo = null;
+  if (cfg.modeSel) {
+    var ms = cfg.modeSel, mb = null;
+    try { mb = await dstReadReg(ms.addr, 1); }
+    catch (eM) { mb = null; }
+    if (!mb || !mb.length || dstIsBusIdle(mb.slice(0, 1))) {
+      dstLutErr = { stepKey: 'dst.lutErrMode', detail: ic.key + ' ' + dstAddrText(ms.addr) };
+      dstLog('!  DG LUT: LUT_MODE register ' + dstAddrText(ms.addr) + ' unreadable -> stop (no default entry count)', 'e');
+      return null;
+    }
+    var mv = dstLutModeOfByte(mb[0] & 0xFF, ms);
+    modeInfo = dstLutModeInfo(cfg, mv);
+    dstLog('-- LUT_MODE raw 0x' + ('0' + (mb[0] & 0xFF).toString(16).toUpperCase()).slice(-2)
+      + ' @' + dstAddrText(ms.addr) + ' bit[' + (ms.shift + ms.width - 1) + ':' + ms.shift + ']'
+      + ' = ' + mv + (modeInfo ? ' (' + modeInfo.name + ')' : ' (not in table)'));
+    if (!modeInfo || !modeInfo.dg || !modeInfo.entries) {
+      dstLutErr = { stepKey: 'dst.lutErrModeNotDg',
+                    detail: dstLutModeText(modeInfo || { val: mv, name: '?' }) };
+      dstLog('!  DG LUT: LUT_MODE ' + mv + ' is not a DG LUT mode -> stop', 'e');
+      return null;
+    }
+    entries = modeInfo.entries; entryBits = modeInfo.entryBits;
+  }
+  return { mask: mask, depth: depth, entries: entries, entryBits: entryBits, modeInfo: modeInfo };
+}
+
+/* 三條路共用的前置檢查（沒連線／認不出 IC／這顆沒有 LUT 規格）。
+   回 true ＝ 可以往下做；回 false ⇒ `dstLutErr` 已設好、畫面已重畫。 */
+function dstLutPrecheck(ic, cfg) {
+  /* 🔴 認不出 IC 就停住 —— 不拿別顆的 slave／位移「試試看」。 */
+  if (!dstLinked) { dstLutErr = { stepKey: 'dst.lutErrLink', detail: '' }; dstRenderLut(); return false; }
+  if (!ic)        { dstLutErr = { stepKey: 'dst.lutErrNoIc', detail: '' }; dstRenderLut(); return false; }
+  if (!cfg)       { dstLutErr = { stepKey: 'dst.lutErrNoSpec', detail: ic.key }; dstRenderLut(); return false; }
+  return true;
+}
+
+/* ═══ 🔴 v1.18.0（B）：DG_EN 關著時第一步的內容 ＝ **等距表，不讀 T-CON** ═══════════
+   Bruce 2026-09-23：「當 DGEN 核取方塊取消的時候，這個 RGB LUT 要變成是一開始第一
+   部分（DG 網頁第一部分）的等間距資料，而不是真的去讀取 RGB 的 LUT。」
+
+   ── 為什麼這是對的（不是為了省時間）────────────────────────────────────────────
+     DG_EN=0 ⇒ DGM bypass（見 `dstDg` 宣告處那一段）⇒ **面板根本沒有套那張表**。
+     這時候去讀 LUT 記憶體，讀回來的是一張「存在但沒有在作用」的表，把它當成
+     「目前面板的轉換曲線」送回 DG 的第 1 部分，算出來的新表會錯得無聲無息。
+     面板當下真正在做的事就是 identity（送什麼碼就輸出什麼碼）⇒ 等距表才是真話。
+
+   ── 值從哪裡來：**沿用本頁既有的 `dstLutIdentity()`**（AN-DG p8/p13）────────────
+     🔴 不新造第三份公式。本頁原本就用它把數值表裡「與出廠等距表不同的列」標紅
+        （`dstRenderLut()`），也就是說「出廠等距表長什麼樣」這件事本頁早有定義。
+     ⚠ 與 `dg.html` 的 `dgFillDefault()` 比對過（Bruce 指定要查，結果如實寫在這裡）：
+        dg 那一支是 `v = min(i × 2^(hw−8), (2^sd−1) × 2^(hw−sd))`，rows = M。
+        · **8-bit LUT（M=256、sd=8、FRC=4 ⇒ hw=12）：兩邊逐值相同**
+          —— 本支 k = 2^(12−8) = 16 ⇒ 0,16,…,4080；dg 也是 0,16,…,4080（cap=4080 不夾）。
+        · **10-bit LUT（M=1024、sd=10 ⇒ entryBits=10）：兩邊不同**
+          —— 本支 k = 2^(depth−10)；dg 仍用 2^(hw−8)（index 當成 8-bit）再被 cap 夾住。
+          dg 那一支的 `2^(hw−8)` 在 M=1024 時看起來是錯的，但**本輪不動 dg 的計算**
+          （那會是 `⚠ 輸出變更`，且與本輪要解的問題無關）—— 已在回報中單獨列出請裁示。
+     🔴 送回 DG 的只有主表（`dstLutMainCount()`，與讀表那條路同一支），附加末筆
+        （`2^depth − 1`）不送 —— 這一點與 v1.7.0 起的行為逐字相同。 */
+async function dstLutLoadIdentity() {
+  if (dstLutBusy) return;
+  var ic = dstIc, cfg = ic && ic.dgLut;
+  dstLutErr = null;
+  if (!dstLutPrecheck(ic, cfg)) return;
+
+  dstLutBusy = true; dstLut = null; dstRenderLut(); dstRenderBtns();
+  try {
+    var sp = await dstLutResolveSpec(ic, cfg);
+    if (!sp) return;
+    var ident = dstLutIdentity(sp.entries, sp.entryBits, sp.depth);
+    dstLut = { icKey: ic.key, cfg: cfg, mask: sp.mask, depth: sp.depth, entries: sp.entries,
+               entryBits: sp.entryBits, mode: sp.modeInfo,
+               /* 三通道同值：等距表的定義就是三通道相同（dg.html 的徽章也這樣寫）。
+                  `slice()` 各給一份，避免三個欄位指向同一個陣列被誰就地改掉。 */
+               rgb: { r: ident.slice(), g: ident.slice(), b: ident.slice() },
+               /* 🔴 `nBytes: 0`、`bus: null` ＝ **這一份沒有讀過任何 byte**。
+                  畫面上不走 `dst.lutOk {n}`（那一句是「已讀回 n bytes」），改走
+                  `dst.lutIdent` —— 見 `dstRenderLut()`。 */
+               nBytes: 0, bus: null, src: 'ident' };
+    dstLog('== DG LUT: DG_EN is OFF -> using the factory linear table, T-CON not read'
+      + '  (' + dstLutSpecText(ic.key, cfg, sp.mask, sp.depth, sp.entries, sp.modeInfo) + ')', 'o');
+    dstLog('-- identity k=2^(' + sp.depth + '-' + sp.entryBits + ')='
+      + Math.pow(2, sp.depth - sp.entryBits)
+      + '  [0..3]=' + ident.slice(0, 4).join(',') + ' … [last]=' + ident[sp.entries - 1], 'o');
+  } catch (e) {
+    dstLutErr = { stepKey: 'dst.lutErrStep', detail: dstErrMsg(e) };
+    dstLog('!  identity table build failed: ' + dstErrMsg(e), 'e');
+  } finally {
+    dstLutBusy = false;
+    dstRenderLut(); dstRenderBtns();
+  }
+}
+
 async function dstReadDgLut() {
   if (dstLutBusy) return;
   var ic = dstIc, cfg = ic && ic.dgLut;
   dstLutErr = null;
-  /* 🔴 認不出 IC 就停住 —— 不拿別顆的 slave／位移「試試看」。 */
-  if (!dstLinked) { dstLutErr = { stepKey: 'dst.lutErrLink', detail: '' }; dstRenderLut(); return; }
-  if (!ic)        { dstLutErr = { stepKey: 'dst.lutErrNoIc', detail: '' }; dstRenderLut(); return; }
-  if (!cfg)       { dstLutErr = { stepKey: 'dst.lutErrNoSpec', detail: ic.key }; dstRenderLut(); return; }
+  if (!dstLutPrecheck(ic, cfg)) return;
 
   dstLutBusy = true; dstLut = null; dstRenderLut(); dstRenderBtns();
   try {
-    /* ① 深度：走既有的 DG_EN 讀取（同一顆 byte）。EM01 用不到（mask 固定）。 */
-    await dstReadDgEn();
-    var mask = dstLutMask(cfg, dstDg.depth);
-    if (!mask) {
-      /* 🔴 深度旗標讀不到 ⇒ 不知道要遮幾位 ⇒ **停住**。用 12-bit 硬跑的話，
-         10-bit 的表會多出兩位垃圾，而且畫面上看起來完全正常。 */
-      dstLutErr = { stepKey: 'dst.lutErrDepth',
-                    detail: ic.key + (ic.dgEn ? ' ' + dstAddrText(ic.dgEn.addr) : '') };
-      dstLog('!  DG LUT: depth flag unreadable on ' + ic.key + ' -> stop (no default)', 'e');
-      return;
-    }
-    var depth = dstLutDepthOfMask(mask);
-
-    /* ①-2 🔴 v1.7.1：LUT_MODE ⇒ 筆數。只有 EM01 有 `modeSel`。
-       讀不到、或那個模式根本不是 DG LUT ⇒ **停住**，不退回任何預設筆數。 */
-    var entries = cfg.entries, entryBits = cfg.entryBits, modeInfo = null;
-    if (cfg.modeSel) {
-      var ms = cfg.modeSel, mb = null;
-      try { mb = await dstReadReg(ms.addr, 1); }
-      catch (eM) { mb = null; }
-      if (!mb || !mb.length || dstIsBusIdle(mb.slice(0, 1))) {
-        dstLutErr = { stepKey: 'dst.lutErrMode', detail: ic.key + ' ' + dstAddrText(ms.addr) };
-        dstLog('!  DG LUT: LUT_MODE register ' + dstAddrText(ms.addr) + ' unreadable -> stop (no default entry count)', 'e');
-        return;
-      }
-      var mv = dstLutModeOfByte(mb[0] & 0xFF, ms);
-      modeInfo = dstLutModeInfo(cfg, mv);
-      dstLog('-- LUT_MODE raw 0x' + ('0' + (mb[0] & 0xFF).toString(16).toUpperCase()).slice(-2)
-        + ' @' + dstAddrText(ms.addr) + ' bit[' + (ms.shift + ms.width - 1) + ':' + ms.shift + ']'
-        + ' = ' + mv + (modeInfo ? ' (' + modeInfo.name + ')' : ' (not in table)'));
-      if (!modeInfo || !modeInfo.dg || !modeInfo.entries) {
-        dstLutErr = { stepKey: 'dst.lutErrModeNotDg',
-                      detail: dstLutModeText(modeInfo || { val: mv, name: '?' }) };
-        dstLog('!  DG LUT: LUT_MODE ' + mv + ' is not a DG LUT mode -> stop', 'e');
-        return;
-      }
-      entries = modeInfo.entries; entryBits = modeInfo.entryBits;
-    }
+    /* 🔴 v1.18.0：規格判定搬到 `dstLutResolveSpec()`（等距表那條路共用同一支）。
+       錯誤訊息、log 的字、停住的時機一個字都沒改。 */
+    var sp = await dstLutResolveSpec(ic, cfg);
+    if (!sp) return;
+    var mask = sp.mask, depth = sp.depth;
+    var entries = sp.entries, entryBits = sp.entryBits, modeInfo = sp.modeInfo;
 
     var plan  = dstLutPlan(cfg, DST_LUT_AHB, entries);
     var total = plan.reduce(function (s, p) { return s + p.len; }, 0);
@@ -3444,8 +3592,12 @@ async function dstReadDgLut() {
       rgb[chans[ci]] = one;
     }
 
+    /* 🔴 v1.18.0（B）：`src` ＝ 這一份表**哪裡來的**。'tcon' ＝ 真的從 T-CON 讀回來，
+       'ident' ＝ DG_EN 關著時用的出廠等距表（見 `dstLutLoadIdentity()`）。
+       回傳給 DG 時的標籤與 `lutSrc` 欄位都讀它 —— 兩種來源不可以共用同一句話。 */
     dstLut = { icKey: ic.key, cfg: cfg, mask: mask, depth: depth, entries: entries,
-               entryBits: entryBits, mode: modeInfo, rgb: rgb, nBytes: all.length, bus: b };
+               entryBits: entryBits, mode: modeInfo, rgb: rgb, nBytes: all.length, bus: b,
+               src: 'tcon' };
     dstLog('-- decoded ' + entries + ' entries/ch'
       + (modeInfo ? '  (LUT_MODE ' + dstLutModeText(modeInfo) + ')' : '')
       + '   R[0..3]=' + rgb.r.slice(0, 4).join(',') + ' … R[last]=' + rgb.r[entries - 1]
@@ -4693,6 +4845,10 @@ function dstRenderDg() {
     ck.checked = (dstDg.state === 'on');
     ck.disabled = !(dstLinked && dstIc && dstIc.dgEn) || dstRunning || dstBusy;
   }
+  /* 🔴 v1.18.0（C）：DG_EN 一變，步驟卡上那一行建議／警告就要跟著變。
+     這一支是 DG_EN 狀態的唯一渲染出口（`dstReadDgEn()` 每次都叫它），掛在這裡
+     不會漏；`dstRenderSteps()` 末尾也叫一次（輪數／忙碌狀態變了的那一條）。 */
+  dstRenderDgRec();
 }
 /* ═══ 🔴 v1.7.0：DG LUT 檢視那張卡的渲染 ══════════════════════════════════
    三條硬規矩（Bruce 明說這張卡是拿來「檢查是不是你亂讀的」）：
@@ -4779,7 +4935,11 @@ function dstRenderLut() {
   /* ── 狀態列 ── */
   if (busy) dstShow('dst-lut-state', dstT('dst.lutBusy'), true);
   else if (dstLutErr) dstShow('dst-lut-state', dstT('dst.lutFailed'), false);
-  else if (dstLut) dstShow('dst-lut-state', dstT('dst.lutOk', { n: dstLut.nBytes }), true);
+  /* 🔴 v1.18.0（B）：等距表那一份**沒有讀過任何 byte**，不可以套「已讀回 n bytes」。
+     這張卡的卡名是「DG LUT（RGB）檢視」、說明寫著「把 T-CON 裡目前的表讀回來核對」，
+     所以狀態列是這裡唯一說得出「這一份不是讀來的」的地方 —— 漏了就是讓整張卡說謊。 */
+  else if (dstLut) dstShow('dst-lut-state', dstLut.src === 'ident'
+    ? dstT('dst.lutIdent') : dstT('dst.lutOk', { n: dstLut.nBytes }), true);
   else dstShow('dst-lut-state', '—', false);
 
   dstSay('dst-say-lut', dstLutErrText());
@@ -5648,7 +5808,12 @@ function dstRenderSteps() {
     if (wy) wy.textContent = seqKey ? dstT(seqKey) : '';
     if (go) {
       /* ① 那一步多一道條件：這顆 IC 要有 DG LUT 的讀取規格
-         （與「讀取 DG LUT」那顆鈕逐字相同的判準，不放寬）。 */
+         （與「讀取 DG LUT」那顆鈕逐字相同的判準，不放寬）。
+         🔴 v1.18.0（B）：① 那顆鈕的**字跟著 DG_EN 走** —— DG_EN 關著時它不會去讀
+            T-CON（見 `dstStep1UsesIdentity()`），還印「讀回並回傳」就是名實不符。
+            `data-i18n` 已從 HTML 拿掉（留著的話 common.js 切語言會把它洗回固定那一句，
+            本頁在 applyLang 的時序上已經栽過兩次）；`_onLangChange` 會叫這一支重填。 */
+      if (k === 'lut') go.textContent = dstT(dstStep1UsesIdentity() ? 'dst.goLutIdent' : 'dst.goLut');
       go.disabled = !!why || !!seqKey || (k === 'lut' && !(dstIc && dstIc.dgLut)) || dstBusy || dstLutBusy;
       /* 滑過去也看得到同一句（鍵盤使用者靠上面那一行，滑鼠使用者靠這裡）。 */
       go.title = seqKey ? dstT(seqKey) : '';
@@ -5780,7 +5945,7 @@ function dstRenderSteps() {
     bw.classList.remove('dst-hidden');
     bw.textContent = !alive ? dstT('dst.backNoDg')
       : (sent ? dstT('dst.backSwitchTab') : dstT('dst.backHint'));
-    /* ═══ 🔴 v1.18.0：送出去之後，這一行要高亮＋閃一下 ════════════════════════
+    /* ═══ 🔴 v1.17.1：送出去之後，這一行要高亮＋閃一下 ════════════════════════
        🔴 **綁的就是 ④ 打勾的同一個事實**（上面那個 `sent` ＝ `dstBackSent()`），
           不另立旗標。三條失敗路徑（沒有 opener／筆數不足／postMessage 丟例外）
           都在 `dstStepDone` 之前就 return ⇒ 它們的 `sent` 是 false ⇒ 既不高亮
@@ -5816,6 +5981,11 @@ function dstRenderSteps() {
     cp.classList.toggle('dst-hidden', alive);
     cp.disabled = !dstLut;
   }
+  /* 🔴 v1.18.0（C）：DG_EN 的建議／警告那一行跟著整張卡一起重畫。
+     放在這裡（而不是各自找時機）的理由與上面那幾段相同：這張卡只有一支渲染，
+     列舉呼叫點漏一個不會有任何錯誤訊息。`dstRenderDg()` 末尾也叫它一次 ——
+     DG_EN 自己變了的時候走的是那一條。 */
+  dstRenderDgRec();
 }
 
 /* ═══ 🔴 v1.10.0：最上面那張卡的三個 ○／✔ ═════════════════════════════════
@@ -5839,16 +6009,181 @@ function dstRenderHw() {
    🔴 讀取走的是 v1.7.0 的 `dstReadDgLut()`，**一個字都沒改**（規格、bus enable、
       交錯、mask、LUT_MODE 判定全在那一支裡，那些剛在真機驗過）。這裡只負責
       「讀完之後把它交出去」。 */
+/* ═══ 🔴 v1.18.0（B）：第一步的**內容**由 DG_EN 決定 ═══════════════════════════════
+   Bruce 2026-09-23 的表：
+     DG_EN 關 ⇒ 等距表，**不去讀 T-CON**（面板沒套任何表，讀 LUT 記憶體只會讀到
+                一張沒在作用的表）
+     DG_EN 開 ⇒ 真的讀 T-CON
+   🔴 **「未知」走真讀**（第三格，他的表沒列，這裡寫明取捨）：讀不到 DG_EN 就不知道
+      面板在做什麼，而「等距表」是一個**主張**（主張面板現在是 bypass）。不知道的時候
+      不要主張 —— 走真讀，它自己會在深度旗標讀不到時停住並講原因（`dst.lutErrDepth`），
+      與 v1.18.x 逐字相同的行為。 */
+function dstStep1UsesIdentity() { return dstDg.state === 'off'; }
+
 async function dstStepLut() {
   dstSay('dst-say-steps', '');
-  await dstReadDgLut();
+  if (dstStep1UsesIdentity()) await dstLutLoadIdentity();
+  else await dstReadDgLut();
   if (!dstLut) { dstRenderSteps(); return false; }   // 失敗原因由 dstRenderLut() 講
   if (!dstDgAlive()) {
-    dstSay('dst-say-steps', dstT('dst.stepLutNoDg', { n: dstLutMainCount(dstLut.entries) }));
+    /* 🔴 v1.18.0（B）：等距表那一份不可以說「已讀回」——「複製到剪貼簿」那條退路
+       的內容是對的（表就是那張），錯的只有它怎麼來的那半句。 */
+    dstSay('dst-say-steps', dstT(dstLut.src === 'ident' ? 'dst.stepLutNoDgIdent' : 'dst.stepLutNoDg',
+                                 { n: dstLutMainCount(dstLut.entries) }));
     dstRenderSteps();
     return false;
   }
   return dstDgSendLut();
+}
+
+/* ═══ 🔴 v1.18.0（A）：第一步**自動完成**，不必使用者按 ═════════════════════════════
+   Bruce 2026-09-23：「自檢畫面的第一個步驟『讀回目前 RGB LUT』，這個是不是可以做到
+   自動化？因為 I2C 都已經連了，所以這個部分其實根本就不用使用者來按了。除非使用者
+   手動 toggle 了 DGEN 的核取方塊。」
+
+   ── 🔴 時機：為什麼是「連上並認出 IC 之後」，而不是頁面載入或計時器 ─────────────
+     他同時提醒「讀整張表要時間、會佔用 I2C bus，不要在使用者還在接線／還沒準備好
+     的時候就硬讀」。所以觸發點一律是**使用者剛做完一個動作、正在等結果**的那一刻，
+     這四個時點接線途中不會發生：
+       ① 按「連線」成功（`dstConnect()` 走完 open → 通訊自檢 → IC 識別 → 解析度）
+       ② 按「重新識別」成功（同一條識別路徑）
+       ③ toggle DG_EN（B 條指定的重取觸發，見 `dstDgEnApply()`）
+       ④ DG 指派了新的一份工作，而 `dstLutCarry()` 沒有接手（`dstDgApplyTask()`）
+   🔴 **不加計時器、不加自動重試**：秒數只能用猜的，猜錯的代價就是在他還在接線時
+      佔用匯流排。失敗就停在原地，① 那顆鈕照舊按得下去。
+   🔴 佔用多久分兩種：DG_EN **關**著走 `dstLutLoadIdentity()`，全程只讀兩顆 byte，
+      幾乎不佔匯流排；DG_EN **開**著才讀整張表 —— 而那一份正是他一定要的資料。 */
+function dstStep1CanAuto() {
+  /* 🔴 與 ① 那顆鈕的 disabled 判準**逐字相同**（見 dstRenderSteps）：連上、認得 IC、
+     這顆查得到 DG LUT 規格。不放寬也不收緊 —— 自動與手動不該有兩套門檻。 */
+  if (!dstLinked || !dstIc || !dstIc.dgLut) return false;
+  /* ① 的「完成」＝ 表真的進了 DG 的第 1 部分（`dstStepDone.lut` 只在 `dstDgSendLut()`
+     裡、postMessage 沒丟例外的下一行才 true）。沒有 opener 就送不出去 ⇒ 自動跑只會
+     佔用匯流排卻完不成任何一步。直接開這一頁的人維持 v1.18.x 的樣子：自己按那顆鈕。 */
+  if (!dstDgAlive()) return false;
+  if (dstStepDone.lut) return false;                       // 這一份工作做過了就不要再送一次
+  if (dstLutBusy || dstRunning || dstBusy) return false;   // 正在忙就不插隊
+  /* 🔴 DG_EN 讀不到 ⇒ 不知道該給等距表還是讀回來的表 ⇒ **不自動**。
+     這時候他按 ① 仍然可以（走真讀，讀不到深度時它自己會講）—— 自動的那一半只是
+     不替他決定，不是把路堵起來。 */
+  if (dstDg.state !== 'on' && dstDg.state !== 'off') return false;
+  return true;
+}
+function dstStep1Auto(why) {
+  if (!dstStep1CanAuto()) return Promise.resolve(false);
+  dstLog('== step ① auto (' + why + '): DG_EN=' + dstDg.state + ' -> '
+    + (dstStep1UsesIdentity() ? 'factory linear table (T-CON not read)' : 'read the T-CON'), 'o');
+  return dstStepLut();
+}
+
+/* ═══ 🔴 v1.18.0（B）：DG_EN 一被 toggle，第一步就要重取 ═══════════════════════════
+   Bruce 2026-09-23：「觸發重新讀取第一步驟的動作，就是看 DGEN 有沒有被 toggle。」
+   🔴 這一支是**所有**改 DG_EN 的入口的共同出口（核取方塊、C 條那兩顆鈕）。寫成兩份
+      的話遲早有一邊忘了重取，而那種漏掉不會有任何錯誤訊息 —— 畫面上就是一張與現在
+      的 DG_EN 對不起來的表。
+   🔴 寫入走的是**既有的 `dstSetDgEn()`**（它本來就會讀回確認，讀回不符不當成功），
+      這裡沒有第二份寫入實作。
+   🔴 `dstStepDone.lut = false`：DG_EN 一換，① 的**內容**就換了（等距表 ⇄ 讀回來的表），
+      上一次送進 DG 第 1 部分的那一份已經不成立。勾留著就是在說一件不再成立的事。
+      清掉之後由下面那一次 `dstStep1Auto()` 重送、重新打勾；送不出去就維持空心圈。
+   ⚠ 副作用（誠實列出，不藏）：②③ 已經量完時，① 的勾被清掉會讓依序限制退回第一組、
+      ②③ 那顆鈕跟著鎖住。那是**對的** —— DG_EN 換了，上一次量到的東西前提已經不同。
+      真的要跳過，既有的「解除依序限制」還在。
+   🔴 寫失敗（`dstSetDgEn()` 回 false）⇒ **什麼都不清、什麼都不重取**：IC 裡的狀態沒變，
+      畫面上那張表也還是對的。失敗原因由 `dstSetDgEn()` 自己寫在 `#dst-say-link`。 */
+function dstDgEnApply(on, why) {
+  var changed = false;
+  return dstGuard(async function () {
+    if (!(await dstSetDgEn(on))) return;
+    changed = true;
+    dstStepDone.lut = false;
+    dstRenderSteps();
+  }).then(function () {
+    /* 🔴 放在 guard **外面**：guard 期間 `dstBusy` 是 true，而自動那一支的第一道門
+       就是「正在忙就不插隊」。放裡面等於永遠不會跑。 */
+    if (!changed) return false;
+    return dstStep1Auto(why);
+  });
+}
+
+/* ═══ 🔴 v1.18.0（C）：第 1 輪引導關 DG_EN、第 2 輪以後警告 DG_EN 沒開 ═══════════════
+   Bruce 2026-09-23：「第一輪是不是要先詢問使用者，是否要用 DGEN 關閉量最原始的
+   Gamma？但是盡量傾向讓使用者選擇到 DGEN 關閉。」→ 我提「不要問句，改成推薦 ＋
+   一鍵做到」→ 他回「可以依你建議」。
+
+   ── 四格狀態表（他 2026-09-23 追問後定案）──────────────────────────────────────
+     第 1 輪、DG_EN 開 ⇒ 推薦 ＋ 一主一次兩顆鈕
+     第 1 輪、DG_EN 關 ⇒ 🔴 **什麼都不出現，直接量**（狀態已經對了就不要打擾）
+     第 2 輪以後、DG_EN 關 ⇒ 警告 ＋ 一顆開啟鈕（新表已寫進面板，關著等於那一輪白量）
+     第 2 輪以後、DG_EN 開 ⇒ 什麼都不出現
+   ── 表以外的三格，一律不出現（本頁既有紀律：不知道的事不要編、按不動的鈕不要放）──
+     · `dstDgRound === null`（舊版 DG／直接開這一頁）⇒ **不知道第幾輪就不講**。
+       🔴 DG 開新分頁那條路一定會把 `round` 寫進網址（見 `dstDgRound` 宣告處），
+          所以正常流程走不到這一格。
+     · DG_EN 讀不到（unknown）⇒ 不知道現在是開是關，推薦與警告都會是瞎猜。
+     · 沒連線／認不出 IC／這顆沒有 `dgEn` 位址 ⇒ 鈕按下去改不了任何東西。
+   🔴 文案**一行一句**（Bruce 明示：「不要冗長的白話，越簡單越好、越無腦越好。廢話太多、
+      文字太多，使用者反而不會看。」）。**不解釋理由** —— 按鈕名稱已經寫明會發生什麼事。
+      三語同一個長度，英文不准寫成一整段。 */
+var dstDgRecDismissed = false;   // 他按過「維持現狀」。生命週期＝這一份工作（見 dstClearRound）
+
+function dstDgRecKind() {
+  if (!dstDgAlive()) return null;
+  if (dstDgRound === null) return null;
+  if (dstDgRecDismissed) return null;
+  if (!(dstLinked && dstIc && dstIc.dgEn)) return null;
+  if (dstDg.state !== 'on' && dstDg.state !== 'off') return null;
+  if (dstDgRound <= 1) return (dstDg.state === 'on') ? 'rec1' : null;
+  return (dstDg.state === 'off') ? 'warn2' : null;
+}
+
+function dstRenderDgRec() {
+  var box = $('dst-dg-rec');
+  if (!box) return;
+  var kind = dstDgRecKind();
+  box.classList.toggle('dst-hidden', !kind);
+  box.classList.toggle('warn', kind === 'warn2');
+  if (!kind) return;
+  var t = $('dst-dg-rec-txt');
+  if (t) t.textContent = dstT(kind === 'rec1' ? 'dst.dgRec1' : 'dst.dgRec2');
+  var go = $('dst-dg-rec-go');
+  if (go) {
+    /* 🔴 鈕面字 ＝ 按下去**真的**會發生的事（本專案既有紀律）。第 1 輪那一顆他給的字
+       是「關掉 DG_EN 並開始量」，而「開始量」有它自己的前提（量測儀要連上，見
+       `dstRunWhyKey()`）。前提不成立時仍然印「並開始量」就是承諾做不到的事 ——
+       那正是 v1.16.0 修掉的同一族（句子指著一顆灰掉的鈕）。
+       ⇒ 前提不成立時只印「關掉 DG_EN」：字更短，而且它一定做得到。 */
+    go.textContent = (kind === 'rec1')
+      ? dstT(dstRunWhyKey() ? 'dst.dgRec1GoOnly' : 'dst.dgRec1Go')
+      : dstT('dst.dgRec2Go');
+    go.disabled = dstBusy || dstRunning || dstLutBusy;
+  }
+  var keep = $('dst-dg-rec-keep');
+  if (keep) {
+    /* 「維持現狀」只給第 1 輪那一格：第 2 輪那一句是警告，不是二選一 —— 給它一顆
+       「維持現狀」等於在說「繼續白量也可以」。要忽略它就直接按「開始量測」，
+       那顆鈕本來就沒有被這一行擋住。 */
+    keep.classList.toggle('dst-hidden', kind !== 'rec1');
+    keep.textContent = dstT('dst.dgRecKeep');
+  }
+}
+
+/* 主鈕：關（第 1 輪）／開（第 2 輪以後）。兩格共用同一支 —— 差別只有寫哪一個值，
+   以及第 1 輪那一格在前提成立時順便把量測帶起來。 */
+function dstDgRecMain() {
+  var kind = dstDgRecKind();
+  if (!kind) return Promise.resolve(false);
+  var wantOn = (kind !== 'rec1');
+  /* 按下去的那一刻就決定要不要順便開始量 —— 鈕面字是照同一個判準寫的，
+     兩者讀同一支 `dstRunWhyKey()`，不可能出現「字說會量、按了不量」。 */
+  var alsoMeasure = (kind === 'rec1') && !dstRunWhyKey();
+  return dstDgEnApply(wantOn, 'dgrec').then(function (done) {
+    if (!alsoMeasure || !done) return false;
+    /* 🔴 再問一次：剛剛那幾秒裡量測儀可能掉線了。 */
+    if (dstRunWhyKey()) return false;
+    /* 🔴 走的是②③那顆鈕的**同一支** `dstStepGrayGo()`，沒有第二份開始量測的路徑。 */
+    return dstStepGrayGo();
+  });
 }
 
 /* 主表筆數（不含附加末筆）。
@@ -5890,11 +6225,25 @@ function dstDgSendLut() {
     dstLog('!  DG LUT send skipped: only ' + rows.length + ' usable entries', 'e');
     return false;
   }
+  /* ═══ 🔴 v1.18.0（B）：**來源一定要標明**（Bruce 2026-09-23 紅線）═════════════════
+     「送等距表就不准寫『從 T-CON 讀回』。那是說謊，與 2026-09-22 修掉的『代理指標』
+       同一族。兩種來源要能在 DG 那邊分得出來。」
+     ⇒ 兩件事一起送，缺一不可：
+       ① `label` 換成對應那一句（給人看的）。
+       ② `lutSrc` 這個**機器讀得到的欄位**（給 DG 的程式判斷用）。
+          只換 label 不夠 —— dg.html 的 `dgApplyLiveLut()` 原本把「✔ 從 T-CON 讀回來的
+          RGB LUT」與來源徽章 `kind:'tcon'` **寫死**在那一支裡，label 只當名稱用；
+          不多送這個欄位的話，DG 畫面上照樣會出現那句寫死的話。
+     🔴 舊版 DG（沒有認 `lutSrc` 的那一版）收到 ident 會沿用它寫死的那句 —— 那是
+        「同一個站台上留著上一次部署的分頁」這種情況。如實寫在這裡與 CHANGELOG，
+        不假裝不存在；正解是兩頁一起部署（本輪就是兩頁一起進版）。 */
+  var isIdent = (dstLut.src === 'ident');
   try {
     window.opener.postMessage({
       type: 'dg-measure-result',
       mode: 'lut',
-      label: dstT('dst.dgLabelLut'),
+      lutSrc: isIdent ? 'ident' : 'tcon',
+      label: dstT(isIdent ? 'dst.dgLabelIdent' : 'dst.dgLabelLut'),
       task: dstDgTask,
       at: new Date().toLocaleString(),
       rows: rows,
@@ -5911,9 +6260,9 @@ function dstDgSendLut() {
      ④ 現在不看這一步（① 有自己的勾，不該借給 ④），見 `dstBackSent()` 宣告處。 */
   dstStepDone.lut = true;
   dstSay('dst-say-steps',
-    dstT('dst.dgSentLut', { n: rows.length, dest: DST_STEP_PART.lut }));
+    dstT(isIdent ? 'dst.dgSentIdent' : 'dst.dgSentLut', { n: rows.length, dest: DST_STEP_PART.lut }));
   dstLog('== sent DG LUT: task=' + dstDgTask + ' entries=' + rows.length
-    + '/' + dstLut.entries + ' depth=' + dstLut.depth + 'bit', 'o');
+    + '/' + dstLut.entries + ' depth=' + dstLut.depth + 'bit src=' + (isIdent ? 'ident' : 'tcon'), 'o');
   dstRenderSteps();
   return true;
 }
@@ -6057,11 +6406,16 @@ function dstClearRound(n, roundChanged) {
   /* 🔴 v1.17.0（D）：依序限制的解除是**這一份工作**的例外，不跟著跨到下一份。
      換了工作還留著解除狀態，下一份一開始四顆鈕就全開 —— 那等於這條規則沒生效過。 */
   dstSeqUnlock = false;
-  /* 🔴 v1.18.0：新的一份工作 ⇒「已送回 DG」那一行可以再閃一次。
+  /* 🔴 v1.17.1：新的一份工作 ⇒「已送回 DG」那一行可以再閃一次。
      與 `dstSeqUnlock` 同一個生命週期（都是「這一份工作」的狀態），所以清在同一處。
      ④ 的勾本來就在上面被清掉了 ⇒ 下一次 `dstRenderSteps()` 會先走 `!hot` 那一支
      把高亮與閃爍類別都拿掉，等這一份工作真的送出去才重新掛上。 */
   dstBackFlashed = false;
+  /* 🔴 v1.18.0（C）：「維持現狀」是**這一份工作**的例外，不跟著跨到下一份
+     （與 `dstSeqUnlock` 同一個生命週期，所以清在同一處）。第 2 輪的警告本來就
+     不給這顆鈕，所以這一行實際上只影響「第 1 輪按過維持現狀 → 換到下一份工作」
+     那一格 —— 那時推薦本來就該再出現一次（新的一輪、新的前提）。 */
+  dstDgRecDismissed = false;
   /* 🔴 v1.17.0（C）：`dstLutVerified` **刻意不在這裡清**。
      它記的不是「這一輪做了什麼」，而是「T-CON 裡現在是哪一張表」—— 那是面板的現況，
      不隨 DG 換一份工作而改變。它的清除點只有一個：下一次寫入沒有核對相符
@@ -6140,6 +6494,17 @@ function dstLutCarry() {
   if (dstStepDone.lut) return false;
   if (dstDgStep === 'lut') return false;
   if (!dstDgAlive()) return false;
+  /* 🔴 v1.18.0（B）：**DG_EN 關著時不接手**（第五個條件）。
+     接手的那張表是「寫進 LUT 記憶體並讀回核對相符」的那一份，而 DG_EN = 0 ⇒ DGM
+     bypass ⇒ **面板沒有在用它**。把它當成「第 1 部分＝面板目前的轉換曲線」送回去，
+     算出來的新表會疊錯，而且完全安靜 —— 與 B 條要修的是同一件事。
+     ⇒ 這一格改由 `dstStep1Auto()` 接手，送出廠等距表（那才是 bypass 當下的真相）。
+     🔴 「未知」不擋：那時 `dstStep1Auto()` 也不會動（它同樣要求 DG_EN 讀得到），
+        擋了就變成「兩邊都不做、① 停在空心圈卻沒人說為什麼」。維持 v1.18.x 的行為。 */
+  if (dstDg.state === 'off') {
+    dstLog('== step ① carry skipped: DG_EN is OFF, the written table is not in effect', 'w');
+    return false;
+  }
   /* 「記錄下來」＝ 把那張表放回「DG LUT（RGB）檢視」那張卡。它讀的就是 `dstLut`，
      而這張表正是上一次從 T-CON 讀回來、逐筆核對相符的那一份 ⇒ 卡名「目前的」為真。 */
   dstLut = dstLutVerified;
@@ -6237,6 +6602,14 @@ function dstDgApplyTask(d) {
   dstLutCarry();
   dstRenderDgBits();     // v1.2.0：換任務之後 gray/prim 可能變了，警語要跟著重算
   dstSayInfo('dst-say-run', dstDgTaskText());
+  /* 🔴 v1.18.0（A）：新的一份工作 ⇒ ① 的勾剛被 `dstClearRound()` 清掉 ⇒ 自動補一次。
+     🔴 **放在 `dstLutCarry()` 之後**：carry 成功的話 `dstStepDone.lut` 已經是 true，
+        自動那一支的第一道門就會擋住它 —— 兩者不會各送一次。
+     🔴 也放在 `dstSayInfo()` 之後：自動那一段會寫 `#dst-say-steps`（另一行），
+        而這一行是 `#dst-say-run`，兩者不互相覆蓋；順序只是讓「這一次要做什麼」先出現。
+     🔴 不 await（這一支不是 async，呼叫端是 message 事件）—— 自動那一支自己有
+        完整的 try/catch 與忙碌旗標，失敗不會外溢。 */
+  dstStep1Auto('dg-task');
   dstLog('== DG task ' + dstDgTask + ': mode=' + dstDgMode + ' step=' + dstDgStep
     + ' job=' + dstDgJob + ' round=' + dstDgRound + ' dest=' + dstDgDest, 'o');
 }
@@ -6422,11 +6795,18 @@ function dstBind() {
      🔴 `dstBackToDg()` 那一支**保留**：它現在的呼叫點是 `dstDgSend()`／
        `dstDgSendLut()` 成功之後的自動提示，不是點擊（見該函式上方）。 */
 
+  /* ═══ 🔴 v1.18.0（A）：兩個「識別完成」的時點各接一次自動第一步 ═══════════════════
+     🔴 **接在 `.then()` 裡、不放進 `dstConnect()`／`dstGuard()` 內部**：那兩支結束前
+        `dstBusy` 都還是 true，而 `dstStep1CanAuto()` 的第一道門就是「正在忙就不插隊」
+        —— 放裡面等於寫了一個永遠不會跑的呼叫。
+     🔴 條件與時機的完整理由寫在 `dstStep1CanAuto()` 上方；這裡只負責「什麼時候問」。 */
   $('dst-link').addEventListener('click', function () {
-    if (dstLinked) dstDisconnect(); else dstConnect();
+    if (dstLinked) dstDisconnect();
+    else dstConnect().then(function () { dstStep1Auto('connect'); });
   });
   $('dst-probe').addEventListener('click', function () {
-    dstGuard(async function () { await dstCommTest(); await dstScanIdentify(); await dstReadRes(); });
+    dstGuard(async function () { await dstCommTest(); await dstScanIdentify(); await dstReadRes(); })
+      .then(function () { dstStep1Auto('probe'); });
   });
   $('dst-alt').addEventListener('change', function () {
     dstAltIdx = parseInt(this.value, 10);
@@ -6443,7 +6823,20 @@ function dstBind() {
   $('dst-dg-ck').addEventListener('change', function () {
     var want = !!this.checked;
     this.checked = (dstDg.state === 'on');       // 先彈回現況，由讀回結果決定最終樣子
-    dstGuard(async function () { await dstSetDgEn(want); });
+    /* 🔴 v1.18.0（B）：改走 `dstDgEnApply()` —— 寫入那一段**一個字都沒變**（還是
+       `dstGuard` ＋ `dstSetDgEn`），多的是寫成功之後把第一步重取。Bruce 2026-09-23：
+       「觸發重新讀取第一步驟的動作，就是看 DGEN 有沒有被 toggle。」 */
+    dstDgEnApply(want, 'dgen-toggle');
+  });
+
+  /* 🔴 v1.18.0（C）：建議／警告那一行的兩顆鈕。 */
+  $('dst-dg-rec-go').addEventListener('click', function () { dstDgRecMain(); });
+  $('dst-dg-rec-keep').addEventListener('click', function () {
+    /* 「維持現狀」＝ **只是把這一行收起來**，不碰 DG_EN、不碰任何一步。
+       生命週期是「這一份工作」（`dstClearRound()` 會清），所以換一輪還會再問一次。 */
+    dstDgRecDismissed = true;
+    dstLog('== DG_EN recommendation dismissed by the user (this job only)', 'w');
+    dstRenderDgRec();
   });
 
   $('dst-bits').addEventListener('change', function () { dstSetBits(parseInt(this.value, 10)); });
@@ -6638,6 +7031,9 @@ window.dstProbe = {
              busAddr: dstLut.bus ? dstLut.bus.addr : null,
              busBit: dstLut.bus ? dstLut.bus.bit : null,
              nBytes: dstLut.nBytes,
+             /* 🔴 v1.18.0（B）：這一份哪裡來的（'tcon' ＝ 真的讀回來，
+                'ident' ＝ DG_EN 關著時的出廠等距表）。回傳給 DG 的標籤讀的就是它。 */
+             src: dstLut.src || null,
              r: dstLut.rgb.r.slice(), g: dstLut.rgb.g.slice(), b: dstLut.rgb.b.slice() };
   },
   lutErr: function () { return dstLutErr ? JSON.parse(JSON.stringify(dstLutErr)) : null; },
@@ -6814,7 +7210,11 @@ window.dstProbe = {
     dstLutVerified = {
       icKey: dstIc ? dstIc.key : '?', cfg: dstIc ? dstIc.dgLut : null,
       mask: Math.pow(2, d) - 1, depth: d, entries: n, entryBits: 8, mode: null,
-      rgb: { r: a.slice(), g: a.slice(), b: a.slice() }, nBytes: n * 6, bus: null
+      /* 🔴 v1.18.0：`src: 'tcon'` —— 這個替身模擬的是「寫進去之後**讀回來**核對相符」
+         的那一份，它確實來自 T-CON。等距表那一份的 src 是 'ident'（兩者不可混用，
+         回傳給 DG 的標籤讀的就是這個欄位）。 */
+      rgb: { r: a.slice(), g: a.slice(), b: a.slice() }, nBytes: n * 6, bus: null,
+      src: 'tcon'
     };
     return true;
   },
@@ -6895,7 +7295,7 @@ window.dstProbe = {
     var e = $('dst-back-warn'); return e ? e.classList.contains('dst-hidden') : null;
   },
   backWarnText: function () { var e = $('dst-back-warn'); return e ? e.textContent : null; },
-  /* v1.18.0 驗證用（唯讀）：那一行現在掛了哪些類別 ＋ 這一份工作閃過了沒。
+  /* v1.17.1 驗證用（唯讀）：那一行現在掛了哪些類別 ＋ 這一份工作閃過了沒。
      🔴 只回實際的 class 字串，不回任何「通過與否」的自訂判斷。 */
   backWarnCls: function () { var e = $('dst-back-warn'); return e ? e.className : null; },
   backFlashed: function () { return dstBackFlashed; },

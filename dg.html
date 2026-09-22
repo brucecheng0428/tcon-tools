@@ -2577,12 +2577,12 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20260923dg1752"></script>
-<script src="common/i18n.js?v=20260923dg1752"></script>
+<script src="common/version.js?v=20260923dg1753"></script>
+<script src="common/i18n.js?v=20260923dg1753"></script>
 <!-- v1.68.1：xlsx 產生器（原本在本頁，現在與 dg-selftest.html 共用）。
      🔴 必須在本頁的 inline script 之前載入。 -->
-<script src="common/xlsx.js?v=20260923dg1752"></script>
-<script src="common/common.js?v=20260923dg1752"></script>
+<script src="common/xlsx.js?v=20260923dg1753"></script>
+<script src="common/common.js?v=20260923dg1753"></script>
 <script>
 /* ════════════════════════════════════════════════════════════════════════
    DG — Digital Gamma 迭代校正
@@ -11283,7 +11283,16 @@
          「他在視窗裡自己按的」與「入口③ 依檔案推出來的」是兩件不同的事實 ——
          走③ 的人從來沒按過那顆鈕，寫他按過就是假的。 */
       return { cls: 'ready', text: '出廠等距表（DG_EN 關閉）' + ed,
-        src: (s.via === 'pq')
+        /* 🔴 v1.75.3：第三種 `via` ——「T-CON 自檢」分頁在 DG_EN 關著時送回來的。
+           徽章那一句與另外兩條**共用**（同一張表就該叫同一個名字），分岔的只有來源行：
+           走這一條的人既沒有按視窗裡那顆鈕、也沒有匯 PQ 檔，而且 `DG_EN = 0` 這件事
+           是自檢頁**實際讀回來的**，不是推定的 —— 那是這三條路裡證據最硬的一條，
+           要講得出來。 */
+        src: (s.via === 'tcon')
+          ? ('來源：「T-CON 自檢」分頁 —— 它讀到 <code>DG_EN = 0</code>，'
+             + '面板當下沒有套任何 LUT，所以第 1 部分的起點就是這張出廠等距表。'
+             + '等距、三通道相同；<b>沒有去讀 T-CON 的 LUT 記憶體</b>。')
+          : (s.via === 'pq')
           /* 🔴 v1.75.1：這一句**平述事實**就好 —— PQ Tools 的 CCT 檔照定義就是
              DG_EN 關閉下量的（Bruce 2026-09-22 確認；檔案不記錄這件事是因為它恆為真，
              不是因為無從得知。完整查證寫在 `dg.pqPremise` 的註解）。
@@ -11748,11 +11757,30 @@
       return false;
     }
 
+    /* ═══ 🔴 v1.75.3：自檢分頁送來的表**有兩種來源**，這一支不可以再寫死一種 ═══════
+       Bruce 2026-09-23：自檢頁的第一步在 **DG_EN 關著**時要給「出廠等距表」而不是去讀
+       T-CON（面板 bypass，讀 LUT 記憶體只會讀到一張沒在作用的表），並明示：
+       「送等距表就不准寫『從 T-CON 讀回』。那是說謊。兩種來源要能在 DG 那邊分得出來。」
+
+       ── 為什麼**非改這一支不可**（不是「順手也改一下」）──────────────────────────
+         本支原本把「✔ 從 T-CON 讀回來的 RGB LUT…」與來源徽章 `kind:'tcon'` **寫死**，
+         `label` 只被當成名稱用。也就是說：自檢頁那邊就算把 label 換掉，DG 畫面上
+         照樣會出現那句寫死的話 —— 紅線在這一頁被踩，不在那一頁。
+       🔴 判準用 `d.lutSrc === 'ident'`（機器讀得到的欄位），**不解析 label**：
+          label 是三語的自由文字，拿字串比對當判準遲早在某個語言下失效。
+       🔴 `lutSrc` 缺席（舊版自檢頁）⇒ 一律當 'tcon' ＝ v1.75.x 的行為逐字不變。
+       🔴 等距表那一條走**既有的 `kind:'default'` 徽章**（「出廠等距表（DG_EN 關閉）」），
+          不新增第三種徽章 —— 那張表跟視窗裡那顆「用出廠等距表」按出來的是同一件事。
+          `via:'tcon'` 只是讓來源那一行說得出它是誰帶進來的（第三種 via，見
+          `dgPartBadgeInfo()`）。 */
+    var lutIdent = (d.lutSrc === 'ident');
+
     dgInvalidateResult();
     $('dg-in-lut').value = rs.map(function (r) {
       return r[0] + ' ' + r[1] + ' ' + r[2] + ' ' + r[3];
     }).join('\n');
-    dgSetSrc('lut', { kind: 'tcon', name: at || '' });
+    dgSetSrc('lut', lutIdent ? { kind: 'default', via: 'tcon', name: at || '' }
+                             : { kind: 'tcon', name: at || '' });
     dgRefreshOutputs();
 
     /* 他人剛從自檢分頁切回來，要一眼看到「表真的進來了」。
@@ -11762,10 +11790,15 @@
     box.style.display = '';
     box.className = 'dg-fmt';
     var cfgN = parseInt($('dg-entry').value, 10);
-    box.innerHTML = '<b>✔ 從 T-CON 讀回來的 RGB LUT 已經帶入第 1 部分。</b>'
+    box.innerHTML = (lutIdent
+        ? '<b>✔ 出廠等距表已經帶入第 1 部分（DG_EN 關閉）。</b>'
+          + '<br>自檢分頁讀到 <code>DG_EN = 0</code> ⇒ 面板當下沒有套任何 LUT，'
+          + '所以第 1 部分的起點就是這張等距表。<b>這一份沒有去讀 T-CON 的 LUT 記憶體</b>'
+          + '（那裡面那張表現在沒有在作用）。'
+        : '<b>✔ 從 T-CON 讀回來的 RGB LUT 已經帶入第 1 部分。</b>')
       + '<br><b>筆數</b>：' + rs.length + ' 筆（index ' + rs[0][0] + ' ～ ' + rs[rs.length - 1][0] + '）'
       + (dgIsNum(d.entries) ? ('，IC 裡整張表 ' + d.entries + ' 筆（附加末筆沒有帶回來）') : '')
-      + (dgIsNum(d.depth) ? ('　<b>IC 裡的擺法</b>：' + d.depth + ' bit') : '')
+      + (dgIsNum(d.depth) ? ('　<b>' + (lutIdent ? 'LUT 的擺法' : 'IC 裡的擺法') + '</b>：' + d.depth + ' bit') : '')
       + (d.icKey ? ('　<b>IC</b>：' + dgXe(String(d.icKey))) : '')
       /* 🔴 筆數與上面「LUT Entry」選單不一致時要明講 —— 不自動改它（見函式上方
          的第三條 🔴），但也不可以安靜地放過去：橫軸的長度對不上，算出來的表會錯。 */
