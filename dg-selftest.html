@@ -12,7 +12,7 @@
 <title>TCON 自檢畫面量測 — TCON FAE專用工具箱</title>
 <link rel="stylesheet" href="common/common.css?v=20260903help">
 <!-- 🔴 version.js 必須最先載入（common/version.js 開頭那條規則）。 -->
-<script src="common/version.js?v=20260922dst1170"></script>
+<script src="common/version.js?v=20260922dst1171"></script>
 <style>
   /* ═══ 本頁專屬樣式 ════════════════════════════════════════════════════════
      只寫這一頁真的需要、而 common.css 沒有的東西。顏色一律走 common.css 的
@@ -153,6 +153,46 @@
        兩支互相負責，不會有人忘記退掉（見那兩支）。 */
   .dst-say.dst-say-info { color: var(--accent); }
   .dst-note { font-size: 13px; color: var(--text-sub); line-height: 1.6; margin-top: 6px; }
+
+  /* ═══ 🔴 v1.18.0：「已送回 DG，請切回 DG 分頁繼續」要明顯到不會被忽略 ═══════════
+     Bruce 2026-09-22：「請用閃爍加 highlight 的方式，把『已送回 DG，請切回 DG 分頁
+     繼續』這句話特別 highlight 出來，讓使用者一定會注意到。」
+
+     🔴 **高亮與閃爍是兩層，刻意分開**：
+       · `.dst-back-hl`   ＝ 高亮本身（底色／邊框／字色）。**送出去之後一直留著**，
+                            它才是訊息的載體。
+       · `.dst-back-blink`＝ 閃爍。**只掛一次、跑完 4 次就自己停**，停下來之後
+                            剩下的就是 `.dst-back-hl`（動畫只改 `opacity` 與
+                            `box-shadow`，一個字都沒碰底色／邊框）。
+     ⇒ 動畫不是唯一的訊息載體：不管是動畫跑完、還是使用者在系統層把動畫關掉，
+       高亮都還在，那句話都看得到。這一條是**實作**出來的，不是靠註解保證。
+
+     🔴 `prefers-reduced-motion: reduce` ⇒ **只停用閃爍，保留高亮**。寫法是
+        `animation: none`（不是 `display`／`visibility`／`opacity` 之類會把訊息
+        一起關掉的東西）。
+
+     🔴 版面不被撐開：`padding`／`border` 用 `border: 1.5px solid` ＋ 左右 8px、
+        上下 5px，三語最長的那一句（en）本來就會換行，換行後只是多一個框，
+        不改變這一列在流裡的寬度。`box-shadow` 不佔版面（不參與 layout）。 */
+  .dst-back-hl {
+    color: var(--accent);
+    background: #0b2a3c;
+    border: 1.5px solid var(--accent);
+    border-radius: 8px;
+    padding: 5px 8px;
+    font-weight: 700;
+  }
+  @keyframes dst-back-blink {
+    0%, 100% { opacity: 1;  box-shadow: 0 0 0 0 rgba(56, 189, 248, 0); }
+    50%      { opacity: .35; box-shadow: 0 0 0 4px rgba(56, 189, 248, .35); }
+  }
+  /* 🔴 `4` ＝ 閃 4 次就停（Bruce：3～5 次），跑完自動停在 `.dst-back-hl` 的樣子。
+     `forwards` 刻意不寫：終點 keyframe（100%）本來就是「不透明、沒有光暈」，
+     寫了 forwards 反而會把那一格鎖住，之後想改高亮還得先拆動畫。 */
+  .dst-back-blink { animation: dst-back-blink .55s ease-in-out 4; }
+  @media (prefers-reduced-motion: reduce) {
+    .dst-back-blink { animation: none; }   /* 只停閃爍；`.dst-back-hl` 一個字都沒動 */
+  }
 
   /* 進度 */
   .dst-prog-outer { height: 8px; background: #0f172a; border: 1px solid var(--border);
@@ -991,8 +1031,8 @@
   </div>
 </div>
 
-<script src="common/i18n.js?v=20260922dst1170"></script>
-<script src="common/common.js?v=20260922dst1170"></script>
+<script src="common/i18n.js?v=20260922dst1171"></script>
+<script src="common/common.js?v=20260922dst1171"></script>
 <script>
 /* ═════════════════════════════════════════════════════════════════════════
    TCON 自檢畫面量測 — dg-selftest.html
@@ -1754,6 +1794,11 @@ function dstPassKey() { return dstPassKeyOf(dstDgRound, dstDgJob); }
 /* 哪幾步已經送出去過。🔴 只有「真的送出去了」才打勾 —— 讀到一半失敗、掃描中止、
    沒有 opener 都不算（打了假勾等於騙他「東西在 DG 那邊了」）。 */
 var dstStepDone = { lut: false, gray: false, prim: false };
+/* 🔴 v1.18.0：「已送回 DG」那一行**這一份工作閃過了沒**。
+   它不是第二份「送出去了沒」的真相 —— 那個真相只有 `dstBackSent()`；這一個純粹
+   記「動畫播過了沒」，唯一的用途是不要每次重畫都重播。清除點只有 `dstClearRound()`
+   一處（與 `dstSeqUnlock` 同一行附近），所以「換一份工作 ⇒ 會再閃一次」是白送的。 */
+var dstBackFlashed = false;
 /* ═══ 🔴 v1.12.0：第 ④ 步「資料回傳 DG」改成**自動**，這是它的唯一事實來源 ══════
    Bruce 2026-09-21：「第四部分『資料回傳 DG』我後來想想，不要做成按鈕式的。而是
    第三部分跑完以後，第四部分就自動打勾，也就是它自己會回傳 DG，然後提醒使用者要
@@ -5671,6 +5716,36 @@ function dstRenderSteps() {
     bw.classList.remove('dst-hidden');
     bw.textContent = !alive ? dstT('dst.backNoDg')
       : (sent ? dstT('dst.backSwitchTab') : dstT('dst.backHint'));
+    /* ═══ 🔴 v1.18.0：送出去之後，這一行要高亮＋閃一下 ════════════════════════
+       🔴 **綁的就是 ④ 打勾的同一個事實**（上面那個 `sent` ＝ `dstBackSent()`），
+          不另立旗標。三條失敗路徑（沒有 opener／筆數不足／postMessage 丟例外）
+          都在 `dstStepDone` 之前就 return ⇒ 它們的 `sent` 是 false ⇒ 既不高亮
+          也不閃，而那時畫面上顯示的本來就不是「已送回」那一句。
+       🔴 `alive` 也要一起看：不是從 DG 開的那條路顯示的是 `dst.backNoDg`
+          （＝退路說明，不是好消息），高亮它會把兩件事講成同一件。 */
+    var hot = !!(alive && sent);
+    bw.classList.toggle('dst-back-hl', hot);
+    if (!hot) {
+      /* 回到未送出（換工作／換輪清空）⇒ 閃爍的殘留類別也要拿掉，
+         否則下一次加上去時 class 已經在，動畫不會重播。 */
+      bw.classList.remove('dst-back-blink');
+    } else if (!dstBackFlashed) {
+      /* 🔴 **同一份工作只閃一次**。這個旗標的清除點只有一個：`dstClearRound()`
+         ——「換了一份工作／換了一輪」在本頁本來就只由那一支定義（`dstStepDone`
+         與 `dstSeqUnlock` 清在同一處）。不自己造第二套 job/round 判斷。
+         不設旗標的話，`dstRenderSteps()` 每次重畫都會重播一次動畫（它被連線、
+         量測、切語言等一堆事件叫到），那正是 Bruce 說的「一直閃會讓人煩」。 */
+      dstBackFlashed = true;
+      bw.classList.add('dst-back-blink');
+      /* 動畫跑完就把類別拿掉：留著的話，之後任何一次重畫都不會再觸發
+         （class 已在），但只要有人不小心 `remove` 再 `add` 就會重播。
+         拿掉之後狀態乾淨：畫面上剩下的就是 `.dst-back-hl`。 */
+      bw.addEventListener('animationend', function onEnd(e) {
+        if (e.animationName !== 'dst-back-blink') return;
+        bw.removeEventListener('animationend', onEnd);
+        bw.classList.remove('dst-back-blink');
+      });
+    }
   }
   var cp = $('dst-copy-lut');
   if (cp) {
@@ -5918,6 +5993,11 @@ function dstClearRound(n, roundChanged) {
   /* 🔴 v1.17.0（D）：依序限制的解除是**這一份工作**的例外，不跟著跨到下一份。
      換了工作還留著解除狀態，下一份一開始四顆鈕就全開 —— 那等於這條規則沒生效過。 */
   dstSeqUnlock = false;
+  /* 🔴 v1.18.0：新的一份工作 ⇒「已送回 DG」那一行可以再閃一次。
+     與 `dstSeqUnlock` 同一個生命週期（都是「這一份工作」的狀態），所以清在同一處。
+     ④ 的勾本來就在上面被清掉了 ⇒ 下一次 `dstRenderSteps()` 會先走 `!hot` 那一支
+     把高亮與閃爍類別都拿掉，等這一份工作真的送出去才重新掛上。 */
+  dstBackFlashed = false;
   /* 🔴 v1.17.0（C）：`dstLutVerified` **刻意不在這裡清**。
      它記的不是「這一輪做了什麼」，而是「T-CON 裡現在是哪一張表」—— 那是面板的現況，
      不隨 DG 換一份工作而改變。它的清除點只有一個：下一次寫入沒有核對相符
@@ -6751,6 +6831,10 @@ window.dstProbe = {
     var e = $('dst-back-warn'); return e ? e.classList.contains('dst-hidden') : null;
   },
   backWarnText: function () { var e = $('dst-back-warn'); return e ? e.textContent : null; },
+  /* v1.18.0 驗證用（唯讀）：那一行現在掛了哪些類別 ＋ 這一份工作閃過了沒。
+     🔴 只回實際的 class 字串，不回任何「通過與否」的自訂判斷。 */
+  backWarnCls: function () { var e = $('dst-back-warn'); return e ? e.className : null; },
+  backFlashed: function () { return dstBackFlashed; },
   /* v1.10.1：三個硬體分組各自包含哪些控制項（驗「搬過去了」而且「原處沒留第二份」）。
      🔴 只回「全頁有幾個該 id」與「它在不在指定那一組裡」，不回任何自訂的通過與否
         判定 —— 判定留在夾具那一邊。 */
