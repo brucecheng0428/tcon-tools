@@ -14,7 +14,7 @@
 <title>TCON 自檢畫面量測 — TCON FAE專用工具箱</title>
 <link rel="stylesheet" href="common/common.css?v=20260903help">
 <!-- 🔴 version.js 必須最先載入（common/version.js 開頭那條規則）。 -->
-<script src="common/version.js?v=20260923dst1180"></script>
+<script src="common/version.js?v=20260923dst1191"></script>
 <style>
   /* ═══ 本頁專屬樣式 ════════════════════════════════════════════════════════
      只寫這一頁真的需要、而 common.css 沒有的東西。顏色一律走 common.css 的
@@ -799,8 +799,8 @@
       <div class="dst-dgrec dst-hidden" id="dst-dg-rec">
         <span class="dst-dgrec-txt" id="dst-dg-rec-txt"></span>
         <div class="dst-row">
-          <!-- 兩顆的字都由 dstRenderDgRec() 填（主鈕有兩種字面，見那一支的註解），
-               所以都不掛 data-i18n。 -->
+          <!-- 兩顆的字都由 dstRenderDgRec() 填（主鈕**一格一句**：關／開／重新讀，
+               v1.19.1 起同一格內不再有第二種字面），所以都不掛 data-i18n。 -->
           <button class="dst-btn pri" id="dst-dg-rec-go"></button>
           <button class="dst-btn dst-hidden" id="dst-dg-rec-keep"></button>
         </div>
@@ -1656,7 +1656,9 @@ if (typeof I18N === 'object' && I18N) {
         按下去會發生什麼事，再補一句「因為…」就是他說的「文字太多反而不會看」。
      🔴 三語**同一個長度**：英文不准寫成一整段。下面每一句英文都是一個短句。 */
   I18N['dst.dgRec1']       = { 'zh-TW': '建議先關 DG_EN，量原始 Gamma。', 'en': 'Turn DG_EN off first to measure the raw gamma.', 'zh-CN': '建议先关 DG_EN，量原始 Gamma。' };
-  I18N['dst.dgRec1Go']     = { 'zh-TW': '關掉 DG_EN 並開始量', 'en': 'Turn DG_EN off and measure', 'zh-CN': '关掉 DG_EN 并开始量' };
+  /* 🔴 v1.19.1（A）：`dst.dgRec1Go`（「關掉 DG_EN 並開始量」）**已刪除**。主鈕不再
+     自動開始量測（Bruce 2026-09-23：「光學儀器還沒有放好」），第 1 輪只剩這一句。
+     key 名沿用 `…GoOnly` 不改名 —— 改名要動三語三份字典與一處呼叫，對使用者零差別。 */
   I18N['dst.dgRec1GoOnly'] = { 'zh-TW': '關掉 DG_EN', 'en': 'Turn DG_EN off', 'zh-CN': '关掉 DG_EN' };
   I18N['dst.dgRecKeep']    = { 'zh-TW': '維持現狀', 'en': 'Keep as is', 'zh-CN': '维持现状' };
   I18N['dst.dgRec2']       = { 'zh-TW': 'DG_EN 關著，量到的不是新表。', 'en': 'DG_EN is off — this will not measure the new table.', 'zh-CN': 'DG_EN 关着，量到的不是新表。' };
@@ -3379,7 +3381,16 @@ function dstLutDecodeCh(even, odd, entries, group, mask) {
 }
 /* identity（AN-DG p8/p13）：LUT[i] ＝ i × 2^(depth − entryBits)，末筆 ＝ 2^depth − 1。
    8-bit entry ＋ 12-bit ⇒ 0,16,32,…,4080，index 256 ＝ 4095。
-   🔴 v1.7.0 起它**只用來把數值表裡與預設表不同的列標紅**，不再參與任何判定。 */
+   🔴 v1.7.0 起它**只用來把數值表裡與預設表不同的列標紅**，不再參與任何判定。
+
+   ═══ 🔴 與 `dg.html` 的 `dgFillDefault()` **刻意不同源**，這不是 bug ═══════════════
+   Bruce 2026-09-23 裁示：`dg.html` 的等距表**要與原廠 UI 一致**，所以那一頁用的是
+   原廠 `AutoCCTAdjust.cs:819-821` 的 `HWbit`，也就是 `hw = sd + FRC`（sd=10 ⇒ 13/14）。
+   本支用的 `depth` 是**從 IC 規格讀回來的位元深度**（10 或 12）。
+   ⇒ **10-bit 時兩邊本來就是兩個不同的量**，對不起來是預期內的，兩邊都沒有算錯。
+      整段理由與出處寫在 `dg.html` 的 `dgFillDefault()` 上方，兩處互指，不要只改一邊。
+   🔴 **8-bit 那一半已確認逐值相同**（sd=8、FRC=4 ⇒ hw=12：dg 是 0,16,…,4080；
+      本支 `dstLutIdentity(257, 8, 12)` ⇒ k=16 ⇒ 0,16,…,4080）—— **不准動壞**。 */
 function dstLutIdentity(entries, entryBits, depth) {
   var k = Math.pow(2, depth - entryBits), a = [], i;
   for (i = 0; i < entries; i++) a.push(i * k);
@@ -3863,6 +3874,14 @@ function dstLutPackOffCh(vals, entries, bits) {
       （EM02 `:11919`、E512 `:10087`）在這種情況會**直接改掉使用者的主表**去遷就
       格式：差太大就壓成 `prev + MAX`、遞減就拉平、還多跑一輪反向的。
       我們不做 —— 那樣量到的就不是他算出來的那張表，而且完全安靜。
+
+   ═══ 🔴 這是 DG 這組頁面**唯一刻意偏離原廠**的地方 ════════════════════════════════
+   Bruce 2026-09-23 把「要不要改成跟原廠一樣夾表」交給我裁量（原話：「你如果覺得要把它
+   卡掉也可以，看你自己吧」），**決定維持現狀：擋下來，不夾**。他知情並同意。
+   ⇒ 這一條**不要改**，也不要當成「還沒做完的 TODO」。
+   🔴 與它相對的通則是：等距表那一段**刻意與原廠一致**（`dg.html` 的 `dgFillDefault()`
+      上方那一大段）。兩件事要一起看 —— **看到「其餘與原廠一致」就順手把這一條也
+      『修』成跟原廠一樣夾表，正是本註解要擋的那件事。**
 
    🔴 索引在外、channel 在內（與原廠 channel 在外的迴圈順序不同，**刻意**）：
       這樣回報的一定是**編號最小**的那一筆，使用者才對得上他表上的位置。
@@ -5156,17 +5175,10 @@ function dstRenderPick() {
       分岔 —— 分岔的下場是「鈕可以按、按了卻不動」，比沒有說明還糟。
    🔴 對位畫面**不在**這裡面，因為它本來就不在 disabled 的條件裡（v1.5.0 四格
       矩陣實測）。要是哪天有人把它加進 disabled，這一支不會跟著變 ⇒ 夾具會紅。 */
-/* 🔴 v1.19.0（B）：原本的三條原封不動搬進這一支。**函式拆開的理由是循環依賴**：
-   建議／警告那一行的鈕面字要判斷「關掉 DG_EN 之後量得起來嗎」，而新加的 DG_EN 那一道
-   閘門本身就是由那一行決定的 —— 如果那裡讀完整版，`rec1` 會永遠判成「量不起來」，
-   v1.18.0（C）那顆「關掉 DG_EN 並開始量」就變成永遠只寫「關掉 DG_EN」、也永遠不會
-   順便開始量。⇒ 那一行讀 Base（不含 DG_EN 那一條），②③ 那顆鈕讀完整版。 */
-function dstRunWhyKeyBase() {
-  if (dstRunning) return 'dst.whyRunning';
-  if (!dstLinked) return 'dst.whyNoI2c';
-  if (!dstCaLinked) return 'dst.whyNoMeter';
-  return null;
-}
+/* 🔴 v1.19.1（A）：v1.19.0 曾經把前三條拆成 `dstRunWhyKeyBase()`，**唯一的理由是循環
+   依賴**：當時建議列主鈕的字面要判斷「關掉 DG_EN 之後量得起來嗎」，讀完整版會恆為真。
+   本版起那顆鈕不再開始量測（見 `dstDgRecMain()`），那個判斷連同分支一起消失 ⇒ 拆開的
+   理由也跟著消失，合回一支。**條件、順序、回傳值一個字都沒有變。** */
 /* ═══ 🔴 v1.19.0（B）：DG_EN 沒確定之前不准量 ═══════════════════════════════════════
    Bruce 2026-09-23：「DGEN 關掉的時候，它會影響到光學量測的結果，所以光學量測一定要在
    DGEN 確定以後才能進行喔。」⇒ 這是**量測有效性**的限制，不是 UI 偏好。
@@ -5193,7 +5205,10 @@ function dstDgWhyKey() {
   return null;
 }
 function dstRunWhyKey() {
-  return dstRunWhyKeyBase() || dstDgWhyKey();
+  if (dstRunning) return 'dst.whyRunning';
+  if (!dstLinked) return 'dst.whyNoI2c';
+  if (!dstCaLinked) return 'dst.whyNoMeter';
+  return dstDgWhyKey();
 }
 function dstRenderBtns() {
   var canWrite = dstLinked && !!dstIc && !!dstIc.patternOk && !dstRunning && !dstBusy;
@@ -6326,18 +6341,16 @@ function dstRenderDgRec() {
                             : (kind === 'unk' ? 'dst.dgRecUnk' : 'dst.dgRec2'));
   var go = $('dst-dg-rec-go');
   if (go) {
-    /* 🔴 鈕面字 ＝ 按下去**真的**會發生的事（本專案既有紀律）。第 1 輪那一顆他給的字
-       是「關掉 DG_EN 並開始量」，而「開始量」有它自己的前提（量測儀要連上，見
-       `dstRunWhyKey()`）。前提不成立時仍然印「並開始量」就是承諾做不到的事 ——
-       那正是 v1.16.0 修掉的同一族（句子指著一顆灰掉的鈕）。
-       ⇒ 前提不成立時只印「關掉 DG_EN」：字更短，而且它一定做得到。 */
-    /* 🔴 v1.19.0（B）：這裡讀的是 **`dstRunWhyKeyBase()`**，不是完整版。
-       完整版含「這一行還掛著就不准量」那一條，而這一行掛著正是 kind 非 null 的意思
-       ⇒ 讀完整版會恆為真，鈕面字永遠退成「關掉 DG_EN」、`alsoMeasure` 永遠是 false，
-         v1.18.0（C）那顆一鍵鈕等於被自己新加的閘門鎖死。判準沒變（「按下去之後量得
-         起來嗎」），變的只是「不要把自己算進前提」。 */
+    /* 🔴 鈕面字 ＝ 按下去**真的**會發生的事（本專案既有紀律）。
+       🔴 v1.19.1（A）：第 1 輪這一顆**只關 DG_EN，關完就停**，所以字面**只有一種**。
+          Bruce 2026-09-23：「關掉 DG 後，不要自動就開始量測。要讓使用者手動去按自檢
+          畫面的第二步驟中的『開始量測』，因為有可能光學儀器還沒有放好。」
+          ⇒ v1.18.0 的「關掉 DG_EN 並開始量」與 v1.19.0 那個「量測儀沒連上就退成只印
+            『關掉 DG_EN』」的分支**一起消失**：兩種情況現在做的事完全一樣，留著那個
+            if 只會讓下一個人以為還有第二種結果。`dst.dgRec1Go`（「…並開始量」）這個
+            i18n key 也一併刪掉 —— 沒有任何一條路會再用到它。 */
     go.textContent = (kind === 'rec1')
-      ? dstT(dstRunWhyKeyBase() ? 'dst.dgRec1GoOnly' : 'dst.dgRec1Go')
+      ? dstT('dst.dgRec1GoOnly')
       : dstT(kind === 'unk' ? 'dst.dgRecUnkGo' : 'dst.dgRec2Go');
     go.disabled = dstBusy || dstRunning || dstLutBusy;
   }
@@ -6355,8 +6368,15 @@ function dstRenderDgRec() {
   }
 }
 
-/* 主鈕：關（第 1 輪）／開（第 2 輪以後）。兩格共用同一支 —— 差別只有寫哪一個值，
-   以及第 1 輪那一格在前提成立時順便把量測帶起來。 */
+/* 主鈕：關（第 1 輪）／開（第 2 輪以後）。兩格共用同一支 —— 差別**只有寫哪一個值**。
+   🔴 v1.19.1（A）：這一支**不會開始量測**。Bruce 2026-09-23：「關掉 DG 後，不要自動
+      就開始量測……因為有可能光學儀器還沒有放好。」量測一律由他自己按 ②③ 那一顆
+      「開始量測」。⇒ v1.18.0 的 `alsoMeasure` ／ `dstStepGrayGo()` 那一段整段移除。
+   🔴 關完之後 ②③ 的閘門會自己放行，這裡不另外寫一份放行邏輯：
+      `dstDgEnApply()` → `dstDgEnApply2()` → `dstGuard()` 收尾呼叫 `dstRenderBtns()`
+      （此時 `dstBusy` 已回 false），而 `dstRenderBtns()` 末尾接 `dstRenderSteps()`，
+      那一支才是 `#dst-go-gray` 的 disabled 與 `#dst-run-why` 的唯一寫入點。
+      第 1 輪關成功後 `dstDgRecKind()` 回 null ⇒ `dstDgWhyKey()` 回 null ⇒ 放行。 */
 function dstDgRecMain() {
   var kind = dstDgRecKind();
   if (!kind) return Promise.resolve(false);
@@ -6369,17 +6389,8 @@ function dstDgRecMain() {
       .then(function () { dstRenderBtns(); dstRenderDgRec(); return false; });
   }
   var wantOn = (kind !== 'rec1');
-  /* 按下去的那一刻就決定要不要順便開始量 —— 鈕面字是照同一個判準寫的，
-     兩者讀同一支 `dstRunWhyKeyBase()`，不可能出現「字說會量、按了不量」。
-     🔴 v1.19.0：讀 Base 的理由與 `dstRenderDgRec()` 那一處逐字相同（循環依賴）。 */
-  var alsoMeasure = (kind === 'rec1') && !dstRunWhyKeyBase();
-  return dstDgEnApply(wantOn, 'dgrec').then(function (done) {
-    if (!alsoMeasure || !done) return false;
-    /* 🔴 再問一次：剛剛那幾秒裡量測儀可能掉線了。 */
-    if (dstRunWhyKey()) return false;
-    /* 🔴 走的是②③那顆鈕的**同一支** `dstStepGrayGo()`，沒有第二份開始量測的路徑。 */
-    return dstStepGrayGo();
-  });
+  /* 回傳值 ＝ 「DG_EN 真的被寫進去了嗎」（`dstDgEnApply()` 的既有語意）。 */
+  return dstDgEnApply(wantOn, 'dgrec');
 }
 
 /* 主表筆數（不含附加末筆）。
