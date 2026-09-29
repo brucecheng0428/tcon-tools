@@ -2,6 +2,33 @@
 
 ---
 
+## I2C 讀寫測試 (i2c) v1.26.0 — 2026-09-29 ｜ MINOR
+
+判定依據：VERSIONING.md §1＋R1～R4 取最高者。
+- 判定表「功能增減」：新增「裝置類型：EEPROM」—— 選了才能用線性位址讀寫 24C04／08／16／1024 這類有區塊位元的 EEPROM ＝ 多了能做的事 ⇒ MINOR（R3）。
+- 「既有功能的輸出」：裝置類型預設「一般」，一般模式的讀／寫分段計畫與 v1.25.1 逐項相同（自測比對 53 組）⇒ 不標 `⚠ 輸出變更`。
+- 「操作流程」：「Page 大小」從「寫入資料」那一列搬進 EEPROM 組（Bruce 指定：讀寫共用、只在 EEPROM 出現）。一般模式下它的值照舊依 slave 自動決定（0x50–0x57 ⇒ 32 或已確認型號的 page，其他 ⇒ 不分段），只是不能再手動改。
+- 🔴 取捨供覆核：上一點可以解讀成「原本的控制項在一般模式下找不到了」（§2 案例 3 的 MAJOR 那一側）。我判成「搬到 Bruce 指定的新位置、選 EEPROM 就看得到」＝ 位置移動 ⇒ 不觸發 MAJOR；**沒有**記成 MAJOR、**沒有**寫核准。若 Bruce 認為要進 v2.0.0，需要他裁示。不確定一律往低編。
+
+### 為什麼
+Bruce 2026-09-29：「調查完以後，請把 I2C 頁面的 read 功能去多加一個 EEPROM 的選項」、「page 大小可能就不能放在寫入資料那邊，因為讀的也會用到…而且是要有 EEPROM 才會出現的」。
+調查（前一個任務讀程式＋對照 ST／Microchip datasheet）：位址寬度預設 2、選型號只改 page；**區塊位元從來沒有併進 slave 位址** ⇒ 24C04 在一般（逐 byte）模式讀 512，第二段回捲重讀 block 0；寫 0x100 以上蓋到 block 0。
+
+### 改了什麼
+- ① Slave 位址組多一格「裝置類型：一般／EEPROM」。選 EEPROM 才出現「EEPROM」組：型號下拉、Page 大小（由型號帶出，可手動調小；選得比型號大會紅字提醒）、一行摘要，例如 `512 B · 2 block（0x50/0x51）· page 16 · 位址 1 byte`。
+- 型號表多兩欄 `awid`／`blk`（24C01/02 ＝ 1/0、04 ＝ 1/1、08 ＝ 1/2、16 ＝ 1/3、32～512 ＝ 2/0、1024 ＝ 2/1）。EEPROM 模式下位址寬度鎖成型號的值（標示「依型號」），回一般時還原原本的值。
+- EEPROM 模式下起始 offset 是**線性位址**（24C04 ＝ 0x000–0x1FF）。讀寫共用 `i2ctEePlan()`：每段不跨區塊、不超過該模式傳輸上限；每段 slave ＝ 基底 | 區塊號，位址只送區塊內低位；不依賴晶片自己跨區塊。log 每段印一行 `EEPROM 線性 0x0100 → slave 0x51 / 0x00 ×256`。
+- 超過容量 ⇒ 送出前就報錯（欄位標紅＋訊息），底層讀／寫再擋一次；不靜默截斷。
+- 整批寫入（bridge 分頁）跨區塊時，每個區塊各送一則 `batchwrite`（slave 不同）；**bridge C 程式沒改**。
+- EEPROM 模式下手動輸入 0x51（24C04）⇒ 離開欄位時換成 0x50 ＋ offset 0x100（保留原 offset 的區塊內部分），摘要列寫出「已換算：0x51 → 0x50 ＋ offset 0x0100」。只在離開欄位／Enter／下拉選時換算，不在打字途中換。
+- 寫入前的型號確認視窗照舊（本次連線每個 slave 問一次、容量不足重問）；EEPROM 模式下預設勾畫面上的型號，選了別顆會同步回型號下拉；在下拉換型號會讓已確認紀錄作廢、下次寫入重問。
+- 換算只對「slave ＝ 畫面上這一顆的基底位址、寬度 ＝ 型號寬度」生效；黃金向量（0x68）、WP 控制、Check T-CON 等其他對象不受影響。
+- i18n：新增 `i2c.lblDevType`／`devGen`／`lblEeModel`／`eeSum`／`eeFolded`／`hintAwidByModel`／`hintPageOverModel`／`errEeOverCap`／`errEeSlaveBlk`／`errEeCross`／`logEeSeg`／`logEeMode`／`logEeOff`／`logEeFolded`（三語）。cache buster：i2c.html 三支、index.html 的 version.js／i18n.js。
+
+### 驗證（如實）
+- headless Chrome 載入（見回報的測試表）；讀寫分段以頁面內建的同一支函式計算，端到端用假 bridge 模擬一顆 24C04（區塊內回捲）。
+- **沒驗**：真機（FT2232 ＋ 實體 24C04／08／16／1024）；bridge 對「每區塊一則 batchwrite」的實際時序；三語版面只截了繁中。
+
 ## TCON 自檢畫面量測 (dgself) v2.0.3 — 2026-09-29 ｜ PATCH
 
 判定依據：VERSIONING.md §1＋R1～R4 取最高者。
