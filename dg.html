@@ -1612,6 +1612,8 @@
           <div class="dg-btnrow dg-part-import">
             <button class="dg-btn dg-btn-imp" id="dg-btn-prim-setup">③ 設定 RGB 純色 Pattern</button>
             <button class="dg-btn dg-btn-clr" id="dg-btn-clr-prim" title="只清掉第 3 部分，另外兩部分不動">清空第 3 部分</button>
+            <!-- v2.1.0：最近一次即時量測帶回的純色與第 3 部分不同時才出現（dgPrimUseLastSync） -->
+            <button class="dg-btn" id="dg-btn-prim-uselast" style="display:none"></button>
             <span class="dg-part-why" id="dg-why-prim"></span>
           </div>
           <div class="dg-part-src" id="dg-src-prim"></div>
@@ -1622,7 +1624,8 @@
       <div class="dg-note">
         <b>多輪收斂：</b>算表 → 寫進 TCON → 重新量白階 → 把新的白階與<b>剛寫進去的那張表</b>一起餵回來，反覆到滿意為止。
         純色端點沿用先前那一組。
-        <br><b>第一輪：</b>第 1 部分選「第一次調」，第 2 部分匯入 <code>DG_EN</code> 關閉下量到的白灰階。
+        <br><b>第一輪：</b>第 1 部分選「用出廠等距表」，第 2 部分量（或匯入）<code>DG_EN</code> 關閉下的白灰階。
+        <br><b>之後每一輪：</b>第 4 部分確認完按「進行下一輪」，第 1、2 部分會自動帶入。
       </div>
       </div>
 
@@ -1748,8 +1751,7 @@
       <div class="dg-info-src" id="dg-info-out">
       <div class="dg-note">上面這張表與「一鍵複製 RGB」都<b>只給主表索引 0 ～ N−1</b>；
         索引 N 的附加末筆（值 <code>2^輸出深度 − 1</code>）只寫進下載的 LUT 檔。
-        <br><b>要跑下一輪：</b>先把這張表<b>寫進 TCON</b>，重新量一次白階；回到本頁按「一鍵複製 RGB」貼進第 1 部分，
-        再配上<b>剛才那一輪重新量到的</b>白灰階。</div>
+        <br><b>要跑下一輪：</b>把這張表寫進 TCON，在第 4 部分確認量測之後按「進行下一輪」—— 第 1、2 部分會自動帶入。</div>
       </div>
     </div>
   </div>
@@ -2117,13 +2119,18 @@
              ＝ 一個既有功能被移除。所以把它補成視窗裡的一個明確入口，
              按下去就把空表格展開讓人貼。
              ⚠ 這一條是我自行判斷加的（Bruce 的原話沒有提到），已在回報中點名請覆核。 -->
+        <!-- 🔴 v2.1.0：這一條收起來（兩份檢討都點到）。「進行下一輪」已經把上一輪算出的 LUT
+             自動帶進第 1 部分，自動保存也會保留；再教一次「複製 → 貼上」是第二套迭代教學。
+             節點與 #dg-btn-lut-manual 保留（事件綁定還在），只是不再顯示。
+             🔴 藏的是**按鈕**不是外框：dgWmodeSync 會依「區內還有沒有看得到的鈕」重設
+                外框的 display（那一支在 14127 附近），藏外框會被它蓋回來；藏鈕則外框跟著收。 -->
         <div class="dg-lut-opt">
           <div class="dg-lut-opt-title"><b>上一輪是在本頁算的</b></div>
           <div class="dg-note">
             先到「輸出」卡片按<b>「一鍵複製 RGB」</b>，再按這顆展開表格貼上。
           </div>
           <div class="dg-btnrow">
-            <button class="dg-btn" id="dg-btn-lut-manual">手動貼上／填寫</button>
+            <button class="dg-btn" id="dg-btn-lut-manual" style="display:none">手動貼上／填寫</button>
           </div>
         </div>
       </div>
@@ -2329,7 +2336,11 @@
       <div class="dg-lut-step" data-step="path" data-title="第 3 部分：RGB 純色端點從哪來？">
         <div class="dg-note">
           要的是<b>全紅、全綠、全藍各量一次</b>的三組 <b>X／Y／Z</b>。<b>只有第一次要</b>，之後各輪沿用同一組。
-          <br>還沒量過：量測軟體 <b>Basic Measurement → Measure → Pure Pattern</b>，把 <b>R、G、B 一起勾</b>（預設只勾 W）再量一次。
+          <!-- v2.1.0：外部量測軟體的操作步驟收進「匯入」那一條才看得到的說明（跨頁檢討 低）：
+               選了電腦畫面／T-CON 自檢的人直接按下面的即時量測，不必先讀一段外部軟體教學。 -->
+          <details style="margin-top:4px"><summary>要用外部量測軟體匯入的話</summary>
+            量測軟體 <b>Basic Measurement → Measure → Pure Pattern</b>，把 <b>R、G、B 一起勾</b>（預設只勾 W）再量一次，再按下面的匯入。
+          </details>
         </div>
         <div class="dg-lut-opt">
           <div class="dg-lut-opt-title"><b>已經量好了</b></div>
@@ -2548,16 +2559,8 @@
               一旦表被重算就是假的綠燈，而要讓它不假，就得在每一個會讓表失效的地方
               記得清掉它（`push` 那一層之所以用**指紋**而不是布林，就是這個理由）。
               這裡按一次的成本是零，所以取「不可能變假」的那一邊。 -->
-      <div class="dg-lut-step" data-step="pcupd" data-title="第 4 部分：先自行把新的 RGB LUT 更新到 T-CON" style="display:none">
-        <div class="dg-note" data-i18n="dg.p4PushWhy">要確認這一輪，得先把剛算出來的 RGB LUT 更新到 T-CON。沒更新就去量，量到的還是上一張表的曲線，這一輪等於白量。</div>
-        <div class="dg-lut-opt">
-          <div class="dg-lut-opt-title"><b data-i18n="dg.p4PcTitle">我自己更新</b></div>
-          <div class="dg-note" data-i18n="dg.p4PcHow">這一條路 DG 不會幫你寫，也不會讀回來核對 —— 更新到底有沒有成功，只有你自己知道。請用你慣用的工具把新的 RGB LUT 更新進 T-CON，完成後再按下面那一顆。</div>
-          <div class="dg-btnrow">
-            <button class="dg-btn dg-btn-imp" id="dg-btn-conf-pcack" data-i18n="dg.p4PcBtn">我已經自己更新好了</button>
-          </div>
-        </div>
-      </div>
+      <!-- 🔴 v2.1.0：上面那段講的 `pcupd` 層（「我已經自己更新好了」）已整層移除，
+           提醒併進下面 `path` 層的 #dg-conf-path-pc。理由見那裡的註解。 -->
 
       <div class="dg-lut-step" data-step="path" data-title="第 4 部分：確認用的量測從哪來？" style="display:none">
         <!-- 🔴 v1.74.0：這一行原本寫「先在『輸出』卡片把新的 LUT 寫進 TCON，再重新量
@@ -2565,9 +2568,13 @@
              走 `push`（真的寫進去＋讀回核對），電腦模式走 `pcupd`（使用者自行更新並
              確認）。留著那一句等於叫他再做一次剛做完的事。
              🔴 改成只講這一層真正在問的事：這一次的量測資料從哪來。 -->
-        <div class="dg-note">
+        <!-- 🔴 v2.1.0：電腦畫面模式不再有獨立的「我已經自己更新好了」那一層（pcupd）——
+             提醒放在這裡，按匯入或即時量測就代表已經更新（跨頁／dg 檢討：第 4 部分要點 5 下）。
+             兩個說明由 dgConfPathSync() 依工作模式切換。 -->
+        <div class="dg-note" id="dg-conf-path-done">
           新的 RGB LUT 那一步已經走完了。這一次確認用的白灰階資料要從哪裡來？
         </div>
+        <div class="dg-note warn" id="dg-conf-path-pc" style="display:none" data-i18n="dg.p4PcPath">先用你慣用的工具把剛算出來的 RGB LUT 更新進 T-CON（DG 不會幫你寫、也不會讀回核對）。更新好之後，再選下面其中一種 —— 沒更新就去量，量到的還是上一張表。</div>
         <div class="dg-lut-opt">
           <div class="dg-lut-opt-title"><b>已經量好了</b></div>
           <div class="dg-btnrow">
@@ -2707,7 +2714,7 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20260928dg200"></script>
+<script src="common/version.js?v=20260929dg210"></script>
 <script src="common/i18n.js?v=20260923dg1754"></script>
 <!-- v1.68.1：xlsx 產生器（原本在本頁，現在與 dg-selftest.html 共用）。
      🔴 必須在本頁的 inline script 之前載入。 -->
@@ -2748,6 +2755,9 @@
     if (typeof I18N !== 'object' || !I18N) return;
     var add = {
       /* 🔴 v2.0.0：設定卡收合摘要行（dgSetupSumSync）用的兩個字串 */
+      'dg.p4PcPath': { 'zh-TW': '先用你慣用的工具把剛算出來的 RGB LUT 更新進 T-CON（DG 不會幫你寫、也不會讀回核對）。更新好之後，再選下面其中一種 —— 沒更新就去量，量到的還是上一張表。',
+                       'en': 'First update the T-CON with the RGB LUT you just calculated, using your usual tool (DG does not write it or read it back). Then pick one of the options below — measuring before the update just measures the old table again.',
+                       'zh-CN': '先用你惯用的工具把刚算出来的 RGB LUT 更新进 T-CON（DG 不会帮你写、也不会读回核对）。更新好之后，再选下面其中一种 —— 没更新就去量，量到的还是上一张表。' },
       'dg.setupMore': { 'zh-TW': '位元深度與輸出格式',
                         'en': 'Bit depth and output format',
                         'zh-CN': '位元深度与输出格式' },
@@ -8991,9 +9001,7 @@
     if (no) dgSlotRender();   // prim 是 dgSlotAdd 之後才寫進去的，重畫一次
     dgSetStatus('dg-slot-status', '即時量測完成，已成為第 ' + no + ' 組：'
       + rs.length + ' 筆（L' + rs[0].g + ' \uff5e L' + rs[rs.length - 1].g + '）。\n'
-      + (primNote
-        ? '純色端點已存進這一組，並帶入校正分頁的第 3 部分。第 1、2 部分沒有被動到。\n'
-        : '這一輪沒有帶回純色端點，第 3 部分仍需自行量測。第 1、2 部分沒有被動到。\n')
+      + (primNote ? ('純色端點已存進這一組。' + primNote + '\n') : '')
       + '要拿它當計算輸入，請到「Digital Gamma 校正」分頁'
       + '第 2 部分選「從光學資料比較挑一組」。', 'ok');
     return no;
@@ -11625,6 +11633,7 @@
   // 唯一的狀態更新入口：徽章、外框、來源行、缺件清單、計算鈕的啟用與否
   function dgRefreshReady() {
     dgAsSave();   // v1.48.0 自動保存掛點①（第 1～3 部分、設定、來源、結果卡片的匯流點）
+    if (typeof dgPrimUseLastSync === 'function') dgPrimUseLastSync();   // v2.1.0
     var missing = [];
     /* v1.17.0：只調 Gamma 模式下第 3 部分本次用不到 —— 標成「本次不需要」、灰掉、
        表格收起來，而且**不進 missing**（Bruce：「不可以擋住計算」）。
@@ -11833,15 +11842,53 @@
     return (byKey.r && byKey.g && byKey.b) ? byKey : null;
   }
 
-  /* v1.45.0：白灰階那一輪尾巴帶回來的純色端點 → 第 3 部分。
-     🔴 走的是**既有的 dgApplyPrim()**，與 CCT 檔匯入、prim 模式即時量測同一條寫入路徑；
-        不另開一條，也不動第 1、2 部分。
-     回傳一小段給呼叫端接在自己的說明後面（三個入口各自的文案不同，這裡不搶著寫）。 */
+  /* v1.45.0：白灰階那一輪尾巴帶回來的純色端點。v2.1.0 起只有第一次寫進第 3 部分，
+     之後只記錄（見下方 DG_LIVE_PRIM）。回傳一小段給呼叫端接在自己的說明後面。 */
+  /* ═══ 🔴 v2.1.0：每輪量到的純色「只記錄」，不再蓋第 3 部分 ══════════════════════
+     Bruce 2026-09-28：「所有即時量測都要加 XYZ……每輪量到的純色，不能自動覆蓋第 3 部分的
+     純色端點，也不能觸發 dgInvalidateResult 把 lastLut 或 lastCtx 清掉。只能記錄下來……
+     第 3 部分只在第一次、或使用者明確要求重新取得時才更新。」
+     舊行為（v1.45.0～v2.0.0）：三條路（第 2 部分、第 4 部分確認、比較分頁）一律走
+     dgApplyPrim() ⇒ 它第一行就是 dgInvalidateResult() ⇒ 第 4 部分量完，「進行下一輪」
+     拿不到 lastLut，流程自己斷掉（三份檢討都點到）。
+     現在：
+       · 第 3 部分還空著（＝第一次）⇒ 照舊填入。
+       · 已經有值 ⇒ 只記在 DG_LIVE_PRIM（與該次比較組的 .prim），第 3 部分一個字都不動、
+         結果不作廢。要換用，按第 3 部分的「用這一輪量到的純色更新」（dgPrimUseLast）。 */
+  var DG_LIVE_PRIM = null;   // { xyz, at } 最近一次即時量測帶回的純色
   function dgApplyGrayTailPrim(primRows, at) {
     var xyz = dgLivePrimToXYZ(primRows);
     if (!xyz) return '';
-    dgApplyPrim({ prim: xyz }, at || '', 'live');
-    return '純色 R／G／B 三個端點也一併帶入第 3 部分（大 X／Y／Z 由 dgXyYtoXYZ() 換算）。';
+    DG_LIVE_PRIM = { xyz: xyz, at: at || '' };
+    if (!dgPartFilled('prim')) {
+      dgApplyPrim({ prim: xyz }, at || '', 'live');
+      dgPrimUseLastSync();
+      return '純色 R／G／B 三個端點也一併帶入第 3 部分（第一次）。';
+    }
+    dgPrimUseLastSync();
+    return '這一輪也量了純色 R／G／B：已記錄，第 3 部分沿用原來那一組、沒有更動。';
+  }
+  /* 第 3 部分的「用這一輪量到的純色更新」：只有手上有一份記錄、而且與第 3 部分不同時才出現。
+     按下去是使用者明確要求 ⇒ 走一般的 dgApplyPrim()（會作廢結果，這是對的：輸入真的換了）。 */
+  function dgPrimUseLastSync() {
+    var b = $('dg-btn-prim-uselast');
+    if (!b) return;
+    var show = false;
+    if (DG_LIVE_PRIM && dgPartFilled('prim')) {
+      var cur = dgReadPrim && dgReadPrim();
+      show = !cur || ['r', 'g', 'b'].some(function (k) {
+        var a = cur[k], n = DG_LIVE_PRIM.xyz[k];
+        return !a || !n || a.some(function (v, i) { return Math.abs(v - n[i]) > 1e-9 * Math.max(1, Math.abs(v)); });
+      });
+    }
+    b.style.display = show ? '' : 'none';
+    if (show) b.textContent = '用這一輪量到的純色更新第 3 部分' + (DG_LIVE_PRIM.at ? '（' + DG_LIVE_PRIM.at + '）' : '');
+  }
+  function dgPrimUseLast() {
+    if (!DG_LIVE_PRIM) return;
+    dgApplyPrim({ prim: DG_LIVE_PRIM.xyz }, DG_LIVE_PRIM.at || '', 'live');
+    dgPrimUseLastSync();
+    dgSetStatus('dg-status', '第 3 部分已換成這一輪量到的純色端點。結果已作廢，請重新計算。', '');
   }
 
   function dgApplyLivePrim(rows, at) {
@@ -12085,9 +12132,17 @@
     DG_REC = { rows: rows, label: label || '', done: done, base: base,
                meta: meta || null,                                   // v1.45.0
                name: dgSlotUniqueName(base, DG_SLOTS.length) };
+    /* v2.1.0：即時量測（meta.auto）不問，直接記錄 —— Bruce 2026-09-23：「已經量完以後…
+       DG 網頁那邊也不用再確認要不要記錄這一筆。」第 2 部分那條路 v1.73.0 起就是這樣，
+       第 4 部分的即時確認量測補上同一條規則；匯入檔案仍照 v1.26.0 詢問。 */
+    /* v2.1.0（dg 檢討 中5）：匯入檔案也不再問 —— 三條入口同一條規則：逐值相同不建、
+       滿 10 組提示、其餘一律自動記錄（要刪到比較分頁刪）。下面那段詢問視窗的寫法保留，
+       但不再走到。 */
+    dgRecAnswer(true); return;
     var info = $('dg-rec-info');
+    var isConf = /確認$/.test(base);   // v2.1.0：從第 4 部分叫進來時，不再說成「第 2 部分」
     if (info) {
-      info.innerHTML = '第 2 部分剛換成這一份：<b>' + dgXe(DG_REC.label || '（手動填寫）') + '</b>'
+      info.innerHTML = (isConf ? '第 4 部分的確認量測：<b>' : '第 2 部分剛換成這一份：<b>') + dgXe(DG_REC.label || '（手動填寫）') + '</b>'
         + '　' + rows.length + ' 階（L' + rows[0].g + ' ～ L' + top.g + '）'
         + '<br>組名預設<b>' + dgXe(DG_REC.name) + '</b>，記錄之後在比較分頁可以自己改。';
     }
@@ -12113,6 +12168,7 @@
         /* 🔴 這是**系統給的預設名**，不是使用者取的 —— 旗標維持 false，
            之後進到下一輪時 dgSlotRetitleRound() 才有資格把它改成新的輪數。 */
         DG_SLOTS[no - 1].nameIsUserSet = false;
+        if (r.meta && r.meta.primXYZ) DG_SLOTS[no - 1].prim = r.meta.primXYZ;   // v2.1.0：這一輪量到的純色記在這一組
         dgSlotRender();
         dgRenderCharts();
       }
@@ -12286,6 +12342,12 @@
           「問過再存」（`dgGrayRecordAsk`）。他沒有交辦那一條，不自行改。 */
     var autoSlotNo = dgSlotAddFromPart2(true);
     var autoSlotNote = DG_SLOT_P2_NOTE;
+    /* v2.1.0：這一組記的是**這一輪量到的**純色，不是第 3 部分沿用的那一組
+       （dgSlotAddFromPart2 讀的是 #dg-in-prim，而第 3 部分現在不再每輪被覆蓋）。 */
+    if (autoSlotNo && DG_SLOTS[autoSlotNo - 1]) {
+      var lp = dgLivePrimToXYZ(meta.prim);
+      if (lp) { DG_SLOTS[autoSlotNo - 1].prim = lp; dgSlotRender(); }
+    }
     /* ═══ 🔴 v1.75.4（E）：把這個結果**留給訊息處理那一層回報給量測分頁** ══════════
        Bruce 2026-09-23：「已經量完以後…保存到光學比較，可以直接在這個頁面直接做操控。」
        查證結果：加組這件事 v1.73.0 起就已經自動做了（上面那一段），**缺的只是量測分頁
@@ -12746,17 +12808,17 @@
     }).map(function (r) {
       return { g: +r[0], x: +r[1], y: +r[2], Y: +r[3], T: dgCCT(+r[1], +r[2]) };
     });
-    /* v1.45.0：第 4 部分這一輪也是「我們自己量的」⇒ 純色端點同樣帶進第 3 部分。
-       🔴 第 4 部分本身**一個欄位都沒有多**（它不是計算輸入）；多的是第 3 部分。
-       🔴 **順序不能反**：dgApplyPrim() 會叫 dgInvalidateResult()，而那一支會
-          dgConfReset() 把第 4 部分整個清掉（既有設計：輸入變了，結果與確認都作廢）。
-          先寫第 3 部分、再寫第 4 部分，第 4 部分才留得住。
-          實測：反過來寫時 dgApi.p4() 回 null —— 這一條是探針抓到的，不是看碼看出來的。 */
+    /* v2.1.0：純色只記錄（dgApplyGrayTailPrim 只在第 3 部分還空著時才寫）⇒ 不再作廢
+       lastLut／lastCtx，「進行下一輪」拿得到結果。量到的純色跟著這一次自動建的比較組。
+       順序仍是先純色、後第 4 部分：第一次（第 3 部分空）那條路會作廢結果，
+       那時第 4 部分本來就不該留著舊的。 */
     var primNote = dgApplyGrayTailPrim(meta.prim, at);
     if (!dgConfApply(rs, '（即時量測' + (at ? ' ' + at : '') + '）', 'live',
-                     { durMs: meta.durMs, settleMs: meta.settleMs })) return;
+                     { durMs: meta.durMs, settleMs: meta.settleMs, auto: true,
+                       primXYZ: dgLivePrimToXYZ(meta.prim) })) return;
     dgConfSetStatus('已從「即時量測」分頁帶入第 4 部分：' + rs.length + ' 階。\n'
-      + (primNote ? (primNote + '\n') : '這一輪沒有帶回純色端點，第 3 部分仍需自行量測。\n')
+      + (primNote ? (primNote + '\n') : '')
+      + (DG_REC_NOTE ? (DG_REC_NOTE + '\n') : '')
       + '有沒有達到目標請自己看圖判斷 —— 本頁不做這個判斷。', 'ok');
   }
 
@@ -12874,7 +12936,10 @@
           st.textContent = dgRoundName(DG_ROUND) + '已自動開始。\n'
             + '第 1 部分＝' + dgRoundName(prevRound) + '算出來的那張 LUT（與「一鍵複製 RGB」逐值相同）。\n'
             + '第 2 部分＝第 4 部分那次確認量測（' + (p4.label || '未命名') + '，' + p4.rows.length + ' 階）。\n'
-            + '第 3 部分的純色端點沿用，沒有動。\n'
+            /* v2.1.0：這一句從 v2.1.0 起才是真的（之前第 4 部分量完就被覆蓋、結果被作廢）。 */
+            + '第 3 部分的純色端點沿用，沒有動。'
+            + (($('dg-btn-prim-uselast') && $('dg-btn-prim-uselast').style.display !== 'none')
+                ? '這一輪量到的純色已記錄；要換用，按第 3 部分的「用這一輪量到的純色更新」。\n' : '\n')
             + (DG_REC_NOTE ? (DG_REC_NOTE + '\n') : '') + '\n' + st.textContent;
         }
       } else {
@@ -14029,6 +14094,15 @@
        🔴 每次呼叫都做、不記「放過了沒有」：removeAttribute 是冪等的，而多記一份狀態
           就多一份可能跟事實不一致的東西。 */
     document.documentElement.removeAttribute('data-dg-boot');
+    /* v2.1.0（dg 檢討 中6：清空鈕太多）：「清空某一套的紀錄」只在那一套真的有東西可清時
+       才出現 —— 存檔裡有它，或它就是目前這一套。什麼都沒有時擺一顆清空鈕只是雜訊。 */
+    DG_WMODE_KEYS.forEach(function (k) {
+      var c = $('dg-btn-wmode-clr-' + k);
+      if (!c) return;
+      var has = (DG_WMODE === k)
+        || !!(typeof _dgAsWrap !== 'undefined' && _dgAsWrap && _dgAsWrap.modes && _dgAsWrap.modes[k]);
+      c.style.display = has ? '' : 'none';
+    });
     DG_WMODE_KEYS.forEach(function (k) {
       var b = $('dg-btn-wmode-' + k);
       if (b) {
@@ -15440,6 +15514,10 @@
            因為畫面上已經把兩條路並列出來了，再問一次就是問同一件事第二遍。 */
         b.addEventListener('click', function () {
           if (p[6]) dgLiveGo(p, say, p[6]);
+          /* v2.1.0：第 4 部分的確認量測沿用最上方選好的工作模式，不再問一次
+             （「同一個決定不要問兩次」；也避免選到另一種、記進另一套紀錄）。
+             還沒選過模式（例如從 PQ Tools 匯入進來）才照舊問。 */
+          else if (p[4] === 'conf' && (DG_WMODE === 'pc' || DG_WMODE === 'tcon')) dgLiveGo(p, say, DG_WMODE);
           else dgPickOpen(p, say);
         });
       });
@@ -15459,6 +15537,11 @@
                 提到那顆鈕，帶過去只會變成一個沒有人讀的欄位。 */
           var job = p[8] || p[4];
           var nextBtn = (job === 'conf') ? dgNextRoundBtnText() : '';
+          /* 🔴 v2.1.0：這份工作要不要第 1 部分的 LUT。只有主流程、而且（明確要 LUT 或
+             第 1 部分還空著）才要。其餘（第 4 部分確認、比較分頁、第二輪之後第 1 部分
+             已由「進行下一輪」帶入）⇒ false ⇒ 自檢頁不再自動讀回送回，不會把剛算好
+             的結果作廢（自檢頁檢討 高2）。 */
+          var needLut = (job === 'main') && (step === 'lut' || !dgPartFilled('lut'));
           var task = ++dgLiveTaskId;
           DG_LIVE_TASKS[task] = p[4];
           DG_LIVE_TASK_KIND[task] = kind;   // v1.71.0
@@ -15547,7 +15630,7 @@
                   一個結構上只能被忽略的旗標會讓下一個人以為它有作用，那比沒有更糟。 */
             page.win.postMessage(
               { type: 'dg-measure-task', task: task, mode: mode, step: step, dest: p[2],
-                round: DG_ROUND, job: job, nextBtn: nextBtn, lutKnown: dgP4Pushed(),
+                round: DG_ROUND, job: job, nextBtn: nextBtn, lutKnown: dgP4Pushed(), needLut: needLut,
                 what: DG_LIVE_WHAT[step] || DG_LIVE_WHAT[mode] },
               window.location.origin);
             /* ═══ 🔴 v1.73.3：**只有自檢那條路**把 focus() 加回來 ════════════════
@@ -15636,6 +15719,7 @@
                  已 grep 兩頁的 QS 讀取：既有的是 mode／task／dest／what／step／round／v
                  七個，`job`／`nextBtn` 不與任何一個相撞；`dg-measure.html` 兩個都不讀。 */
               + '&job=' + encodeURIComponent(job)
+              + '&needLut=' + (needLut ? '1' : '0')
               + (nextBtn ? ('&nextBtn=' + encodeURIComponent(nextBtn)) : '')
               + '&v=' + encodeURIComponent(DG_SELF_VER);
             page.win = window.open(url, '_blank');
@@ -15931,6 +16015,7 @@
       if (e.target === $('dg-modal-info')) dgInfoClose();   // 點視窗外的暗色區域也關掉
     });
     $('dg-preset-select').addEventListener('change', function () { dgApplyPreset(this.value); });
+    $('dg-btn-prim-uselast').addEventListener('click', dgPrimUseLast);
     /* 🔴 v2.0.0：設定卡收合後的摘要行。純顯示 —— 只讀選單當下的值，不寫任何東西回去。
        值會被三種來源改：使用者、快捷設定／匯入檔、認出 IC 的連動（dgApplyIcInfo）。
        後兩種是程式直接改 .value、不一定發 change，所以另外用 MutationObserver 盯著
@@ -16047,7 +16132,11 @@
           也不顯示任何工具算出來的評語。 */
     $('dg-btn-conf-setup').addEventListener('click', function () {
       /* v1.25.1：決策已經搬到卡片上，這顆鈕只負責「換一份確認量測」（＝ v1.24.0 的行為）。 */
-      dgStepModalOpen('dg-modal-conf', DG_P4 ? 'path' : 'ask');
+      /* v2.1.0：按了 ④ 就是要確認 ⇒ 不再問「要不要確認」，直接走下一層。
+         （算完自動跳出的那一次詢問照舊 —— Bruce 2026-09-09 的裁示。） */
+      if (DG_P4) { dgStepModalOpen('dg-modal-conf', 'path'); dgConfPathSync(); return; }
+      dgStepModalOpen('dg-modal-conf', 'ask');
+      $('dg-btn-conf-yes').click();
     });
     $('dg-modal-conf-close').addEventListener('click', function () { dgStepModalClose('dg-modal-conf'); });
     $('dg-modal-conf').addEventListener('click', function (e) {
@@ -16063,7 +16152,15 @@
        不要問兩次」—— 入口③ 不問，問在這裡）。三條路各自往下走既有的那一層。 */
     function dgConfAfterWmode() {
       if (DG_WMODE === 'tcon') { dgStepModalStep('dg-modal-conf', 'push'); dgP4PushEnter(); return; }
-      dgStepModalStep('dg-modal-conf', 'pcupd');
+      dgStepModalStep('dg-modal-conf', 'path'); dgConfPathSync(true);   // v2.1.0：pcupd 併進 path
+    }
+    /* v2.1.0：path 層上方那句依來路切換 —— 電腦畫面剛從「要確認」進來 ⇒ 提醒先自行更新；
+       其餘（自檢已寫入核對、或已有確認量測要換一份）⇒ 原本那句。 */
+    function dgConfPathSync(pcFresh) {
+      var pc = !!pcFresh && DG_WMODE === 'pc';
+      var a = $('dg-conf-path-pc'), b = $('dg-conf-path-done');
+      if (a) a.style.display = pc ? '' : 'none';
+      if (b) b.style.display = pc ? 'none' : '';
     }
     DG_WMODE_KEYS.forEach(function (k) {
       var b = $('dg-btn-conf-wpick-' + k);
@@ -16088,12 +16185,14 @@
         dgP4PushEnter();
         return;
       }
-      /* ═══ 🔴 v1.74.0（A）：電腦畫面那條路改走它自己的 `pcupd` 層 ═══════════════
+      /* 🔴 v2.1.0：pcupd 那一層併進 path（提醒寫在 path 上方）⇒ 少一次點擊。
+         ═══ 🔴 v1.74.0（A）：電腦畫面那條路改走它自己的 `pcupd` 層 ═══════════════
          舊版這裡是 `dgStepModalStep('dg-modal-conf', 'path')` —— **直接跳過整個
          「先更新 LUT」的環節**。那與 v1.72.0 修掉的是同一個病，只是留在另一條路上。
          🔴 這一層不做任何寫入，也沒有任何東西要初始化（不存旗標、不留指紋，理由寫在
             那一層的 HTML 註解裡）⇒ 只換一層，沒有對應的 `…Enter()`。 */
-      dgStepModalStep('dg-modal-conf', 'pcupd');
+      dgStepModalStep('dg-modal-conf', 'path');
+      dgConfPathSync(true);
     });
     /* 🔴 v1.74.0（A）：「我已經自己更新好了」。
        🔴 它**只做兩件事**：把那句不宣稱任何 T-CON 內容的確認寫在第 4 部分的狀態列上，
@@ -16102,10 +16201,7 @@
           C 條那個「第二輪 ① 視為已完成」就會在 DG 根本不知道面板裡是什麼的情況下成立
           —— 那正是 `feedback_requirement_fidelity` 的「代理指標」陷阱：**「他說他更新
           了」不等於「面板裡就是這張」**。 */
-    $('dg-btn-conf-pcack').addEventListener('click', function () {
-      dgConfSetStatus(dgT('dg.p4PcAck'), '');
-      dgStepModalStep('dg-modal-conf', 'path');
-    });
+    /* v2.1.0：那顆鈕隨 pcupd 層一起移除；確認字樣改在 path 層按匯入／即時量測時寫。 */
     $('dg-btn-conf-push').addEventListener('click', dgConfPushGo);
     $('dg-btn-conf-push-next').addEventListener('click', function () {
       /* 🔴 沒有核對相符就不讓往下 —— 這一顆本來就只在相符時才出現，這一行是
@@ -16142,6 +16238,7 @@
       dgStepModalClose('dg-modal-conf');
     });
     $('dg-btn-conf-imp').addEventListener('click', function () {
+      if ($('dg-conf-path-pc') && $('dg-conf-path-pc').style.display !== 'none') dgConfSetStatus(dgT('dg.p4PcAck'), '');   // v2.1.0
       DG_IMP_DEST = 'conf';
       dgStepModalClose('dg-modal-conf');
       $('dg-file-lut').click();
