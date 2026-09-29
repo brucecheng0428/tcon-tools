@@ -14,7 +14,7 @@
 <title>TCON 自檢畫面量測 — TCON FAE專用工具箱</title>
 <link rel="stylesheet" href="common/common.css?v=20260903help">
 <!-- 🔴 version.js 必須最先載入（common/version.js 開頭那條規則）。 -->
-<script src="common/version.js?v=20260929dst201"></script>
+<script src="common/version.js?v=20260929dst202"></script>
 <style>
   /* ═══ 本頁專屬樣式 ════════════════════════════════════════════════════════
      只寫這一頁真的需要、而 common.css 沒有的東西。顏色一律走 common.css 的
@@ -1689,11 +1689,14 @@ if (typeof I18N === 'object' && I18N) {
         `dstDgRecKind()`），不可能出現「句子叫他去按一行看不到的鈕」。 */
   I18N['dst.whyDgOn1']     = { 'zh-TW': 'DG_EN 還開著 —— 先按上面那一行的鈕。', 'en': 'DG_EN is still on — use the buttons on the line above.', 'zh-CN': 'DG_EN 还开着 —— 先按上面那一行的钮。' };
   I18N['dst.whyDgOff2']    = { 'zh-TW': 'DG_EN 關著 —— 先按上面那一行的鈕。', 'en': 'DG_EN is off — use the buttons on the line above.', 'zh-CN': 'DG_EN 关着 —— 先按上面那一行的钮。' };
-  I18N['dst.whyDgUnk']     = { 'zh-TW': 'DG_EN 讀不到 —— 先按上面那一行的鈕。', 'en': 'DG_EN cannot be read — use the buttons on the line above.', 'zh-CN': 'DG_EN 读不到 —— 先按上面那一行的钮。' };
   /* 第五格（DG_EN 讀不到）那一行。**陳述事實、不猜該開還是該關** —— 猜的話就是 v1.18.0
      那一段「不知道的事不要編」被繞過去。主鈕是「重新讀」，那是這一格唯一做得到的事。 */
-  /* v2.0.1：DG_EN 不再擋量測 ⇒ 這一句不能再說「先確定再量」。 */
-  I18N['dst.dgRecUnk']     = { 'zh-TW': 'DG_EN 讀不到（仍可直接量）。', 'en': 'DG_EN cannot be read (you can still measure).', 'zh-CN': 'DG_EN 读不到（仍可直接量）。' };
+  /* v2.0.2：讀不到 ＝ I2C 異常 ⇒ 自檢流程擋住（Bruce 2026-09-29 本人更正 v2.0.1）。 */
+  I18N['dst.dgRecUnk']     = { 'zh-TW': '⚠ DG_EN 讀不到：I2C 連線異常，自檢流程已暫停。', 'en': '⚠ DG_EN cannot be read: the I2C link is faulty, the self-test is paused.', 'zh-CN': '⚠ DG_EN 读不到：I2C 连线异常，自检流程已暂停。' };
+  I18N['dst.whyDgUnk']     = { 'zh-TW': 'DG_EN 讀不到（I2C 連線異常）—— 先按「重新讀 DG_EN」；讀到開或關才能繼續。', 'en': 'DG_EN cannot be read (I2C link fault) — press “Read DG_EN again”; it continues once DG_EN reads on or off.', 'zh-CN': 'DG_EN 读不到（I2C 连线异常）—— 先按「重新读 DG_EN」；读到开或关才能继续。' };
+  I18N['dst.dgFaultTitle'] = { 'zh-TW': '⚠ I2C 連線異常：DG_EN 讀不到', 'en': '⚠ I2C link fault: DG_EN cannot be read', 'zh-CN': '⚠ I2C 连线异常：DG_EN 读不到' };
+  I18N['dst.dgFaultBody']  = { 'zh-TW': 'T-CON 自檢流程先暫停（① 讀回 LUT、② 開始量測都擋住）。請檢查 I2C 治具與排線，再重新讀一次。電腦畫面量測不經 I2C，不受影響。', 'en': 'The T-CON self-test is paused (① LUT read-back and ② measurement are blocked). Check the I2C adapter and cable, then read again. PC-screen measurement does not use I2C and is unaffected.', 'zh-CN': 'T-CON 自检流程先暂停（① 读回 LUT、② 开始量测都挡住）。请检查 I2C 工装与排线，再重新读一次。电脑画面量测不经 I2C，不受影响。' };
+  I18N['dst.dgFaultClose'] = { 'zh-TW': '知道了', 'en': 'OK', 'zh-CN': '知道了' };
   I18N['dst.dgRecUnkGo']   = { 'zh-TW': '重新讀 DG_EN', 'en': 'Read DG_EN again', 'zh-CN': '重新读 DG_EN' };
   /* DG_EN 真的變了 ⇒ ②③ 作廢那一句（一行一句）。 */
   I18N['dst.dgVoid23']     = { 'zh-TW': 'DG_EN 變了，剛才量的不算數。', 'en': 'DG_EN changed — the earlier measurement no longer counts.', 'zh-CN': 'DG_EN 变了，刚才量的不算数。' };
@@ -4709,6 +4712,9 @@ async function dstRun() {
     dstProg('step', 0, 0, dstT('dst.pgDg'));
     await dstReadDgEn();
     if (dstAbort) throw new Error('__abort__');
+    /* 🔴 v2.0.2：這一輪起點重讀 DG_EN 讀不到 ⇒ I2C 異常，不往下量（Bruce 2026-09-29 本人更正）。
+       取代 v1.4.0「讀不到不擋掃描」那一條。 */
+    if (dstDgEnFault()) throw new Error(dstT('dst.whyDgUnk'));
 
     // ② 進出圖模式
     dstProg('step', 0, 0, dstT('dst.pgEnter'));
@@ -5245,8 +5251,31 @@ function dstRenderPick() {
      · 讀不到時：`dstRun()` 開頭那段 v1.4.0 的原話「讀不到不擋掃描……掃描照跑」。
    建議列（第 1 輪建議關、第 2 輪提醒開）保留，只是提醒、不再是閘門。
    這一支留著回 null，呼叫端（dstRunWhyKey）不必改形狀。 */
+/* ═══ 🔴 v2.0.2：「讀不到」**要擋**（Bruce 2026-09-29 本人更正）═══════════════════════
+   「讀不到代表 I2C 連線異常，必須跳出警示，而且 T-CON 自檢流程不能繼續，要擋住『開始量測』
+   和後續步驟。只有電腦點屏量測（不經 I2C 的路徑）不受影響。DG_EN 開或關都可以量。」
+   ⇒ 開／關：不擋（v2.0.1 的結論不變）。讀不到：擋 ①② 與「開始量測」，並跳警示（dstDgFaultCheck）。
+   🔴 判準 dstDgEnFault()：連著 ＋ 認得 IC ＋ 這顆**有** DG_EN 位址，卻讀不出開或關。
+      沒有位址的那幾顆本來就無從讀起，不是 I2C 異常 —— 擋了會是一條沒有出口的死路。
+   🔴 出口：警示視窗與建議列上的「重新讀 DG_EN」（dstDgRecMain 的 unk 分支）。讀到開或關，
+      閘門自動解除；「維持現狀」在這一格不給（讀不到時沒有可以維持的狀態）。 */
+function dstDgEnFault() {
+  return !!(dstLinked && dstIc && dstIc.dgEn && dstDg.state !== 'on' && dstDg.state !== 'off');
+}
 function dstDgWhyKey() {
-  return null;
+  return dstDgEnFault() ? 'dst.whyDgUnk' : null;
+}
+/* 讀不到 ⇒ 跳一次警示（同一段「讀不到」只跳一次；讀到開或關就重置，下次再壞再跳）。
+   掛在 dstRenderBtns() 尾端（本頁狀態變了一定會經過的匯流點），而且只在不忙的時候判 ——
+   連線／識別途中 IC 已認出、DG_EN 還沒讀的那一瞬間不算故障。 */
+var dstDgFaultWarned = false;
+function dstDgFaultCheck() {
+  if (!dstDgEnFault()) { dstDgFaultWarned = false; return; }
+  if (dstDgFaultWarned || dstBusy || dstLutBusy || dstRunning || dstAskResolve) return;
+  dstDgFaultWarned = true;
+  dstLog('!  DG_EN unreadable -> I2C link fault, self-test steps blocked', 'e');
+  dstAsk('dst.dgFaultTitle', 'dst.dgFaultBody', 'dst.dgRecUnkGo', 'dst.dgFaultClose')
+    .then(function (ok) { if (ok) dstDgRecMain(); });
 }
 function dstRunWhyKey() {
   if (dstRunning) return 'dst.whyRunning';
@@ -5862,6 +5891,7 @@ function dstStepsWhyKey() {
   if (dstRunning) return 'dst.stepsWhyRun';
   if (!dstLinked) return 'dst.stepsWhyLink';
   if (!dstIc) return 'dst.stepsWhyIc';
+  if (dstDgEnFault()) return 'dst.whyDgUnk';     // v2.0.2：DG_EN 讀不到 ＝ I2C 異常 ⇒ ①② 一起擋
   return null;
 }
 
@@ -6203,6 +6233,7 @@ function dstRenderSteps() {
      列舉呼叫點漏一個不會有任何錯誤訊息。`dstRenderDg()` 末尾也叫它一次 ——
      DG_EN 自己變了的時候走的是那一條。 */
   dstRenderDgRec();
+  dstDgFaultCheck();      // v2.0.2：DG_EN 讀不到 ⇒ 跳一次警示
 }
 
 /* ═══ 🔴 v1.10.0：最上面那張卡的三個 ○／✔ ═════════════════════════════════
@@ -6403,6 +6434,8 @@ function dstDgEnApply2(on, why) {
 var dstDgRecDismissed = false;   // 他按過「維持現狀」。生命週期＝這一份工作（見 dstClearRound）
 
 function dstDgRecKind() {
+  /* v2.0.2：讀不到是故障、不是建議 ⇒ 不看是不是從 DG 開、第幾輪、按過「維持現狀」沒有，一律出現。 */
+  if (dstDgEnFault()) return 'unk';
   if (!dstDgAlive()) return null;
   if (dstDgRound === null) return null;
   if (dstDgRecDismissed) return null;
@@ -6458,7 +6491,7 @@ function dstRenderDgRec() {
        （[[feedback_guard_must_leave_a_way_out]]）。如實改，不留一句與行為對不上的註解。
        🔴 「維持現狀」在三格的字面都成立：第 1 輪＝保持 DG_EN 開、第 2 輪＝保持 DG_EN 關、
           讀不到＝不去動它。所以沿用同一個 key，不另造三句。 */
-    keep.classList.toggle('dst-hidden', false);
+    keep.classList.toggle('dst-hidden', kind === 'unk');   // v2.0.2：讀不到沒有「現狀」可維持
     keep.textContent = dstT('dst.dgRecKeep');
   }
 }
