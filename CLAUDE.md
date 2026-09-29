@@ -65,6 +65,8 @@ ln -sf ../../tools/hooks/pre-commit .git/hooks/pre-commit
 
 git-tracked 的內容＝GitHub Pages 公開可抓（含 view-source）。**凡使用者可見處與原始碼層，一律不留廠商商標與產品型號字樣**，改用中性代號（CHANGELOG v2.97.472／473／474 三輪已清理）。新增 LA 相關文字、log 行、檔名時沿用此慣例；不能清的必須有站得住腳的技術理由（例如 USB PID 這類協定必需值）。
 
+🔴 **Raydium 不在此限** —— Raydium 是我們自己的公司，不是別的廠商（Bruce 2026-09-29：「Raydium 是自己的，這個不要刪，這個不是別的廠商，這就是我們的公司」）。Raydium 字樣、晶片型號（RM8xxxx）、`IP/Raydium*.cs` 這類檔名、自家工具（PQ Tool(s)、AUX GUI）、`RaydiumGamma_`／`RaydiumCCT_` 檔名**一律保留，不得刪改**。dgself v2.0.0（149b9c5）曾誤刪 16 處，已於 1034c5d 還原。不確定某個名字是不是別家廠商時，先問，不要先刪。
+
 ## 語言
 
 - **全程繁體中文思考與回報。** 程式碼變數／註解可用英文；UI 文字走 i18n。
