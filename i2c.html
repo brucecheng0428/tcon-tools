@@ -30,7 +30,7 @@
           出來」。那個前提**早就不成立**：bridge 的靜態檔服務拒絕子資料夾、而且自 v1.7.0
           起預設關閉 —— 詳細依據與行號寫在 body 末端那兩個 <script> 的上面。）
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="common/version.js?v=20260929i2c1260"></script>
+<script src="common/version.js?v=20260929i2c1261"></script>
 <style>
   * { box-sizing: border-box; }
   :root{
@@ -1391,8 +1391,8 @@
      🔴 **CSS 沒有跟著載**（見 style 區塊頂端的說明）：common.css 有 `.card`／`.row`／
         無範圍的 `label{}` 等等，與本頁同名而語意完全不同，載進來會整頁走樣。
         頁首那四條宣告是逐字抄過來的，來源行號寫在各自上面。 -->
-<script src="common/i18n.js?v=20260929i2c1260"></script>
-<script src="common/common.js?v=20260929i2c1260"></script>
+<script src="common/i18n.js?v=20260929i2c1261"></script>
+<script src="common/common.js?v=20260929i2c1261"></script>
 
 <script>
 'use strict';
@@ -2742,14 +2742,17 @@ function i2ctReadInputs(){
      （24C04 的 1 byte 字位址只到 0xFF，但線性位址到 0x1FF）；起點＋長度超過容量
      ⇒ 送出前就擋（不靜默截斷）。slave 帶著區塊位元 ⇒ 也擋（正常情況下離開欄位時
      已自動換算成基底，這一條是保險）。一般模式走原本那兩條，一字未改。 */
-  var ee = i2ctEeCur(), offBad;
+  var ee = i2ctEeCur(), offBad, lenErr = '';
   if (ee) {
     offBad = (off === null || off < 0 || off > ee.bytes - 1);
     if (offBad) errs.push(i2ctT('i2c.errEeOverCap', { id: ee.id, top: i2ctHex(off === null ? 0 : off, 4),
                           max: i2ctHex(ee.bytes - 1, 4), cap: i2ctCapText(ee.bytes) }));
+    /* 🔴 v1.26.0（Bruce 2026-09-29 補充）：總 byte 數的上限 ＝ 容量 − 起始 offset。
+       它是**讀取**的參數 ⇒ 只擋讀取（`readErrs`），不擋寫入 —— 寫入的長度由來源
+       自己決定（v1.16.2 的規則），寫入另由 i2ctEeCapErr 依容量擋。 */
     else if (len !== null && len >= 1 && off + len > ee.bytes)
-      errs.push(i2ctT('i2c.errEeOverCap', { id: ee.id, top: i2ctHex(off + len - 1, 4),
-                max: i2ctHex(ee.bytes - 1, 4), cap: i2ctCapText(ee.bytes) }));
+      lenErr = i2ctT('i2c.errEeLenCap', { id: ee.id, max: ee.bytes - off, off: i2ctHex(off, 4),
+                     cap: i2ctCapText(ee.bytes) });
     if (slave !== null && (slave & i2ctEeMask(ee)))
       errs.push(i2ctT('i2c.errEeSlaveBlk', { base: i2ctHex(slave & ~i2ctEeMask(ee)) }));
   } else if (awid === 0) {
@@ -2764,12 +2767,12 @@ function i2ctReadInputs(){
   $('in-slave').classList.toggle('bad', slave === null || slave < 0 || slave > 0x7F);
   if ($('in-awid')) $('in-awid').classList.toggle('bad', !i2ctAwidOk(awid));
   $('in-off').classList.toggle('bad', offBad);
-  $('in-len').classList.toggle('bad', len === null || len < 1 || len > I2CT_MAX_LEN
-                                      || (!!ee && !offBad && off + len > ee.bytes));
+  $('in-len').classList.toggle('bad', len === null || len < 1 || len > I2CT_MAX_LEN || !!lenErr);
 
   /* wireAwid ＝ 真正送給 I2C Bridge 的 offset 寬度。**與 UI 完全一致** ——
      寬度 0 就是 wire 的 0（沒有位址相位），那個值走 data，不是走位址。 */
-  return { slave: slave, awid: awid, wireAwid: awid, off: off, len: len, errs: errs };
+  return { slave: slave, awid: awid, wireAwid: awid, off: off, len: len, errs: errs,
+           lenErr: lenErr, readErrs: lenErr ? errs.concat([lenErr]) : errs };
 }
 /* ═══ slave 位址三格連動（Bruce 2026-09-18）════════════════════════════════
    「常常有人把 7 bit 跟 8 bit 搞混」⇒ 三格都可以輸入，改哪一格另兩格立刻跟著變。
@@ -2825,6 +2828,7 @@ function i2ctSlaveSync(which, commit){
 }
 
 function i2ctUpdateHints(){
+  i2ctEeAutoLen();
   var v = i2ctReadInputs();
   /* 🔴 v1.4.0 起「slave 一改就作廢」那條規則被 Bruce 的最終規則取代了：
      基準換不換，由**可比性**決定（見 i2ctComparable）—— slave 只在
@@ -2889,6 +2893,11 @@ function i2ctUpdateHints(){
         xfers: (eeH ? i2ctPlanRead(v.off || 0, Math.min(v.len, I2CT_MAX_LEN), v.awid, v.slave)
                     : i2ctPlanRead(0, Math.min(v.len, I2CT_MAX_LEN), v.awid)).length })
     : ('1 – ' + I2CT_MAX_LEN));
+  /* v1.26.0：超過「容量 − offset」⇒ 讀取鈕停用，原因**直接寫在這一格下面**（紅字）。 */
+  if (v.lenErr) $('lenhint').textContent = v.lenErr;
+  else if (eeH && v.off !== null && v.off >= 0 && v.off < eeH.bytes)
+    $('lenhint').textContent += ' · ≤ ' + (eeH.bytes - v.off);
+  $('lenhint').style.color = v.lenErr ? '#f87171' : '';
   if (v.awid === 0) {
     /* 寬度 0 ⇒ 要寫的就是 ③ 那一個 byte，這一欄與檔案都用不到 */
     $('in-data').classList.remove('bad');
@@ -2933,7 +2942,9 @@ function i2ctHintTips(){
 function i2ctSyncButtons(){
   var v = i2ctReadInputs();
   var can = i2ctLinked && !i2ctBusy && v.errs.length === 0;
-  $('btn-read').disabled  = !can;
+  /* v1.26.0：讀取另外受「總 byte 數 ≤ 容量 − offset」限制（原因寫在總 byte 數下面）。 */
+  $('btn-read').disabled  = !can || !!v.lenErr;
+  $('btn-read').title = v.lenErr || '';
   /* 🔴 能不能寫，要問**真正的寫入來源**（i2ctWriteSource），不是只看那個文字框。
      舊寫法只看 `in-data`，所以載入檔案之後文字框是空的 ⇒ 寫入鈕永遠是灰的，
      而那正是他載入檔案的目的。這與「另存新檔灰掉」是同一類 bug：
@@ -3630,7 +3641,7 @@ async function i2ctOnRead(){
   /* 有未生效的輸入 ⇒ 放棄它，不要意外寫進去（讀取會整片蓋掉，留著也沒意義）。 */
   if (i2ctEditing) i2ctCancelEdit();
   var v = i2ctReadInputs();
-  if (v.errs.length) { i2ctBanner('readbanner', 'err', v.errs.join(i2ctListSep())); return; }
+  if (v.readErrs.length) { i2ctBanner('readbanner', 'err', v.readErrs.join(i2ctListSep())); return; }
   /* 🔴 讀取會把本地未寫入的修改蓋掉 ⇒ 那是會遺失他工作成果的操作，問一次。 */
   if (!i2ctConfirmDiscardDirty(i2ctT('i2c.actReread'))) { i2ctLog(i2ctT('i2c.logCancelRead'), 'n'); return; }
   i2ctBusy = true; i2ctSyncButtons();
@@ -3666,9 +3677,11 @@ async function i2ctOnRead(){
                    ms: res.ms, devUs: res.devUs, segs: res.segs };
   /* 🔴 讀取失敗（長度不足）的資料不得成為基準、也不得參與比較 ——
      拿半份資料當基準，之後每一次比對都是錯的，而且看起來很正常。 */
-  var readReplaced = (res.ok && res.bytes.length === Math.min(v.len, I2CT_MAX_LEN));
+  /* v1.26.0：DLL_I2C_BCB 路徑全 FF ＝ 疑似 NACK（見下面 ffSusp 那一段的說明）⇒ 同樣不得成為基準。 */
+  var ffSusp = res.ok && allFF && res.bytes.length >= 2 && i2ctLastUsbRt === 1;
+  var readReplaced = (res.ok && res.bytes.length === Math.min(v.len, I2CT_MAX_LEN)) && !ffSusp;
   if (readReplaced) i2ctIngest(i2ctDev, i2ctReadSrc(v.slave, v.awid, v.off));
-  else { i2ctDiffIdx = null; i2ctLog(i2ctT('i2c.logIncomplete'), 'w'); }
+  else { i2ctDiffIdx = null; if (!ffSusp) i2ctLog(i2ctT('i2c.logIncomplete'), 'w'); }
   /* ═══ 🔴🔴 讀取成功 ⇒ 清掉「已修改未寫入」（v1.16.0）════════════════════
      Bruce 2026-09-19：「可是我都已經**再重新讀取一次 256 byte** 了。重新讀取一次，
      理論上這個指標應該要被**覆蓋掉**才對啊，因為我就是沒有要寫了。」—— 他是對的。
@@ -3703,7 +3716,19 @@ async function i2ctOnRead(){
           + (i2ctRef && i2ctRef.kind === 'file' ? i2ctT('i2c.logFileIsA') : ''), 'n');
   }
 
-  if (!res.ok) {
+  /* ═══ 🔴 v1.26.0：DLL_I2C_BCB 路徑讀回全 FF ⇒ **明確報錯**（Bruce 2026-09-29）═══
+     反組譯實查（DLL 反組譯檔 dll_i2c.asm）：GetBytesEx 的 FTDI 實作
+     0x402570 在「slave＋W → 位址相位（0x402208）→ slave＋R」之間**只打 ACK 時脈、
+     不取樣 ACK**；唯一的檢查 0x402480 是「USB 寫出去了沒」，不是 ACK。
+     ⇒ slave 不回應（NACK）時 SDA 被上拉 ⇒ 每個 byte 都是 0xFF，而且回報「讀滿」。
+     bridge 拿到的回傳值與成功完全一樣，**這一層分不出 NACK 與「內容真的是 FF」**。
+     ⇒ 至少不能再報成功：用 bridge 回報的路徑指紋（usbrt＝1 只有這條會是 1）判定，
+       資料照樣顯示（空白晶片本來就是全 FF，他要看得到），但 banner 是錯誤、講原因與下一步。
+     只看 ≥ 2 byte 的讀取：單一個 FF 在真資料裡很常見（i2ctAllFF 的既有判準）。 */
+  if (ffSusp) {
+    i2ctBanner('readbanner', 'err', i2ctT('i2c.bnAllFFNoAck', { slave: i2ctHex(v.slave), n: res.bytes.length }));
+    i2ctLog('✕ ' + i2ctT('i2c.logAllFFNoAck', { slave: i2ctHex(v.slave), n: res.bytes.length, awid: v.awid }), 'e');
+  } else if (!res.ok) {
     i2ctBanner('readbanner', 'err', i2ctT('i2c.bnReadFail', { err: res.err, n: res.bytes.length }));
     i2ctLog('✕ ' + res.err, 'e');
   } else {
@@ -3943,6 +3968,18 @@ function i2ctEeFold(){
   i2ctLog(i2ctT('i2c.logEeFolded', { from: i2ctHex(s), to: i2ctHex(base), off: i2ctHex(noff, 4), id: e.id }), 'n');
   return { from: s, to: base, off: noff };
 }
+/* ═══ v1.26.0：總 byte 數預設 ＝ 容量 − 起始 offset（Bruce 2026-09-29 補充）═══
+   規則與 page 的 i2ctPageTouched 同一套：他**自己動過**總 byte 數就不再跟著改；
+   換型號／切進 EEPROM 模式時回到自動。上限由 i2ctReadInputs 的 lenErr 擋。 */
+var i2ctEeLenTouched = false;
+function i2ctEeAutoLen(){
+  var e = i2ctEeCur(), inp = $('in-len');
+  if (!e || i2ctEeLenTouched || !inp) return;
+  var off = i2ctParseAddr($('in-off').value);
+  if (off === null || off < 0 || off >= e.bytes) return;
+  var want = String(e.bytes - off);
+  if (inp.value !== want) { inp.value = want; i2ctComboSync('in-len'); }
+}
 function i2ctEeSetMode(on){
   on = !!on;
   if ($('in-devtype')) $('in-devtype').value = on ? 'ee' : 'gen';
@@ -3951,6 +3988,7 @@ function i2ctEeSetMode(on){
   i2ctEeMode = on;
   if ($('ee-grp')) $('ee-grp').style.display = on ? '' : 'none';
   i2ctPageTouched = false;                  /* 換模式 ⇒ page 回到自動 */
+  i2ctEeLenTouched = false;                 /* 總 byte 數回到「容量 − offset」 */
   i2ctEeFoldNote = '';
   i2ctEeLockAwid();
   if (on) {
@@ -3970,6 +4008,7 @@ function i2ctEeSetModel(id){
   if ($('in-eemodel')) $('in-eemodel').value = id;
   if (changed) {
     i2ctPageTouched = false;                /* 換型號 ⇒ page 回到該型號的值 */
+    i2ctEeLenTouched = false;               /* 總 byte 數回到「容量 − offset」 */
     i2ctEeForget();                         /* 之前確認過的型號作廢，寫入前重新確認 */
   }
   if (i2ctEeMode) {
@@ -6859,7 +6898,8 @@ function i2ctInit(){
      （Bruce：「不要各做一套互動邏輯，抽成同一個元件重複用」）
      每一個只給自己的後續動作，互動邏輯一份都沒有複製。 */
   i2ctComboInit('in-awid', function () { i2ctUpdateHints(); });
-  i2ctComboInit('in-len',  function () { i2ctUpdateHints(); });
+  /* v1.26.0：他自己動過總 byte 數 ⇒ EEPROM 模式不再自動改成「容量 − offset」。 */
+  i2ctComboInit('in-len',  function () { if (i2ctEeMode) i2ctEeLenTouched = true; i2ctUpdateHints(); });
   i2ctComboInit('in-clk',  function () { i2ctUpdateClockHint(); });
   i2ctComboInit('in-slave', function (fromSel) {
     /* slave 與另外兩格（8-bit write／read）連動 —— 行為與手打時**完全一樣**，
@@ -7691,7 +7731,7 @@ window.__i2ct = {
     if (o.slave != null) { $('in-slave').value = o.slave; i2ctSlaveSync('s7', true); i2ctComboSync('in-slave'); }
     if (o.awid  != null) i2ctSetAwid(o.awid);
     if (o.off   != null) $('in-off').value = o.off;
-    if (o.len   != null) { $('in-len').value = o.len; i2ctComboSync('in-len'); }
+    if (o.len   != null) { $('in-len').value = o.len; i2ctComboSync('in-len'); if (i2ctEeMode) i2ctEeLenTouched = true; }
     if (o.data  != null) $('in-data').value = o.data;
     i2ctUpdateHints();
   },

@@ -2,6 +2,24 @@
 
 ---
 
+## I2C 讀寫測試 (i2c) v1.26.1 — 2026-09-29 ｜ PATCH ｜ ⚠ 輸出變更
+
+判定依據：VERSIONING.md R1 —— DLL_I2C_BCB 路徑讀回全 FF 時原本報「讀取成功」並拿它當比較基準，改成報錯、不當基準 ＝ 修回應有行為 ⇒ PATCH；同一操作序列（VENDOR 讀到全 FF）畫面結果不同 ⇒ `⚠ 輸出變更`。總 byte 數依容量限制是 v1.26.0 EEPROM 模式同一天的補完（§3 同功能同日連續修補），不另進 MINOR；沒有新增能做的事。
+
+### ⚠ 輸出變更的範圍
+- 一般與 EEPROM 模式：VENDOR（DLL_I2C_BCB，預設）讀取 ≥ 2 byte 且全部是 0xFF ⇒ 紅色錯誤 banner「slave 0x50 可能無回應（NACK）…」，資料照樣顯示，但**不成為比較基準**、不清除「已修改未寫入」標記。其他路徑、其他資料一律不變。
+- EEPROM 模式：總 byte 數預設 ＝ 容量 − 起始 offset（切進 EEPROM、換型號時回到自動；手動改過就不再跟著改）；超過 ⇒ 讀取鈕停用，原因以紅字寫在總 byte 數下面。寫入照舊依容量擋（`i2ctEeCapErr`），不受總 byte 數影響。
+
+### 為什麼（Bruce 2026-09-29）
+- 「位址寬度 1 byte 讀 256 byte，讀出來全部都是 FF」；VENDOR 模式、slave 0x50–0x57 八個位址結果一樣；同模式讀 24C32 與 T-CON EVB 正常；晶片確定有內容。
+- 「選了不同 EEPROM 型號，要限制讀取總 byte 數…上限是容量，超過就不能按讀取，並直接提示原因。寫入也照容量限制。」
+
+### 追查（讀程式＋ DLL 反組譯，**沒有實機**）
+- 位址寬度 1 與 2 的呼叫序列只差 DLL 的第 5 個參數：網頁送 `{type:'read', slave:0x50, addr:0, len:256, awid:1|2}`（VENDOR 每則上限 65535 ⇒ 一則）→ bridge `i2c_read_ex` → `vendor_read` → `GetBytesEx(0x50, 0, 256, buf, 1|2)`。slave 傳 7-bit、bridge 不左移（DLL 內 `slave*2`／`slave*2|1` 自己組）。沒有換函式、寬度 1 不會送成 2 byte。
+- DLL 內：`0x4015fc` 把寬度存進全域（`0xFF` 視為 1），`0x401544` 依裝置型別分派；FTDI 實作 `0x402570` ＝ START → slave＋W → 位址相位 `0x402208`（依寬度送 n byte，MSB first）→ repeated START → slave＋R → 讀 n−1 個回 ACK、最後一個回 NACK。**位址相位與 slave byte 之後只打 ACK 時脈、不取樣 ACK**；唯一的檢查 `0x402480` 是 USB 寫出狀態。⇒ slave 沒回應時匯流排被上拉，讀回全 FF 且回報「讀滿」—— **NACK 被吞**。這解釋了 0x50–0x57 八個位址結果相同。
+- 型別 1（`0x402aa4`）沒有逐行追完；型別 2 是 USB 控制傳輸（`0x40331c`），與 FTDI 無關。
+- 另發現（未改）：bridge 的 libMPSSE 路徑（SLOW／FAST）位址相位 `p_Write(…OPT_READ_ADDR)` 的回傳值被丟掉（i2c_bridge.c `i2c_read_ex`），位址相位 NACK 同樣會被吞。要修需重編 bridge；本機沒有 mingw 交叉編譯器，這次沒動。
+
 ## I2C 讀寫測試 (i2c) v1.26.0 — 2026-09-29 ｜ MINOR
 
 判定依據：VERSIONING.md §1＋R1～R4 取最高者。
