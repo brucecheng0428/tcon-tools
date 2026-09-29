@@ -17,7 +17,7 @@
      🔴 版號一律從 common/version.js 讀（TOOL_VERSIONS.dg），不在這裡硬編字串 ——
         硬編就是第二個來源，遲早跟 dg.html 各講各的，正好是本次要修的那個病。
      🔴 本頁其餘部分仍是自給自足的單檔（不載 i18n/common.js），只多這一個相依。 -->
-<script src="common/version.js?v=20260921dg1700"></script>
+<script src="common/version.js?v=20260929dg210"></script>
 <style>
   /* ═══════════════════════════════════════════════════════════════════════
      即時量測分頁（DG 第 2 部分的第二個輸入管道）
@@ -934,7 +934,8 @@
      🔴 這裡用白名單是安全的，與「加數值門檻誤殺真檔」那一類錯**不同**：
         那一類的值域來自外部檔案（我們無權定義合法範圍）；這一份是我們自己
         產生的封閉列舉，而且對不上時的出路是**退回預設值**，不是拒絕動作。 */
-  var DGM_SETTLE_CHOICES = [100, 200, 300, 400, 500, 600, 700];
+  /* v2.1.0：與自檢頁 DST_SETTLE_CHOICES 統一成同一組（100～1000 ms、預設都是 300）。 */
+  var DGM_SETTLE_CHOICES = [100, 200, 300, 400, 500, 600, 700, 800, 900, 1000];
 
   /* 這一輪量測**實際**在用的那個值（latch）。
      ═══ 為什麼要 latch，而不是讓迴圈每一階去讀選單 ═════════════════════════
@@ -2275,6 +2276,9 @@
        （dgmPrepChooser），不是被擋住。 */
     var pk = $('dgm-pick');
     if (pk) pk.disabled = running || dgmSerialLinkBusy;
+    /* 🔴 v2.1.0（跨頁檢討：「重選儀器／改選其他埠」同時出現、做同一件事）：
+       埠打不開時只留「改選其他埠」那一顆（出口在他卡住的位置），「重選儀器」先收起來。 */
+    if (pk) pk.style.display = dgmPortFailed ? 'none' : '';
     /* ── ②b-2 改選其他埠（v1.70.0）────────────────────────────────────────
        🔴 **只有埠打不開過才出現**（`dgmPortFailed`）。開關條件與上面兩顆同一條。
        🔴 這裡是它**唯一**的顯示／停用設定點 —— 本頁 v1.32.0 的教訓就是
@@ -2308,6 +2312,11 @@
           DOM，也影響不到已經在跑的那一次連線。 */
     var pm = $('dgm-mode');
     if (pm) pm.disabled = !!(running || dgmSerialLinkBusy);
+    /* 🔴 v2.1.0（dg 檢討 中10）：「連線參數」是現場除錯用的，平常收起來。
+       出現的條件：埠打不開過（正要用它的時候），或目前不是預設值（藏起非預設設定會讓人
+       找不到自己改過什麼）。 */
+    var pmr = $('dgm-mode-row');
+    if (pmr) pmr.style.display = (dgmPortFailed || dgmSerialMode() !== DGM_SERIAL_MODE_DEFAULT) ? '' : 'none';
     /* ── ③ 全螢幕鈕：v1.35.0 起雙向切換 ────────────────────────────────
        Bruce 2026-09-11（第三則）：「反正沒有全螢幕時系統本來就會跳呼吸燈警示，
        所以讓他自己決定就好。」
@@ -3024,6 +3033,9 @@
       abort('你按了停止');
       return;
     }
+    /* 🔴 v2.1.0 評估過、刻意不做：「按開始量測就順便進全螢幕」（dg 檢討 中9）。
+       進全螢幕會改變紅圈在螢幕上的位置，而使用者是在按開始**之前**就把探頭對準紅圈 ——
+       代勞的結果是探頭對到的不再是量測點。全螢幕必須在對位之前，所以維持獨立一步。 */
     dgmStart();
   });
 
@@ -3581,7 +3593,7 @@
        🔴 只在 gray 模式做。prim 模式（第 3 部分自己那條）一個字都不動 —— 它本來
           就是這三步，再接一次等於量六次。 */
     var primRows = null;
-    if (DGM_MODE === 'gray' && rows.length >= 2) {
+    if (DGM_MODE === 'gray' && rows.length === DGM_STEPS) {   // v2.1.0：白灰階沒跑完就不接著量純色
       msg('接著量三個純色，別動探頭。');
       var pr = [], pbad = 0;
       for (var q = 0; q < DGM_PRIMS.length; q++) {
@@ -3618,10 +3630,12 @@
     setGrayQuiet(128);
 
     // 5. 回傳給 DG 主視窗
-    // prim 要三筆都到齊才有意義（少一個端點就湊不出色彩矩陣）；gray 沿用原本的門檻
-    var need = (DGM_MODE === 'prim') ? DGM_PRIMS.length : 2;
+    /* 🔴 v2.1.0：**跑完整份計畫才回傳**。舊版白灰階只要 ≥ 2 筆就回傳並說「完成」——
+       連續三次量測失敗中斷在 L120，DG 第 4 部分照樣收下、當成確認結果（跨頁檢討 高2）。
+       現在：白灰階要 256 階都到、純色模式要三筆都到；不到就明講沒跑完、不回傳。 */
+    var need = DGM_STEPS;
     if (rows.length < need) {
-      msg('只量到 ' + rows.length + ' 筆（需要 ' + need + ' 筆），沒有回傳。', 'err'); return;
+      msg('這一輪沒有跑完（量到 ' + rows.length + '／' + need + ' 筆），沒有回傳。請重新按「開始量測」。', 'err'); return;
     }
     if (!window.opener || window.opener.closed) {
       msg('找不到 DG 分頁 —— 回 DG 頁重新按「即時量測」。', 'err');
@@ -3646,7 +3660,9 @@
     var span = (DGM_MODE === 'prim')
       ? 'R／G／B 三個純色端點'
       : ('L' + rows[0][0] + ' ～ L' + rows[rows.length - 1][0]);
-    var partNo = (DGM_MODE === 'prim') ? '第 3 部分' : '第 2 部分';
+    /* v2.1.0：寫 DG 派工時給的目的地（第 2 部分／第 4 部分／光學資料比較），
+       不再一律寫死「第 2 部分」（跨頁檢討 中）。沒給才退回舊字。 */
+    var partNo = DGM_DEST || ((DGM_MODE === 'prim') ? '第 3 部分' : '第 2 部分');
 
     $('dgm-prog').innerHTML = '完成'
       + '<small>' + span + '　共 ' + rows.length + ' 筆'
@@ -3656,8 +3672,9 @@
     /* v1.45.0：gray 這一條多接一句純色的下場（成功／沒量齊）。
        🔴 沒量齊時**要講出使用者接下來該做什麼**，不能只說失敗。 */
     var primNote = (DGM_MODE !== 'gray') ? ''
-      : (primRows ? '　純色 R／G／B 也已一併回到第 3 部分。'
-                  : '　純色三步沒有量齊，第 3 部分仍需自行量測。');
+      /* v2.1.0：DG 端改成「純色只記錄、第 3 部分只在第一次填入」，這裡不再宣稱「回到第 3 部分」。 */
+      : (primRows ? '　純色 R／G／B 也一併量了、已交給 DG 記錄。'
+                  : '　純色三步沒有量齊，這一輪只有白灰階。');
     msg('✔ 已完成：' + rows.length + ' 筆已回到 DG 的' + partNo + '。' + primNote, 'ok');
   }
 
