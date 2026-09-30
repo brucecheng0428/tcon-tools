@@ -30,7 +30,7 @@
           出來」。那個前提**早就不成立**：bridge 的靜態檔服務拒絕子資料夾、而且自 v1.7.0
           起預設關閉 —— 詳細依據與行號寫在 body 末端那兩個 <script> 的上面。）
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="common/version.js?v=20260930i2c1270"></script>
+<script src="common/version.js?v=20260930i2c1271"></script>
 <style>
   * { box-sizing: border-box; }
   :root{
@@ -1400,8 +1400,8 @@
      🔴 **CSS 沒有跟著載**（見 style 區塊頂端的說明）：common.css 有 `.card`／`.row`／
         無範圍的 `label{}` 等等，與本頁同名而語意完全不同，載進來會整頁走樣。
         頁首那四條宣告是逐字抄過來的，來源行號寫在各自上面。 -->
-<script src="common/i18n.js?v=20260930i2c1270"></script>
-<script src="common/common.js?v=20260930i2c1270"></script>
+<script src="common/i18n.js?v=20260930i2c1271"></script>
+<script src="common/common.js?v=20260930i2c1271"></script>
 
 <script>
 'use strict';
@@ -2954,6 +2954,7 @@ function i2ctSyncButtons(){
   /* v1.26.0：讀取另外受「總 byte 數 ≤ 容量 − offset」限制（原因寫在總 byte 數下面）。 */
   $('btn-read').disabled  = !can || !!v.lenErr;
   $('btn-read').title = v.lenErr || '';
+  i2ctSyncReadSlot();                  /* v1.27.1：A 空 ⇒ 「→B」停用 */
   /* 🔴 能不能寫，要問**真正的寫入來源**（i2ctWriteSource），不是只看那個文字框。
      舊寫法只看 `in-data`，所以載入檔案之後文字框是空的 ⇒ 寫入鈕永遠是灰的，
      而那正是他載入檔案的目的。這與「另存新檔灰掉」是同一類 bug：
@@ -3649,7 +3650,23 @@ var i2ctMode = I2CT_MODE_VENDOR;
 /* v1.27.0：讀取結果存到哪一槽。'auto' | 'A' | 'B'（select 不在時一律 auto）。 */
 function i2ctReadSlot(){
   var e = $('rd-slot');
-  return (e && (e.value === 'A' || e.value === 'B')) ? e.value : 'auto';
+  if (!e) return 'auto';
+  /* v1.27.1：還沒有 A ⇒ 不能存 B（Bruce 2026-09-30），保險起見這裡也擋一次。 */
+  if (e.value === 'B' && !i2ctRef) return 'auto';
+  return (e.value === 'A' || e.value === 'B') ? e.value : 'auto';
+}
+/* ═══ v1.27.1：「存到」選單跟著 A 的有無即時更新（Bruce 2026-09-30）══════════════
+   「A、B 都是空的時候，讀取結果只能存進 A。這時『存到』選擇 B 要停用」；
+   「A 已經有值的時候，讀取可以選『覆蓋 A』或『寫入 B』」。
+   ⇒ 判準只有一個：**A 有沒有值**（B 不可能在沒有 A 時有值 —— B 就是「跟 A 比的那一份」）。
+     A 空 ⇒ →B 停用；若當下選著 →B ⇒ 退回「自動」（自動在 A 空時本來就存 A）。
+   由 i2ctSyncButtons() 呼叫 —— 清空／快照／讀取／載入之後都會走到它，所以是即時的。 */
+function i2ctSyncReadSlot(){
+  var e = $('rd-slot'); if (!e) return;
+  var hasA = !!i2ctRef;
+  for (var i = 0; i < e.options.length; i++)
+    if (e.options[i].value === 'B') e.options[i].disabled = !hasA;
+  if (!hasA && e.value === 'B') e.value = 'auto';
 }
 async function i2ctOnRead(){
   /* 有未生效的輸入 ⇒ 放棄它，不要意外寫進去（讀取會整片蓋掉，留著也沒意義）。 */
