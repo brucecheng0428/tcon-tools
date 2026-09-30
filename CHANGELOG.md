@@ -2,6 +2,55 @@
 
 ---
 
+## TCON 自檢畫面量測 (dgself) v2.4.0 — 2026-09-30 ｜ MINOR
+
+判定依據：VERSIONING.md §1「多了新能力，舊的操作都在原位 ⇒ MINOR」＋ R4「起始狀態／預設行為改變、不影響既有操作 ⇒ MINOR」—— 量完白灰階多一個「加入光學資料比較」視窗（筆數、其他筆清單、可改名）與 ④ 底下一顆「加入光學資料比較…」；量測、回傳 DG 計算、DG_EN、步驟卡都沒動。原本「量完 DG 自動加入」改成「按確定才加入」是預設行為改變，沒有移除任何操作（按確定＝原本結果、取消後可隨時補加），不判 MAJOR。量測數值與回傳內容不變 ⇒ 不標 ⚠ 輸出變更。
+
+### 為什麼
+- Bruce 2026-09-30（經 Dispatch）：流程 OK，但每量完一輪，Gamma 曲線加進「光學資料比較」時沒有任何提示，使用者不知道已經加進去了。要在量測的那一頁當場跳視窗，按「確定」才加入。
+
+### 改了什麼
+- `dstDgSend()`：白灰階的 `dg-measure-result` 多帶 `cmpAsk: true`（DG 就不自動加）。**送出在前、視窗在後**，回傳 DG 用來計算的流程不等視窗；第 4 部分自動回傳的做法不變。
+- 送出後 `dstCmpOpen()` 跳 `#dst-modal-cmp`：
+  1. 這一筆：第 N 輪 · 主量測／確認結果／比較用量測 · DG_EN ON／OFF（輪數與工作以 DG 回的為準，查不到用網址的 round／job）。
+  2. 向 DG 送 `dg-cmp-query`，DG 回 `dg-cmp-info`：目前幾筆（上限）、`<details>` 收合的其他筆名稱與加入時間、逐值相同／已滿的提示。1.5 秒沒回 ⇒「無法取得目前的筆數，按「確定」仍會送出。」
+  3. 名稱欄預填 DG 給的預設名（第 N 輪／第 N 輪確認／第 N 組，含撞名 (2)），可改。
+  4. 「確定」送 `dg-cmp-add`（含這一輪的 rows／prim 當備援），DG 回 `dg-cmp-added` ⇒「已加入，目前共 N 筆。」／「已更新第 n 筆（名稱）…」／「沒有加入：<DG 的原因>」；2 秒沒回 ⇒ 如實說沒收到回覆。之後按鈕變「關閉」。「取消」／Esc ⇒ 不加入，結果留在頁面，④ 底下「加入光學資料比較…」可重開（每次重問 DG）。
+- 樣式：沿用 `.dst-modal*`，框與標題改中性色、寬 ≤ 440px；「確定」用既有 `.dst-btn.pri`（外框樣式），全頁唯一實心藍規則不變。焦點停在「確定」，名稱欄按 Enter ＝確定。三語字串掛在 `I18N`（`dst.cmp*`）。
+- 舊版 DG（不認得 `cmpAsk`）照舊自動加並回 `dg-slot-auto`，本頁舊的顯示保留。
+
+### 驗證（如實）
+- `bash tests/dgself/run-all.sh`：31 個情境 436 項全過、無 JS 錯誤（含舊 A～L 全部重跑）。新情境 M-A／B／C／FULL／SAME／EN／CN／NODG：用 `__arm()` 假硬體真的跑一輪 `dstRun()`，假 opener 模擬 DG 回筆數。驗了：先送結果再問、`cmpAsk`、焦點、內容與三語字面、預設名、確定／Esc／重開／改名＋Enter、DG 不回、已滿、逐值相同、不是從 DG 開就不跳。
+- 截圖：`selftest_popup_zh_desktop.png`（1280 寬、清單展開）、`selftest_popup_added_mobile.png`／`selftest_popup_en_mobile.png`（390 寬）。
+- **沒驗**：真機 I2C／量測儀；真的由 DG 分頁開啟的跨分頁 postMessage（測試以假 opener 直接呼叫收訊函式）。
+
+## Digital Gamma 迭代校正 (dg) v2.2.0 — 2026-09-30 ｜ MINOR
+
+判定依據：VERSIONING.md §1 新增能力 ＋ R4 預設行為改變且不影響既有操作 ⇒ MINOR —— `dg-measure.html` 量完多一個「加入光學資料比較」視窗；DG 端收到新版量測頁的結果時不再自動加組，改等量測頁按「確定」。第 2／3／4 部分的落地、計算、「轉出到光學資料比較」、匯入檔案的自動記錄都不變。加入時的資料與原本自動加入逐值相同 ⇒ 不標 ⚠ 輸出變更。
+
+### 為什麼
+- 同 dgself v2.4.0（Bruce 2026-09-30）：電腦畫面量測（dg-measure.html）也要在量完當場問。
+
+### 改了什麼（dg.html）
+- 收訊：`dg-measure-result` 帶 `cmpAsk` 時三條落點（第 2 部分 `dgApplyLiveRows`、第 4 部分 `dgConfApply`、比較分頁 `dgSlotAddFromLive`）照常落地，但**不加組**，只把要加的那一份記在 `DG_CMP_PEND[task]`（第 2 部分讀 `#dg-in-gray`、第 4 部分用 `DG_P4.rows`、比較分頁用 rs ⇒ 與原本自動加入逐值相同，「轉出」與下一輪改名的去重都認得）。這時不回 `dg-slot-auto`。
+- 新訊息 `dg-cmp-query` ⇒ `dgCmpInfo()`；`dg-cmp-add` ⇒ `dgCmpAdd()`：沒改名 ⇒ 沿用原本預設名、`nameIsUserSet=false`；改名 ⇒ 使用者的名字、`true`；已有逐值相同 ⇒ 不重複加，只更新名稱；滿 10 組／`dgGrayGate` 擋下 ⇒ 回原因；DG 手上沒有那一份（重整過）⇒ 用訊息帶的 rows 建。來源守衛與其他量測頁訊息相同。
+- 比較組多一個 `addedAt`（視窗列出其他筆的時間），自動保存／還原一起存；第 4 部分多存 `cmpAsk`。兩者都是選填欄位，舊存檔還原不變（`DG_AS_VER` 不動）。
+- 「進行下一輪」：第 4 部分那次是量測頁問的、使用者沒按確定 ⇒ 不再自動補記（原本 `dgGrayRecordAsk` 會自動記），狀態列說明原因。按了確定的那一組照舊改名成新輪數。
+- 沒帶 `cmpAsk` 的結果（舊版量測頁）行為一字未改。
+
+### 改了什麼（dg-measure.html）
+- 白灰階跑完：`dg-measure-result` 多帶 `cmpAsk`，送出後跳 `#dgm-cmp-modal`（內容、訊息、確定／取消／Esc、重開鈕與自檢頁相同；這一筆顯示「第 N 輪 · 工作 · 電腦畫面」，查不到 DG 時退回派工的步驟名）。純色模式不跳。
+- 三語：本頁其餘文字只有繁中，這個視窗依要求三語，語言讀 common.js 存的 `tcon-lang`。
+- 單位用 `max(1px, --dgm-u)`：`--dgm-u` 在小視窗會縮到 0.2px，視窗文字不能跟著縮；寬 `min(440u, 100%)` ⇒ 手機寬度放得下。「確定」用 DG 的 `.dg-btn.ok` 綠色實心。
+
+### 驗證（如實）
+- 同一套 runner（`tests/dgself/run.py` 擴充第 7 欄：頁面）：
+  - DM-A／C／EN／PRIM（dg-measure.html）：假序列埠真的跑完 `run()`（256 階＋3 純色），驗先送結果再問、`cmpAsk`、焦點、內容、預設名、取消後重開再確定、DG 不回、英文、純色不跳。
+  - DG（dg.html）28 項：真的 `MessageEvent` 進產品處理器，三條落點不自動加、查詢／加入／不重複／改名／比較分頁來源 pc／備援建組／舊版量測頁照舊自動加並回 `dg-slot-auto`／滿 10 組回原因／自動保存帶 `addedAt` 與 `p4.cmpAsk`。
+  - DG-NR 7 項：產品路徑算出一張表 → 確認結果取消 → 「進行第二輪」不補記、狀態列說明；確認結果按確定 → 下一輪改名成「第三輪」。
+- 截圖：`measure_popup_zh_desktop.png`、`measure_popup_zh_mobile.png`、`measure_row_mobile.png`（取消後底部的重開鈕）。
+- **沒驗**：真的兩個分頁之間的 postMessage、真的量測儀；dg.html 的「光學資料比較」分頁畫面本身沒有截圖。
+
 ## TCON 自檢畫面量測 (dgself) v2.3.0 — 2026-09-30 ｜ MINOR
 
 判定依據：VERSIONING.md §1「多了新按鈕，舊的都在原位 ⇒ MINOR」—— ④ 送出後的提示多了一顆「切到 DG 分頁」鈕，並改成醒目樣式與動態；量測、回傳、DG_EN 行為都沒變，輸出不變 ⇒ 不標 ⚠ 輸出變更。

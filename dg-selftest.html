@@ -14,7 +14,7 @@
 <title>TCON 自檢畫面量測 — TCON FAE專用工具箱</title>
 <link rel="stylesheet" href="common/common.css?v=20260903help">
 <!-- 🔴 version.js 必須最先載入（common/version.js 開頭那條規則）。 -->
-<script src="common/version.js?v=20260930dst230"></script>
+<script src="common/version.js?v=20260930dst240"></script>
 <style>
   /* ═══ 本頁專屬樣式 ════════════════════════════════════════════════════════
      只寫這一頁真的需要、而 common.css 沒有的東西。顏色一律走 common.css 的
@@ -408,6 +408,25 @@
   .dst-modal-body code { font-family: ui-monospace, Menlo, Consolas, monospace; color: var(--accent); }
   .dst-modal-act { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
   .dst-modal-act .dst-btn { flex: 1 1 160px; justify-content: center; text-align: center; }
+  /* v2.4.0：量完「加入光學資料比較」視窗。沿用 .dst-modal*，只把警告色（橘框、橘標題）
+     換回中性色 —— 這不是出事了，是例行確認（DG 那套安靜風格）。 */
+  #dst-modal-cmp .dst-modal-box { border-color: var(--border); max-width: 440px; }
+  #dst-modal-cmp .dst-modal-title { color: var(--text); }
+  .dst-cmp-line { font-size: 14px; line-height: 1.7; color: var(--text); }
+  .dst-cmp-line + .dst-cmp-line { margin-top: 4px; }
+  .dst-cmp-sub { font-size: 13px; line-height: 1.6; color: var(--text-sub); margin-top: 4px; }
+  .dst-cmp-sub:empty { display: none; }
+  .dst-cmp-list { margin-top: 4px; font-size: 13px; color: var(--text-sub); }
+  .dst-cmp-list summary { cursor: pointer; color: var(--accent); }
+  .dst-cmp-list ol { margin: 6px 0 0; padding-left: 22px; max-height: 30vh; overflow: auto; }
+  .dst-cmp-list li { line-height: 1.6; }
+  .dst-cmp-name { display: block; margin-top: 12px; font-size: 13px; color: var(--text-sub); }
+  .dst-cmp-name input { display: block; width: 100%; box-sizing: border-box; margin-top: 4px;
+                        padding: 8px 10px; border-radius: 8px; border: 1.5px solid var(--border);
+                        background: #0f172a; color: var(--text); font-size: 15px; }
+  .dst-cmp-res { margin-top: 10px; font-size: 14px; line-height: 1.6; color: #6ee7b7; }
+  .dst-cmp-res.err { color: #fca5a5; }
+  .dst-cmp-res:empty { display: none; }
 
   /* 這一輪作廢的橫幅（中止／失敗之後，讓人一眼看到「這些數字不算數」） */
   .dst-void { border: 1.5px solid var(--red); border-radius: 8px; padding: 9px 11px;
@@ -1134,6 +1153,11 @@
              已經栽過 applyLang 的時序一次，同一個坑不踩第三次）。文字由
              dstRenderSteps() 填。 -->
         <div class="dst-note" id="dst-back-warn">量完會自動回傳，不必按任何東西；回傳後請自己切回 DG 分頁看 curve。</div>
+        <!-- v2.4.0：量完之後重新打開「加入光學資料比較」視窗（取消之後補加、或改名）。有結果才出現。 -->
+        <div class="dst-row dst-hidden" id="dst-cmp-row" style="margin-top:8px">
+          <button class="dst-btn" id="dst-cmp-open"></button>
+          <span class="dst-note" id="dst-cmp-state" style="margin-top:0"></span>
+        </div>
       </div>
     </div>
   </div>
@@ -1286,6 +1310,27 @@
     <div class="dst-modal-act">
       <button class="dst-btn pri" id="dst-ask-yes"></button>
       <button class="dst-btn" id="dst-ask-no"></button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ v2.4.0：量完一輪 ⇒ 「加入光學資料比較」確認視窗（Bruce 2026-09-30）═══════════
+     量測結果回傳 DG 的那一步照舊自動（不等這個視窗）；只有「加入比較」要按確定。
+     字由 dstCmpRender() 填（三語），這裡不放 data-i18n。 -->
+<div class="dst-modal" id="dst-modal-cmp" role="dialog" aria-modal="true" aria-labelledby="dst-cmp-title">
+  <div class="dst-modal-box">
+    <div class="dst-modal-title" id="dst-cmp-title"></div>
+    <div class="dst-modal-body">
+      <div class="dst-cmp-line" id="dst-cmp-this"></div>
+      <div class="dst-cmp-line" id="dst-cmp-count"></div>
+      <details class="dst-cmp-list" id="dst-cmp-list"><summary id="dst-cmp-list-sum"></summary><ol id="dst-cmp-list-ol"></ol></details>
+      <div class="dst-cmp-sub" id="dst-cmp-warn"></div>
+      <label class="dst-cmp-name"><span id="dst-cmp-name-lb"></span><input type="text" id="dst-cmp-name" maxlength="60" autocomplete="off"></label>
+      <div class="dst-cmp-res" id="dst-cmp-res"></div>
+    </div>
+    <div class="dst-modal-act">
+      <button class="dst-btn" id="dst-cmp-cancel"></button>
+      <button class="dst-btn pri" id="dst-cmp-ok"></button>
     </div>
   </div>
 </div>
@@ -6129,7 +6174,10 @@ function dstDgSend() {
          沒量齊就送 null —— 與 dg-measure.html 相同，DG 那一端已經會處理 null。 */
       prim: (dstDgMode === 'gray' && s.prim.length === 3) ? s.prim : null,
       durMs: durMs,
-      settleMs: dstSettleUsedMs
+      settleMs: dstSettleUsedMs,
+      /* v2.4.0：白灰階要不要加入「光學資料比較」由本頁的視窗問（DG 不再量完自動加）。
+         舊版 DG 不認得這個欄位 ⇒ 照舊自動加，不會兩邊都沒加。 */
+      cmpAsk: (dstDgMode === 'gray')
     }, DST_DG_ORIGIN);
   } catch (e) {
     dstLog('!  DG send failed: ' + dstErrMsg(e), 'e');
@@ -6202,6 +6250,15 @@ function dstDgSend() {
   dstSay('dst-say-run', sentMsg);
   dstLog('== sent to DG: task=' + dstDgTask + ' mode=' + dstDgMode
     + ' rows=' + rows.length + ' prim=' + (s.prim.length === 3 ? 3 : 0), 'o');
+  /* v2.4.0：白灰階送出之後，當場跳「加入光學資料比較」視窗（送出在前、視窗在後 ⇒
+     回傳 DG 計算不被視窗卡住）。快照送出當下的內容，之後重開視窗用的是同一份。 */
+  if (dstDgMode === 'gray') {
+    dstCmpLast = { task: dstDgTask, rows: rows, prim: primSent ? s.prim : null, durMs: durMs,
+                   settleMs: dstSettleUsedMs, job: dstDgJob, round: dstDgRound, dgEn: dstRunDgEn,
+                   at: new Date().toLocaleString() + dgTag };
+    dstCmpSaved = null;
+    dstCmpOpen();
+  }
   return true;
 }
 
@@ -7528,6 +7585,199 @@ function dstDgApplyTask(d) {
     + ' job=' + dstDgJob + ' round=' + dstDgRound + ' dest=' + dstDgDest, 'o');
 }
 
+/* ═══ v2.4.0：量完一輪 ⇒ 「加入光學資料比較」確認視窗 ═══════════════════════════
+   Bruce 2026-09-30（經 Dispatch）：每量完一輪，Gamma 曲線加進 DG「光學資料比較」時沒有
+   任何提示，使用者不知道已經加進去了 ⇒ 改成在量測這一頁當場跳視窗，按「確定」才加入。
+   🔴 回傳 DG 用來計算的那一步（`dstDgSend()` 的 `dg-measure-result`）**照舊自動**，
+      不等這個視窗；只多帶一個 `cmpAsk: true` 告訴 DG「加不加入比較由量測頁問」。
+   🔴 訊息（同源、只對 opener）：
+        本頁 → DG `dg-cmp-query {task}`                    ⇒ DG 回 `dg-cmp-info`
+              { count, max, list[{no,name,t}], round, job, name（預設名）, same{no,name}|null, full }
+        本頁 → DG `dg-cmp-add {task, name, edited, rows, prim, durMs, settleMs, job, at}`
+                                                           ⇒ DG 回 `dg-cmp-added`
+              { ok, no, name, count, updated, note }
+      `rows` 等欄位是備援：DG 重整過、手上沒有這一份時照這些資料建組。
+   🔴 查不到（1.5 秒沒回）⇒ 顯示「無法取得，按確定仍會送出」；送出後 2 秒沒回 ⇒ 如實說沒收到回覆。
+   🔴 取消 ＝ 不加入；量測結果留在頁面上，④ 底下那顆「加入光學資料比較…」隨時可以再打開。 */
+var DST_CMP_I18N = {
+  'dst.cmpTitle':   { 'zh-TW': '加入「光學資料比較」？', 'en': 'Add to "Optical data comparison"?', 'zh-CN': '加入“光学数据比较”？' },
+  'dst.cmpThis':    { 'zh-TW': '這一筆：{what}', 'en': 'This set: {what}', 'zh-CN': '这一笔：{what}' },
+  'dst.cmpRound':   { 'zh-TW': '第 {n} 輪', 'en': 'Round {n}', 'zh-CN': '第 {n} 轮' },
+  'dst.cmpJobMain': { 'zh-TW': '主量測', 'en': 'Main measurement', 'zh-CN': '主测量' },
+  'dst.cmpJobConf': { 'zh-TW': '確認結果', 'en': 'Result check', 'zh-CN': '确认结果' },
+  'dst.cmpJobSlot': { 'zh-TW': '比較用量測', 'en': 'Comparison measurement', 'zh-CN': '比较用测量' },
+  'dst.cmpCount':   { 'zh-TW': '「光學資料比較」目前已有 {n} 筆（上限 {max}）。', 'en': '"Optical data comparison" has {n} set(s) now (max {max}).', 'zh-CN': '“光学数据比较”目前已有 {n} 笔（上限 {max}）。' },
+  'dst.cmpAsking':  { 'zh-TW': '正在向 DG 查詢目前的筆數…', 'en': 'Asking DG how many sets it has…', 'zh-CN': '正在向 DG 查询目前的笔数…' },
+  'dst.cmpUnknown': { 'zh-TW': '無法取得目前的筆數，按「確定」仍會送出。', 'en': 'Could not get the current count. "OK" will still send it.', 'zh-CN': '无法取得目前的笔数，按“确定”仍会送出。' },
+  'dst.cmpListSum': { 'zh-TW': '看其他 {n} 筆', 'en': 'Show the other {n}', 'zh-CN': '看其他 {n} 笔' },
+  'dst.cmpSame':    { 'zh-TW': '這一份與第 {no} 筆（{name}）逐值相同，按「確定」只會更新名稱。', 'en': 'This is identical to set {no} ({name}); "OK" only updates its name.', 'zh-CN': '这一份与第 {no} 笔（{name}）逐值相同，按“确定”只会更新名称。' },
+  'dst.cmpFull':    { 'zh-TW': '已滿 {max} 筆，按「確定」也加不進去；請先到 DG 的「光學資料比較」刪掉一筆。', 'en': 'Already {max} sets, so "OK" cannot add it. Delete one in DG\'s "Optical data comparison" first.', 'zh-CN': '已满 {max} 笔，按“确定”也加不进去；请先到 DG 的“光学数据比较”删掉一笔。' },
+  'dst.cmpName':    { 'zh-TW': '名稱（可以改）', 'en': 'Name (editable)', 'zh-CN': '名称（可以改）' },
+  'dst.cmpOk':      { 'zh-TW': '確定', 'en': 'OK', 'zh-CN': '确定' },
+  'dst.cmpCancel':  { 'zh-TW': '取消', 'en': 'Cancel', 'zh-CN': '取消' },
+  'dst.cmpClose':   { 'zh-TW': '關閉', 'en': 'Close', 'zh-CN': '关闭' },
+  'dst.cmpSending': { 'zh-TW': '送出中…', 'en': 'Sending…', 'zh-CN': '送出中…' },
+  'dst.cmpAdded':   { 'zh-TW': '已加入，目前共 {n} 筆。', 'en': 'Added. {n} set(s) now.', 'zh-CN': '已加入，目前共 {n} 笔。' },
+  'dst.cmpUpdated': { 'zh-TW': '已更新第 {no} 筆（{name}），目前共 {n} 筆。', 'en': 'Updated set {no} ({name}). {n} set(s) now.', 'zh-CN': '已更新第 {no} 笔（{name}），目前共 {n} 笔。' },
+  'dst.cmpFail':    { 'zh-TW': '沒有加入：{why}', 'en': 'Not added: {why}', 'zh-CN': '没有加入：{why}' },
+  'dst.cmpNoReply': { 'zh-TW': '已送出，但沒有收到 DG 的回覆 —— 請到 DG 的「光學資料比較」確認。', 'en': 'Sent, but DG did not reply. Check DG\'s "Optical data comparison".', 'zh-CN': '已送出，但没有收到 DG 的回复 —— 请到 DG 的“光学数据比较”确认。' },
+  'dst.cmpNoDg':    { 'zh-TW': '找不到 DG 分頁，沒有送出。', 'en': 'The DG tab is gone; nothing was sent.', 'zh-CN': '找不到 DG 分页，没有送出。' },
+  'dst.cmpOpen':    { 'zh-TW': '加入光學資料比較…', 'en': 'Add to optical comparison…', 'zh-CN': '加入光学数据比较…' },
+  'dst.cmpStNo':    { 'zh-TW': '這一輪還沒加入「光學資料比較」。', 'en': 'This round is not in the optical comparison yet.', 'zh-CN': '这一轮还没加入“光学数据比较”。' },
+  'dst.cmpStYes':   { 'zh-TW': '已加入第 {no} 筆（{name}）。', 'en': 'Added as set {no} ({name}).', 'zh-CN': '已加入第 {no} 笔（{name}）。' }
+};
+if (typeof I18N === 'object' && I18N) {
+  Object.keys(DST_CMP_I18N).forEach(function (k) { if (!I18N[k]) I18N[k] = DST_CMP_I18N[k]; });
+}
+var dstCmpLast = null;   // 最後一次送回 DG 的白灰階（送出當下的快照）；null ＝ 還沒有
+var dstCmpInfo = null;   // DG 回的 dg-cmp-info；null ＝ 還沒回／查不到
+var dstCmpPhase = 'idle';   // idle｜ask（等查詢）｜ready｜send（等加入結果）｜done
+var dstCmpRes = null;    // { cls, text }
+var dstCmpEdited = false;
+var dstCmpT = null;
+var dstCmpSaved = null;  // { no, name }：這一份已經在 DG 的第幾筆
+
+function dstCmpWhat() {
+  var L = dstCmpLast || {}, I = dstCmpInfo || {};
+  var r = (typeof I.round === 'number') ? I.round : L.round;
+  var job = I.job || L.job;
+  var parts = [];
+  if (typeof r === 'number' && r > 0) parts.push(dstT('dst.cmpRound', { n: r }));
+  parts.push(dstT(job === 'conf' ? 'dst.cmpJobConf' : job === 'slot' ? 'dst.cmpJobSlot' : 'dst.cmpJobMain'));
+  if (L.dgEn === 'on' || L.dgEn === 'off') parts.push('DG_EN ' + (L.dgEn === 'on' ? 'ON' : 'OFF'));
+  return parts.join(' · ');
+}
+function dstCmpTime(t) {
+  if (typeof t !== 'number') return '—';
+  try { return new Date(t).toLocaleString(typeof currentLang === 'string' ? currentLang : undefined); }
+  catch (e) { return new Date(t).toLocaleString(); }
+}
+function dstCmpRender() {
+  var m = $('dst-modal-cmp');
+  if (!m) return;
+  $('dst-cmp-title').textContent = dstT('dst.cmpTitle');
+  $('dst-cmp-this').textContent = dstT('dst.cmpThis', { what: dstCmpWhat() });
+  var I = dstCmpInfo;
+  $('dst-cmp-count').textContent = (dstCmpPhase === 'ask') ? dstT('dst.cmpAsking')
+    : I ? dstT('dst.cmpCount', { n: I.count, max: I.max }) : dstT('dst.cmpUnknown');
+  var list = (I && I.list) || [];
+  $('dst-cmp-list').classList.toggle('dst-hidden', !list.length);
+  $('dst-cmp-list-sum').textContent = dstT('dst.cmpListSum', { n: list.length });
+  var ol = $('dst-cmp-list-ol');
+  ol.innerHTML = '';
+  list.forEach(function (it) {
+    var li = document.createElement('li');
+    li.textContent = String(it.name || '') + ' · ' + dstCmpTime(it.t);
+    ol.appendChild(li);
+  });
+  $('dst-cmp-warn').textContent = !I ? ''
+    : I.same ? dstT('dst.cmpSame', { no: I.same.no, name: String(I.same.name || '') })
+    : I.full ? dstT('dst.cmpFull', { max: I.max }) : '';
+  $('dst-cmp-name-lb').textContent = dstT('dst.cmpName');
+  var res = $('dst-cmp-res');
+  res.textContent = dstCmpRes ? dstCmpRes.text : '';
+  res.className = 'dst-cmp-res' + (dstCmpRes && dstCmpRes.cls === 'err' ? ' err' : '');
+  var done = (dstCmpPhase === 'done');
+  $('dst-cmp-cancel').textContent = dstT('dst.cmpCancel');
+  $('dst-cmp-cancel').classList.toggle('dst-hidden', done);
+  $('dst-cmp-ok').textContent = done ? dstT('dst.cmpClose') : (dstCmpPhase === 'send') ? dstT('dst.cmpSending') : dstT('dst.cmpOk');
+  $('dst-cmp-ok').disabled = (dstCmpPhase === 'send');
+  $('dst-cmp-name').disabled = (dstCmpPhase === 'send' || done);
+  dstCmpRowRender();
+}
+function dstCmpRowRender() {
+  var row = $('dst-cmp-row');
+  if (!row) return;
+  row.classList.toggle('dst-hidden', !dstCmpLast);
+  $('dst-cmp-open').textContent = dstT('dst.cmpOpen');
+  $('dst-cmp-state').textContent = !dstCmpLast ? ''
+    : dstCmpSaved ? dstT('dst.cmpStYes', { no: dstCmpSaved.no, name: dstCmpSaved.name })
+    : dstT('dst.cmpStNo');
+}
+function dstCmpPost(m) {
+  if (!dstDgAlive()) return false;
+  try { window.opener.postMessage(m, DST_DG_ORIGIN); return true; } catch (e) { return false; }
+}
+/* 打開（量完自動開一次；之後由 ④ 底下那顆鈕再開）。每次都重新向 DG 查一次筆數。 */
+function dstCmpOpen() {
+  if (!dstCmpLast) return;
+  dstCmpInfo = null; dstCmpRes = null; dstCmpEdited = false;
+  $('dst-cmp-name').value = dstCmpSaved ? dstCmpSaved.name : '';
+  dstCmpPhase = 'ask';
+  clearTimeout(dstCmpT);
+  if (!dstCmpPost({ type: 'dg-cmp-query', task: dstCmpLast.task })) dstCmpPhase = 'ready';
+  else dstCmpT = setTimeout(function () { if (dstCmpPhase === 'ask') { dstCmpPhase = 'ready'; dstCmpRender(); } }, 1500);
+  $('dst-modal-cmp').classList.add('open');
+  dstCmpRender();
+  try { $('dst-cmp-ok').focus(); } catch (e) {}
+}
+function dstCmpClose() {
+  clearTimeout(dstCmpT);
+  $('dst-modal-cmp').classList.remove('open');
+  dstCmpPhase = 'idle';
+  dstCmpRowRender();
+}
+function dstCmpOnInfo(d) {
+  if (!dstCmpLast || d.task !== dstCmpLast.task || dstCmpPhase !== 'ask') return;
+  clearTimeout(dstCmpT);
+  dstCmpInfo = {
+    count: (typeof d.count === 'number') ? d.count : 0, max: (typeof d.max === 'number') ? d.max : 10,
+    list: Array.isArray(d.list) ? d.list : [], round: d.round, job: d.job || null,
+    same: d.same || null, full: !!d.full
+  };
+  /* 名稱欄：使用者還沒動過才填 DG 給的預設名（DG 才知道撞名要不要加 (2)）。 */
+  if (!dstCmpEdited && typeof d.name === 'string' && d.name) $('dst-cmp-name').value = d.name;
+  dstCmpPhase = 'ready';
+  dstCmpRender();
+}
+function dstCmpOk() {
+  if (dstCmpPhase === 'done') { dstCmpClose(); return; }
+  if (dstCmpPhase === 'send' || !dstCmpLast) return;
+  var L = dstCmpLast;
+  var sent = dstCmpPost({ type: 'dg-cmp-add', task: L.task, name: String($('dst-cmp-name').value || '').trim(),
+    edited: dstCmpEdited, rows: L.rows, prim: L.prim, durMs: L.durMs, settleMs: L.settleMs,
+    job: L.job, at: L.at, kind: 'tcon' });
+  clearTimeout(dstCmpT);
+  if (!sent) { dstCmpRes = { cls: 'err', text: dstT('dst.cmpNoDg') }; dstCmpPhase = 'ready'; dstCmpRender(); return; }
+  dstCmpPhase = 'send'; dstCmpRes = null;
+  dstCmpT = setTimeout(function () {
+    if (dstCmpPhase !== 'send') return;
+    dstCmpPhase = 'done'; dstCmpRes = { cls: 'err', text: dstT('dst.cmpNoReply') }; dstCmpRender();
+  }, 2000);
+  dstCmpRender();
+}
+function dstCmpOnAdded(d) {
+  if (!dstCmpLast || d.task !== dstCmpLast.task || dstCmpPhase !== 'send') return;
+  clearTimeout(dstCmpT);
+  if (d.ok) {
+    dstCmpSaved = { no: d.no, name: String(d.name || '') };
+    dstCmpRes = { cls: 'ok', text: d.updated
+      ? dstT('dst.cmpUpdated', { no: d.no, name: String(d.name || ''), n: d.count })
+      : dstT('dst.cmpAdded', { n: d.count }) };
+    dstLog('== DG optical comparison: ' + (d.updated ? 'updated' : 'added') + ' set ' + d.no + ' (' + d.count + ' total)', 'o');
+  } else {
+    dstCmpRes = { cls: 'err', text: dstT('dst.cmpFail', { why: String(d.note || '').replace(/\n/g, ' ') }) };
+    dstLog('== DG optical comparison: not added (' + String(d.note || '').replace(/\n/g, ' ') + ')', 'w');
+  }
+  dstCmpPhase = 'done';
+  dstCmpRender();
+  try { $('dst-cmp-ok').focus(); } catch (e) {}
+}
+function dstCmpBind() {
+  $('dst-cmp-ok').addEventListener('click', dstCmpOk);
+  $('dst-cmp-cancel').addEventListener('click', dstCmpClose);
+  $('dst-cmp-open').addEventListener('click', dstCmpOpen);
+  $('dst-cmp-name').addEventListener('input', function () { dstCmpEdited = true; });
+  $('dst-cmp-name').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); dstCmpOk(); }
+  });
+  document.addEventListener('keydown', function (e) {
+    if ((e.key === 'Escape' || e.key === 'Esc') && $('dst-modal-cmp').classList.contains('open')
+        && dstCmpPhase !== 'send') { e.preventDefault(); dstCmpClose(); }
+  });
+  dstCmpRowRender();
+}
+
 window.addEventListener('message', function (e) {
   /* 🔴 只收同源、而且真的是我們的 opener 送來的 —— 同源的別的分頁也送得出
      這個型別的訊息，那不該影響這一頁的狀態。 */
@@ -7538,6 +7788,9 @@ window.addEventListener('message', function (e) {
      擺在 `dg-measure-task` **前面**是因為它不是換任務：它不動 mode／step／dest，
      也不回 hello（DG 那一端等的是這一則自己的結果，不是版號）。 */
   if (d && d.type === 'dg-lut-write') { dstDgOnLutWrite(d); return; }
+  // v2.4.0：「加入光學資料比較」視窗的查詢／加入回覆
+  if (d && d.type === 'dg-cmp-info') { dstCmpOnInfo(d); return; }
+  if (d && d.type === 'dg-cmp-added') { dstCmpOnAdded(d); return; }
   /* ═══ 🔴 v1.19.0（E）：DG 那邊「已自動存成光學資料比較第 N 組」的回報 ═══════════════
      Bruce 2026-09-23：「已經量完以後，其實是可以保存在 DG 網頁那邊的…保存完以後，DG
      網頁那邊也不用再確認要不要記錄這一筆。」
@@ -7917,7 +8170,10 @@ function dstBind() {
   });
 
   /* 語言切換之後要把「用 JS 填的字」重新渲染一次（data-i18n 的部分 common.js 自己會做）。 */
+  dstCmpBind();   // v2.4.0
+
   window._onLangChange = function () {
+    dstCmpRender();   // v2.4.0
     dstBuildSettle();
     dstSetBits(dstBits);
     dstRenderRes(); dstRenderAlt(); dstRenderCa(); dstRenderBtns(); dstRenderRows();

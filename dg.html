@@ -2725,7 +2725,7 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20260929dg213"></script>
+<script src="common/version.js?v=20260930dg220"></script>
 <script src="common/i18n.js?v=20260923dg1754"></script>
 <!-- v1.68.1：xlsx 產生器（原本在本頁，現在與 dg-selftest.html 共用）。
      🔴 必須在本頁的 inline script 之前載入。 -->
@@ -7889,6 +7889,9 @@
             沒帶就用目前的工作模式。兩者都沒有 ⇒ null ＝「來源未標示」，如實顯示，
             不猜一個填上去（多組比較檔匯進來的舊組就是這種）。 */
       srcMode: (opt.srcMode === 'tcon' || opt.srcMode === 'pc') ? opt.srcMode : (DG_WMODE || null),
+      /* v2.2.0：加進清單的時間（量測頁「加入光學資料比較」視窗列出其他筆時顯示）。
+         舊存檔、多組比較檔匯入的組沒有這一欄 ⇒ null，視窗顯示「—」。 */
+      addedAt: Date.now(),
       show: true
     });
     dgSlotRender();
@@ -8286,6 +8289,95 @@
       + no + ' 組（' + dgSlotDisplayName(no - 1) + '）。\n第 2 部分的資料原封不動，計算結果不受影響。'
       + '\n到「光學資料比較」分頁可以改名、勾選要不要疊在圖上。', 'ok');
     return no;
+  }
+
+  /* ═══ v2.2.0：量完一輪 ⇒ 量測頁當場問「要不要加入光學資料比較」═══════════════════
+     Bruce 2026-09-30（經 Dispatch）：每量完一輪，Gamma 曲線加進「光學資料比較」時沒有任何
+     提示，使用者不知道已經加進去了 ⇒ 在**量測的那一頁**（自檢頁／dg-measure.html）跳視窗，
+     按「確定」才加入。取代 v1.73.0（B5）起「量完自動加入」與 v2.1.0 第 4 部分的自動記錄。
+     🔴 只有帶 `cmpAsk: true` 的即時量測走這裡（新版量測頁才帶）。沒帶的（舊版量測頁、
+        匯入檔案）行為一個字都沒改 —— 避免新舊版互接時兩邊都沒加。
+     🔴 資料照舊當場落地（第 2／3／4 部分、計算、自動回傳都不等這個視窗）；這裡只把
+        「加入比較要用的那一份」先記下來（DG_CMP_PEND，照任務編號），等量測頁回話。
+        記下來的內容與原本自動加入時**逐值相同**：第 2 部分那條讀 `#dg-in-gray`
+        （＝ dgSlotAddFromPart2 讀的）、第 4 部分那條用 DG_P4.rows（＝ dgGrayRecordAsk 收的）、
+        比較分頁那條用 dgSlotAddFromLive 的 rs ⇒ 之後「轉出」「進下一輪改名」的去重都認得出來。
+     🔴 名稱：沒改過 ⇒ 沿用原本的預設（輪數／輪數＋確認／第 N 組），`nameIsUserSet=false`，
+        下一輪 dgSlotRetitleRound() 照舊能改名；改過 ⇒ 用使用者的字，`nameIsUserSet=true`。
+     🔴 已有逐值相同的組 ⇒ 不重複加，只在名稱有改時更新名稱（「送進或更新到」）。 */
+  var DG_CMP_PEND = {};   // task → { job, rows, prim, durMs, settleMs, srcMode, base, label }
+  function dgCmpBase(job) {
+    return (job === 'conf') ? (dgRoundName(DG_ROUND) + '確認') : (job === 'slot') ? '' : dgRoundName(DG_ROUND);
+  }
+  function dgCmpDefaultName(p, upto) {
+    return p.base ? dgSlotUniqueName(p.base, upto) : dgSlotDefaultName(upto);
+  }
+  function dgCmpList() {
+    return DG_SLOTS.map(function (s, i) {
+      return { no: i + 1, name: dgSlotDisplayName(i), t: dgIsNum(s.addedAt) ? s.addedAt : null };
+    });
+  }
+  function dgCmpInfo(task) {
+    var p = DG_CMP_PEND[task] || null;
+    var same = p ? dgSlotFindSame(p.rows) : -1;
+    return { type: 'dg-cmp-info', task: task, count: DG_SLOTS.length, max: DG_SLOT_MAX,
+             list: dgCmpList(), round: DG_ROUND, job: p ? p.job : null,
+             name: !p ? '' : (same >= 0 ? dgSlotDisplayName(same) : dgCmpDefaultName(p, DG_SLOTS.length)),
+             same: same >= 0 ? { no: same + 1, name: dgSlotDisplayName(same) } : null,
+             full: DG_SLOTS.length >= DG_SLOT_MAX };
+  }
+  /* 備援：DG 重整過（DG_CMP_PEND 是記憶體狀態）⇒ 照量測頁帶回來的原始資料建一份，
+     轉換規則與 dgApplyLiveRows／dgConfApplyLive 相同（g,x,y,Y ＋ dgCCT）。 */
+  function dgCmpPendFromMsg(d) {
+    var job = (d.job === 'conf' || d.job === 'slot') ? d.job : 'main';
+    var rs = (d.rows || []).filter(function (r) {
+      return r && r.length >= 4 && [0, 1, 2, 3].every(function (i) { return isFinite(r[i]); });
+    }).map(function (r) {
+      return { g: +r[0], x: +r[1], y: +r[2], Y: +r[3], T: dgCCT(+r[1], +r[2]) };
+    }).sort(function (a, b) { return a.g - b.g; });
+    return { job: job, rows: rs, prim: dgLivePrimToXYZ(d.prim || null),
+             durMs: dgIsNum(d.durMs) ? d.durMs : null, settleMs: dgIsNum(d.settleMs) ? d.settleMs : null,
+             srcMode: (d.kind === 'tcon' || d.kind === 'pc') ? d.kind : null,
+             base: dgCmpBase(job), label: '（即時量測' + (d.at ? ' ' + d.at : '') + '）' };
+  }
+  function dgCmpAdd(d) {
+    var p = DG_CMP_PEND[d.task] || dgCmpPendFromMsg(d);
+    var rep = { type: 'dg-cmp-added', task: d.task, ok: false, no: 0, name: '', count: DG_SLOTS.length,
+                updated: false, note: '' };
+    if (!p.rows || p.rows.length < 2) { rep.note = '這一份的資料不足（至少要 2 階）。'; return rep; }
+    var want = d.edited ? dgSlotNormalizeText(d.name) : '';
+    var same = dgSlotFindSame(p.rows);
+    if (same >= 0) {
+      if (want && want !== dgSlotDisplayName(same)) {
+        dgSlotStoreName(same, want);
+        DG_SLOTS[same].nameIsUserSet = true;
+        dgSlotRender(); dgRenderCharts();
+      }
+      rep.ok = true; rep.updated = true; rep.no = same + 1; rep.name = dgSlotDisplayName(same);
+      rep.count = DG_SLOTS.length;
+      dgSetStatus('dg-slot-status', '量測分頁確認加入：與' + dgSlotRefName(same) + '逐值相同，沒有重複新增'
+        + (want ? '，名稱已更新。' : '。'), 'ok');
+      return rep;
+    }
+    if (DG_SLOTS.length >= DG_SLOT_MAX) {
+      rep.note = '光學量測組已滿 ' + DG_SLOT_MAX + ' 組，沒有加入。到「光學資料比較」分頁刪掉其中一組再試一次。';
+      return rep;
+    }
+    var no = dgSlotAdd({ rows: p.rows, hasPrim: false, durMs: p.durMs, settleMs: p.settleMs,
+                         srcMode: p.srcMode }, p.label);
+    if (!no) {   // dgSlotAdd 的完整性／一致性閘門擋下（理由它已寫進 #dg-slot-status）
+      var st = $('dg-slot-status');
+      rep.note = (st && st.textContent) || '資料沒有通過光學資料比較的檢查。';
+      return rep;
+    }
+    if (p.prim) DG_SLOTS[no - 1].prim = p.prim;
+    if (want) { dgSlotStoreName(no - 1, want); DG_SLOTS[no - 1].nameIsUserSet = true; }
+    else if (p.base) { dgSlotStoreName(no - 1, dgSlotUniqueName(p.base, no - 1)); DG_SLOTS[no - 1].nameIsUserSet = false; }
+    dgSlotRender(); dgRenderCharts();
+    rep.ok = true; rep.no = no; rep.name = dgSlotDisplayName(no - 1); rep.count = DG_SLOTS.length;
+    dgSetStatus('dg-slot-status', '量測分頁確認加入：已成為第 ' + no + ' 組（' + rep.name + '）：'
+      + p.rows.length + ' 筆。', 'ok');
+    return rep;
   }
 
   /* \u2500\u2500 來源二：比較分頁直接讀檔 \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
@@ -8969,6 +9061,20 @@
 
     if (rs.length < 2) {
       dgSetStatus('dg-slot-status', '即時量測分頁送回來的資料不足（只有 ' + rs.length + ' 筆有效），沒有加進來。', 'err');
+      return 0;
+    }
+    /* v2.2.0：新版量測頁自己跳視窗問 ⇒ 這裡先不加，只記下來（純色照舊進第 3 部分）。
+       滿 10 組／完整性閘門改在「確定」那一刻由 dgCmpAdd() 判，理由回給量測頁顯示。 */
+    if (meta.cmpAsk) {
+      DG_CMP_PEND[meta.task] = {
+        job: 'slot', rows: rs, prim: dgLivePrimToXYZ(meta.prim),
+        durMs: meta.durMs, settleMs: meta.settleMs, srcMode: meta.kind || null,
+        base: '', label: '（即時量測' + (at ? ' ' + at : '') + '）'
+      };
+      var primNote0 = dgApplyGrayTailPrim(meta.prim, at);
+      dgSetStatus('dg-slot-status', '即時量測完成：' + rs.length + ' 筆（L' + rs[0].g + ' ～ L'
+        + rs[rs.length - 1].g + '）。要不要加入由量測分頁的視窗決定（按「確定」才加入）。'
+        + (primNote0 ? ('\n' + primNote0) : ''), 'ok');
       return 0;
     }
     if (DG_SLOTS.length >= DG_SLOT_MAX) {
@@ -12354,13 +12460,26 @@
           已在回報中點名請覆核；要只限自檢頁的話，判準是 `meta.kind === 'tcon'`。
        ⚠ **第 4 部分（確認量測）不在這裡**：那一條走 `dgConfApplyLive()`，維持原本
           「問過再存」（`dgGrayRecordAsk`）。他沒有交辦那一條，不自行改。 */
-    var autoSlotNo = dgSlotAddFromPart2(true);
-    var autoSlotNote = DG_SLOT_P2_NOTE;
-    /* v2.1.0：這一組記的是**這一輪量到的**純色，不是第 3 部分沿用的那一組
-       （dgSlotAddFromPart2 讀的是 #dg-in-prim，而第 3 部分現在不再每輪被覆蓋）。 */
-    if (autoSlotNo && DG_SLOTS[autoSlotNo - 1]) {
-      var lp = dgLivePrimToXYZ(meta.prim);
-      if (lp) { DG_SLOTS[autoSlotNo - 1].prim = lp; dgSlotRender(); }
+    var autoSlotNo = 0, autoSlotNote = '';
+    if (meta.cmpAsk) {
+      /* v2.2.0：新版量測頁會自己跳視窗問 ⇒ 這裡不加，只把要加的那一份記下來（內容與
+         下面自動那條逐值相同：rows 讀 #dg-in-gray、純色優先用這一輪量到的）。 */
+      DG_CMP_PEND[meta.task] = {
+        job: 'main', rows: dgSlotRowsFromText($('dg-in-gray').value),
+        prim: dgLivePrimToXYZ(meta.prim) || dgReadPrim(),
+        durMs: meta.durMs, settleMs: meta.settleMs, srcMode: null,
+        base: dgCmpBase('main'), label: dgSlotSourceLabel()
+      };
+      autoSlotNote = '要不要加入「光學資料比較」由量測分頁的視窗決定（按「確定」才加入）。';
+    } else {
+      autoSlotNo = dgSlotAddFromPart2(true);
+      autoSlotNote = DG_SLOT_P2_NOTE;
+      /* v2.1.0：這一組記的是**這一輪量到的**純色，不是第 3 部分沿用的那一組
+         （dgSlotAddFromPart2 讀的是 #dg-in-prim，而第 3 部分現在不再每輪被覆蓋）。 */
+      if (autoSlotNo && DG_SLOTS[autoSlotNo - 1]) {
+        var lp = dgLivePrimToXYZ(meta.prim);
+        if (lp) { DG_SLOTS[autoSlotNo - 1].prim = lp; dgSlotRender(); }
+      }
     }
     /* ═══ 🔴 v1.75.4（E）：把這個結果**留給訊息處理那一層回報給量測分頁** ══════════
        Bruce 2026-09-23：「已經量完以後…保存到光學比較，可以直接在這個頁面直接做操控。」
@@ -12782,6 +12901,19 @@
           關掉之後圖就在眼前（上面已經捲好了）。
        🔴 「要不要進行第二輪」仍然**不是視窗**，是卡片上那顆按鈕，一個字都沒改回去。
        這一份的預設組名多兩個字（「第一輪確認」），與第 2 部分那次分得開。 */
+    /* v2.2.0：新版量測頁自己跳視窗問 ⇒ 這裡不記錄，只把要加的那一份記下來
+       （rows ＝ DG_P4.rows，與 dgGrayRecordAsk 收的同一份）。DG_P4.cmpAsk 讓「進行下一輪」
+       知道：比較清單裡找不到它 ＝ 使用者在量測頁選了不加入，不要再自動補記。 */
+    if (meta && meta.cmpAsk) {
+      DG_P4.cmpAsk = true;
+      DG_CMP_PEND[meta.task] = {
+        job: 'conf', rows: rs, prim: meta.primXYZ || null,
+        durMs: meta.durMs, settleMs: meta.settleMs, srcMode: null,
+        base: dgCmpBase('conf'), label: DG_P4.label
+      };
+      DG_REC_NOTE = '要不要加入「光學資料比較」由量測分頁的視窗決定（按「確定」才加入）。';
+      return true;
+    }
     dgGrayRecordAsk(rs, DG_P4.label, dgRoundName(DG_ROUND) + '確認', function () {
       if (DG_REC_NOTE) {   // v1.45.0：meta 見本函式最後一個參數
         dgConfSetStatus('已帶入第 4 部分的確認量測：' + rs.length + ' 階（Gray ' + rs[0].g + ' ～ ' + top.g + '）。\n'
@@ -12829,7 +12961,8 @@
     var primNote = dgApplyGrayTailPrim(meta.prim, at);
     if (!dgConfApply(rs, '（即時量測' + (at ? ' ' + at : '') + '）', 'live',
                      { durMs: meta.durMs, settleMs: meta.settleMs, auto: true,
-                       primXYZ: dgLivePrimToXYZ(meta.prim) })) return;
+                       primXYZ: dgLivePrimToXYZ(meta.prim),
+                       cmpAsk: !!meta.cmpAsk, task: meta.task, kind: meta.kind })) return;   // v2.2.0
     dgConfSetStatus('已從「即時量測」分頁帶入第 4 部分：' + rs.length + ' 階。\n'
       + (primNote ? (primNote + '\n') : '')
       + (DG_REC_NOTE ? (DG_REC_NOTE + '\n') : '')
@@ -13003,6 +13136,13 @@
         DG_REC_NOTE = renamed
           ? ('「光學資料比較」裡那一組已改名為「' + dgSlotDisplayName(hit) + '」（原本是系統給的預設名）。')
           : ('「光學資料比較」裡那一組（' + dgSlotDisplayName(hit) + '）是你自己取的名字，保留不動。');
+        afterRecord();
+        return;
+      }
+      /* v2.2.0：第 4 部分那次是量測頁問的、使用者沒有按「確定」⇒ 尊重那個選擇，不自動補記。
+         （要加入可以回量測頁按「加入光學資料比較…」，或在第 2 部分按「轉出到光學資料比較」。） */
+      if (p4.cmpAsk) {
+        DG_REC_NOTE = '第 4 部分那次量測在量測分頁沒有加入「光學資料比較」，這一輪也不自動加入。';
         afterRecord();
         return;
       }
@@ -14652,6 +14792,8 @@
           settleMs: dgIsNum(s.settleMs) ? s.settleMs : null,
           // v1.71.0：來源模式。舊存檔沒有這一欄 ⇒ 還原後是 null ＝「來源未標示」
           srcMode: (s.srcMode === 'tcon' || s.srcMode === 'pc') ? s.srcMode : null,
+          // v2.2.0：加入時間（選填，理由同下方 z：舊存檔沒有 ⇒ null，DG_AS_VER 不 +1）
+          addedAt: dgIsNum(s.addedAt) ? s.addedAt : null,
           /* ─── v1.50.0：圖層序號（需求四要跨重整還原，不然重整一次順序就亂掉）───
              🔴 **DG_AS_VER 刻意沒有 +1**，理由寫在這裡供覆核：
                · 這是**純新增的選填欄位**，舊存檔沒有它 ⇒ 還原後由 dgSlotZSync() 依陣列
@@ -14667,6 +14809,7 @@
         };
       }),
       p4: DG_P4 ? { label: String(DG_P4.label || ''), kind: String(DG_P4.kind || 'file'),
+                    cmpAsk: !!DG_P4.cmpAsk,   // v2.2.0：選填；舊存檔沒有 ⇒ false（＝原本行為）
                     rows: dgAsEncRows(DG_P4.rows) } : null,
       conv: DG_CV ? { name: String(DG_CV.name || ''), fmt: DG_CV.fmt,
                       lut: DG_CV.lut.map(function (r) { return r.slice(); }) } : null
@@ -15002,6 +15145,7 @@
         durMs: dgIsNum(s.durMs) ? s.durMs : null,
         settleMs: dgIsNum(s.settleMs) ? s.settleMs : null,
         srcMode: (s.srcMode === 'tcon' || s.srcMode === 'pc') ? s.srcMode : null,   // v1.71.0
+        addedAt: dgIsNum(s.addedAt) ? s.addedAt : null,                              // v2.2.0
         show: !!s.show
       };
       if (typeof s.noXY === 'boolean') o.noXY = s.noXY;
@@ -15072,7 +15216,8 @@
        （dgConfApplyLive 裡那段「順序不能反」講的是**使用者操作時**的情形 ——
         那條路上 dgApplyPrim → dgInvalidateResult 是真的會清掉第 4 部分，與這裡不同。） */
     if (snap.p4) {
-      DG_P4 = { rows: dgAsRowsToP4(snap.p4.rows), white: null, label: String(snap.p4.label || ''), kind: String(snap.p4.kind || 'file') };
+      DG_P4 = { rows: dgAsRowsToP4(snap.p4.rows), white: null, label: String(snap.p4.label || ''), kind: String(snap.p4.kind || 'file'),
+                cmpAsk: snap.p4.cmpAsk === true };   // v2.2.0
       var top = DG_P4.rows[DG_P4.rows.length - 1];
       // white 是 rows 最後一列推出來的衍生值（dgConfApply 就是這樣算的），不另外存
       DG_P4.white = [dgIsNum(top.x) ? top.x : null, dgIsNum(top.y) ? top.y : null, top.Y, dgIsNum(top.T) ? top.T : null];
@@ -15960,6 +16105,17 @@
         dgLiveVerHello(d);
         return;
       }
+      /* ═══ v2.2.0：量測頁「加入光學資料比較」視窗的查詢與確定 ═══════════════════
+         🔴 來源守衛與上面幾則逐字相同（必須真的是我們開的那個量測分頁）。
+         🔴 回覆一律帶回 task，量測頁靠它認出「這是我這一份的回答」。 */
+      if (d && (d.type === 'dg-cmp-query' || d.type === 'dg-cmp-add')) {
+        if (dgLiveAlive() && !dgLiveIsOurs(e.source)) return;
+        var cmpRep = (d.type === 'dg-cmp-query') ? dgCmpInfo(d.task) : dgCmpAdd(d);
+        if (e.source) {
+          try { e.source.postMessage(cmpRep, window.location.origin); } catch (err) { /* 對方已經關了 */ }
+        }
+        return;
+      }
       if (!d || d.type !== 'dg-measure-result' || !d.rows || !d.rows.length) return;
       /* v1.26.1：一批資料屬於「當初要它的那一次按鈕」，不是「現在最後按的那一顆」。
          正常情形兩者本來就是同一個（換任務會先把量測中止掉，不會有資料回來），
@@ -15998,8 +16154,13 @@
         /* v1.71.0：這一批是**哪一條路**量回來的。與 dest 同一個查法（照任務編號，
            不是「現在最後選的那一條」）—— 理由與 dest 那一行逐字相同：切換的前一刻
            送出、晚一步才到的那一批，要算回它自己當初那一次。 */
-        kind: DG_LIVE_TASK_KIND[d.task] || dgLiveKind
+        kind: DG_LIVE_TASK_KIND[d.task] || dgLiveKind,
+        /* v2.2.0：新版量測頁會自己跳「加入光學資料比較」視窗 ⇒ 三條落點都不自動加，
+           只把要加的那一份照任務編號記下來（DG_CMP_PEND），等 dg-cmp-add。 */
+        cmpAsk: !!d.cmpAsk,
+        task: d.task
       };
+      if (d.cmpAsk) delete DG_CMP_PEND[d.task];
       // v1.18.0：白灰階量完要進哪裡，由「是誰按的即時量測」決定（見 DG_LIVE_DEST）
       if (dest === 'slot') dgSlotAddFromLive(d.rows, d.at || d.label, meta);
       else if (dest === 'conf') dgConfApplyLive(d.rows, d.at || d.label, meta);   // v1.24.0
@@ -16009,7 +16170,7 @@
            當成這一輪的回報送出去，而那正是「代理指標」那一族的謊。 */
         DG_LIVE_SLOT = null;
         guide(dgApplyLiveRows(d.rows, d.at || d.label, meta));
-        if (DG_LIVE_SLOT && e.source) {
+        if (DG_LIVE_SLOT && e.source && !d.cmpAsk) {   // v2.2.0：cmpAsk 時由量測頁自己問，不回報自動建組
           try {
             e.source.postMessage({ type: 'dg-slot-auto', task: d.task,
                                    no: DG_LIVE_SLOT.no, name: DG_LIVE_SLOT.name,
