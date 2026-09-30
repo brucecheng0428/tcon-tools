@@ -30,7 +30,7 @@
           出來」。那個前提**早就不成立**：bridge 的靜態檔服務拒絕子資料夾、而且自 v1.7.0
           起預設關閉 —— 詳細依據與行號寫在 body 末端那兩個 <script> 的上面。）
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="common/version.js?v=20260930i2c1262"></script>
+<script src="common/version.js?v=20260930i2c1262b"></script>
 <style>
   * { box-sizing: border-box; }
   :root{
@@ -1391,8 +1391,8 @@
      🔴 **CSS 沒有跟著載**（見 style 區塊頂端的說明）：common.css 有 `.card`／`.row`／
         無範圍的 `label{}` 等等，與本頁同名而語意完全不同，載進來會整頁走樣。
         頁首那四條宣告是逐字抄過來的，來源行號寫在各自上面。 -->
-<script src="common/i18n.js?v=20260930i2c1262"></script>
-<script src="common/common.js?v=20260930i2c1262"></script>
+<script src="common/i18n.js?v=20260930i2c1262b"></script>
+<script src="common/common.js?v=20260930i2c1262b"></script>
 
 <script>
 'use strict';
@@ -3938,7 +3938,9 @@ function i2ctEeSummary(e, baseSlave){
   for (var i = 0; i < nb; i++) sl.push('0x' + i2ctHex(b | i));
   return i2ctT('i2c.eeSum', { cap: i2ctCapText(e.bytes), blocks: nb,
          slaves: (nb > 2 ? sl[0] + '–' + sl[nb - 1] : sl.join('/')), page: e.page, awid: e.awid })
-       + (i2ctEeFoldNote ? '   ' + i2ctT('i2c.eeFolded', i2ctEeFoldNote) : '');
+       + (i2ctEeFoldNote ? '   ' + i2ctT(i2ctEeFoldNote.reset === 'mode' ? 'i2c.eeResetMode'
+                                           : i2ctEeFoldNote.reset === 'model' ? 'i2c.eeResetModel'
+                                           : 'i2c.eeFolded', i2ctEeFoldNote) : '');
 }
 /* 位址寬度跟著型號：鎖住並標示「依型號」；回一般模式時解鎖、還原他原本的值。 */
 function i2ctEeLockAwid(){
@@ -4010,6 +4012,26 @@ function i2ctEeSlaveOptions(){
   }
   i2ctComboSync('in-slave');
 }
+/* ═══ v1.26.2（同日追加，Bruce 2026-09-30）：切進 EEPROM／換型號時整理 slave ═══
+   · 0x50–0x57 以外（例如 TCON 的 0x68）⇒ 改成該型號清單的第一個（恆為 0x50），
+     摘要列寫一行提示（切模式：「已改為 EEPROM 預設位址 0x50」；換型號：講型號）。
+   · 範圍內 ⇒ 照型號規則：落在區塊內的換算成「基底＋offset」（i2ctEeFold），
+     換算後的基底一定在新清單裡，所以不會再被改成第一個。
+   `why` ＝ 'mode' | 'model'，只影響提示的措辭。 */
+function i2ctEeNormalizeSlave(why){
+  var e = i2ctEeCur(); if (!e) return null;
+  var s = i2ctParseAddr($('in-slave').value);
+  if (s === null || s < 0x50 || s > 0x57) {
+    var to = i2ctEeBases(e)[0];
+    $('in-slave').value = i2ctSlaveFmt(to);
+    i2ctSlaveSync('s7', false);
+    i2ctEeFoldNote = { reset: why, to: i2ctHex(to), id: e.id,
+                       from: (s === null ? '?' : i2ctHex(s)) };
+    i2ctLog(i2ctT('i2c.logEeReset', i2ctEeFoldNote), 'n');
+    return { from: s, to: to };
+  }
+  return i2ctEeFold();
+}
 function i2ctEeSetMode(on){
   on = !!on;
   if ($('in-devtype')) $('in-devtype').value = on ? 'ee' : 'gen';
@@ -4023,7 +4045,7 @@ function i2ctEeSetMode(on){
   i2ctEeLockAwid();
   i2ctEeSlaveOptions();
   if (on) {
-    i2ctEeFold();
+    i2ctEeNormalizeSlave('mode');
     var e = i2ctEeCur();
     i2ctLog(i2ctT('i2c.logEeMode', { id: e.id, sum: i2ctEeSummary(e, i2ctParseAddr($('in-slave').value)) }), 'n');
   } else {
@@ -4045,7 +4067,8 @@ function i2ctEeSetModel(id){
   if (i2ctEeMode) {
     i2ctEeLockAwid();
     i2ctEeSlaveOptions();
-    i2ctEeFold();
+    if (changed) i2ctEeFoldNote = '';       /* 上一個型號留下的提示作廢 */
+    i2ctEeNormalizeSlave('model');
     if (changed) i2ctLog(i2ctT('i2c.logEeMode', { id: id,
                          sum: i2ctEeSummary(i2ctEeCur(), i2ctParseAddr($('in-slave').value)) }), 'n');
   }
