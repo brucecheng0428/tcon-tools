@@ -75,6 +75,13 @@ SCENARIOS = [
     ('X-NR',      'X_lut_export.js',          '',                     False, {'__xCase': 'NR'},          False),
     ('X-ALT',     'X_lut_export.js',          '?round=2&job=main',    True,  {'__xCase': 'ALT'},         False),
     ('X-EN',      'X_lut_export.js',          '?round=2&job=main',    True,  {'__xCase': 'EN'},          False),
+    # dg v2.4.0：一輪結束並列「查看目前結果／進行第 N+1 輪」，第 2 輪起不再問「要不要確認」
+    ('R-PC',      'R_round_decide.js',        '',                     False, {'__rCase': 'PC'},          False, 'dg.html'),
+    ('R-TCON',    'R_round_decide.js',        '',                     False, {'__rCase': 'TCON'},        False, 'dg.html'),
+    ('R-NOMODE',  'R_round_decide.js',        '',                     False, {'__rCase': 'NOMODE'},      False, 'dg.html'),
+    ('R-SHOT-DECIDE', 'R_round_decide.js',    '',                     False, {'__rCase': 'SHOT-DECIDE'}, False, 'dg.html'),
+    ('R-SHOT-VIEW',   'R_round_decide.js',    '',                     False, {'__rCase': 'SHOT-VIEW'},   False, 'dg.html'),
+    ('R-SHOT-NEXT',   'R_round_decide.js',    '',                     False, {'__rCase': 'SHOT-NEXT'},   False, 'dg.html'),
 ]
 TIMEOUT = 120   # 秒；最長的 H 約 40 秒
 SHOTS = os.environ.get('DGSELF_SHOTS')   # 設了就在每個情境跑完時截一張 <名稱>.png 到這個資料夾（停在情境最後的畫面）
