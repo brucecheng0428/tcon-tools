@@ -14,7 +14,7 @@
 <title>TCON 自檢畫面量測 — TCON FAE專用工具箱</title>
 <link rel="stylesheet" href="common/common.css?v=20260903help">
 <!-- 🔴 version.js 必須最先載入（common/version.js 開頭那條規則）。 -->
-<script src="common/version.js?v=20260930dst204"></script>
+<script src="common/version.js?v=20260930dst210"></script>
 <style>
   /* ═══ 本頁專屬樣式 ════════════════════════════════════════════════════════
      只寫這一頁真的需要、而 common.css 沒有的東西。顏色一律走 common.css 的
@@ -474,6 +474,12 @@
   .dst-dgsw-seg .dst-btn:first-child { border-radius: 6px 0 0 6px; }
   .dst-dgsw-seg .dst-btn:last-child { border-radius: 0 6px 6px 0; margin-left: -1px; }
   .dst-dgsw-unk { color: var(--warn); }
+  /* v2.1.0：卡片展開時同一組切換搬到 T-CON 組的 DG_EN 那一行（dstPlaceDgSw）。那一行左邊已經
+     寫著 DG_EN、讀不到的原因寫在 #dst-v-dg ⇒ 切換自己的「DG_EN」字樣與「讀不到」在這裡不重複講。 */
+  .dst-kv-dg { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+  .dst-kv-dg .dst-dgsw-t, .dst-kv-dg .dst-dgsw-unk { display: none; }
+  .dst-kv-dg .dst-dgsw-seg .dst-btn { padding: 3px 14px; font-size: 13.5px; }
+  #dst-dgsw-slot-sum:empty, #dst-dgsw-slot-tcon:empty { display: none; }
   .dst-sl-more, .dst-log-more { margin-top: 8px; }
   .dst-sl-more > summary, .dst-log-more > summary { cursor: pointer; font-size: 13px; color: var(--text-sub); padding: 4px 0; }
   .dst-sl-more > summary:hover, .dst-log-more > summary:hover { color: var(--text); }
@@ -643,8 +649,11 @@
       <!-- 🔴 v2.0.4：DG_EN 開／關切換**長在摘要列上**（Bruce 2026-09-30：「DG_EN 打開之後就沒有
            地方可以再關掉」）。v2.0.3 起三樣都連上後這一格自動收起，而舊的「強制」勾選框在收起來的
            T-CON 組裡 ⇒ 看不到；建議列出現時它又被藏起來。摘要列不論收合都看得到 ⇒ 全頁唯一的
-           DG_EN 控制項放這裡。兩顆鈕的點擊不會開合這一格（dstBind 裡 preventDefault）。 -->
-      <summary><span class="dst-hw-more-t" data-i18n="dst.hwSumT">外接硬體</span><span class="dst-hw-sum" id="dst-hw-sum"></span><span class="dst-dgsw dst-hidden" id="dst-dgsw"><span class="dst-dgsw-t">DG_EN</span><span class="dst-dgsw-seg" role="group" aria-label="DG_EN"><button type="button" class="dst-btn" id="dst-dgsw-on" aria-pressed="false" data-i18n="dst.swOn">開</button><button type="button" class="dst-btn" id="dst-dgsw-off" aria-pressed="false" data-i18n="dst.swOff">關</button></span><span class="dst-dgsw-unk dst-hidden" id="dst-dgsw-unk" data-i18n="dst.swUnk">讀不到</span></span><span class="dst-hw-sum" id="dst-hw-sum2"></span></summary>
+           DG_EN 控制項放這裡。兩顆鈕的點擊不會開合這一格（dstBind 裡 preventDefault）。
+           🔴 v2.1.0（Bruce 2026-09-30「照建議」）：**同一個節點**依這一格開合搬家 —— 收起時在摘要列
+           （#dst-dgsw-slot-sum），展開時在 T-CON 組的 DG_EN 那一行（#dst-dgsw-slot-tcon，黃字正上方）。
+           只有一份 DOM、一組事件，所以兩處不可能各做各的（dstPlaceDgSw）。「維持現狀」只在步驟卡。 -->
+      <summary><span class="dst-hw-more-t" data-i18n="dst.hwSumT">外接硬體</span><span class="dst-hw-sum" id="dst-hw-sum"></span><span id="dst-dgsw-slot-sum"><span class="dst-dgsw dst-hidden" id="dst-dgsw"><span class="dst-dgsw-t">DG_EN</span><span class="dst-dgsw-seg" role="group" aria-label="DG_EN"><button type="button" class="dst-btn" id="dst-dgsw-on" aria-pressed="false" data-i18n="dst.swOn">開</button><button type="button" class="dst-btn" id="dst-dgsw-off" aria-pressed="false" data-i18n="dst.swOff">關</button></span><span class="dst-dgsw-unk dst-hidden" id="dst-dgsw-unk" data-i18n="dst.swUnk">讀不到</span></span></span><span class="dst-hw-sum" id="dst-hw-sum2"></span></summary>
       <div class="dst-note" data-i18n="dst.hwNote">這三樣都要連上（○ ＝ 還沒通）。</div>
 
       <!-- ═══ 組 ①：讀寫 I2C 治具 ═══════════════════════════════════════════
@@ -746,10 +755,12 @@
           <!-- 🔴 v1.4.0：DG 開關。量到的曲線是不是「已被 DG 修過」全看這一列。
                🔴 v2.0.4：原本右邊的「強制」核取方塊（＝原廠 PQ Tool CCT 頁的
                `CCTDGEnableCkbx`，PQ/CCTForm.cs:2324–2331＋394–404）改成摘要列上的
-               開／關切換（`#dst-dgsw`），寫入路徑相同。這一列只剩狀態。 -->
+               開／關切換（`#dst-dgsw`），寫入路徑相同。這一列只剩狀態。
+               🔴 v2.1.0：卡片展開時那一組切換搬進這一行（`#dst-dgsw-slot-tcon`），取代狀態文字；
+               讀不到時切換停用，原因照舊寫在 `#dst-v-dg`。 -->
           <div class="dst-kv">
             <span data-i18n="dst.kvDg">DG_EN</span>
-            <span id="dst-v-dg" class="dst-na">—</span>
+            <span class="dst-kv-dg"><span id="dst-v-dg" class="dst-na">—</span><span id="dst-dgsw-slot-tcon"></span></span>
           </div>
         </div>
         <!-- DG 開啟時才出現的一行黃字（關閉／未知時完全不佔位） -->
@@ -1112,6 +1123,8 @@
         <div class="dst-kv"><span data-i18n="dst.lutKvCfg">LUT 設定</span><span id="dst-lut-cfg" class="dst-na">—</span></div>
         <div class="dst-kv"><span data-i18n="dst.lutKvBus">bus enable</span><span id="dst-lut-bususe" class="dst-na">—</span></div>
       </div>
+      <!-- v2.1.0：DG_EN 關著時這張卡給的是等間距表、沒有讀 T-CON —— 一行小字講明（dstRenderLut）。 -->
+      <div class="dst-note dst-hidden" id="dst-lut-identnote" data-i18n="dst.lutIdentNote">DG_EN 關閉，使用等間距 LUT，沒有讀取 T-CON。</div>
       <div class="dst-say" id="dst-say-lut"></div>
 
       <div id="dst-lut-body" class="dst-hidden">
@@ -1768,6 +1781,8 @@ if (typeof I18N === 'object' && I18N) {
         上要叫同一個名字，否則他會以為是兩種東西。 */
   I18N['dst.goLutIdent']   = { 'zh-TW': '用等距表並回傳', 'en': 'Use the linear table and send back', 'zh-CN': '用等距表并回传' };
   I18N['dst.lutIdent']     = { 'zh-TW': '出廠等距表（沒有讀 T-CON）', 'en': 'factory linear table (T-CON not read)', 'zh-CN': '出厂等距表（没有读 T-CON）' };
+  /* v2.1.0：Bruce 2026-09-30 裁示「DG_EN 關閉，使用等間距 LUT」那一行小字（LUT 檢視卡）。 */
+  I18N['dst.lutIdentNote'] = { 'zh-TW': 'DG_EN 關閉，使用等間距 LUT，沒有讀取 T-CON。', 'en': 'DG_EN is off: using the linear LUT, the T-CON was not read.', 'zh-CN': 'DG_EN 关闭，使用等间距 LUT，没有读取 T-CON。' };
   I18N['dst.dgLabelIdent'] = { 'zh-TW': '出廠等距表（DG_EN 關閉）', 'en': 'Factory linear table (DG_EN off)', 'zh-CN': '出厂等距表（DG_EN 关闭）' };
   I18N['dst.dgSentIdent']  = { 'zh-TW': '✔ 出廠等距表 {n} 筆已回到 DG 的{dest}（DG_EN 關著，沒有讀 T-CON）。', 'en': '✔ {n} entries of the factory linear table are back in DG ({dest}) — DG_EN is off, the T-CON was not read.', 'zh-CN': '✔ 出厂等距表 {n} 笔已回到 DG 的{dest}（DG_EN 关着，没有读 T-CON）。' };
   I18N['dst.stepLutNoDgIdent'] = {
@@ -3736,6 +3751,19 @@ async function dstLutLoadIdentity() {
   }
 }
 
+/* ═══ 🔴 v2.1.0：「讀取 DG LUT」那顆鈕也照 DG_EN 決定內容 ═══════════════════════════════
+   Bruce 2026-09-30 裁示：DG_EN 關閉時，暫存器裡的 LUT 還是原本那組，但實際輸出跑的是等間距。
+   ⇒ 關閉時頁面上的 LUT 一律是等間距表，「讀取 DG LUT」**不讀 T-CON 內部的表**，並顯示一行小字
+     （`dst.lutIdentNote`）。v2.0.4 以前這顆鈕直接呼叫 `dstReadDgLut()`，是全頁唯一不看 DG_EN 的路徑。
+   🔴 先重讀一次 DG_EN 再決定（他可能在別頁改過）；判準與步驟 ① 同一支 `dstStep1UsesIdentity()`：
+      關 ⇒ 等距表，開／讀不到 ⇒ 真讀（讀不到時不主張 bypass，理由見那一支）。 */
+async function dstLutReadBtn() {
+  if (dstLutBusy || dstRunning) return;
+  await dstReadDgEn();
+  if (dstStep1UsesIdentity()) await dstLutLoadIdentity();
+  else await dstReadDgLut();
+}
+
 async function dstReadDgLut() {
   /* v2.0.0：量測中不讀表（高3）—— 讀表要佔同一條 I2C，插進掃描中間會打亂出圖。
      「讀取 DG LUT」那顆鈕另外改成走 dstGuard（見 dstBind），與其他 I2C 動作共用忙碌旗標。 */
@@ -5112,9 +5140,14 @@ function dstRenderDg() {
 function dstRenderDgSw() {
   var box = $('dst-dgsw');
   if (!box) return;
+  var inTcon = dstPlaceDgSw();
   var avail = !!(dstLinked && dstIc && dstIc.dgEn);
   box.classList.toggle('dst-hidden', !avail);
   var st = dstDg.state, known = (st === 'on' || st === 'off');
+  /* v2.1.0：切換在 T-CON 那一行而且讀得到 ⇒ 它就是狀態，旁邊那段文字不再講一次。
+     讀不到 ⇒ 文字留著（原因只寫在那裡）。 */
+  var vdg = $('dst-v-dg');
+  if (vdg) vdg.classList.toggle('dst-hidden', inTcon && avail && known);
   var busy = !avail || !known || dstRunning || dstBusy || dstLutBusy;
   [['dst-dgsw-on', 'on'], ['dst-dgsw-off', 'off']].forEach(function (p) {
     var b = $(p[0]); if (!b) return;
@@ -5125,6 +5158,17 @@ function dstRenderDgSw() {
   });
   var unk = $('dst-dgsw-unk');
   if (unk) unk.classList.toggle('dst-hidden', !avail || known);
+}
+/* ═══ 🔴 v2.1.0：切換的位置跟著「外接硬體」這一格開合 ═════════════════════════════════
+   Bruce 2026-09-30（「照建議」）：收起時放摘要列，展開時放 T-CON 那一行（DG 開著的黃字正上方）。
+   🔴 搬的是**同一個節點**（appendChild 會把它從原處移走），不是複製一份 —— 狀態、停用、事件都只有
+      一份，兩處不會不同步。寫入照舊只走 `dstDgEnApply()`。
+   回傳值：現在是不是在 T-CON 那一行。 */
+function dstPlaceDgSw() {
+  var sw = $('dst-dgsw'), box = $('dst-hw-more');
+  var slot = $(box && box.open ? 'dst-dgsw-slot-tcon' : 'dst-dgsw-slot-sum');
+  if (sw && slot && sw.parentNode !== slot) slot.appendChild(sw);
+  return !!(box && box.open);
 }
 /* ═══ 🔴 v1.7.0：DG LUT 檢視那張卡的渲染 ══════════════════════════════════
    三條硬規矩（Bruce 明說這張卡是拿來「檢查是不是你亂讀的」）：
@@ -5219,6 +5263,8 @@ function dstRenderLut() {
   else dstShow('dst-lut-state', '—', false);
 
   dstSay('dst-say-lut', dstLutErrText());
+  var inote = $('dst-lut-identnote');
+  if (inote) inote.classList.toggle('dst-hidden', !(!busy && dstLut && dstLut.src === 'ident'));
 
   if (!dstLut) {
     dstShow('dst-lut-cfg', '—', false);
@@ -6754,8 +6800,10 @@ function dstDgRecMain() {
      讀不回來的情況下寫進去也只會得到一個「寫入沒生效」的錯誤訊息。
      讀成功 ⇒ `dstReadDgEn()` 自己會重畫，這一行就換成 rec1／warn2 或整行消失。 */
   if (kind === 'unk') {
+    /* v2.1.0：讀回來是關、畫面上卻是 T-CON 讀回的表 ⇒ 換成等距表（dstLutFollowDg 放在 guard 外）。 */
     return dstGuard(async function () { await dstReadDgEn(); })
-      .then(function () { dstRenderBtns(); dstRenderDgRec(); return false; });
+      .then(function () { dstRenderBtns(); dstRenderDgRec(); return dstLutFollowDg(); })
+      .then(function () { return false; });
   }
   var wantOn = (kind !== 'rec1');
   /* 回傳值 ＝ 「DG_EN 真的被寫進去了嗎」（`dstDgEnApply()` 的既有語意）。 */
@@ -7520,7 +7568,9 @@ function dstBind() {
   /* 🔴 v2.0.0：改走 dstGuard（自檢頁檢討 高3）。舊版不包，讀表的幾十秒裡色鈕、拉霸、
      DG_EN、重新識別都還按得動，同一條 I2C 會被插進別的寫入。dstGuard 現在也看
      dstLutBusy，所以「跟出圖那條路互相卡」變成正確的互斥，不是死鎖。 */
-  $('dst-lut-read').addEventListener('click', function () { dstGuard(dstReadDgLut); });
+  $('dst-lut-read').addEventListener('click', function () { dstGuard(dstLutReadBtn); });
+  /* v2.1.0：「外接硬體」開合時 DG_EN 切換搬家（見 dstPlaceDgSw）。 */
+  $('dst-hw-more').addEventListener('toggle', function () { dstRenderDgSw(); });
   $('dst-settle').addEventListener('change', dstRenderHw);   // v2.0.3：一行摘要裡有換階等待
   /* 🔴 v2.0.0：量測中／寫表中離開頁面要先確認（自檢頁檢討）。
      量到一半離開 ＝ 這一輪作廢；寫表到一半離開 ＝ T-CON 裡留下半張表。
