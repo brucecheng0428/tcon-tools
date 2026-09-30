@@ -14,7 +14,7 @@
 <title>TCON 自檢畫面量測 — TCON FAE專用工具箱</title>
 <link rel="stylesheet" href="common/common.css?v=20260903help">
 <!-- 🔴 version.js 必須最先載入（common/version.js 開頭那條規則）。 -->
-<script src="common/version.js?v=20260930dst241"></script>
+<script src="common/version.js?v=20260930dst250"></script>
 <style>
   /* ═══ 本頁專屬樣式 ════════════════════════════════════════════════════════
      只寫這一頁真的需要、而 common.css 沒有的東西。顏色一律走 common.css 的
@@ -484,6 +484,16 @@
   body.dst-cmp-on .dst-back-cta { background: transparent; border-color: var(--border); color: var(--text); animation: none; box-shadow: none; }
   body.dst-cmp-on .dst-back-cta .dst-cta-btn { background: transparent; color: var(--text); border: 1px solid var(--border); }
   body.dst-cmp-on .dst-back-cta .dst-cta-sub { color: var(--text-sub); }
+  /* v2.5.0：「查看光學資料比較 ↗」開不了新分頁時的提示，樣式比照 .dst-back-cta（主色實心、大字、↗）。
+     它出現時「現在該做的事」就是切回 DG 分頁 ⇒ 它是視窗裡唯一的實心，「關閉」讓位成線框。 */
+  .dst-cmp-go {
+    display: flex; align-items: center; gap: 8px 12px; margin-top: 10px;
+    background: var(--primary); color: #fff; border: 2px solid #93c5fd; border-radius: 10px;
+    padding: 12px 14px; font-size: 18px; font-weight: 700; line-height: 1.45;
+  }
+  .dst-cmp-go .dst-cta-ico { font-size: 22px; line-height: 1; }
+  .dst-cmp-go.dst-hidden { display: none; }
+  #dst-modal-cmp.dst-cmp-going #dst-cmp-ok.dst-main { background: transparent; border-color: var(--border); color: var(--text); }
 
   /* 外框：2px → 1px（dg 的 .dg-part 同一個粗細） */
   .dst-box { border-width: 1px; }
@@ -1337,9 +1347,12 @@
       <div class="dst-cmp-sub" id="dst-cmp-warn"></div>
       <label class="dst-cmp-name"><span id="dst-cmp-name-lb"></span><input type="text" id="dst-cmp-name" maxlength="60" autocomplete="off"></label>
       <div class="dst-cmp-res" id="dst-cmp-res"></div>
+      <!-- v2.5.0：開不了新分頁時的提示（樣式比照「已送回 DG」） -->
+      <div class="dst-cmp-go dst-hidden" id="dst-cmp-go" role="status"><span class="dst-cta-ico">↗</span><span class="dst-cta-txt" id="dst-cmp-go-txt"></span></div>
     </div>
     <div class="dst-modal-act">
       <button class="dst-btn" id="dst-cmp-cancel"></button>
+      <button class="dst-btn dst-hidden" id="dst-cmp-view"></button>
       <button class="dst-btn pri" id="dst-cmp-ok"></button>
     </div>
   </div>
@@ -6266,7 +6279,7 @@ function dstDgSend() {
     dstCmpLast = { task: dstDgTask, rows: rows, prim: primSent ? s.prim : null, durMs: durMs,
                    settleMs: dstSettleUsedMs, job: dstDgJob, round: dstDgRound, dgEn: dstRunDgEn,
                    at: new Date().toLocaleString() + dgTag };
-    dstCmpSaved = null;
+    dstCmpSaved = null; dstCmpStored = null;
     dstCmpOpen();
   }
   return true;
@@ -7635,7 +7648,10 @@ var DST_CMP_I18N = {
   'dst.cmpNoDg':    { 'zh-TW': '找不到 DG 分頁，沒有送出。', 'en': 'The DG tab is gone; nothing was sent.', 'zh-CN': '找不到 DG 分页，没有送出。' },
   'dst.cmpOpen':    { 'zh-TW': '加入光學資料比較…', 'en': 'Add to optical comparison…', 'zh-CN': '加入光学数据比较…' },
   'dst.cmpStNo':    { 'zh-TW': '這一輪還沒加入「光學資料比較」。', 'en': 'This round is not in the optical comparison yet.', 'zh-CN': '这一轮还没加入“光学数据比较”。' },
-  'dst.cmpStYes':   { 'zh-TW': '已加入第 {no} 筆（{name}）。', 'en': 'Added as set {no} ({name}).', 'zh-CN': '已加入第 {no} 笔（{name}）。' }
+  'dst.cmpStYes':   { 'zh-TW': '已加入第 {no} 筆（{name}）。', 'en': 'Added as set {no} ({name}).', 'zh-CN': '已加入第 {no} 笔（{name}）。' },
+  // v2.5.0：「查看光學資料比較 ↗」與開不了新分頁時的提示
+  'dst.cmpView':    { 'zh-TW': '查看光學資料比較 ↗', 'en': 'View optical comparison ↗', 'zh-CN': '查看光学数据比较 ↗' },
+  'dst.cmpGo':      { 'zh-TW': '請切回 DG 分頁，點「光學資料比較」查看', 'en': 'Switch back to the DG tab and open "Optical data comparison"', 'zh-CN': '请切回 DG 分页，点“光学数据比较”查看' }
 };
 if (typeof I18N === 'object' && I18N) {
   Object.keys(DST_CMP_I18N).forEach(function (k) { if (!I18N[k]) I18N[k] = DST_CMP_I18N[k]; });
@@ -7647,6 +7663,9 @@ var dstCmpRes = null;    // { cls, text }
 var dstCmpEdited = false;
 var dstCmpT = null;
 var dstCmpSaved = null;  // { no, name }：這一份已經在 DG 的第幾筆
+var dstCmpStored = null; // v2.5.0：DG 回覆的 stored（自動保存有沒有寫成）；null ＝ 舊版 DG 沒帶
+var dstCmpGo = false;    // v2.5.0：顯示「請切回 DG 分頁…」提示
+var DST_CMP_VIEW_URL = 'dg.html?view=cmp', DST_CMP_VIEW_WIN = 'tcon-dg-cmpview';
 
 function dstCmpWhat() {
   var L = dstCmpLast || {}, I = dstCmpInfo || {};
@@ -7695,7 +7714,34 @@ function dstCmpRender() {
   $('dst-cmp-ok').textContent = done ? dstT('dst.cmpClose') : (dstCmpPhase === 'send') ? dstT('dst.cmpSending') : dstT('dst.cmpOk');
   $('dst-cmp-ok').disabled = (dstCmpPhase === 'send');
   $('dst-cmp-name').disabled = (dstCmpPhase === 'send' || done);
+  /* v2.5.0：「查看光學資料比較 ↗」—— 這一份確定在 DG 的比較清單裡（dstCmpSaved）才出現，
+     線框次要鈕，不搶「確定／關閉」的實心。 */
+  $('dst-cmp-view').textContent = dstT('dst.cmpView');
+  $('dst-cmp-view').classList.toggle('dst-hidden', !dstCmpSaved || dstCmpPhase === 'send');
+  $('dst-cmp-go-txt').textContent = dstT('dst.cmpGo');
+  $('dst-cmp-go').classList.toggle('dst-hidden', !dstCmpGo);
+  m.classList.toggle('dst-cmp-going', dstCmpGo);
   dstCmpRowRender();
+}
+/* v2.5.0：開「光學資料比較」唯讀檢視（dg.html?view=cmp）。按鈕是使用者點的 ⇒ window.open 不會被擋；
+   固定視窗名 ⇒ 重按沿用同一個分頁（重新載入＝最新資料），不會越開越多。
+   開不了（被擋／回 null）或 DG 說存檔沒寫成（檢視頁讀不到最新的）⇒ 改顯示「請切回 DG 分頁」。 */
+function dstCmpView() {
+  var w = null;
+  if (dstCmpStored !== false) {
+    try { w = window.open(DST_CMP_VIEW_URL, DST_CMP_VIEW_WIN); } catch (e) { w = null; }
+  }
+  if (!w) {
+    dstCmpGo = true;
+    dstLog('== optical comparison view: ' + (dstCmpStored === false ? 'DG autosave not written' : 'new tab blocked') + ' ⇒ asked to switch back to DG', 'w');
+    dstCmpRender();
+    return false;
+  }
+  try { w.opener = null; } catch (e) {}   // 檢視頁與本頁沒有任何關係（它也不收訊息）
+  try { w.focus(); } catch (e) {}
+  dstCmpGo = false;
+  dstCmpRender();
+  return true;
 }
 function dstCmpRowRender() {
   var row = $('dst-cmp-row');
@@ -7713,7 +7759,7 @@ function dstCmpPost(m) {
 /* 打開（量完自動開一次；之後由 ④ 底下那顆鈕再開）。每次都重新向 DG 查一次筆數。 */
 function dstCmpOpen() {
   if (!dstCmpLast) return;
-  dstCmpInfo = null; dstCmpRes = null; dstCmpEdited = false;
+  dstCmpInfo = null; dstCmpRes = null; dstCmpEdited = false; dstCmpGo = false;
   $('dst-cmp-name').value = dstCmpSaved ? dstCmpSaved.name : '';
   dstCmpPhase = 'ask';
   clearTimeout(dstCmpT);
@@ -7786,6 +7832,7 @@ function dstCmpOnAdded(d) {
   dstCmpApplyAdded(d);
   if (d.ok) {
     dstCmpSaved = { no: d.no, name: String(d.name || '') };
+    dstCmpStored = (typeof d.stored === 'boolean') ? d.stored : null;
     dstCmpRes = { cls: 'ok', text: d.updated
       ? dstT('dst.cmpUpdated', { no: d.no, name: String(d.name || ''), n: d.count })
       : dstT('dst.cmpAdded', { n: d.count }) };
@@ -7801,6 +7848,7 @@ function dstCmpOnAdded(d) {
 function dstCmpBind() {
   $('dst-cmp-ok').addEventListener('click', dstCmpOk);
   $('dst-cmp-cancel').addEventListener('click', dstCmpClose);
+  $('dst-cmp-view').addEventListener('click', dstCmpView);
   $('dst-cmp-open').addEventListener('click', dstCmpOpen);
   $('dst-cmp-name').addEventListener('input', function () { dstCmpEdited = true; });
   $('dst-cmp-name').addEventListener('keydown', function (e) {

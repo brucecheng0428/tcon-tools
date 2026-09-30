@@ -17,7 +17,7 @@
      🔴 版號一律從 common/version.js 讀（TOOL_VERSIONS.dg），不在這裡硬編字串 ——
         硬編就是第二個來源，遲早跟 dg.html 各講各的，正好是本次要修的那個病。
      🔴 本頁其餘部分仍是自給自足的單檔（不載 i18n/common.js），只多這一個相依。 -->
-<script src="common/version.js?v=20260930dg221"></script>
+<script src="common/version.js?v=20260930dg230"></script>
 <style>
   /* ═══════════════════════════════════════════════════════════════════════
      即時量測分頁（DG 第 2 部分的第二個輸入管道）
@@ -594,6 +594,18 @@
     background: transparent; box-shadow: inset 0 0 0 1.5px #334155; color: #cbd5e1;
   }
   .dgm-cmp-act button.dgm-hidden { display: none; }
+  /* v2.3.0：「查看光學資料比較 ↗」＝線框次要鈕（沿用 .dgm-cmp-act button 的預設樣式，不另給底色）；
+     開不了新分頁時的提示比照自檢頁 .dst-back-cta（主色實心、大字、↗）。提示出現時它就是
+     「現在該做的事」⇒ 「關閉」讓位成線框（#dgm-cmp-modal.dgm-going）。 */
+  #dgm-cmp-go {
+    display: flex; align-items: center; gap: calc(10 * var(--dgm-cu)); margin-top: calc(10 * var(--dgm-cu));
+    background: #2563eb; color: #fff; border: 2px solid #93c5fd; border-radius: calc(10 * var(--dgm-cu));
+    padding: calc(12 * var(--dgm-cu)) calc(14 * var(--dgm-cu));
+    font-size: calc(18 * var(--dgm-cu)); font-weight: 700; line-height: 1.45;
+  }
+  #dgm-cmp-go .dgm-go-ico { font-size: calc(22 * var(--dgm-cu)); line-height: 1; }
+  #dgm-cmp-go.dgm-hidden { display: none; }
+  #dgm-cmp-modal.dgm-going #dgm-cmp-ok { background: #0f172a; border-color: #334155; color: #cbd5e1; }
   /* 量完之後的「加入光學資料比較…」：放在底部說明區（它本身 pointer-events:none，這一列要打開） */
   #dgm-cmp-row { pointer-events: auto; display: flex; align-items: center; gap: calc(10 * var(--dgm-cu));
                  padding: calc(6 * var(--dgm-cu)) calc(10 * var(--dgm-cu)); border-radius: calc(10 * var(--dgm-cu));
@@ -905,8 +917,11 @@
     <div class="dgm-cmp-sub" id="dgm-cmp-warn"></div>
     <label class="dgm-cmp-name"><span id="dgm-cmp-name-lb"></span><input type="text" id="dgm-cmp-name" maxlength="60" autocomplete="off"></label>
     <div id="dgm-cmp-res"></div>
+    <!-- v2.3.0：開不了新分頁時的提示（樣式比照自檢頁「已送回 DG」） -->
+    <div id="dgm-cmp-go" class="dgm-hidden" role="status"><span class="dgm-go-ico">↗</span><span id="dgm-cmp-go-txt"></span></div>
     <div class="dgm-cmp-act">
       <button id="dgm-cmp-cancel" type="button"></button>
+      <button id="dgm-cmp-view" type="button" class="dgm-hidden"></button>
       <button id="dgm-cmp-ok" type="button"></button>
     </div>
   </div>
@@ -3766,7 +3781,7 @@
     if (DGM_MODE === 'gray') {
       dgmCmpLast = { task: DGM_TASK, rows: rows, prim: primRows, durMs: durMs, settleMs: dgmSettleUsedMs,
                      at: new Date().toLocaleString(), dest: DGM_DEST };
-      dgmCmpSaved = null;
+      dgmCmpSaved = null; dgmCmpStored = null;
       dgmCmpOpen();
     }
   }
@@ -3908,7 +3923,9 @@
     noDg:    { 'zh-TW': '找不到 DG 分頁，沒有送出。', 'en': 'The DG tab is gone; nothing was sent.', 'zh-CN': '找不到 DG 分页，没有送出。' },
     open:    { 'zh-TW': '加入光學資料比較…', 'en': 'Add to optical comparison…', 'zh-CN': '加入光学数据比较…' },
     stNo:    { 'zh-TW': '這一輪還沒加入「光學資料比較」。', 'en': 'This round is not in the optical comparison yet.', 'zh-CN': '这一轮还没加入“光学数据比较”。' },
-    stYes:   { 'zh-TW': '已加入第 {no} 筆（{name}）。', 'en': 'Added as set {no} ({name}).', 'zh-CN': '已加入第 {no} 笔（{name}）。' }
+    stYes:   { 'zh-TW': '已加入第 {no} 筆（{name}）。', 'en': 'Added as set {no} ({name}).', 'zh-CN': '已加入第 {no} 笔（{name}）。' },
+    view:    { 'zh-TW': '查看光學資料比較 ↗', 'en': 'View optical comparison ↗', 'zh-CN': '查看光学数据比较 ↗' },
+    go:      { 'zh-TW': '請切回 DG 分頁，點「光學資料比較」查看', 'en': 'Switch back to the DG tab and open "Optical data comparison"', 'zh-CN': '请切回 DG 分页，点“光学数据比较”查看' }
   };
   function dgmLang() {
     var l = 'zh-TW';
@@ -3921,7 +3938,8 @@
     return s;
   }
   var dgmCmpLast = null, dgmCmpInfo = null, dgmCmpPhase = 'idle', dgmCmpRes = null,
-      dgmCmpEdited = false, dgmCmpT = null, dgmCmpSaved = null;
+      dgmCmpEdited = false, dgmCmpT = null, dgmCmpSaved = null,
+      dgmCmpStored = null, dgmCmpGo = false;   // v2.3.0：DG 的存檔有沒有寫成／顯示「請切回 DG」提示
   function dgmCmpWhat() {
     var I = dgmCmpInfo || {}, parts = [];
     if (typeof I.round === 'number' && I.round > 0) parts.push(dgmCT('round', { n: I.round }));
@@ -3963,7 +3981,32 @@
     $('dgm-cmp-ok').textContent = done ? dgmCT('close') : (dgmCmpPhase === 'send') ? dgmCT('sending') : dgmCT('ok');
     $('dgm-cmp-ok').disabled = (dgmCmpPhase === 'send');
     $('dgm-cmp-name').disabled = (dgmCmpPhase === 'send' || done);
+    // v2.3.0：這一份確定在比較清單裡才出現「查看光學資料比較 ↗」（線框，不搶「確定／關閉」）
+    $('dgm-cmp-view').textContent = dgmCT('view');
+    $('dgm-cmp-view').classList.toggle('dgm-hidden', !dgmCmpSaved || dgmCmpPhase === 'send');
+    $('dgm-cmp-go-txt').textContent = dgmCT('go');
+    $('dgm-cmp-go').classList.toggle('dgm-hidden', !dgmCmpGo);
+    $('dgm-cmp-modal').classList.toggle('dgm-going', dgmCmpGo);
     dgmCmpRowRender();
+  }
+  /* v2.3.0：開 DG「光學資料比較」唯讀檢視（dg.html?view=cmp）。與自檢頁 dstCmpView 同一套：
+     使用者點的 ⇒ 不會被擋；固定視窗名 ⇒ 重按沿用同一個分頁；開不了或 DG 存檔沒寫成 ⇒ 提示切回 DG。 */
+  function dgmCmpView() {
+    var w = null;
+    if (dgmCmpStored !== false) {
+      try { w = window.open('dg.html?view=cmp', 'tcon-dg-cmpview'); } catch (e) { w = null; }
+    }
+    if (!w) {
+      dgmCmpGo = true;
+      log('光學資料比較檢視：' + (dgmCmpStored === false ? 'DG 的自動保存沒寫成' : '新分頁被擋') + '，請切回 DG 分頁查看', 'e');
+      dgmCmpRender();
+      return false;
+    }
+    try { w.opener = null; } catch (e) {}
+    try { w.focus(); } catch (e) {}
+    dgmCmpGo = false;
+    dgmCmpRender();
+    return true;
   }
   function dgmCmpRowRender() {
     $('dgm-cmp-row').classList.toggle('dgm-hidden', !dgmCmpLast);
@@ -3977,7 +4020,7 @@
   }
   function dgmCmpOpen() {
     if (!dgmCmpLast) return;
-    dgmCmpInfo = null; dgmCmpRes = null; dgmCmpEdited = false;
+    dgmCmpInfo = null; dgmCmpRes = null; dgmCmpEdited = false; dgmCmpGo = false;
     $('dgm-cmp-name').value = dgmCmpSaved ? dgmCmpSaved.name : '';
     dgmCmpPhase = 'ask';
     clearTimeout(dgmCmpT);
@@ -4045,6 +4088,7 @@
     dgmCmpApplyAdded(d);
     if (d.ok) {
       dgmCmpSaved = { no: d.no, name: String(d.name || '') };
+      dgmCmpStored = (typeof d.stored === 'boolean') ? d.stored : null;
       dgmCmpRes = { cls: 'ok', text: d.updated
         ? dgmCT('updated', { no: d.no, name: String(d.name || ''), n: d.count })
         : dgmCT('added', { n: d.count }) };
@@ -4059,6 +4103,7 @@
   }
   $('dgm-cmp-ok').addEventListener('click', dgmCmpOk);
   $('dgm-cmp-cancel').addEventListener('click', dgmCmpClose);
+  $('dgm-cmp-view').addEventListener('click', dgmCmpView);
   $('dgm-cmp-open').addEventListener('click', dgmCmpOpen);
   $('dgm-cmp-name').addEventListener('input', function () { dgmCmpEdited = true; });
   $('dgm-cmp-name').addEventListener('keydown', function (e) {
