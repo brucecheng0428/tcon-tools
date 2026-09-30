@@ -44,6 +44,7 @@ python3 tests/dgself/run.py --list      # 列出情境與網址參數
 | V-OPEN／BLK／NOSTORE／EN | V_cmp_view.js | v2.5.0 視窗「查看光學資料比較 ↗」：確定前不出現、加入後出現且為線框（「關閉」仍是唯一實心）、開 `dg.html?view=cmp`（固定視窗名、斷 opener）、被擋或 DG 存檔沒寫成 ⇒「請切回 DG 分頁…」提示（比照「已送回 DG」、成為唯一實心）、三語 |
 | DV-OPEN／BLK | DV_measure_view.js | dg-measure.html 同一顆鈕與提示 |
 | DGV | DGV_cmp_view.js | dg.html：（v2.3.1 起加：storage 事件漏掉時切回分頁會重讀、存檔沒變不重畫）加入後立刻寫自動保存（回覆 stored）；`?view=cmp` 唯讀檢視只剩比較分頁、改資料的鈕藏起來、不寫存檔、不收訊息、storage 事件即時更新（含 iframe 裡另一份 DG 真的寫入）、讀不到存檔時提示切回 DG |
+| X-ON／OFF／NR／ALT／EN | X_lut_export.js | v2.6.0「DG LUT（RGB）檢視」的「匯出 Excel」：有表才可按、線框次要鈕；DG_EN ON 直接下載，OFF（等距表）先問「目前是等間距 LUT（DG_EN OFF），確定要匯出？」、取消不下載；檔名 `DG_LUT_<IC>_<YYYYMMDD>_<HHMM>_R<輪>.xlsx`（不知道輪次就不寫 _R）；解開 xlsx 逐列比對卡上的表（工作表 DG_12bit、B1:D1 合併、259 列含末筆）；撞號選到沒有確認格式的 IC ⇒ 不匯出並講明；三語 |
 
 ## 新增情境
 

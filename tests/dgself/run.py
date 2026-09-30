@@ -69,6 +69,12 @@ SCENARIOS = [
     ('DV-OPEN',   'DV_measure_view.js',       '?task=7',              True,  {'__viewCase': 'OPEN'},     False, 'dg-measure.html'),
     ('DV-BLK',    'DV_measure_view.js',       '?task=7',              True,  {'__viewCase': 'BLK'},      False, 'dg-measure.html'),
     ('DGV',       'DGV_cmp_view.js',          '',                     False, {},                         False, 'dg.html'),
+    # v2.6.0：DG LUT（RGB）檢視「匯出 Excel」（格式與 DG 第 3 部分同一份 common/dglut-fmt.js）
+    ('X-ON',      'X_lut_export.js',          '?round=2&job=main',    True,  {'__xCase': 'ON'},          False),
+    ('X-OFF',     'X_lut_export.js',          '?round=2&job=main',    True,  {'__xCase': 'OFF'},         False),
+    ('X-NR',      'X_lut_export.js',          '',                     False, {'__xCase': 'NR'},          False),
+    ('X-ALT',     'X_lut_export.js',          '?round=2&job=main',    True,  {'__xCase': 'ALT'},         False),
+    ('X-EN',      'X_lut_export.js',          '?round=2&job=main',    True,  {'__xCase': 'EN'},          False),
 ]
 TIMEOUT = 120   # 秒；最長的 H 約 40 秒
 SHOTS = os.environ.get('DGSELF_SHOTS')   # 設了就在每個情境跑完時截一張 <名稱>.png 到這個資料夾（停在情境最後的畫面）
