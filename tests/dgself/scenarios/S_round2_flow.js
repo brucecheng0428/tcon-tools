@@ -6,7 +6,7 @@
    NEXT   ＝決策框「不滿意 → 回 DG 做下一輪」⇒ 叫 opener.focus()；本頁仍在前景 ⇒ 講明要自己點 DG 分頁
    DECL   ＝視窗選「不加入」⇒ ④ 沒有按鈕、只有「這一輪沒有加入比較。」＋「加入比較」小連結；連結重開視窗；
             加入之後變「已加入比較 ✓ · 查看比較」，點「查看比較」開 dg.html?view=cmp
-   R1     ＝第 1 輪（同一條路）：決策框不出現、④ 的鈕還在、「讀取 DG LUT」還在（第 1 輪一個字都沒動）
+   R1     ＝第 1 輪（同一條路）：決策框不出現、「讀取 DG LUT」還在；④ 的「不加入」連結（v2.7.1 起每一輪都一樣）
    EN／CN ＝決策框與 ④ 狀態三語 */
 (async function () {
   var C = window.__sCase || 'AUTO';
@@ -100,9 +100,9 @@
 
     if (C === 'R1') {
       document.getElementById('dst-cmp-cancel').click(); await __wait(300);
-      __ok('S-R1 cancel label unchanged (取消)', true);
       __ok('S-R1 no decision box in round 1', !__vis('dst-dec'));
-      __ok('S-R1 ④ re-add button still there', __vis('dst-cmp-open') && tx('dst-cmp-open') === '加入光學資料比較…' && tx('dst-cmp-state') === '這一輪還沒加入「光學資料比較」。', tx('dst-cmp-state'));
+      __ok('S-R1 ④ (v2.7.1 applies to round 1 too): declined ⇒ no button, state + add link', !__vis('dst-cmp-open')
+        && tx('dst-cmp-state') === '這一輪沒有加入比較。加入比較', tx('dst-cmp-state'));
       __ok('S-R1 read button still there', __vis('dst-lut-read'));
       __ok('S-R1 back-to-DG CTA still the solid one', document.getElementById('dst-back-warn').classList.contains('dst-back-cta'));
       __ok('S-R1 no compare line in round 1', !__vis('dst-lut-chk'));

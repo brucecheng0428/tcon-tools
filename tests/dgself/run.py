@@ -58,6 +58,9 @@ SCENARIOS = [
     ('DM-C',      'DM_measure_cmp.js',        '?task=7',              True,  {'__cmpCase': 'C'},         False, 'dg-measure.html'),
     ('DM-EN',     'DM_measure_cmp.js',        '?task=7',              True,  {'__cmpCase': 'EN'},        False, 'dg-measure.html'),
     ('DM-PRIM',   'DM_measure_cmp.js',        '?task=7&mode=prim',    True,  {'__cmpCase': 'PRIM'},      False, 'dg-measure.html'),
+    # dg v2.4.1：視窗裡直接加入 ⇒ 底部不出現鈕；簡中字面
+    ('DM-ADD',    'DM_measure_cmp.js',        '?task=7',              True,  {'__cmpCase': 'ADD'},       False, 'dg-measure.html'),
+    ('DM-CN',     'DM_measure_cmp.js',        '?task=7',              True,  {'__cmpCase': 'CN'},        False, 'dg-measure.html'),
     # dg.html：收量測結果不自動加、查詢／加入／更新／滿載／舊版量測頁照舊自動加
     ('DG',        'DG_cmp_handler.js',        '',                     False, {},                         False, 'dg.html'),
     ('DG-NR',     'DG_cmp_handler.js',        '',                     False, {'__dgCase': 'NR'},         False, 'dg.html'),
