@@ -9,6 +9,8 @@
             唯一實心＝下載；進行第二輪 ⇒ 第 1／2 部分、計算都是 ✓，停在第 4 部分（捲到那裡）
      UNLOCK v2.4.6 固定 1→2→3：電腦畫面模式按了「解除依序限制」⇒ 還沒到的部分**仍然不出現**；做完的點開可以重做
      AUTO   v2.4.6 自檢頁帶回來、第 1／3 部分已經自動填好 ⇒ 兩個都是 ✓，停在第 2 部分（捲過去）；第 2 部分填齊 ⇒ 直接到計算
+     PC／PQ v2.4.7 電腦畫面（PQ＝匯入 PQ Tools、還沒選模式）：算完 ⇒ 輸出卡自動展開、下載是唯一實心、④ 線框、不跳視窗；
+            下載之後 ⇒ 問「要不要確認」、④ 實心、第 4 部分醒目框；輸出卡不收
      CONV   深度轉換分頁：只有 ①；匯入一張真的 LUT 檔 ⇒ ✓ ①（帶檔名）、② 出現並捲過去；下載 ⇒ ✓ ②；點 ✓ 行展開
      EN     深度轉換分頁兩個步驟名跟著語言 */
 (async function () {
@@ -92,7 +94,8 @@
       __done(); return;
     }
 
-    DG_WMODE = (C === 'UNLOCK') ? 'pc' : 'tcon'; DG_PQ = false; dgWmodeSync(); DG_ROUND = 1;
+    var SHOT = (C === 'SHOT-OUT'); if (SHOT) C = 'PC';   // 截圖用：停在「算完、輪到輸出」那一刻
+    DG_WMODE = (C === 'UNLOCK' || C === 'PC') ? 'pc' : (C === 'PQ') ? null : 'tcon'; DG_PQ = (C === 'PQ'); dgWmodeSync(); DG_ROUND = 1;
     await __wait(50);
     __ok('Q0 mode chosen ⇒ "✓ …" line on top', has('dg-card-wmode', 'tc-step-done'));
     __ok('Q0 only part 1 shown; parts 2/3 and 計算 hidden (not even titles)', vis($('dg-part-lut').querySelector('.dg-part-head'))
@@ -169,6 +172,26 @@
     ln.click(); await __wait(50);
     __ok('Q3 click again ⇒ collapsed', has('dg-part-gray', 'tc-step-done') && !vis($('dg-part-gray').querySelector('.dg-part-body')));
 
+    if (C === 'PC' || C === 'PQ') {
+      scrolled.length = 0;
+      $('dg-btn-calc').click(); await __wait(300);
+      __ok('QP1 calculated ⇒ no pop-up yet; output card opened by itself', !$('dg-modal-conf').classList.contains('open') && !has('dg-card-result', 'dg-fold')
+        && vis('dg-btn-lutfile'));
+      __ok('QP1 the only solid button = 下載新產出 RGB LUT 檔 (④ outline, part 4 not highlighted)', solids().join(',') === 'dg-btn-lutfile'
+        && !$('dg-btn-conf-setup').classList.contains('dg-btn-imp') && !has('dg-card-p4', 'dg-fs-hot'), solids().join(','));
+      __ok('QP1 focus moved to the output card', scrolled.indexOf('dg-card-result') >= 0, JSON.stringify(scrolled));
+      if (SHOT) { window.scrollTo(0, Math.max(0, $('dg-card-result').getBoundingClientRect().top + window.pageYOffset - 140)); await __wait(300); __done(); return; }
+      var ac = HTMLAnchorElement.prototype.click; HTMLAnchorElement.prototype.click = function () {};
+      $('dg-btn-lutfile').click(); await __wait(100);
+      HTMLAnchorElement.prototype.click = ac;
+      __ok('QP2 downloaded ⇒ now asks "confirm this round?"', $('dg-modal-conf').classList.contains('open')
+        && $('dg-modal-conf').querySelector('[data-step="ask"]').style.display !== 'none');
+      $('dg-btn-conf-no').click(); await __wait(50);
+      __ok('QP2 part 4 is the step: ④ solid, highlighted; download no longer solid; output card stays open', $('dg-btn-conf-setup').classList.contains('dg-btn-imp')
+        && has('dg-card-p4', 'dg-fs-hot') && !$('dg-btn-lutfile').classList.contains('primary') && vis('dg-btn-lutfile'), solids().join(','));
+      __done(); return;
+    }
+
     if (C === 'FLOW') {
       $('dg-btn-calc').click(); await __wait(300);
       if ($('dg-modal-conf').classList.contains('open')) $('dg-btn-conf-no').click();
@@ -177,6 +200,7 @@
         && $('dg-done-calc').textContent === '✓ 開始計算新的 RGB LUT' && vis('dg-btn-conf-setup') && !has('dg-card-p4', 'tc-step-done'), $('dg-done-calc').textContent + ' lut=' + !!lastLut + ' p4cls=' + $('dg-card-p4').className
         + ' modal=' + $('dg-modal-conf').className + ' confVis=' + vis('dg-btn-conf-setup') + ' res=' + $('dg-card-result').className);
       var p4c = $('dg-card-p4'), p4s = getComputedStyle(p4c);
+      __ok('QF1 T-CON mode unchanged: output card folded, ④ solid', has('dg-card-result', 'dg-fold') && $('dg-btn-conf-setup').classList.contains('dg-btn-imp'));
       __ok('QF1 part 4 highlighted as the current step (2px primary border)', has('dg-card-p4', 'dg-fs-hot') && p4s.borderTopWidth === '2px'
         && p4s.borderTopColor === 'rgb(37, 99, 235)', p4s.borderTopWidth + ' ' + p4s.borderTopColor);
       __ok('QF1 output card folded until the flow is done (title visible, click to open)', vis(hd('dg-card-result')) && !vis('dg-btn-lutfile')

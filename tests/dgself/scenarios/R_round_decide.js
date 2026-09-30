@@ -5,6 +5,7 @@
        第 1 輪算完照舊問「要不要確認」（有「先不確認」）；第 2 輪起不再問，直接到下一層
        （電腦畫面＝path、自檢＝push、沒選模式＝wpick），「先不確認」那一層不出現；
        換一份確認量測 ⇒「停在第 N 輪」收掉。
+   v2.4.7：電腦畫面／PQ 匯入（沒選模式）算完先停在「輸出」，下載 LUT 之後才問 ⇒ 這兩種先 takeLut() 再看視窗。
    __rCase：PC／TCON／NOMODE（行為）、SHOT-DECIDE／SHOT-VIEW／SHOT-NEXT（停在要截圖的畫面）。 */
 (async function () {
   try {
@@ -25,6 +26,12 @@
       return s;
     }
     var mode = (C === 'TCON') ? 'tcon' : (C === 'NOMODE') ? null : 'pc';
+    var byFile = mode !== 'tcon';
+    function takeLut() {
+      var ac = HTMLAnchorElement.prototype.click; HTMLAnchorElement.prototype.click = function () {};
+      $('dg-btn-lutfile').click();
+      HTMLAnchorElement.prototype.click = ac;
+    }
     /* 直接設（不走 dgWmodeSet：tcon 會去開自檢分頁）。沒選模式＝走入口③（DG_PQ）。 */
     DG_WMODE = mode;
     DG_PQ = !mode;
@@ -40,6 +47,10 @@
     dgDoCalc();
     await __wait(100);
     __ok('R0 round 1 has a result', !!lastLut, dgMissingParts().join(','));
+    if (byFile) {
+      __ok('R0 file mode: no question yet, output is the step', confStep() === null && vis('dg-btn-lutfile'), confStep());
+      takeLut(); await __wait(50);
+    }
     __ok('R0 round 1 still asks "confirm?" (with 先不確認)', confStep() === 'ask' && vis('dg-btn-conf-no'), confStep());
     $('dg-btn-conf-no').click();
     __ok('R0 decide box hidden before any confirmation measurement', !vis('dg-conf-decide'));
@@ -106,6 +117,10 @@
     bn.click();
     await __wait(700);
     __ok('R4 next round started (round 2)', DG_ROUND === 2 && !!lastLut, DG_ROUND);
+    if (byFile) {
+      __ok('R4 file mode: round 2 stops at the output first (no modal)', confStep() === null && vis('dg-btn-lutfile'), confStep());
+      takeLut(); await __wait(50);
+    }
     var want = mode === 'tcon' ? 'push' : mode === 'pc' ? 'path' : 'wpick';
     __ok('R4 round 2: no "confirm?" layer, straight to ' + want, confStep() === want, confStep());
     __ok('R4 先不確認 not shown anywhere', !vis('dg-btn-conf-no'));
