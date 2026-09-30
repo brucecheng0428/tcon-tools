@@ -14,7 +14,7 @@
 <title>TCON 自檢畫面量測 — TCON FAE專用工具箱</title>
 <link rel="stylesheet" href="common/common.css?v=20260903help">
 <!-- 🔴 version.js 必須最先載入（common/version.js 開頭那條規則）。 -->
-<script src="common/version.js?v=20260930dst261"></script>
+<script src="common/version.js?v=20260930dst270"></script>
 <style>
   /* ═══ 本頁專屬樣式 ════════════════════════════════════════════════════════
      只寫這一頁真的需要、而 common.css 沒有的東西。顏色一律走 common.css 的
@@ -502,6 +502,14 @@
   .dst-cmp-go .dst-cta-ico { font-size: 22px; line-height: 1; }
   .dst-cmp-go.dst-hidden { display: none; }
   #dst-modal-cmp.dst-cmp-going #dst-cmp-ok.dst-main { background: transparent; border-color: var(--border); color: var(--text); }
+  /* v2.7.0：第 2 輪以後的決策框（量測結果正下方）。實心與否由 dstRenderMain() 決定 ——
+     「滿意 → 匯出」掛 .dst-main 時就是全頁唯一的實心；視窗開著時上面兩條 body.dst-*-on 規則照樣讓它讓位。 */
+  .dst-dec { margin-top: 12px; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+  .dst-dec-q { font-weight: 700; color: var(--text); }
+  /* ④ 那一列的小連結（「查看比較」「加入比較」）：文字連結，不是按鈕 ⇒ 不參與「唯一實心」 */
+  .dst-link { background: none; border: 0; padding: 0; margin-left: 6px; font: inherit; color: #93c5fd;
+    text-decoration: underline; cursor: pointer; }
+  .dst-link:hover { color: #bfdbfe; }
 
   /* 外框：2px → 1px（dg 的 .dg-part 同一個粗細） */
   .dst-box { border-width: 1px; }
@@ -1219,6 +1227,8 @@
       <!-- v2.1.0：DG_EN 關著時這張卡給的是等間距表、沒有讀 T-CON —— 一行小字講明（dstRenderLut）。 -->
       <div class="dst-note dst-hidden" id="dst-lut-identnote" data-i18n="dst.lutIdentNote">DG_EN 關閉，使用等間距 LUT，沒有讀取 T-CON。</div>
       <div class="dst-say" id="dst-say-lut"></div>
+      <!-- v2.7.0：第 2 輪以後，讀回的表與 DG 送來的表逐筆比對的結果（dstRenderLutChk） -->
+      <div class="dst-say dst-hidden" id="dst-lut-chk"></div>
       <div class="dst-say" id="dst-say-lutx"></div>
 
       <div id="dst-lut-body" class="dst-hidden">
@@ -1289,6 +1299,19 @@
           <thead><tr><th data-i18n="dst.thStep">階</th><th>x</th><th>y</th><th>Y</th></tr></thead>
           <tbody id="dst-res"></tbody>
         </table>
+      </div>
+      <!-- ═══ v2.7.0：第 2 輪以後的決策框（Bruce 2026-09-30 核准）══════════════════
+           「第二輪以後量測都是在確認結果…滿意的話更重要的是 DG LUT 的匯出 Excel」。
+           緊貼在量測結果正下方；滿意 ⇒ 匯出（全頁唯一實心）、不滿意 ⇒ 切回 DG 分頁。
+           顯示條件與內容由 dstRenderDecide() 決定；第 1 輪永遠不出現。 -->
+      <div class="dst-dec dst-hidden" id="dst-dec">
+        <div class="dst-dec-q" id="dst-dec-q"></div>
+        <div class="dst-row" style="margin-top:8px">
+          <button class="dst-btn" id="dst-dec-export"></button>
+          <button class="dst-btn" id="dst-dec-next"></button>
+        </div>
+        <div class="dst-note dst-hidden" id="dst-dec-why" style="margin-top:6px"></div>
+        <div class="dst-say" id="dst-say-dec"></div>
       </div>
     </div>
   </div>
@@ -2058,6 +2081,53 @@ if (typeof I18N === 'object' && I18N) {
     'en': 'The full English details are in i2c-bridge.log, next to the exe.',
     'zh-CN': '完整的英文细节在 exe 旁边的 i2c-bridge.log。'
   };
+  /* ═══ v2.7.0：第 2 輪以後的流程精簡（Bruce 2026-09-30 核准方案，見 dstR2()）═══ */
+  I18N['dst.decQ']      = { 'zh-TW': '這一輪的光學結果滿意嗎？', 'en': 'Happy with this round’s optical result?', 'zh-CN': '这一轮的光学结果满意吗？' };
+  I18N['dst.decExport'] = { 'zh-TW': '滿意 → 匯出 DG LUT（Excel）', 'en': 'Satisfied → Export DG LUT (Excel)', 'zh-CN': '满意 → 导出 DG LUT（Excel）' };
+  I18N['dst.decNext']   = { 'zh-TW': '不滿意 → 回 DG 做下一輪', 'en': 'Not yet → Back to DG for the next round', 'zh-CN': '不满意 → 回 DG 做下一轮' };
+  I18N['dst.decWaitLut'] = {
+    'zh-TW': 'DG LUT 還沒從 T-CON 讀回，讀回後才能匯出。',
+    'en': 'The DG LUT has not been read back from the T-CON yet; export is available once it is.',
+    'zh-CN': 'DG LUT 还没从 T-CON 读回，读回后才能导出。'
+  };
+  I18N['dst.decLutBad'] = {
+    'zh-TW': '不能匯出：T-CON 讀回的 LUT 與 DG 送來的不一致（見「DG LUT（RGB）檢視」）。',
+    'en': 'Cannot export: the LUT read back from the T-CON does not match what DG sent (see “DG LUT (RGB) view”).',
+    'zh-CN': '不能导出：T-CON 读回的 LUT 与 DG 送来的不一致（见“DG LUT（RGB）检视”）。'
+  };
+  I18N['dst.lutChkOk'] = {
+    'zh-TW': '✓ 與 DG 送來的 LUT 逐筆相符（{n} 筆 × RGB）',
+    'en': '✓ Matches the LUT DG sent, entry by entry ({n} entries × RGB)',
+    'zh-CN': '✓ 与 DG 送来的 LUT 逐笔相符（{n} 笔 × RGB）'
+  };
+  I18N['dst.lutChkBad'] = {
+    'zh-TW': '⚠ T-CON 讀回的 LUT 與 DG 送來的不一致：第 {i} 筆 {ch} 送出 {want}、讀回 {got}（共 {n} 處）。這張表不能匯出；請回 DG 第 4 部分重新更新 T-CON RGB LUT。',
+    'en': '⚠ The LUT read back from the T-CON does not match what DG sent: entry {i} {ch} sent {want}, read {got} ({n} differences). This table cannot be exported; go back to DG part 4 and update the T-CON RGB LUT again.',
+    'zh-CN': '⚠ T-CON 读回的 LUT 与 DG 送来的不一致：第 {i} 笔 {ch} 送出 {want}、读回 {got}（共 {n} 处）。这张表不能导出；请回 DG 第 4 部分重新更新 T-CON RGB LUT。'
+  };
+  I18N['dst.lutChkNone'] = {
+    'zh-TW': '本頁沒有收到 DG 送來的 LUT（例如頁面重新整理過），無法逐筆比對。',
+    'en': 'This page has not received the LUT DG sent (for example after a reload), so it cannot be compared entry by entry.',
+    'zh-CN': '本页没有收到 DG 送来的 LUT（例如页面重新整理过），无法逐笔比对。'
+  };
+  I18N['dst.backSentR2'] = { 'zh-TW': '已回傳 DG。', 'en': 'Sent back to DG.', 'zh-CN': '已回传 DG。' };
+  /* 第 2 輪以後的送出訊息：事實（幾筆、到哪一部分）與 dst.dgSent／dgSentBoth 相同，只把「請切回 DG 分頁繼續」
+     換成指向決策框 —— 兩句同時出現就是在叫他做兩件相反的事。 */
+  I18N['dst.dgSentR2'] = {
+    'zh-TW': '✔ {n} 筆已回到 DG 的{dest}。請在結果下方選「滿意」或「不滿意」。',
+    'en': '✔ {n} rows are back in DG ({dest}). Choose “Satisfied” or “Not yet” below the results.',
+    'zh-CN': '✔ {n} 笔已回到 DG 的{dest}。请在结果下方选「满意」或「不满意」。'
+  };
+  I18N['dst.dgSentBothR2'] = {
+    'zh-TW': '✔ {n} 筆白灰階已回到 DG 的{dest}，{prim} {np} 筆回到{dest3}。請在結果下方選「滿意」或「不滿意」。',
+    'en': '✔ {n} gray-scale entries went back to DG ({dest}); the {np} {prim} readings went to {dest3}. Choose “Satisfied” or “Not yet” below the results.',
+    'zh-CN': '✔ {n} 笔白灰阶已回到 DG 的{dest}，{prim} {np} 笔回到{dest3}。请在结果下方选「满意」或「不满意」。'
+  };
+  I18N['dst.cmpStYesR2'] = { 'zh-TW': '已加入比較 ✓', 'en': 'Added to the comparison ✓', 'zh-CN': '已加入比较 ✓' };
+  I18N['dst.cmpViewLink'] = { 'zh-TW': '查看比較', 'en': 'View comparison', 'zh-CN': '查看比较' };
+  I18N['dst.cmpStDeclined'] = { 'zh-TW': '這一輪沒有加入比較。', 'en': 'This round was not added to the comparison.', 'zh-CN': '这一轮没有加入比较。' };
+  I18N['dst.cmpAddLink'] = { 'zh-TW': '加入比較', 'en': 'Add to comparison', 'zh-CN': '加入比较' };
+  I18N['dst.cmpDecline'] = { 'zh-TW': '不加入', 'en': 'Don’t add', 'zh-CN': '不加入' };
 }
 
 /* ═══ 常數 ═══════════════════════════════════════════════════════════════ */
@@ -4381,6 +4451,52 @@ async function dstLutWriteAhb(memSlave, base, bytes, onProg) {
 var dstLutWriteBusy = false;
 /* 最近一次更新的結果（畫面與夾具都讀這一個，不各自記一份）。 */
 var dstLutWriteLast = null;
+/* ═══ v2.7.0：DG 最近一次送來要寫進 T-CON 的那張表（已通過 ② 的檢查）═══════════════════
+   Bruce 2026-09-30 核准方案第 4 條：「第二輪以後，強制寫入 TCON 後自動讀回…讀回的值要和 DG
+   送來的 LUT 比對，不一致就明顯警告，並且不能讓人匯出錯的值。」
+   🔴 寫入那一條（dstWriteDgLut ④）本來就會讀回核對，但 `sent` 只活在那一支裡 —— 換輪時
+      dstClearRound() 清掉卡片、之後再讀一次（自動或手動）就沒有東西可以比。這裡把它留下來。
+   🔴 與 `dstLutVerified` 同一個生命週期理由：它記的是「DG 要 T-CON 裡是哪一張表」，
+      不隨換一份工作而改變，所以 dstClearRound() **不清**它；下一次 DG 再送就覆蓋。
+   形狀 { r, g, b（含附加末筆）, main, icKey }。頁面重新整理過就是 null（本頁無從得知）。 */
+var dstLutSent = null;
+/* 第 2 輪以後（而且是 DG 開的）。🔴 刻意**不**沿用 dstDgWantOn()：那一支把第 1 輪的
+   「確認結果」也算進去（自動開 DG_EN 需要），而這次的流程精簡只限第 2 輪以後（Bruce 原話）。 */
+function dstR2() { return dstDgAlive() && dstDgRound !== null && dstDgRound >= 2; }
+/* 讀回的表 vs DG 送來的表。只在第 2 輪以後、卡上是 T-CON 讀回的表時才比。
+   回 null（不適用）／{st:'none'}（沒有可比的）／{st:'ok', n}／{st:'bad', d}。 */
+function dstLutChk() {
+  if (!dstR2() || !dstLut || dstLut.src !== 'tcon') return null;
+  if (!dstLutSent || dstLutSent.icKey !== dstLut.icKey
+      || dstLut.rgb.r.length < dstLutSent.main) return { st: 'none' };
+  var d = dstLutDiff(dstLutSent, dstLut.rgb, dstLutSent.main);
+  return d.first ? { st: 'bad', d: d } : { st: 'ok', n: dstLutSent.main };
+}
+/* 卡上這張表**已知**與 DG 送來的不一致 ⇒ 不能匯出（卡上那顆與決策框那顆都擋）。 */
+function dstLutBlocked() { var c = dstLutChk(); return !!(c && c.st === 'bad'); }
+function dstRenderLutChk() {
+  var e = $('dst-lut-chk'); if (!e) return;
+  var c = dstLutBusy ? null : dstLutChk();
+  e.classList.toggle('dst-hidden', !c);
+  if (!c) { dstSay('dst-lut-chk', ''); return; }
+  if (c.st === 'bad') {
+    var f = c.d.first;
+    dstSay('dst-lut-chk', dstT('dst.lutChkBad', { i: f.i, ch: f.ch, want: f.want, got: f.got, n: c.d.n < 0 ? '>8' : c.d.n }));
+  } else {
+    dstSayInfo('dst-lut-chk', c.st === 'ok' ? dstT('dst.lutChkOk', { n: c.n }) : dstT('dst.lutChkNone'));
+  }
+}
+/* 第 2 輪以後：卡上還沒有表 ⇒ 自動讀一次（不用他手動按）。
+   觸發點沿用既有那組「使用者剛做完一個動作」的時點（dstDgAutoThenStep1：連線／識別／DG 派新工作），
+   不另加計時器（理由見 dstStep1CanAuto 上方）。讀法走「讀取 DG LUT」那顆鈕同一支（先看 DG_EN）。
+   🔴 上一次讀失敗（dstLutErr）就不自動重試 —— 那時卡上會把「讀取 DG LUT」鈕還給他（dstRenderBtns）。 */
+function dstLutAutoR2(src) {
+  if (!dstR2() || dstLut || dstLutErr) return Promise.resolve(false);
+  if (!(dstLinked && dstIc && dstIc.dgLut)) return Promise.resolve(false);
+  if (dstRunning || dstBusy || dstLutBusy || dstLutWriteBusy) return Promise.resolve(false);
+  dstLog('== round ' + dstDgRound + ' (' + src + '): DG LUT card is empty -> auto read-back', 'o');
+  return dstGuard(dstLutReadBtn).then(function () { return !!dstLut; });
+}
 
 /* 把送進來的主表逐筆與讀回來的表比對。回傳對不上的清單（最多留前 8 筆給訊息用）。 */
 function dstLutDiff(sent, got, n) {
@@ -4461,6 +4577,9 @@ async function dstWriteDgLut(payload, onProg) {
     /* 🔴 最後一筆（附加末筆）＝ 2^depth − 1。這不是我們發明的：本頁 `dstLutIdentity()`
        的末筆、DG「計算」那一步印的附加末筆，用的都是同一個值。 */
     for (ci = 0; ci < 3; ci++) sent[chans[ci]].push(spec.valMax);
+    /* v2.7.0：留下來給之後的讀回比對（dstLutChk）。在這裡記（檢查過、還沒寫）：
+       它代表「DG 要 T-CON 裡是哪一張表」—— 寫到一半失敗時更需要它來抓出不一致。 */
+    dstLutSent = { r: sent.r.slice(), g: sent.g.slice(), b: sent.b.slice(), main: main, icKey: ic.key };
 
     /* ═══ 🔴 v1.15.0（B）：offset 模式 ⇒ 送出去之前先驗這張表能不能用 offset 表示。
        不合格**不寫、也不夾**（整段理由在 `dstLutOffsetCheck()` 上方）。
@@ -5542,6 +5661,7 @@ function dstRenderLut() {
   else dstShow('dst-lut-state', '—', false);
 
   dstSay('dst-say-lut', dstLutErrText());
+  dstRenderLutChk();      // v2.7.0：第 2 輪以後，讀回 vs DG 送來的逐筆比對
   var inote = $('dst-lut-identnote');
   if (inote) inote.classList.toggle('dst-hidden', !(!busy && dstLut && dstLut.src === 'ident'));
 
@@ -5653,14 +5773,22 @@ function dstLutExportBuild(when) {
   var bytes = TCONXlsx.build([{ name: fmt.sheetName, rows: rows, merges: fmt.merges }]);
   return { name: dstLutExportName(icName, when), fmt: fmt, rows: rows, bytes: bytes, key: key, ic: icName };
 }
-async function dstLutExport() {
+/* v2.7.0：`sayId` ＝ 結果寫在哪一行（卡上那顆 ⇒ #dst-say-lutx；決策框那顆 ⇒ #dst-say-dec）。 */
+async function dstLutExport(sayId) {
+  var say = (typeof sayId === 'string') ? sayId : 'dst-say-lutx';
   if (!dstLut || dstLutBusy) return;
-  dstSay('dst-say-lutx', '');
+  dstSay(say, '');
+  /* v2.7.0：讀回的表已知與 DG 送來的不一致 ⇒ **不匯出**（按鈕本來就是灰的，這裡是最後一道）。 */
+  if (dstLutBlocked()) {
+    dstSay(say, dstT('dst.decLutBad'));
+    dstLog('!  DG LUT export refused: read-back does not match what DG sent', 'e');
+    return;
+  }
   if (dstLut.src === 'ident' || dstDg.state === 'off') {
     if (!(await dstAsk('dst.lutXAskTitle', 'dst.lutXAskBody', 'dst.lutXAskYes', 'dst.lutXAskNo', true))) return;
   }
   var r = dstLutExportBuild();
-  if (r.err !== undefined) { if (r.err) dstSay('dst-say-lutx', r.err); dstLog('!  DG LUT export: ' + r.err, 'w'); return; }
+  if (r.err !== undefined) { if (r.err) dstSay(say, r.err); dstLog('!  DG LUT export: ' + r.err, 'w'); return; }
   var blob = new Blob([r.bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   var a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -5668,7 +5796,7 @@ async function dstLutExport() {
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
   var fmtTxt = dstT('dst.lutXFmt', { sheet: r.fmt.sheetName, n: r.fmt.entries, tail: r.fmt.hasTail ? dstT('dst.lutXTail') : '' });
-  dstSayInfo('dst-say-lutx', dstT('dst.lutXOk', { file: r.name, fmt: fmtTxt }));
+  dstSayInfo(say, dstT('dst.lutXOk', { file: r.name, fmt: fmtTxt }));
   dstLog('== DG LUT exported: ' + r.name + '  (' + r.key + ' / ' + r.fmt.hw + ' bit / sheet ' + r.fmt.sheetName
     + ' / ' + r.rows.length + ' rows, src ' + dstLut.src + ')', 'o');
 }
@@ -5897,9 +6025,13 @@ function dstRenderBtns() {
      「連著 ＋ 認得出 IC ＋ 這顆有 dgLut 設定」時可按。 */
   var lr = $('dst-lut-read');
   if (lr) lr.disabled = !(dstLinked && dstIc && dstIc.dgLut) || dstRunning || dstBusy || dstLutBusy;
-  /* v2.6.0：匯出 Excel —— 卡上有表才可按（不碰 I2C，所以不看 dstLinked／dstBusy）。 */
+  /* v2.7.0：第 2 輪以後卡片會自動讀回（dstLutAutoR2），「讀取 DG LUT」收起來、只留「匯出 Excel」。
+     自動讀失敗（dstLutErr）時才把這顆鈕還給他 —— 不然就沒有任何重試的入口。 */
+  if (lr) lr.classList.toggle('dst-hidden', dstR2() && !dstLutErr);
+  /* v2.6.0：匯出 Excel —— 卡上有表才可按（不碰 I2C，所以不看 dstLinked／dstBusy）。
+     v2.7.0：讀回的表已知與 DG 送來的不一致 ⇒ 也不可按（dstLutBlocked）。 */
   var lx = $('dst-lut-xlsx');
-  if (lx) lx.disabled = !dstLut || dstLutBusy || dstRunning;
+  if (lx) lx.disabled = !dstLut || dstLutBusy || dstRunning || dstLutBlocked();
   /* 🔴 v1.8.0：三步清單掛在這裡，不在連線／識別／掃描每一條路上各補一次。
      這一支本來就是本頁「狀態變了要重畫」的唯一匯流點（連線、識別、開始／結束掃描、
      dstGuard 的忙碌旗標全部會經過它）—— 列舉呼叫點漏一個的症狀是「連上了但清單
@@ -6377,11 +6509,13 @@ function dstDgSend() {
   /* 🔴 v1.13.0：這裡原本還有一行 `dstBackSent = true`。④ 的勾現在由
      `dstBackSent()` 從這兩行推導出來（見它的宣告處），**沒有第二個寫入點**。 */
   dstRenderSteps();
+  /* v2.7.0：第 2 輪以後指向結果下方的決策框（不再叫他切回 DG），也不接下面那句「切回去之後…」。 */
+  var r2msg = dstR2();
   var sentMsg = primSent
-    ? dstT('dst.dgSentBoth', { n: rows.length, dest: dstDgDest || 'DG',
+    ? dstT(r2msg ? 'dst.dgSentBothR2' : 'dst.dgSentBoth', { n: rows.length, dest: dstDgDest || 'DG',
                                dest3: DST_STEP_PART.prim,
                                prim: dstT('dst.primGroup'), np: s.prim.length })
-    : dstT('dst.dgSent', { n: rows.length, dest: dstDgDest || 'DG' });
+    : dstT(r2msg ? 'dst.dgSentR2' : 'dst.dgSent', { n: rows.length, dest: dstDgDest || 'DG' });
   /* ═══ 🔴 v1.16.0：確認量測量完，要指路到「回去之後做什麼」═══════════════════
      Bruce 2026-09-22：量完確認量測回到 DG，他「不知道該怎麼樣繼續進行下去」。
      既有的 `dst.dgSent*` 只講到「請切回 DG 分頁繼續」，**切回去之後要做什麼沒有人講**
@@ -6394,7 +6528,7 @@ function dstDgSend() {
      🔴 接在後面、不重複「切回 DG」：前一句已經講過了，這一句以「切回去之後」承接。
      🔴 用空白接、不用 `\n`：`.dst-say` 沒有 `white-space: pre-wrap`，換行字元在
         畫面上不會變成換行（會變成一個看不見的字），那等於兩句被黏成一句。 */
-  if (dstDgJob === 'conf') {
+  if (dstDgJob === 'conf' && !r2msg) {
     sentMsg += ' ' + (dstDgNextBtn
       ? dstT('dst.dgConfNext', { btn: dstDgNextBtn })
       : dstT('dst.dgConfNextNoBtn'));
@@ -6408,9 +6542,12 @@ function dstDgSend() {
     dstCmpLast = { task: dstDgTask, rows: rows, prim: primSent ? s.prim : null, durMs: durMs,
                    settleMs: dstSettleUsedMs, job: dstDgJob, round: dstDgRound, dgEn: dstRunDgEn,
                    at: new Date().toLocaleString() + dgTag };
-    dstCmpSaved = null; dstCmpStored = null;
+    dstCmpSaved = null; dstCmpStored = null; dstCmpDeclined = false; dstCmpRowGo = false;
     dstCmpOpen();
   }
+  /* v2.7.0：沒有跳視窗的那幾種（不是白灰階）⇒ 現在就把決策框捲進畫面；有跳視窗 ⇒ 關掉時才捲。 */
+  dstRenderBtns();
+  dstDecReveal();
   return true;
 }
 
@@ -6749,7 +6886,11 @@ function dstRenderSteps() {
   var bw = $('dst-back-warn');
   if (bw) {
     bw.classList.remove('dst-hidden');
-    var hot = !!(alive && sent);
+    /* v2.7.0：第 2 輪以後「下一步」改由量測結果下方的決策框給（滿意 ⇒ 匯出／不滿意 ⇒ 回 DG），
+       這一行退回一句平鋪的「已回傳 DG。」—— 兩個地方同時叫他「切回 DG」就是兩顆互搶的主動作。
+       第 1 輪一個字都沒動。 */
+    var r2sent = !!(alive && sent && dstR2());
+    var hot = !!(alive && sent) && !r2sent;
     if (hot) {
       /* v2.3.0：醒目的「下一步」提示 ＝ ↗ ＋ 那一句 ＋「切到 DG 分頁」鈕 ＋（按了沒切過去時的）說明。
          說明那一格重畫時保留已顯示的字，免得別的事件一重畫就把它洗掉。 */
@@ -6765,7 +6906,7 @@ function dstRenderSteps() {
       if (keepSub) sub.textContent = keepSub; else sub.classList.add('dst-hidden');
       bw.appendChild(ico); bw.appendChild(tx); bw.appendChild(fb); bw.appendChild(sub);
     } else {
-      bw.textContent = !alive ? dstT('dst.backNoDg') : dstT('dst.backHint');
+      bw.textContent = !alive ? dstT('dst.backNoDg') : r2sent ? dstT('dst.backSentR2') : dstT('dst.backHint');
     }
     /* v2.0.0：不是從 DG 開的 ⇒ 句尾給一個真的出口（自檢頁檢討：沒有出口）。 */
     if (!alive) {
@@ -6857,6 +6998,52 @@ function dstRenderHw() {
 }
 var dstHwAllOk = null;
 
+/* ═══ v2.7.0：第 2 輪以後的決策框（Bruce 2026-09-30 核准方案第 3、5 條）══════════════
+   「第二輪以後量測都是在確認結果…如果當下就已經對這個 DG 的 Gamma 結果滿意，根本就沒有必要
+   再回 DG 頁面繼續產生新的 LUT」⇒ 量測結果正下方兩條路：
+     滿意   ⇒ 匯出 DG LUT（Excel）＝ 卡上那顆「匯出 Excel」同一支 dstLutExport()（格式 v2.6.0）
+     不滿意 ⇒ 切回 DG 分頁（在那邊按「進行第 N+1 輪」）
+   出現條件：第 2 輪以後、這一份量測已經跑完而且真的送回 DG 了（④ 打勾的同一個事實）。 */
+var dstDecShown = false;   // 這一份工作已經把決策框捲進畫面過（只捲一次；dstClearRound 清）
+function dstDecShow() { return dstR2() && dstRunOk && dstBackSent(); }
+function dstRenderDecide() {
+  var box = $('dst-dec'); if (!box) return;
+  var show = dstDecShow();
+  box.classList.toggle('dst-hidden', !show);
+  $('dst-dec-q').textContent = dstT('dst.decQ');
+  $('dst-dec-export').textContent = dstT('dst.decExport');
+  $('dst-dec-next').textContent = dstT('dst.decNext');
+  var why = !show ? ''
+    : dstLutBusy ? dstT('dst.lutBusy')
+    : !dstLut ? dstT('dst.decWaitLut')
+    : dstLutBlocked() ? dstT('dst.decLutBad') : '';
+  $('dst-dec-export').disabled = !show || !!why || dstRunning;
+  var w = $('dst-dec-why');
+  w.textContent = why;
+  w.classList.toggle('dst-hidden', !why);
+}
+/* 把決策框捲進畫面（同一份工作一次）。量完跳「加入光學資料比較？」時，等視窗關掉才捲。 */
+function dstDecReveal() {
+  if (!dstDecShow() || dstDecShown) return;
+  if ($('dst-modal-cmp') && $('dst-modal-cmp').classList.contains('open')) return;
+  dstDecShown = true;
+  dstRenderDecide();
+  var box = $('dst-dec');
+  try { box.scrollIntoView({ block: 'center', behavior: dstReducedMotion() ? 'auto' : 'smooth' }); }
+  catch (e) { box.scrollIntoView(); }
+}
+/* 不滿意 ⇒ 切回 DG 分頁。與 ④ 的「切到 DG 分頁」同一招（dstBackFocusDg）：試 opener.focus()，
+   約 0.4 秒後本頁仍在前景 ⇒ 講明要自己點 DG 分頁（瀏覽器多半不讓網頁切分頁）。 */
+function dstDecNext() {
+  dstLog('== round ' + dstDgRound + ': not satisfied -> back to DG for the next round', 'o');
+  dstSay('dst-say-dec', '');
+  try { if (window.opener && !window.opener.closed) window.opener.focus(); } catch (e) { /* 被擋：只顯示提示 */ }
+  setTimeout(function () {
+    var moved = document.hidden || (document.hasFocus && !document.hasFocus());
+    if (!moved) dstSayInfo('dst-say-dec', dstT('dst.backFocusNo'));
+  }, 400);
+}
+
 /* ═══ 🔴 v2.0.3：全頁只有一顆實心主要動作（dg v2.0.0「只有主要動作是實心藍」）═══════════
    依「現在卡在哪」由上往下挑第一個成立的，掛 .dst-main（其餘一律線框）：
      I2C 沒連 → 「連線」｜認不出 IC → 「重新識別」｜DG_EN 讀不到（I2C 異常）→ 「重新讀 DG_EN」
@@ -6874,8 +7061,9 @@ var dstHwAllOk = null;
        這時全頁**沒有**實心藍 —— 下面的步驟鈕在硬體沒通之前本來就不該是「現在該按」的。
      · 連線中（開關顯示「連線中…」）不標任何一顆。
    ⇒ 規則寫成一句：「實心藍＝下一個動作；藍框＝下一個要切 ON 的開關；實心綠／灰＝開關現況」。 */
-var DST_MAIN_CAND = ['dst-probe', 'dst-dg-rec-go', 'dst-go-lut', 'dst-go-gray'];
+var DST_MAIN_CAND = ['dst-probe', 'dst-dg-rec-go', 'dst-go-lut', 'dst-go-gray', 'dst-dec-export'];
 function dstRenderMain() {
+  dstRenderDecide();      // v2.7.0：先把決策框的顯示／可按狀態定下來，下面才挑得準
   var want = null, next = null;
   if (!dstLinked) next = 'ln';
   else if (!dstIc) want = 'dst-probe';
@@ -6892,6 +7080,9 @@ function dstRenderMain() {
   /* v2.3.0：已送回 DG 的醒目提示在畫面上 ⇒ 它就是全頁唯一的實心藍（下一步＝切回 DG），
      其他候選一律讓位。判準與 dstRenderSteps 掛 `.dst-back-cta` 的那一格相同。 */
   if (dstDgAlive() && dstBackSent()) want = null;
+  /* v2.7.0：第 2 輪以後改由決策框的「滿意 → 匯出」當唯一實心（④ 那一行在第 2 輪以後不再是
+     實心提示條，見 dstRenderSteps）。匯出按不下去（表還沒讀回／不一致）⇒ 下一行把它清成一顆都不掛。 */
+  if (dstDecShow()) want = 'dst-dec-export';
   var w = want ? $(want) : null;
   if (w && (w.disabled || !w.offsetParent)) want = null;
   DST_MAIN_CAND.forEach(function (id) {
@@ -7284,6 +7475,10 @@ function dstDgAutoOn(src, reread) {
 function dstDgAutoThenStep1(src, reread) {
   return dstDgAutoOn(src, reread).then(function (changed) {
     return changed ? true : dstStep1Auto(src);
+  }).then(function (r) {
+    /* v2.7.0：第 2 輪以後，上面兩步都沒把 DG LUT 卡填上（例如 ① 已由 dstLutCarry 接手但
+       DG_EN 狀態讓它沒接、或這份工作用不到 ①）⇒ 卡片自動讀回一次，不用他手動按。 */
+    return dstLutAutoR2(src).then(function () { return r; });
   });
 }
 function dstRenderDgAutoNote() {
@@ -7518,6 +7713,9 @@ function dstClearRound(n, roundChanged) {
      把高亮與閃爍類別都拿掉，等這一份工作真的送出去才重新掛上。 */
   dstBackFlashed = false;
   dstBackCtaStop();       // v2.3.0：上一份工作的呼吸燈／分頁標題提醒一起收掉
+  /* v2.7.0：決策框「捲進畫面一次」與「不加入」都是這一份工作的狀態，跟著清。 */
+  dstDecShown = false; dstCmpDeclined = false; dstCmpRowGo = false;
+  dstSay('dst-say-dec', '');
   /* 🔴 v1.18.0（C）：「維持現狀」是**這一份工作**的例外，不跟著跨到下一份
      （與 `dstSeqUnlock` 同一個生命週期，所以清在同一處）。第 2 輪的警告本來就
      不給這顆鈕，所以這一行實際上只影響「第 1 輪按過維持現狀 → 換到下一份工作」
@@ -7838,7 +8036,8 @@ function dstCmpRender() {
   res.textContent = dstCmpRes ? dstCmpRes.text : '';
   res.className = 'dst-cmp-res' + (dstCmpRes && dstCmpRes.cls === 'err' ? ' err' : '');
   var done = (dstCmpPhase === 'done');
-  $('dst-cmp-cancel').textContent = dstT('dst.cmpCancel');
+  /* v2.7.0：第 2 輪以後這顆寫明後果「不加入」（按了 ④ 會留「加入比較」連結）；第 1 輪照舊「取消」。 */
+  $('dst-cmp-cancel').textContent = dstT(dstR2() ? 'dst.cmpDecline' : 'dst.cmpCancel');
   $('dst-cmp-cancel').classList.toggle('dst-hidden', done);
   $('dst-cmp-ok').textContent = done ? dstT('dst.cmpClose') : (dstCmpPhase === 'send') ? dstT('dst.cmpSending') : dstT('dst.cmpOk');
   $('dst-cmp-ok').disabled = (dstCmpPhase === 'send');
@@ -7881,14 +8080,46 @@ function dstCmpView() {
   dstCmpRender();
   return true;
 }
+/* v2.7.0：在視窗裡按「不加入」（取消／Esc）＝ true。只有這一種情況 ④ 才留「加入比較」小連結
+   （Bruce 2026-09-30 核准方案第 2 條）。按了確定但 DG 沒加進去（已滿／沒回覆）不算。 */
+var dstCmpDeclined = false;
+var dstCmpRowGo = false;     // 「查看比較」開不了新分頁 ⇒ 在 ④ 那一列講「請切回 DG 分頁」
 function dstCmpRowRender() {
   var row = $('dst-cmp-row');
   if (!row) return;
   row.classList.toggle('dst-hidden', !dstCmpLast);
+  var r2 = dstR2();
+  /* v2.7.0：第 2 輪以後拿掉「加入光學資料比較…」這顆鈕，改成一行狀態（量完本來就會跳視窗問）。 */
+  $('dst-cmp-open').classList.toggle('dst-hidden', r2);
   $('dst-cmp-open').textContent = dstT('dst.cmpOpen');
-  $('dst-cmp-state').textContent = !dstCmpLast ? ''
-    : dstCmpSaved ? dstT('dst.cmpStYes', { no: dstCmpSaved.no, name: dstCmpSaved.name })
-    : dstT('dst.cmpStNo');
+  var st = $('dst-cmp-state');
+  if (!r2) {
+    st.textContent = !dstCmpLast ? ''
+      : dstCmpSaved ? dstT('dst.cmpStYes', { no: dstCmpSaved.no, name: dstCmpSaved.name })
+      : dstT('dst.cmpStNo');
+    return;
+  }
+  st.textContent = '';
+  if (!dstCmpLast) return;
+  function link(id, key, fn) {
+    var a = document.createElement('button');
+    a.type = 'button'; a.className = 'dst-link'; a.id = id; a.textContent = dstT(key);
+    a.addEventListener('click', fn);
+    return a;
+  }
+  if (dstCmpSaved) {
+    st.appendChild(document.createTextNode(dstT('dst.cmpStYesR2') + ' ·'));
+    st.appendChild(link('dst-cmp-viewlink', 'dst.cmpViewLink', function () {
+      dstCmpRowGo = !dstCmpView();
+      dstCmpRowRender();
+    }));
+    if (dstCmpRowGo) st.appendChild(document.createTextNode('  ' + dstT('dst.cmpGo')));
+  } else if (dstCmpDeclined) {
+    st.appendChild(document.createTextNode(dstT('dst.cmpStDeclined')));
+    st.appendChild(link('dst-cmp-addlink', 'dst.cmpAddLink', dstCmpOpen));
+  } else {
+    st.textContent = dstT('dst.cmpStNo');
+  }
 }
 function dstCmpPost(m) {
   if (!dstDgAlive()) return false;
@@ -7898,6 +8129,7 @@ function dstCmpPost(m) {
 function dstCmpOpen() {
   if (!dstCmpLast) return;
   dstCmpInfo = null; dstCmpRes = null; dstCmpEdited = false; dstCmpGo = false;
+  dstCmpDeclined = false; dstCmpRowGo = false;   // v2.7.0：重開 ⇒ 上一次的「不加入」不再成立
   $('dst-cmp-name').value = dstCmpSaved ? dstCmpSaved.name : '';
   dstCmpPhase = 'ask';
   clearTimeout(dstCmpT);
@@ -7911,11 +8143,15 @@ function dstCmpOpen() {
 }
 function dstCmpClose() {
   clearTimeout(dstCmpT);
+  /* v2.7.0：還沒送出就關掉（取消／Esc）＝ 他選了「不加入」。送過之後的「關閉」不算。 */
+  if ((dstCmpPhase === 'ask' || dstCmpPhase === 'ready') && !dstCmpSaved) dstCmpDeclined = true;
   $('dst-modal-cmp').classList.remove('open');
   document.body.classList.remove('dst-cmp-on');
   $('dst-cmp-ok').classList.remove('dst-main');
   dstCmpPhase = 'idle';
   dstCmpRowRender();
+  dstRenderBtns();        // v2.7.0：視窗讓位結束 ⇒ 決策框的實心／可按狀態重算
+  dstDecReveal();         // v2.7.0：第 2 輪以後，視窗關掉就把決策框捲進畫面（同一份工作一次）
 }
 function dstCmpOnInfo(d) {
   if (!dstCmpLast || d.task !== dstCmpLast.task || dstCmpPhase !== 'ask') return;
@@ -8349,6 +8585,9 @@ function dstBind() {
   $('dst-lut-read').addEventListener('click', function () { dstGuard(dstLutReadBtn); });
   /* v2.6.0：匯出 Excel 只讀記憶體裡的 dstLut、不碰 I2C ⇒ 不走 dstGuard。 */
   $('dst-lut-xlsx').addEventListener('click', function () { dstLutExport(); });
+  /* v2.7.0：決策框。匯出走卡上那顆同一支（格式、DG_EN OFF 先問、不一致不匯出全部一致），結果寫在框裡。 */
+  $('dst-dec-export').addEventListener('click', function () { dstLutExport('dst-say-dec'); });
+  $('dst-dec-next').addEventListener('click', dstDecNext);
   /* v2.1.0：「外接硬體」開合時三組開關一起搬家（見 dstSwPlace）。 */
   $('dst-hw-more').addEventListener('toggle', function () { dstRenderDgSw(); dstRenderConnSw(); });
   $('dst-settle').addEventListener('change', dstRenderHw);   // v2.0.3：一行摘要裡有換階等待
