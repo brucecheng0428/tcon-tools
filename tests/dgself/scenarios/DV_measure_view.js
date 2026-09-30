@@ -1,6 +1,6 @@
 /* DV：dg v2.3.0 電腦畫面量測頁（dg-measure.html）「加入光學資料比較」視窗的「查看光學資料比較 ↗」。
    假序列埠／假 DG 同 DM 情境；window.open 換成假的。
-   OPEN＝加入後出現、線框、點了開 dg.html?view=cmp（固定視窗名、斷 opener）；BLK＝被擋 ⇒ 提示（實心、↗），「關閉」讓位。 */
+   OPEN＝加入後出現、線框、點了開 dg.html?view=cmp（固定視窗名、保留 opener（v2.3.1））；BLK＝被擋 ⇒ 提示（實心、↗），「關閉」讓位。 */
 (async function () {
   try {
     var C = window.__viewCase || 'OPEN';
@@ -53,7 +53,7 @@
     await __wait(50);
     if (C === 'OPEN') {
       __ok('DV2 opened dg.html?view=cmp in the fixed tab', opens.length === 1 && opens[0].url === 'dg.html?view=cmp' && opens[0].name === 'tcon-dg-cmpview', JSON.stringify(opens));
-      __ok('DV2 opener cut + focused', fakeWin.opener === null && fakeWin.focused === 1);
+      __ok('DV2 opener kept (Safari named-tab reuse) + focused', fakeWin.opener === window && fakeWin.focused === 1);
       __ok('DV2 no hint', !vis('dgm-cmp-go'));
     } else {
       var go = document.getElementById('dgm-cmp-go');

@@ -43,7 +43,7 @@ python3 tests/dgself/run.py --list      # 列出情境與網址參數
 | DG／DG-NR | DG_cmp_handler.js | dg.html：帶 cmpAsk 的結果不自動加、查詢／加入／更新／滿載／備援建組、舊版量測頁照舊自動加；確認結果取消後進下一輪不補記 |
 | V-OPEN／BLK／NOSTORE／EN | V_cmp_view.js | v2.5.0 視窗「查看光學資料比較 ↗」：確定前不出現、加入後出現且為線框（「關閉」仍是唯一實心）、開 `dg.html?view=cmp`（固定視窗名、斷 opener）、被擋或 DG 存檔沒寫成 ⇒「請切回 DG 分頁…」提示（比照「已送回 DG」、成為唯一實心）、三語 |
 | DV-OPEN／BLK | DV_measure_view.js | dg-measure.html 同一顆鈕與提示 |
-| DGV | DGV_cmp_view.js | dg.html：加入後立刻寫自動保存（回覆 stored）；`?view=cmp` 唯讀檢視只剩比較分頁、改資料的鈕藏起來、不寫存檔、不收訊息、storage 事件即時更新（含 iframe 裡另一份 DG 真的寫入）、讀不到存檔時提示切回 DG |
+| DGV | DGV_cmp_view.js | dg.html：（v2.3.1 起加：storage 事件漏掉時切回分頁會重讀、存檔沒變不重畫）加入後立刻寫自動保存（回覆 stored）；`?view=cmp` 唯讀檢視只剩比較分頁、改資料的鈕藏起來、不寫存檔、不收訊息、storage 事件即時更新（含 iframe 裡另一份 DG 真的寫入）、讀不到存檔時提示切回 DG |
 
 ## 新增情境
 
@@ -52,3 +52,18 @@ python3 tests/dgself/run.py --list      # 列出情境與網址參數
    截圖：`DGSELF_SHOTS=<資料夾> bash tests/dgself/run-all.sh …` ⇒ 每個情境跑完截一張 `<名稱>.png`（情境最後的畫面）。
 2. 在 `run.py` 的 `SCENARIOS` 加一列（網址參數、是否由 DG 開啟、pre 變數、是否 reduced-motion、頁面（可省略＝自檢頁））。
 3. 頁面改版後情境要跟著改：斷言寫的是「應有行為」，改規格時同一個 commit 一起更新測試。
+
+## 跨分頁實測（tabs.py，v2.5.1／dg v2.3.1）
+
+`python3 tests/dgself/tabs.py`（約 1 分鐘；`--headful` 開實體視窗；可只跑 `T1 T3b`）。本機 http 伺服器直接服務 repo，
+真的開 DG、自檢頁、量測頁、比較分頁好幾個分頁，驗「查看光學資料比較 ↗」在比較分頁**不是這一頁開的**時的行為：
+
+| 名稱 | 情境 | 期望 |
+|---|---|---|
+| T1 | DG 開的比較分頁已存在，自檢頁按 | 沿用同一個、帶到前面 |
+| T2 | 自檢頁開的已存在；DG 再加一組；量測頁按 | 已開的自動變 2 組；沿用、帶到前面 |
+| T2b | 量測頁開的已存在，自檢頁按 | 沿用、帶到前面 |
+| T3 | 都沒有，自檢頁按（再按一次） | 新開一個在前面、資料正確；再按沿用 |
+| T3b | 自檢頁不在同一個 browsing context group（noopener） | 新開第二個在前面；兩個資料相同；DG 再加一組兩個都更新；比較分頁不寫存檔 |
+
+「帶到前面」＝只有那個分頁 `visibilityState === 'visible'`（headless=new 與實體視窗實測一致）。只驗 Chrome；Safari 見 CHANGELOG dgself v2.5.1。

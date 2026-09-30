@@ -14,7 +14,7 @@
 <title>TCON 自檢畫面量測 — TCON FAE專用工具箱</title>
 <link rel="stylesheet" href="common/common.css?v=20260903help">
 <!-- 🔴 version.js 必須最先載入（common/version.js 開頭那條規則）。 -->
-<script src="common/version.js?v=20260930dst250"></script>
+<script src="common/version.js?v=20260930dst251"></script>
 <style>
   /* ═══ 本頁專屬樣式 ════════════════════════════════════════════════════════
      只寫這一頁真的需要、而 common.css 沒有的東西。顏色一律走 common.css 的
@@ -7725,7 +7725,17 @@ function dstCmpRender() {
 }
 /* v2.5.0：開「光學資料比較」唯讀檢視（dg.html?view=cmp）。按鈕是使用者點的 ⇒ window.open 不會被擋；
    固定視窗名 ⇒ 重按沿用同一個分頁（重新載入＝最新資料），不會越開越多。
-   開不了（被擋／回 null）或 DG 說存檔沒寫成（檢視頁讀不到最新的）⇒ 改顯示「請切回 DG 分頁」。 */
+   開不了（被擋／回 null）或 DG 說存檔沒寫成（檢視頁讀不到最新的）⇒ 改顯示「請切回 DG 分頁」。
+   v2.5.1：比較分頁可能是**別的頁**開的（DG 量測頁、DG 本身、上一個自檢頁），這一頁手上沒有它的參照。
+     · 所有頁面都用同一個名字 `tcon-dg-cmpview`（dg-measure.html 的 dgmCmpView 同名）。
+     · Chrome 154 實測（tests/dgself/tabs.py）：同一個 browsing context group（都由 DG window.open 開出）裡，
+       任何一頁用這個名字 open ⇒ 找到那個分頁、重新載入、**帶到前面**，不管當初是誰開的、opener 有沒有被切。
+     · Safari（WebKit FrameTree::find 原始碼）：只找得到「同一頁／opener 直接關係／同一個 opener 的兄弟」的具名分頁
+       （isFrameFamiliarWith）；找到時若本頁有使用者點擊，會 page->chrome().focus() 帶到前面。
+       ⇒ **不再切 opener**（v2.5.0 切了 ⇒ Safari 連本頁重按都找不到，每按一次就多一個分頁）。
+     · 找不到（不同 group、Safari 的非親屬頁）⇒ 瀏覽器開新分頁、在前景。資料從 DG 的自動保存讀、聽 storage 事件，
+       同時開著兩個比較分頁也都是同一份最新資料（檢視頁唯讀，不會互相覆寫）。
+     · 本頁沒有 COOP 標頭（GitHub Pages 預設不送），也不帶 noopener。 */
 function dstCmpView() {
   var w = null;
   if (dstCmpStored !== false) {
@@ -7737,8 +7747,7 @@ function dstCmpView() {
     dstCmpRender();
     return false;
   }
-  try { w.opener = null; } catch (e) {}   // 檢視頁與本頁沒有任何關係（它也不收訊息）
-  try { w.focus(); } catch (e) {}
+  try { w.focus(); } catch (e) {}   // 保險：Safari 允許 opener 對自己開的分頁 focus()；opener 保留，見上
   dstCmpGo = false;
   dstCmpRender();
   return true;

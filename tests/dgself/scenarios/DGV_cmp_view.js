@@ -95,6 +95,25 @@
     __ok('V5 real storage event from another DG document ⇒ 3 sets', window.dgApi.viewCount() === 3
       && document.querySelectorAll('#dg-slot-list .dg-slot-row').length === 3, window.dgApi.viewCount() + ' after ' + (Date.now() - t0) + 'ms');
     fr.remove();
+    /* ⑥ dg v2.3.1：storage 事件漏掉（分頁被凍結）⇒ 切回這個分頁時自己再對一次存檔。
+       同一文件 setItem 不會對自己發 storage 事件 ⇒ 正好模擬「沒收到」。存檔沒變時不重畫（勾選不被重設）。 */
+    var cb6 = document.querySelector('#dg-slot-list input[type=checkbox]');
+    var cb6was = cb6 ? cb6.checked : null;
+    if (cb6) cb6.click();
+    document.dispatchEvent(new Event('visibilitychange'));
+    await __wait(200);
+    var cb6b = document.querySelector('#dg-slot-list input[type=checkbox]');
+    __ok('V6 back to front, autosave unchanged ⇒ no re-render (local 顯示 toggle kept)', !!cb6b && cb6b.checked === !cb6was, [cb6was, cb6b && cb6b.checked]);
+    var w6 = JSON.parse(localStorage.getItem(KEY));
+    var s6 = JSON.parse(JSON.stringify(w6.shared.slots[0])); s6.name = '第四輪 D';
+    w6.shared.slots.push(s6); w6._ts = Date.now();
+    localStorage.setItem(KEY, JSON.stringify(w6));
+    await __wait(300);
+    __ok('V6 missed storage event ⇒ still 3 until the tab comes back', window.dgApi.viewCount() === 3, window.dgApi.viewCount());
+    document.dispatchEvent(new Event('visibilitychange'));
+    await __wait(300);
+    __ok('V6 tab comes back to front ⇒ re-reads ⇒ 4 sets', window.dgApi.viewCount() === 4
+      && document.querySelectorAll('#dg-slot-list .dg-slot-row').length === 4, window.dgApi.viewCount());
     __ok('DGV version = common/version.js dg (' + window.__expectDgVer + ')', TOOL_VERSIONS.dg === window.__expectDgVer, TOOL_VERSIONS.dg);
   } catch (e) { window.__errs.push('scenario: ' + (e && e.stack || e)); }
   __done();
