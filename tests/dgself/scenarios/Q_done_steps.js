@@ -7,7 +7,8 @@
      WMODE  還沒選工作模式 ⇒ 只有最上方那張卡；選了 ⇒ 縮成「✓ 電腦畫面量測」、第 1 部分出現；點 ✓ 行可以換
      FLOW   計算 ⇒ 計算 ✓、第 4 部分出現；輸出卡與設定卡收起（標題看得到、點得開）；查看目前結果 ⇒ 輸出卡打開、
             唯一實心＝下載；進行第二輪 ⇒ 第 1／2 部分、計算都是 ✓，停在第 4 部分（捲到那裡）
-     UNLOCK 電腦畫面模式按了「解除依序限制」⇒ 還沒到的部分照樣顯示（那顆鈕的用途就是跳著做）
+     UNLOCK v2.4.6 固定 1→2→3：電腦畫面模式按了「解除依序限制」⇒ 還沒到的部分**仍然不出現**；做完的點開可以重做
+     AUTO   v2.4.6 自檢頁帶回來、第 1／3 部分已經自動填好 ⇒ 兩個都是 ✓，停在第 2 部分（捲過去）；第 2 部分填齊 ⇒ 直接到計算
      CONV   深度轉換分頁：只有 ①；匯入一張真的 LUT 檔 ⇒ ✓ ①（帶檔名）、② 出現並捲過去；下載 ⇒ ✓ ②；點 ✓ 行展開
      EN     深度轉換分頁兩個步驟名跟著語言 */
 (async function () {
@@ -99,9 +100,32 @@
 
     if (C === 'UNLOCK') {
       dgSeqUnlock = true; dgRefreshReady(); await __wait(50);
-      __ok('Q-U1 unlocked ⇒ parts 2/3 shown (to skip ahead)', vis('dg-part-gray') && vis('dg-part-prim'));
-      dgSeqUnlock = false; dgRefreshReady(); await __wait(50);
-      __ok('Q-U2 re-locked ⇒ hidden again', !vis('dg-part-gray') && !vis('dg-part-prim'));
+      __ok('Q-U1 unlocked ⇒ parts 2/3 still not shown (fixed 1→2→3)', !vis('dg-part-gray') && !vis('dg-part-prim') && vis('dg-btn-lut-setup'));
+      dgSeqUnlock = false; dgFillDefault(); dgRefreshReady(); await __wait(100);
+      __ok('Q-U2 part 1 done ⇒ ✓, part 2 appears, part 3 still hidden', has('dg-part-lut', 'tc-step-done')
+        && vis($('dg-part-gray').querySelector('.dg-part-head')) && !vis('dg-part-prim'));
+      $('dg-done-lut').click(); await __wait(50);
+      __ok('Q-U3 locked: ✓ 第 1 部分 opened, its set button disabled', vis('dg-btn-lut-setup') && $('dg-btn-lut-setup').disabled);
+      dgSeqUnlock = true; dgRefreshReady(); await __wait(50);
+      __ok('Q-U3 unlocked: redo possible (button enabled), part 3 still hidden', !$('dg-btn-lut-setup').disabled && !vis('dg-part-prim'));
+      __done(); return;
+    }
+
+    if (C === 'AUTO') {
+      scrolled.length = 0;
+      dgFillDefault();
+      $('dg-in-prim').value = prim.map(function (r) { var X = r[3] * r[1] / r[2], Z = r[3] * (1 - r[1] - r[2]) / r[2]; return [r[0].toUpperCase(), X, r[3], Z].join('\t'); }).join('\n');
+      $('dg-in-prim').dispatchEvent(new Event('input', { bubbles: true }));
+      dgRefreshReady(); await __wait(150);
+      __ok('Q-A1 parts 1 and 3 filled out of order ⇒ both ✓', dgPartFilled('prim') && has('dg-part-lut', 'tc-step-done') && has('dg-part-prim', 'tc-step-done'),
+        dgPartFilled('prim') + ' ' + $('dg-part-prim').className);
+      __ok('Q-A1 stops at part 2 (the first not done), focus moved there', vis($('dg-part-gray').querySelector('.dg-part-head'))
+        && !has('dg-part-gray', 'tc-step-done') && scrolled.indexOf('dg-part-gray') >= 0 && !vis('dg-calc-act'), JSON.stringify(scrolled));
+      DG_LIVE_TASKS[41] = 'gray'; DG_LIVE_TASK_KIND[41] = 'tcon';
+      send({ type: 'dg-measure-result', mode: 'gray', task: 41, rows: rows(1), at: 'r1', cmpAsk: true });
+      await __wait(200);
+      __ok('Q-A2 part 2 comes back from the self-test ⇒ all ✓, 開始計算 is the step', ['dg-part-lut', 'dg-part-gray', 'dg-part-prim'].every(function (id) { return has(id, 'tc-step-done'); })
+        && vis('dg-btn-calc'));
       __done(); return;
     }
 
@@ -138,6 +162,7 @@
     __ok('Q2 part 1 done ⇒ ✓ line too', has('dg-part-lut', 'tc-step-done') && $('dg-done-lut').textContent.indexOf('✓ 第 1 部分') === 0, $('dg-done-lut').textContent);
     __ok('Q2 開始計算 appears and gets the focus', scrolled.indexOf('dg-calc-act') >= 0 && vis('dg-btn-calc'), JSON.stringify(scrolled));
     __ok('Q2 the only solid button = 開始計算', solids().join(',') === 'dg-btn-calc', solids().join(','));
+    __ok('Q2 part 4 not there yet (appears only when reached)', !vis('dg-card-p4'));
     ln.click(); await __wait(50);
     __ok('Q3 click ✓ 第 2 部分 ⇒ expands (content visible, not folded)', has('dg-part-gray', 'tc-step-peek') && vis($('dg-part-gray').querySelector('.dg-part-body'))
       && ln.textContent.indexOf('▾ ') === 0 && ln.getAttribute('aria-expanded') === 'true');
@@ -151,6 +176,9 @@
       __ok('QF1 calculated ⇒ "✓ 開始計算新的 RGB LUT"; part 4 is the current step', has('dg-calc-act', 'tc-step-done')
         && $('dg-done-calc').textContent === '✓ 開始計算新的 RGB LUT' && vis('dg-btn-conf-setup') && !has('dg-card-p4', 'tc-step-done'), $('dg-done-calc').textContent + ' lut=' + !!lastLut + ' p4cls=' + $('dg-card-p4').className
         + ' modal=' + $('dg-modal-conf').className + ' confVis=' + vis('dg-btn-conf-setup') + ' res=' + $('dg-card-result').className);
+      var p4c = $('dg-card-p4'), p4s = getComputedStyle(p4c);
+      __ok('QF1 part 4 highlighted as the current step (2px primary border)', has('dg-card-p4', 'dg-fs-hot') && p4s.borderTopWidth === '2px'
+        && p4s.borderTopColor === 'rgb(37, 99, 235)', p4s.borderTopWidth + ' ' + p4s.borderTopColor);
       __ok('QF1 output card folded until the flow is done (title visible, click to open)', vis(hd('dg-card-result')) && !vis('dg-btn-lutfile')
         && has('dg-card-result', 'dg-fold'));
       hd('dg-card-result').click(); await __wait(50);
