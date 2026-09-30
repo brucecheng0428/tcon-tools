@@ -15,7 +15,7 @@
 <meta name="twitter:card" content="summary_large_image">
 <title>DG — Digital Gamma 迭代校正 — TCON FAE專用工具箱</title>
 <link rel="stylesheet" href="common/common.css?v=20260907dg1130">
-<link rel="stylesheet" href="common/done-step.css?v=20261001dg246">
+<link rel="stylesheet" href="common/done-step.css?v=20261001dg247">
 <style>
   /* ─── DG PAGE 專屬 CSS ─────────────────────────── */
   .dg-setup  .card-header { background: #6d28d9; }
@@ -2795,8 +2795,8 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20261001dg246"></script>
-<script src="common/done-step.js?v=20261001dg246"></script>
+<script src="common/version.js?v=20261001dg247"></script>
+<script src="common/done-step.js?v=20261001dg247"></script>
 <script src="common/i18n.js?v=20260923dg1754"></script>
 <!-- v1.68.1：xlsx 產生器（原本在本頁，現在與 dg-selftest.html 共用）。
      🔴 必須在本頁的 inline script 之前載入。 -->
@@ -11869,6 +11869,15 @@
        v2.4.6：第 1／2／3 部分**固定照 1→2→3**（Bruce 2026-10-01「可以」）—— 「解除依序限制」也不再讓還沒到的部分出現
        （它只剩「已完成的部分可以重做」的用途）。從自檢頁帶回來、已經自動填好的部分直接是 ✓，停在第一個還沒完成的。
        第 4 部分到了才出現（有結果才有），而且是目前這一步時加醒目框（.dg-fs-hot，與自檢頁 ④ 的 .dst-fs-hot 同一組數值）。
+     ═══ v2.4.7：要自己把 LUT 帶回 T-CON 的模式，算完先停在「輸出」（Bruce 2026-10-01「3 點依照建議」第 3 點）═══
+       電腦畫面模式：DG 不會寫 T-CON，算完之後下一件事就是把新表拿走 ⇒ 「輸出 RGB Digital Gamma LUT」卡片自動展開、
+       「下載新產出 RGB LUT 檔」是當下唯一的實心鈕；第 4 部分那顆「④ 確認結果」先讓位成線框（照樣按得下去）。
+       下載或「一鍵複製 RGB」過這一份結果（DG_LUT_TAKEN）⇒ 輪到第 4 部分：④ 恢復實心、醒目框移到第 4 部分，
+       而算完就問的「要不要確認這一輪的結果？」（Bruce 2026-09-09）改到這一刻才問 —— 還沒拿到表就問要不要去量，順序是反的。
+       T-CON 自檢模式照舊（第 4 部分會即時寫進 T-CON 並讀回核對，不需要先下載）。
+       匯入 PQ Tools 模式（還沒選工作模式，DG_PQ）：照同一個判準 ——「這一輪的表要不要由使用者自己帶回 T-CON」。
+       那份量測是原廠 PQ Tools 量的，常見的寫回方式也是用檔案；而工作模式要到第 4 部分（wpick）才決定，
+       算完那一刻 DG 還不能保證會即時寫入 ⇒ 與電腦畫面相同（④ 照樣按得下去：要改走 T-CON 自檢即時寫入就直接按 ④）。
      · 資料卡片（位元深度與目標設定、輸出 RGB Digital Gamma LUT）流程跑完前收起、點標題隨時可開；
        「流程跑完」＝這一輪按了「查看目前結果」（或自檢頁回報滿意，同一支 dgViewResult）⇒ 自動打開。
      · 焦點：目前這一步往後走了（例如某一部分剛填齊）⇒ 捲到新的那一步；他正在剛填齊的那一部分裡打字 ⇒
@@ -11877,7 +11886,11 @@
      · 重新整理：工作模式照 Bruce 2026-09-21 第 6 條不記住（重整後仍先問）；選了之後資料還原，直接捲到該做的那一步。
      · 第 N+1 輪：第 1／2 部分自動帶入並自動計算 ⇒ 它們打勾、計算打勾，停在第 4 部分（dgNextRound 的捲動改成捲到目前這一步）。 */
   var DG_DONE_WAS = {}, DG_DONE_READY = false;
-  var DG_FS_ORDER = ['wmode', 'lut', 'gray', 'prim', 'calc', 'conf'];
+  var DG_FS_ORDER = ['wmode', 'lut', 'gray', 'prim', 'calc', 'out', 'conf'];
+  var DG_LUT_TAKEN = null;   // v2.4.7：下載或複製過的那一份結果（lastLut 本身；換一份結果就不相等）
+  function dgLutByFile() { return DG_WMODE === 'pc' || (!DG_WMODE && DG_PQ); }
+  function dgHasConf() { return !!(DG_P4 && DG_P4.rows && DG_P4.rows.length >= 2); }
+  function dgOutIsCur() { return !!lastLut && dgLutByFile() && DG_LUT_TAKEN !== lastLut && !dgHasConf(); }
   var DG_FS_CUR_WAS = null;
   var DG_FS_CARDS = { setup: 'dg-card-setup', result: 'dg-card-result' };
   var DG_FS_FOLD = { setup: null, result: null };   // null ＝ 自動（流程跑完才開）；true／false ＝ 他自己點的
@@ -11890,13 +11903,15 @@
     if (!DG_WMODE && !DG_PQ) return 'wmode';
     var miss = dgMissingParts();
     if (miss.length) return miss[0];
-    return lastLut ? 'conf' : 'calc';
+    if (!lastLut) return 'calc';
+    return dgOutIsCur() ? 'out' : 'conf';
   }
   function dgFsCurEl(cur) {
     cur = cur || dgFsCur();
     if (cur === 'wmode') return $('dg-card-wmode');
     if (cur === 'calc') return $('dg-calc-act');
     if (cur === 'conf') return $('dg-card-p4');
+    if (cur === 'out') return $('dg-card-result');
     return dgPartEl(cur);
   }
   function dgFlowDone() {
@@ -11944,7 +11959,9 @@
     var fin = dgFlowDone();
     Object.keys(DG_FS_CARDS).forEach(function (k) {
       var c = $(DG_FS_CARDS[k]); if (!c) return;
-      var open = (DG_FS_FOLD[k] === null) ? fin : DG_FS_FOLD[k];
+      /* v2.4.7：要自己帶表回去的模式，有結果就打開輸出卡（下載是那一步的主角；拿走之後也不收，免得剛按完就跳掉） */
+      var auto = fin || (k === 'result' && !!lastLut && dgLutByFile());
+      var open = (DG_FS_FOLD[k] === null) ? auto : DG_FS_FOLD[k];
       c.classList.add('dg-foldable');
       c.classList.toggle('dg-fold', !open);
       var hd = c.querySelector(':scope > .card-header');
@@ -11967,6 +11984,9 @@
     });
     /* 每頁一顆實心：流程跑完之後主角是輸出卡的「下載新產出 RGB LUT 檔」，「查看目前結果」讓位成線框 */
     var vb = $('dg-btn-view-result'); if (vb) vb.classList.toggle('primary', !fin);
+    /* v2.4.7：下載鈕只在「輪到輸出」或流程跑完時是實心；④ 在輪到輸出時讓位成線框 */
+    var lf = $('dg-btn-lutfile'); if (lf) lf.classList.toggle('primary', cur === 'out' || fin);
+    var s4 = $('dg-btn-conf-setup'); if (s4) s4.classList.toggle('dg-btn-imp', !dgHasConf() && cur !== 'out');
     var prev = DG_FS_CUR_WAS; DG_FS_CUR_WAS = cur;
     if (DG_DONE_READY && !typing && DG_MODE === 'main' && prev && prev !== cur
         && DG_FS_ORDER.indexOf(cur) > DG_FS_ORDER.indexOf(prev)) dgGuideScrollTo(dgFsCurEl(cur));
@@ -13984,6 +14004,7 @@
     a.click();
     URL.revokeObjectURL(a.href);
     dgSetStatus('dg-status', '已產生 LUT 檔（' + f.label + '）。\n這個檔的格式跟你匯入的那一份一樣，可以直接寫回 TCON。', 'ok');
+    dgLutTaken();   // v2.4.7
   }
 
   function dgDoCalc() {
@@ -14049,6 +14070,13 @@
          🔴 靠 DG_CONF_ASKED 收斂：手動編輯格子會走 400 ms 的自動重算，
             那條路上結果沒有作廢、旗標仍是 true，**不會每打一個字就跳一次視窗**。
             結果一旦作廢（dgInvalidateResult）旗標就放掉，下一次算出新結果會再問。 */
+      /* v2.4.7：要自己帶表回去的模式先停在「輸出」—— 問「要不要確認」改到下載／複製之後（dgLutTaken）。 */
+      if (!DG_CONF_ASKED && !dgOutIsCur()) dgConfAskAfterCalc();
+    } catch (e) {
+      dgSetStatus('dg-status', '錯誤：' + e.message, 'err');
+    }
+  }
+  function dgConfAskAfterCalc() {
       if (!DG_CONF_ASKED) {
         DG_CONF_ASKED = true;
         dgStepModalOpen('dg-modal-conf', 'ask');
@@ -14061,9 +14089,14 @@
            第 1 輪照舊問（Bruce 2026-09-09 的裁示；那時還沒有任何確認量測，問題不一樣）。 */
         if (DG_ROUND >= 2) $('dg-btn-conf-yes').click();
       }
-    } catch (e) {
-      dgSetStatus('dg-status', '錯誤：' + e.message, 'err');
-    }
+  }
+  /* v2.4.7：這一份結果被拿走了（下載 LUT 檔或一鍵複製 RGB）⇒ 輪到第 4 部分；第一次拿走時才問「要不要確認」。 */
+  function dgLutTaken() {
+    if (!lastLut) return;
+    var was = dgOutIsCur();
+    DG_LUT_TAKEN = lastLut;
+    dgDoneStepsSync();
+    if (was && !DG_CONF_ASKED) dgConfAskAfterCalc();
   }
 
   function dgDownloadXlsx() {
@@ -14089,6 +14122,7 @@
         + '，含標題共 ' + (body.length + 1) + ' 列）到剪貼簿，tab 分隔，深度 ' + dgOutBit() + ' bit。\n'
         + '索引 ' + body.length + ' 的附加末筆沒有複製 —— 它只屬於下載的 LUT 檔，而且要不要寫由 TCON 格式決定。\n'
         + '要跑下一輪就把這份貼進第 1 部分的表格，再配上這一輪重新量到的白灰階。', 'ok');
+      dgLutTaken();   // v2.4.7
     }).catch(function (e) {
       dgSetStatus('dg-status', '複製失敗：' + e.message + '\n（瀏覽器可能要求先與頁面互動，或此頁不是從 https / localhost 開啟）', 'err');
     });
