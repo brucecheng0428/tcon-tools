@@ -30,7 +30,7 @@
           出來」。那個前提**早就不成立**：bridge 的靜態檔服務拒絕子資料夾、而且自 v1.7.0
           起預設關閉 —— 詳細依據與行號寫在 body 末端那兩個 <script> 的上面。）
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="common/version.js?v=20260930i2c1263"></script>
+<script src="common/version.js?v=20260930i2c1270"></script>
 <style>
   * { box-sizing: border-box; }
   :root{
@@ -1022,7 +1022,16 @@
            🔴 出現條件（只有 A、B 都有內容才顯示）與雙向同步**一行都沒動**。 -->
       <div class="grp rwgrp">
         <span class="grplab" data-i18n="i2c.grpDevice">④ 對裝置</span>
-        <button class="pri" id="btn-read" disabled data-i18n="i2c.btnRead">讀取</button>
+        <!-- v1.27.0：讀取結果存到哪一份（Bruce 2026-09-30）。預設「自動」＝ 既有 A／B 規則；
+             樣式沿用寫入那一側的 A／B 小選單（.absel），貼著讀取鍵、不另佔一列。 -->
+        <span class="wrpair">
+          <select id="rd-slot" class="mono absel" data-i18n-title="i2c.tipRdSlot" title="讀取結果存到哪一份">
+            <option value="auto" selected data-i18n="i2c.slotAuto">自動</option>
+            <option value="A" data-i18n="i2c.slotA">→A</option>
+            <option value="B" data-i18n="i2c.slotB">→B</option>
+          </select>
+          <button class="pri" id="btn-read" disabled data-i18n="i2c.btnRead">讀取</button>
+        </span>
         <span class="rwsep"></span>
         <span class="wrpair">
           <select id="ab-sel" class="mono absel" data-i18n-title="i2c.tipAbSel" title="要寫入／顯示哪一份" style="display:none">
@@ -1391,8 +1400,8 @@
      🔴 **CSS 沒有跟著載**（見 style 區塊頂端的說明）：common.css 有 `.card`／`.row`／
         無範圍的 `label{}` 等等，與本頁同名而語意完全不同，載進來會整頁走樣。
         頁首那四條宣告是逐字抄過來的，來源行號寫在各自上面。 -->
-<script src="common/i18n.js?v=20260930i2c1263"></script>
-<script src="common/common.js?v=20260930i2c1263"></script>
+<script src="common/i18n.js?v=20260930i2c1270"></script>
+<script src="common/common.js?v=20260930i2c1270"></script>
 
 <script>
 'use strict';
@@ -3637,13 +3646,20 @@ var I2CT_MODE_VENDOR = 0, I2CT_MODE_FAST = 1, I2CT_MODE_SLOW = 2, I2CT_MODE_RAW 
      · DLL_I2C_BCB 那套 Python UI 走的就是 `DLL_I2C_BCB.dll`，256 byte 約 12.6 ms。
    ⇒ 沒有東西需要在使用者的第一次讀取上「試」。預設直接用唯一走得通的那條。 */
 var i2ctMode = I2CT_MODE_VENDOR;
+/* v1.27.0：讀取結果存到哪一槽。'auto' | 'A' | 'B'（select 不在時一律 auto）。 */
+function i2ctReadSlot(){
+  var e = $('rd-slot');
+  return (e && (e.value === 'A' || e.value === 'B')) ? e.value : 'auto';
+}
 async function i2ctOnRead(){
   /* 有未生效的輸入 ⇒ 放棄它，不要意外寫進去（讀取會整片蓋掉，留著也沒意義）。 */
   if (i2ctEditing) i2ctCancelEdit();
   var v = i2ctReadInputs();
   if (v.readErrs.length) { i2ctBanner('readbanner', 'err', v.readErrs.join(i2ctListSep())); return; }
   /* 🔴 讀取會把本地未寫入的修改蓋掉 ⇒ 那是會遺失他工作成果的操作，問一次。 */
-  if (!i2ctConfirmDiscardDirty(i2ctT('i2c.actReread'))) { i2ctLog(i2ctT('i2c.logCancelRead'), 'n'); return; }
+  /* v1.27.0：「存到 A」且 B 有內容 ⇒ B（連同未寫入的修改）會保留，不必問。 */
+  var keepsB = (i2ctReadSlot() === 'A' && !!i2ctRef && !!i2ctBSrc);
+  if (!keepsB && !i2ctConfirmDiscardDirty(i2ctT('i2c.actReread'))) { i2ctLog(i2ctT('i2c.logCancelRead'), 'n'); return; }
   i2ctBusy = true; i2ctSyncButtons();
   i2ctBanner('readbanner', 'info', i2ctT('i2c.bnReading'));
   /* 🔴 v1.20.0：這裡原本先呼叫 `i2ctVerifyFastOnce()` 做首次讀取的自動選路
@@ -3667,10 +3683,37 @@ async function i2ctOnRead(){
      正是 Bruce 說的「怎麼會有兩個同時出現的情況」。
      現在右上只有一個意思：**狀態 2 時的 B**，只由點左上產生。
      （要看「跟上次讀的差在哪」用 diff log 與洋紅標示，那條路沒有受影響。） */
-  i2ctPrevBytes = null; i2ctPrevHas = null;
   void old; void sameShape;
-  i2ctDev = i2ctMakeSet('dev', v.slave, v.awid, v.off, res.bytes);
-  i2ctDev.allFF = allFF;
+  var newSet = i2ctMakeSet('dev', v.slave, v.awid, v.off, res.bytes);
+  newSet.allFF = allFF;
+  /* ═══ 🔴 v1.27.0：讀取結果「存到：自動／A／B」（Bruce 2026-09-30）══════════════
+     「預設的就用之前的邏輯，但是要可以接受強制寫入 A 或寫入 B。」
+       自動 ⇒ i2ctIngest（第一次／形狀不同 ⇒ A 並清空 B；同形狀 ⇒ B），一行未改。
+       A    ⇒ 這次讀到的**覆蓋 A**。B 有內容且可比 ⇒ **B 保留**、重算差異、dump 切到
+              看 A（與載入檔案「取代 A、保留 B」同一套，走同一支 i2ctPromoteToA）。
+              B 是空的或形狀不同 ⇒ 沒有東西可保留，等同第一次讀取。
+       B    ⇒ 這次讀到的**覆蓋 B**，A 不動；可比就比，不可比（或還沒有 A）就只存不比，
+              log 講原因。
+     讀取失敗／長度不足／疑似 NACK 的資料照舊不進任何一槽（readReplaced 判準不變）。 */
+  var slot = i2ctReadSlot();
+  var readOkFull = (res.ok && res.bytes.length === Math.min(v.len, I2CT_MAX_LEN))
+                   && !(res.ok && allFF && res.bytes.length >= 2 && i2ctLastUsbRt === 1);
+  var keepB = (slot === 'A' && readOkFull && i2ctRef && i2ctBSrc
+               && i2ctComparable(newSet, i2ctBSlot()));
+  if (keepB) {
+    var srcA = i2ctReadSrc(v.slave, v.awid, v.off);
+    i2ctPromoteToA(newSet, srcA, true);
+    i2ctDiffIdx = i2ctDiffSets(i2ctRef, i2ctBSlot());
+    i2ctShowA = true;
+    i2ctLastRead = { base: v.off, len: v.len, awid: v.awid, got: res.bytes.length, allFF: allFF,
+                     ms: res.ms, devUs: res.devUs, segs: res.segs };
+    i2ctLog(i2ctT('i2c.logSlotAKeepB', { n: i2ctDiffCount() }), 'n');
+    i2ctBanner('readbanner', 'ok', i2ctT('i2c.bnSlotA', { n: res.bytes.length, d: i2ctDiffCount() }));
+    i2ctRenderPager(); i2ctRenderTable(); i2ctRenderDiff(); i2ctRenderRefLine(); i2ctSyncButtons();
+    return;
+  }
+  i2ctPrevBytes = null; i2ctPrevHas = null;
+  i2ctDev = newSet;
   /* 🔴 耗時一併記進 lastRead：它是「這一次讀取發生了什麼」的單一出口，
      測試與診斷都從這裡拿，不必改 handler 的回傳型別。 */
   i2ctLastRead = { base: v.off, len: v.len, awid: v.awid, got: res.bytes.length, allFF: allFF,
@@ -3680,7 +3723,21 @@ async function i2ctOnRead(){
   /* v1.26.0：DLL_I2C_BCB 路徑全 FF ＝ 疑似 NACK（見下面 ffSusp 那一段的說明）⇒ 同樣不得成為基準。 */
   var ffSusp = res.ok && allFF && res.bytes.length >= 2 && i2ctLastUsbRt === 1;
   var readReplaced = (res.ok && res.bytes.length === Math.min(v.len, I2CT_MAX_LEN)) && !ffSusp;
-  if (readReplaced) i2ctIngest(i2ctDev, i2ctReadSrc(v.slave, v.awid, v.off));
+  if (readReplaced) {
+    var srcR = i2ctReadSrc(v.slave, v.awid, v.off);
+    if (slot === 'A') {                 /* 強制 A、沒有可保留的 B ⇒ 等同第一次讀取 */
+      i2ctPromoteToA(i2ctDev, srcR);
+      i2ctLog(i2ctT('i2c.logSlotA'), 'n');
+    } else if (slot === 'B') {          /* 強制 B：A 不動，B ＝ 這次讀到的 */
+      i2ctBSrc = srcR;
+      i2ctShowA = false;
+      i2ctDiffIdx = i2ctDiffSets(i2ctRef, i2ctDev);
+      i2ctLog(i2ctDiffIdx ? i2ctT('i2c.logSlotB', { n: i2ctDiffIdx.length })
+                          : i2ctT(i2ctRef ? 'i2c.logSlotBNoCmp' : 'i2c.logSlotBNoA'), 'n');
+    } else {
+      i2ctIngest(i2ctDev, srcR);
+    }
+  }
   else { i2ctDiffIdx = null; if (!ffSusp) i2ctLog(i2ctT('i2c.logIncomplete'), 'w'); }
   /* ═══ 🔴🔴 讀取成功 ⇒ 清掉「已修改未寫入」（v1.16.0）════════════════════
      Bruce 2026-09-19：「可是我都已經**再重新讀取一次 256 byte** 了。重新讀取一次，
