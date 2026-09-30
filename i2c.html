@@ -30,7 +30,7 @@
           出來」。那個前提**早就不成立**：bridge 的靜態檔服務拒絕子資料夾、而且自 v1.7.0
           起預設關閉 —— 詳細依據與行號寫在 body 末端那兩個 <script> 的上面。）
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="common/version.js?v=20260929i2c1261"></script>
+<script src="common/version.js?v=20260930i2c1262"></script>
 <style>
   * { box-sizing: border-box; }
   :root{
@@ -1391,8 +1391,8 @@
      🔴 **CSS 沒有跟著載**（見 style 區塊頂端的說明）：common.css 有 `.card`／`.row`／
         無範圍的 `label{}` 等等，與本頁同名而語意完全不同，載進來會整頁走樣。
         頁首那四條宣告是逐字抄過來的，來源行號寫在各自上面。 -->
-<script src="common/i18n.js?v=20260929i2c1261"></script>
-<script src="common/common.js?v=20260929i2c1261"></script>
+<script src="common/i18n.js?v=20260930i2c1262"></script>
+<script src="common/common.js?v=20260930i2c1262"></script>
 
 <script>
 'use strict';
@@ -3980,6 +3980,36 @@ function i2ctEeAutoLen(){
   var want = String(e.bytes - off);
   if (inp.value !== want) { inp.value = want; i2ctComboSync('in-len'); }
 }
+/* ═══ v1.26.2：slave 下拉跟著型號列出「可選的基底位址」（Bruce 2026-09-30）═══
+   v1.26.1 在 EEPROM 模式仍沿用一般模式的常用清單（0x68／0x50／0x3E／0x7C／0x7D）⇒
+   EEPROM 位址只選得到 0x50，看起來像「只能停在 0x50」。規則（1010 A2 A1 A0，
+   區塊位元佔掉最低的 blk 個接腳位元）：
+     blk 0（24C01/02、24C32～512）⇒ 0x50–0x57 八個
+     blk 1（24C04、24C1024）      ⇒ 0x50/52/54/56（各自的 +1 是第二區塊）
+     blk 2（24C08）               ⇒ 0x50/54
+     blk 3（24C16）               ⇒ 0x50
+   手打落在區塊範圍內的位址照舊由 i2ctEeFold 換算成「基底＋offset」，不擋。 */
+var I2CT_SLAVE_SEL_GEN = null;          /* 一般模式的原始選項（第一次切換時存下） */
+function i2ctEeBases(e){
+  var out = [], step = 1 << e.blk;
+  for (var s = 0x50; s <= 0x57; s += step) out.push(s);
+  return out;
+}
+function i2ctEeSlaveOptions(){
+  var sel = $('in-slave-sel'); if (!sel) return;
+  if (I2CT_SLAVE_SEL_GEN === null) I2CT_SLAVE_SEL_GEN = sel.innerHTML;
+  var e = i2ctEeCur();
+  if (!e) { sel.innerHTML = I2CT_SLAVE_SEL_GEN; }
+  else {
+    var nb = 1 << e.blk;
+    sel.innerHTML = '<option value="" data-i18n="i2c.optCustom">' + i2ctEsc(i2ctT('i2c.optCustom')) + '</option>'
+      + i2ctEeBases(e).map(function (s) {
+          return '<option value="0x' + i2ctHex(s) + '">0x' + i2ctHex(s)
+               + (nb > 1 ? '（0x' + i2ctHex(s) + '–0x' + i2ctHex(s + nb - 1) + '）' : '') + '</option>';
+        }).join('');
+  }
+  i2ctComboSync('in-slave');
+}
 function i2ctEeSetMode(on){
   on = !!on;
   if ($('in-devtype')) $('in-devtype').value = on ? 'ee' : 'gen';
@@ -3991,6 +4021,7 @@ function i2ctEeSetMode(on){
   i2ctEeLenTouched = false;                 /* 總 byte 數回到「容量 − offset」 */
   i2ctEeFoldNote = '';
   i2ctEeLockAwid();
+  i2ctEeSlaveOptions();
   if (on) {
     i2ctEeFold();
     var e = i2ctEeCur();
@@ -4013,6 +4044,7 @@ function i2ctEeSetModel(id){
   }
   if (i2ctEeMode) {
     i2ctEeLockAwid();
+    i2ctEeSlaveOptions();
     i2ctEeFold();
     if (changed) i2ctLog(i2ctT('i2c.logEeMode', { id: id,
                          sum: i2ctEeSummary(i2ctEeCur(), i2ctParseAddr($('in-slave').value)) }), 'n');
