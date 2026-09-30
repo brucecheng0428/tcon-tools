@@ -31,7 +31,7 @@ python3 tests/dgself/run.py --list      # 列出情境與網址參數
 |---|---|---|
 | A | A_dgen_switch_lut.js | DG_EN 開關在摘要列／T-CON 列移動、寫 bit0、OFF 時用等距表、狀態過期時重讀、讀不到時停用（A／B／D） |
 | C | C_round1_recommend.js | 第 1 輪 main：步驟卡「關掉 DG_EN／維持現狀」與硬體列開關同步 |
-| E | E_identnote_i18n.js | 等距表說明三語、版號 |
+| E | E_identnote_i18n.js | 等距表說明三語、確認量測送回後指路句提到「查看目前結果／進行第 N+1 輪」三語（v2.6.1）、版號 |
 | F | F_dgen_switch_style.js | 開關樣式：ON 綠／OFF 灰、切換中…、讀回不符退回、量測中停用、三語 |
 | G | G_hw_switches.js | I2C 治具／DG_EN／量測儀三組 ON／OFF 開關、連線失敗、取消選埠、唯一實心藍規則、三語、版號 |
 | H | H_round2_auto_on.js | 第 2 輪以後自動開 DG_EN 一次並讀回、提示文字、手動關後不再開、下一輪再開、寫入失敗只試一次 |
@@ -45,6 +45,7 @@ python3 tests/dgself/run.py --list      # 列出情境與網址參數
 | DV-OPEN／BLK | DV_measure_view.js | dg-measure.html 同一顆鈕與提示 |
 | DGV | DGV_cmp_view.js | dg.html：（v2.3.1 起加：storage 事件漏掉時切回分頁會重讀、存檔沒變不重畫）加入後立刻寫自動保存（回覆 stored）；`?view=cmp` 唯讀檢視只剩比較分頁、改資料的鈕藏起來、不寫存檔、不收訊息、storage 事件即時更新（含 iframe 裡另一份 DG 真的寫入）、讀不到存檔時提示切回 DG |
 | X-ON／OFF／NR／ALT／EN | X_lut_export.js | v2.6.0「DG LUT（RGB）檢視」的「匯出 Excel」：有表才可按、線框次要鈕；DG_EN ON 直接下載，OFF（等距表）先問「目前是等間距 LUT（DG_EN OFF），確定要匯出？」、取消不下載；檔名 `DG_LUT_<IC>_<YYYYMMDD>_<HHMM>_R<輪>.xlsx`（不知道輪次就不寫 _R）；解開 xlsx 逐列比對卡上的表（工作表 DG_12bit、B1:D1 合併、259 列含末筆）；撞號選到沒有確認格式的 IC ⇒ 不匯出並講明；三語 |
+| R-PC／R-TCON／R-NOMODE（＋R-SHOT-DECIDE／VIEW／NEXT 截圖用） | R_round_decide.js | dg v2.4.0：dg.html 第 4 部分一輪結束並列「查看目前結果」（框裡唯一實心、④ 讓位成線框）與「進行第 N+1 輪」；查看只導覽（輪數、第 1～4 部分、比較清單不動）、捲到結果卡並出現「停在第 N 輪」、按兩次無害、換一份確認量測就收掉、之後仍能進下一輪；第 1 輪算完照舊問「要不要確認」，第 2 輪起直接到下一層（電腦＝path、自檢＝push、未選模式＝wpick），不再出現「先不確認」 |
 
 ## 新增情境
 

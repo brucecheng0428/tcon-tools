@@ -1757,6 +1757,9 @@
               · dgDownloadLutXlsx()／dgCopyLut()／dgDownloadXlsx() 開頭的
                 `if (!lastLut/!lastCtx) return`（v1.12.0 起）
               程式化 click、強制解除 disabled 都走同一條路，一樣產不出東西。 -->
+      <!-- v2.4.0：按了第 4 部分的「查看目前結果」才出現，講清楚「停在哪一輪、下一步去哪」。
+           結果一作廢（dgInvalidateResult）或開始下一輪就收掉 —— 它講的是「這一份」結果。 -->
+      <div class="dg-status ok" id="dg-view-note" style="display:none"></div>
       <div class="dg-btnrow">
         <button class="dg-btn primary" id="dg-btn-lutfile" disabled>下載新產出 RGB LUT 檔（回 TCON 用）</button>
         <button class="dg-btn" id="dg-btn-copy" disabled>一鍵複製 RGB</button>
@@ -1874,11 +1877,25 @@
                   量測時也留在畫面上（顯示沒資料的東西，違反本頁既有紀律）。
                🔴 說明文字是**靜態的**，不隨輪數改字：它講的是「按下去會發生什麼」，
                   那件事每一輪都一樣；會變的「第幾輪」在鈕面上（dgNextRoundBtnText）。 -->
+          <!-- 🔴 v2.4.0：一輪結束的這一步**並列兩個選擇**（Bruce 2026-09-30）。
+               舊版只有「進行第 N+1 輪」一顆，想停下來看結果的人得先按它，下一輪算完跳出的
+               「要不要確認結果」視窗裡才有「先不確認」—— 流程順序反了。
+               ⇒ 「查看目前結果」＝停在這一輪：捲到結果卡（下載 LUT／複製／匯出），不動任何資料；
+                 「進行第 N+1 輪」＝原流程；第 2 輪起算完不再問「要不要確認」（那一層的
+                 「先不確認」就是移到這裡的那個選項，兩處只留一處）。
+               🔴 **單一主動作＝「查看目前結果」，固定不變**：本頁不判達標（Bruce 2026-09-09：
+                  「達標的門檻不用網頁自己判斷」），所以不能依「有沒有達標」切換哪一顆實心。
+                  選它當主的理由：停下來是預設狀態（v1.26.0 那一條），而且它不改任何資料、
+                  按錯零成本；「進行下一輪」會改寫第 1／2 部分並自動計算，屬於要想一下再按的那一顆。
+               🔴 按了「查看目前結果」之後這個框**照樣留著**，「進行第 N+1 輪」隨時可以再按。 -->
           <div class="dg-conf-decide-box" id="dg-conf-decide" style="display:none">
-            <div class="dg-conf-decide-note">看完上面三張圖再決定：已經達到目標就到此為止，這一輪算出來的 LUT 就是成果。<br>
-              還要再修就按下面這一顆 —— 第 1 部分會自動換成這一輪算出來的 LUT、第 2 部分換成剛剛這次確認量測，然後直接開始計算。</div>
+            <div class="dg-conf-decide-note">看完上面三張圖再決定：<br>
+              · 已經達到目標 ⇒ 按「查看目前結果」，停在這一輪，這一輪算出來的 LUT 就是成果（在上面的結果卡下載）。<br>
+              · 還要再修 ⇒ 按旁邊那顆「進行第 N 輪」（鈕上寫著下一輪是第幾輪）—— 第 1 部分會自動換成這一輪算出來的 LUT、第 2 部分換成剛剛這次確認量測，然後直接開始計算。<br>
+              先看結果之後，想再修一樣可以回來按那一顆。</div>
             <div class="dg-btnrow dg-conf-decide">
-              <button class="dg-btn primary" id="dg-btn-next-round">進行下一輪</button>
+              <button class="dg-btn primary" id="dg-btn-view-result">查看目前結果</button>
+              <button class="dg-btn" id="dg-btn-next-round">進行下一輪</button>
             </div>
           </div>
           <div class="dg-btnrow dg-part-import">
@@ -2753,7 +2770,7 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20260930dg232"></script>
+<script src="common/version.js?v=20260930dg240"></script>
 <script src="common/i18n.js?v=20260923dg1754"></script>
 <!-- v1.68.1：xlsx 產生器（原本在本頁，現在與 dg-selftest.html 共用）。
      🔴 必須在本頁的 inline script 之前載入。 -->
@@ -12892,6 +12909,56 @@
     if (row) row.style.display = has ? '' : 'none';
     var b = $('dg-btn-next-round');
     if (b) b.textContent = dgNextRoundBtnText();
+    /* v2.4.0：結果卡上那一行「停在第 N 輪」只屬於**按下去那一刻的那一份**確認量測。
+       確認量測被換掉／清掉（含開始下一輪、結果作廢）就收掉 —— 講的已經不是眼前這一份。 */
+    var vn = $('dg-view-note');
+    if (vn && !(has && DG_VIEW_P4 === DG_P4)) { vn.style.display = 'none'; DG_VIEW_P4 = null; }
+    /* v2.4.0：單一主動作 —— 決策框出現時，下面那顆「④ 確認結果」（此時的用途是「換一份
+       確認量測」）讓位成線框；沒有確認量測時它才是這張卡唯一要按的，恢復實心。 */
+    var s4 = $('dg-btn-conf-setup');
+    if (s4) s4.classList.toggle('dg-btn-imp', !has);
+  }
+
+  /* ═══ v2.4.0：「查看目前結果」（與「進行第 N+1 輪」並列）═══════════════════════
+     Bruce 2026-09-30：一輪結束的那一步直接並列兩個選擇；想停下來看結果的人不必先按
+     「進行第 N+1 輪」才找得到「先不確認」。
+     🔴 **只導覽、不改資料**：第 1／2／3／4 部分、輪數、比較清單一個都不碰，所以按幾次都一樣，
+        「進行第 N+1 輪」隨時還能按（決策框留著，dgNextRound 需要的 lastLut／DG_P4 都還在）。
+     🔴 不判達標（本頁既有紀律）：這一支不看曲線、不下評語，只告訴他成果在哪裡。
+     捲動沿用 dgNextRound ⑧ 的做法：先平滑，400 ms 後回頭檢查沒到位就直接跳。 */
+  var DG_VIEW_P4 = null;   // 按「查看目前結果」時的那一份 DG_P4（換掉就收提示）
+  function dgViewResult() {
+    if (!lastLut || !DG_P4 || !DG_P4.rows || DG_P4.rows.length < 2) {
+      dgConfSetStatus('還沒有這一輪的結果與確認量測，沒有東西可以看。', 'err');
+      return false;
+    }
+    DG_VIEW_P4 = DG_P4;
+    var vn = $('dg-view-note');
+    if (vn) {
+      vn.textContent = '停在' + dgRoundName(DG_ROUND) + '：這張卡片就是這一輪的成果 —— 用下面的'
+        + '「下載新產出 RGB LUT 檔（回 TCON 用）」帶回 TCON，或「一鍵複製 RGB」「下載完整報告（.xlsx）」。\n'
+        + '要對照各輪曲線，到「光學資料比較」分頁。沒有開始下一輪，第 1～4 部分都沒有動。\n'
+        + '想再修，隨時回第 4 部分按「' + dgNextRoundBtnText() + '」。';
+      vn.style.display = '';
+    }
+    dgConfSetStatus('已停在' + dgRoundName(DG_ROUND) + '（沒有開始下一輪）。要再修隨時按「' + dgNextRoundBtnText() + '」。', 'ok');
+    var top = function () {
+      var c = $('dg-card-result');
+      if (!c || !c.getBoundingClientRect) return null;
+      return Math.max(0, c.getBoundingClientRect().top + window.pageYOffset - 90);
+    };
+    var t0 = top();
+    if (t0 !== null) window.scrollTo({ top: t0, behavior: 'smooth' });
+    setTimeout(function () {
+      var c = $('dg-card-result');
+      if (!c || !c.getBoundingClientRect) return;
+      var tp = c.getBoundingClientRect().top;
+      if (tp < -120 || tp > window.innerHeight - 120) {
+        var t1 = top();
+        if (t1 !== null) window.scrollTo(0, t1);
+      }
+    }, 400);
+    return true;
   }
 
   /* v1.45.0：meta ＝ { prim, durMs, settleMs }。 */
@@ -13805,6 +13872,14 @@
       if (!DG_CONF_ASKED) {
         DG_CONF_ASKED = true;
         dgStepModalOpen('dg-modal-conf', 'ask');
+        /* 🔴 v2.4.0：第 2 輪起不問「要不要確認」，直接走下一層（push／path／wpick）。
+           會到第 2 輪，就是他在第 4 部分按了「進行第 N+1 輪」＝已經選了要繼續量；
+           「先不確認」（＝看現在的結果、不繼續量）已經提前到第 4 部分，與「進行第 N+1 輪」
+           並列（#dg-btn-view-result），這裡再問一次就是兩處重複。
+           走的是 ④ 那顆鈕同一條路（開 ask 再按 yes），分流一行都沒另寫。
+           視窗的「關閉」照舊在，不想現在量就關掉，之後按「④ 確認結果」回來。
+           第 1 輪照舊問（Bruce 2026-09-09 的裁示；那時還沒有任何確認量測，問題不一樣）。 */
+        if (DG_ROUND >= 2) $('dg-btn-conf-yes').click();
       }
     } catch (e) {
       dgSetStatus('dg-status', '錯誤：' + e.message, 'err');
@@ -16395,6 +16470,7 @@
     $('dg-btn-clr-conf').addEventListener('click', dgConfClear);
     // v1.25.0：看完曲線之後那一個決定
     $('dg-btn-next-round').addEventListener('click', dgNextRound);
+    $('dg-btn-view-result').addEventListener('click', dgViewResult);   // v2.4.0
 
     /* ─── v1.26.0：「要不要記錄到光學資料比較」───────────────────────────────
        🔴 四條關閉路徑（記錄／不記錄／關閉鈕／點暗色區）全部走 dgRecAnswer()，
