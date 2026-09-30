@@ -2,6 +2,31 @@
 
 ---
 
+## TCON 自檢畫面量測 (dgself) v2.3.0 — 2026-09-30 ｜ MINOR
+
+判定依據：VERSIONING.md §1「多了新按鈕，舊的都在原位 ⇒ MINOR」—— ④ 送出後的提示多了一顆「切到 DG 分頁」鈕，並改成醒目樣式與動態；量測、回傳、DG_EN 行為都沒變，輸出不變 ⇒ 不標 ⚠ 輸出變更。
+
+### 為什麼
+- Bruce 2026-09-30（經 Dispatch）：第 1 輪量完、資料自動回傳 DG 之後，下面那個藍框「已送回 DG，請切回 DG 分頁繼續」太不起眼，使用者很容易漏看。
+
+### 改了什麼
+- `#dst-back-warn` 在「從 DG 開的 且 ②③ 都送出去了」（與 ④ 打勾同一個判準 `dstDgAlive() && dstBackSent()`）時改成 `.dst-back-cta`：主色實心底（`var(--primary)`）、18px 粗體、前面 `↗`、右邊一顆白底主色字的「切到 DG 分頁」（`dst.backFocusBtn`，三語）。
+- 呼吸燈 `.dst-back-breath`：只改 `box-shadow`，2 秒一個週期、無限循環；使用者**離開這個分頁**（`visibilitychange` → hidden）或**按了提示**（整條任一處）就停，停了之後提示仍是實心底。`prefers-reduced-motion: reduce` ⇒ 不跑動畫，改成固定的一圈光暈。取代 v1.17.1 的 `.dst-back-hl`／`.dst-back-blink`（閃 4 次就停）。
+- 第一次出現時 `scrollIntoView({block:'center'})`（減少動態時不用 smooth）。
+- 分頁標題：前面加「↩ 請回 DG｜」（`dst.backTitle`，三語），每 1 秒與原標題輪替；**離開後再切回這個分頁**或**按了提示**就恢復原標題。減少動態時固定帶前綴、不輪替。
+- 「切到 DG 分頁」：`window.opener.focus()`（try/catch，被擋不報錯）；0.4 秒後本頁仍在前景 ⇒ 在提示裡加一行「瀏覽器沒有讓本頁切換分頁，請直接點瀏覽器上方的 DG 分頁。」（`dst.backFocusNo`，三語）。注意：v1.10.1 記錄過 Bruce 真機實測 `opener.focus()` 沒有反應；這次依 Dispatch「可以的話」放回來，但以「按了多半只會看到那一行說明」為預期。
+- 單一主動作：提示在畫面上時 `dstRenderMain()` 不掛任何 `.dst-main`，全頁唯一的實心藍就是這條提示（按鈕刻意做成白底）。
+- 同一份工作只啟動一次（沿用 `dstBackFlashed`）；換一份工作／換輪（`dstClearRound`）呼叫 `dstBackCtaStop()` 收掉呼吸與標題，下一份送出後再來一次。
+
+### 驗證（如實）
+- headless Chrome（CDP，暫存複本、假 opener、`?round=1&job=main`，測試直接把 `dstStepDone` 設成已送出再 `dstRenderSteps()`；沒有模擬 I2C／量測儀）：
+  - A 23 項：出現提示、實心主色底、18px、↗、按鈕在；`animation: dst-back-breath 2s infinite`；全頁實心藍只有這一條、沒有 `.dst-main`；捲到可視範圍；標題帶前綴且 1 秒後輪替回原標題；重畫不重播；離開分頁 ⇒ 呼吸停、提示還在、標題仍提醒；切回 ⇒ 標題恢復、重畫也不再啟動；換工作 ⇒ 提示收掉，再送出 ⇒ 重新啟動；閃爍中換工作 ⇒ 標題恢復。
+  - B 20 項：按「切到 DG 分頁」⇒ 呼叫 `opener.focus()` 一次、呼吸停、標題恢復；本頁仍在前景 ⇒ 出現說明，重畫後說明仍在。
+  - C 18 項：點提示文字 ⇒ 呼吸停、標題恢復，1.5 秒後仍是原標題。
+  - RM（`Emulation.setEmulatedMedia prefers-reduced-motion: reduce`）23 項：無動畫、固定光暈 `0 0 0 4px`、標題固定帶前綴不輪替，其餘同 A。
+  - 截圖兩個相位的 `box-shadow` 不同（2.7px → 6.0px），減少動態時兩張相同。四組都沒有 JS 錯誤。
+- **沒驗**：真的由 DG 分頁開啟、真的切分頁（`opener.focus()` 在真瀏覽器是否有效）；v2.2.0 以前的情境 A～K 測試腳本這次找不到，沒有重跑。
+
 ## TCON 自檢畫面量測 (dgself) v2.2.0 — 2026-09-30 ｜ MINOR
 
 判定依據：VERSIONING.md R4「起始狀態改變、不影響任何既有操作 ⇒ MINOR」—— 從 DG 開、第 2 輪以後讀到 DG_EN 是 OFF 時，頁面一開就自動切成 ON（原本只顯示「建議開啟」）。開關、建議列、「維持現狀」都還在原位，手動操作照舊；不是修 bug，量測結果的算法不變 ⇒ 不標 ⚠ 輸出變更。
