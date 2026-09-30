@@ -2200,14 +2200,16 @@
           <div class="dg-lut-opt-title">只調 <b>Gamma</b>，<b>不調色溫</b></div>
           <div class="dg-note">不需要第 3 部分。</div>
           <div class="dg-btnrow">
-            <button class="dg-btn" id="dg-btn-tone-gamma">只調 Gamma（不調色溫）</button>
+            <!-- v2.4.3（Bruce 2026-10-01）：按下去就直接開始計算（等同再按「開始計算新的 RGB LUT」，那顆保留）。
+                 鈕面寫出按下去真正會發生的事。 -->
+            <button class="dg-btn" id="dg-btn-tone-gamma" data-i18n="dg.toneGammaGo">不調色溫並產生新的 RGB LUT</button>
           </div>
         </div>
         <div class="dg-lut-opt">
           <div class="dg-lut-opt-title">也調<b>色溫</b></div>
           <div class="dg-note">需要第 3 部分的 RGB 純色端點。</div>
           <div class="dg-btnrow">
-            <button class="dg-btn dg-btn-imp" id="dg-btn-tone-cct">也調色溫</button>
+            <button class="dg-btn dg-btn-imp" id="dg-btn-tone-cct" data-i18n="dg.toneCctGo">調色溫並產生新的 RGB LUT</button>
           </div>
         </div>
         <div class="dg-btnrow">
@@ -2770,7 +2772,7 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20261001dg242"></script>
+<script src="common/version.js?v=20261001dg243"></script>
 <script src="common/i18n.js?v=20260923dg1754"></script>
 <!-- v1.68.1：xlsx 產生器（原本在本頁，現在與 dg-selftest.html 共用）。
      🔴 必須在本頁的 inline script 之前載入。 -->
@@ -2872,6 +2874,11 @@
       'dg.pqPremise': { 'zh-TW': '第 1 部分＝出廠等距表（DG_EN 關閉時面板走的那張）：PQ Tools 的 CCT 檔本來就是在 DG_EN 關閉下量的，面板當時走的就是這張等距表。這一條路不會用檔案裡那張 LUT。',
                         'en': 'Part 1 is the factory linear table (the one the panel runs when DG_EN is off): a PQ Tools CCT file is by definition measured with DG_EN off, so that linear table is what the panel was running at the time. This path does not use the LUT inside the file.',
                         'zh-CN': '第 1 部分＝出厂等距表（DG_EN 关闭时面板走的那张）：PQ Tools 的 CCT 档本来就是在 DG_EN 关闭下量的，面板当时走的就是这张等距表。这一条路不会用档案里那张 LUT。' },
+      /* v2.4.3：「要不要調色溫」那兩顆 —— 按下去直接開始計算，鈕面照 Bruce 的說法寫出結果。 */
+      'dg.toneGammaGo': { 'zh-TW': '不調色溫並產生新的 RGB LUT', 'en': 'Generate the new RGB LUT without colour-temperature tuning',
+                          'zh-CN': '不调色温并产生新的 RGB LUT' },
+      'dg.toneCctGo':   { 'zh-TW': '調色溫並產生新的 RGB LUT', 'en': 'Tune colour temperature and generate the new RGB LUT',
+                          'zh-CN': '调色温并产生新的 RGB LUT' },
       'dg.pqOptTitle': { 'zh-TW': '三個部分一次填好',
                          'en': 'All three parts filled at once',
                          'zh-CN': '三个部分一次填好' },
@@ -16319,9 +16326,14 @@
       if (!dgToneAfterLutSet()) dgLutModalClose();
     });
     $('dg-btn-imp-lut').addEventListener('click', dgLutModalClose);
-    // 第二層的兩個選項：選完就收工
-    $('dg-btn-tone-gamma').addEventListener('click', function () { dgSetTone('gamma'); dgLutModalClose(); });
-    $('dg-btn-tone-cct').addEventListener('click', function () { dgSetTone('cct'); dgLutModalClose(); });
+    /* 第二層的兩個選項。v2.4.3（Bruce 2026-10-01）：「把『調色溫並產生新的 RGB LUT』和『不調色溫並產生新的
+       RGB LUT』這兩個選項按鈕，直接做成按下去就等同於觸發開始計算」。
+       ⇒ 選完關視窗、**直接叫同一支 dgDoCalc()**（「開始計算新的 RGB LUT」那顆鈕本來就是它，保留不動）。
+       🔴 資料還不齊（例如電腦畫面流程缺第 3 部分的純色端點）⇒ dgDoCalc() 開頭那道既有的閘門照常擋下、
+          狀態列講缺哪一份 —— Bruce：「照現有的錯誤提示處理即可，不另外加步驟」。T-CON 自檢一定會量 RGB 純色，
+          所以那條路調色溫不會缺。 */
+    $('dg-btn-tone-gamma').addEventListener('click', function () { dgSetTone('gamma'); dgLutModalClose(); dgDoCalc(); });
+    $('dg-btn-tone-cct').addEventListener('click', function () { dgSetTone('cct'); dgLutModalClose(); dgDoCalc(); });
     // v1.16.0：第 1 部分的第三條路（貼上）—— 展開空表格讓人貼，不碰任何資料
     $('dg-btn-lut-manual').addEventListener('click', function () {
       dgPartManualOpen('lut'); dgLutModalClose();

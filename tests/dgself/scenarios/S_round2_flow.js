@@ -77,9 +77,9 @@
       await __wait(4000);
       __ok('S2 card read back automatically (no click)', !!dstLut && dstLut.src === 'tcon' && window.__readAddrs.length > nR0,
         (dstLut ? dstLut.src : 'null') + ' reads+' + (window.__readAddrs.length - nR0));
-      __ok('S2 read button hidden in round 2, export next to it', !__vis('dst-lut-read') && __vis('dst-lut-xlsx'));
+      __ok('S2 read button hidden, export kept (card folded until done ⇒ checked by class)', __cls('dst-lut-read', 'dst-hidden') && !__cls('dst-lut-xlsx', 'dst-hidden'));
       if (P === 'AUTO') {
-        __ok('S2 compare line: matches DG entry by entry', __vis('dst-lut-chk') && tx('dst-lut-chk') === '✓ 與 DG 送來的 LUT 逐筆相符（256 筆 × RGB）'
+        __ok('S2 compare line: matches DG entry by entry', !__cls('dst-lut-chk', 'dst-hidden') && tx('dst-lut-chk') === '✓ 與 DG 送來的 LUT 逐筆相符（256 筆 × RGB）'
           && document.getElementById('dst-lut-chk').classList.contains('dst-say-info'), tx('dst-lut-chk'));
         __ok('S2 export enabled', __dis('dst-lut-xlsx') === false);
         // 同一輪再觸發一次 ⇒ 卡上已有表，不重讀
@@ -87,7 +87,9 @@
         await dstDgAutoThenStep1('probe'); await __wait(800);
         __ok('S3 table already there -> no second auto read', window.__readAddrs.length - nR1 < 4, 'reads+' + (window.__readAddrs.length - nR1));
       } else {
-        __ok('S-BAD red warning with first mismatch + count', __vis('dst-lut-chk') && /^⚠ T-CON 讀回的 LUT 與 DG 送來的不一致：第 5 筆 G 送出 \d+、讀回 \d+（共 1 處）。這張表不能匯出/.test(tx('dst-lut-chk'))
+        __ok('S-BAD steps card shows the same warning while the LUT card is folded (v2.7.3)', __cls('dst-lut-card', 'dst-fold') && __vis('dst-steps-lutwarn')
+          && tx('dst-steps-lutwarn') === tx('dst-lut-chk') && /^⚠ /.test(tx('dst-steps-lutwarn')), tx('dst-steps-lutwarn'));
+        __ok('S-BAD red warning with first mismatch + count', !__cls('dst-lut-chk', 'dst-hidden') && /^⚠ T-CON 讀回的 LUT 與 DG 送來的不一致：第 5 筆 G 送出 \d+、讀回 \d+（共 1 處）。這張表不能匯出/.test(tx('dst-lut-chk'))
           && !document.getElementById('dst-lut-chk').classList.contains('dst-say-info'), tx('dst-lut-chk'));
         __ok('S-BAD card export disabled', __dis('dst-lut-xlsx') === true);
         dstLutExport(); await __wait(300);
@@ -116,9 +118,9 @@
       __ok('S-R1 no decision box in round 1', !__vis('dst-dec'));
       __ok('S-R1 ④ (v2.7.1 applies to round 1 too): declined ⇒ no button, state + add link', !__vis('dst-cmp-open')
         && tx('dst-cmp-state') === '這一輪沒有加入比較。加入比較', tx('dst-cmp-state'));
-      __ok('S-R1 read button still there', __vis('dst-lut-read'));
+      __ok('S-R1 read button still there (baseline; card folded until done)', !__cls('dst-lut-read', 'dst-hidden'));
       __ok('S-R1 back-to-DG CTA still the solid one', document.getElementById('dst-back-warn').classList.contains('dst-back-cta'));
-      __ok('S-R1 no compare line in round 1', !__vis('dst-lut-chk'));
+      __ok('S-R1 no compare line in the baseline measurement', __cls('dst-lut-chk', 'dst-hidden'));
       __ok('S-R1 send-back line unchanged (switch to DG)', tx('dst-say-run').indexOf('請切回 DG 分頁繼續。') > 0, tx('dst-say-run'));
       __checkVersion('S-R1'); throw 'done';
     }
@@ -151,7 +153,8 @@
     __ok('S2 ④ line is a plain note (not the solid CTA)', !document.getElementById('dst-back-warn').classList.contains('dst-back-cta')
       && (C === 'EN' ? tx('dst-back-warn') === 'Sent back to DG.' : C === 'CN' ? tx('dst-back-warn') === '已回传 DG。' : tx('dst-back-warn') === '已回傳 DG。'), tx('dst-back-warn'));
     var dec = document.getElementById('dst-dec'), res = document.getElementById('dst-res-wrap');
-    __ok('S3 decision box right under the results', __vis('dst-dec') && res.nextElementSibling === dec);
+    __ok('S3 decision box right under ④ (v2.7.3: moved from the results card)', __vis('dst-dec') && document.getElementById('dst-box-back').nextElementSibling === dec
+      && __cls('dst-box-back', 'dst-fs-hot'));
     var rc = dec.getBoundingClientRect();
     __ok('S3 decision box scrolled into view (no scrolling needed)', rc.top >= 0 && rc.bottom <= window.innerHeight, Math.round(rc.top) + '..' + Math.round(rc.bottom) + ' / ' + window.innerHeight);
     __ok('S3 export is the only solid button on the page', blues().length === 1 && blues()[0] === 'dst-dec-export', blues().join(','));
