@@ -1,7 +1,7 @@
 /* V：dgself v2.5.0「加入光學資料比較」視窗的「查看光學資料比較 ↗」（window.__viewCase 由 runner 指定）。
    假 DG 同 M 情境（換掉 opener.postMessage，回覆直接呼叫 dstCmpOnInfo／dstCmpOnAdded）；
    window.open 換成假的，記下網址／視窗名，回傳假視窗或 null（模擬被擋）。
-   OPEN   ＝確定前沒有這顆；加入後出現、線框（確定／關閉仍是唯一實心）；點 ⇒ 開 dg.html?view=cmp、固定視窗名、斷開 opener
+   OPEN   ＝確定前沒有這顆；加入後出現、線框（確定／關閉仍是唯一實心）；點 ⇒ 開 dg.html?view=cmp、固定視窗名、保留 opener（v2.5.1）
    BLK    ＝window.open 回 null ⇒ 「請切回 DG 分頁…」提示（實心、↗），「關閉」讓位成線框；重開視窗提示消失
    NOSTORE＝DG 回 stored:false（存檔沒寫成）⇒ 不開新分頁，直接顯示提示
    EN     ＝英文字面 */
@@ -53,7 +53,7 @@
       __ok('V2 window.open called once', opens.length === 1, JSON.stringify(opens));
       __ok('V2 url = dg.html?view=cmp', opens[0] && opens[0].url === 'dg.html?view=cmp');
       __ok('V2 fixed window name (reuse the same tab)', opens[0] && opens[0].name === 'tcon-dg-cmpview');
-      __ok('V2 opener cut + focused', fakeWin.opener === null && fakeWin.focused === 1);
+      __ok('V2 opener kept (Safari named-tab reuse) + focused', fakeWin.opener === window && fakeWin.focused === 1);
       __ok('V2 no fallback hint', !vis('dst-cmp-go'));
       __ok('V2 popup stays open (Close still there)', document.getElementById('dst-modal-cmp').classList.contains('open') && solid().join(',') === 'dst-cmp-ok');
       vb.click(); await __wait(30);

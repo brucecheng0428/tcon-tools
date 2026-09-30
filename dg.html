@@ -2753,7 +2753,7 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20260930dg230"></script>
+<script src="common/version.js?v=20260930dg231"></script>
 <script src="common/i18n.js?v=20260923dg1754"></script>
 <!-- v1.68.1：xlsx 產生器（原本在本頁，現在與 dg-selftest.html 共用）。
      🔴 必須在本頁的 inline script 之前載入。 -->
@@ -16689,14 +16689,23 @@
       + 'DG 分頁一加入或修改，這裡會自動更新；這裡的「顯示」勾選只影響這個分頁，不會改到 DG。', false);
     return true;
   }
+  /* v2.3.1：切回這個分頁（visibilitychange）或從往返快取回來（pageshow persisted）時再對一次存檔：
+     storage 事件在分頁被凍結／丟棄時可能沒送到。存檔字串沒變就不重畫（不動這裡的「顯示」勾選）。 */
+  var _dgViewRaw = null;
+  function dgViewRawNow() { try { return localStorage.getItem(DG_AS_KEY); } catch (e) { return null; } }
   function dgViewInit() {
+    _dgViewRaw = dgViewRawNow();
     dgViewRefresh();
     var t = null;
+    function again() { _dgViewRaw = dgViewRawNow(); dgViewRefresh(); }
     window.addEventListener('storage', function (e) {
       if (e.key !== DG_AS_KEY && e.key !== null) return;   // null ＝ 別的分頁 localStorage.clear()
       clearTimeout(t);
-      t = setTimeout(dgViewRefresh, 120);
+      t = setTimeout(again, 120);
     });
+    function recheck() { if (dgViewRawNow() !== _dgViewRaw) { clearTimeout(t); again(); } }
+    document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') recheck(); });
+    window.addEventListener('pageshow', function (e) { if (e.persisted) recheck(); });
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', dgInit);

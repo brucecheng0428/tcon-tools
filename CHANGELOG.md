@@ -2,6 +2,36 @@
 
 ---
 
+## TCON 自檢畫面量測 (dgself) v2.5.1 — 2026-09-30 ｜ PATCH
+
+判定依據：VERSIONING.md §1 表第 2 列「改一個 bug ⇒ PATCH」。「查看光學資料比較 ↗」本來就要重用同一個比較分頁；v2.5.0／v2.3.0 開完切斷 opener，Safari 因此找不到它（每按一次多開一個），修回應有行為。dg.html 檢視頁切回前景時補一次重讀（storage 事件漏掉的保險），不改任何畫面與操作。量測數值與送出內容不變 ⇒ 不標 ⚠ 輸出變更。
+
+### 為什麼
+- Bruce 2026-09-30（經 Dispatch）：比較分頁可能是之前從 DG 頁開的，下一次改從自檢頁（或其他頁）按「查看光學資料比較」時，手上沒有那個分頁的參照。要求：① 所有頁面用同一個視窗名稱開，確認沒有 noopener／COOP 擋住，Chrome 與 Safari 驗證（能實測就實測，不行查文件）；② 比較頁用共用儲存同步，第二個比較分頁也要是最新完整資料，已開的收到新資料自動更新；③ 真的帶不到前面時，最差是新開一個比較分頁且資料正確，不能「跳不過去也看不到」。
+
+### 查證結果
+- 名稱：自檢頁 `DST_CMP_VIEW_WIN` 與量測頁都是 `tcon-dg-cmpview`（原本就同名）；兩頁都沒帶 noopener；線上 GitHub Pages 回應沒有 `Cross-Origin-Opener-Policy`（`curl -I` 查過）。DG 開自檢頁／量測頁是 `window.open(url, '_blank')`，不帶 noopener ⇒ 同一個 browsing context group。
+- **Chrome 154 實測**（新 `tests/dgself/tabs.py`，真的多分頁；headless=new 與實體視窗結果一致）：同一個 group 裡任何一頁用這個名字 open ⇒ 找到別頁開的比較分頁、重新載入（＝最新資料）、帶到前面；opener 切不切都一樣。不同 group（noopener 開的頁）⇒ 找不到 ⇒ 新開一個在前景。
+- **Safari：沒實測**（本機 Safari 沒開「允許遠端自動化」，不改 Bruce 的 Safari 設定）。依 WebKit 原始碼：`FrameTree::find` 只在 `isFrameFamiliarWith` 成立時找得到別的分頁的具名視窗 —— 同一頁、一方是另一方的 opener、或兩者 opener 相同；`WebCore::createWindow` 找到既有具名視窗時，若呼叫端有使用者點擊（transient activation）會 `page->chrome().focus()` 帶到前面，並把它的 opener 更新成呼叫端。⇒ v2.5.0 開完設 `opener = null`，在 Safari 連本頁重按都找不到。
+- ⇒ Safari 預期行為（推論，未實測）：本頁（或與比較分頁有 opener 親屬關係的頁）重按 ⇒ 沿用並帶到前面；別頁開的（例如量測頁開的、再從自檢頁按）⇒ 新開一個在前景，資料相同。每一頁最多各留一個比較分頁，不會每按一次多一個。
+
+### 改了什麼
+- dg-selftest.html `dstCmpView()`、dg-measure.html `dgmCmpView()`：拿掉 `w.opener = null`，保留 `w.focus()`（Safari 允許 opener 對自己開的分頁 focus）。檢視頁本來就不收訊息、不寫存檔，保留 opener 不影響唯讀。
+- dg.html `?view=cmp`：除了 `storage` 事件，`visibilitychange`（切回這個分頁）與 `pageshow`（往返快取回來）時再對一次自動保存字串，有變才重讀重畫（沒變不重畫，不動這個分頁自己的「顯示」勾選）。資料來源不變：DG 的 localStorage 自動保存（單一份），多個比較分頁都讀它、都唯讀 ⇒ 不缺筆、不衝突。
+
+### 驗證（如實）
+- `python3 tests/dgself/tabs.py`：T1 DG 開的已存在／T2 自檢頁開的已存在（中途 DG 加一組，已開的自動變 2 組）／T2b 量測頁開的已存在／T3 都沒有（再按一次沿用）／T3b 自檢頁在另一個 group ⇒ 第二個比較分頁在前景、兩個資料相同、DG 再加一組兩個都更新、比較分頁不寫存檔。33/33 過（headless 與 `--headful` 各跑一次）。
+- `bash tests/dgself/run-all.sh`：38 個情境全過；V／DV 改驗「保留 opener＋focus」，DGV 加 V6（漏掉 storage 事件 ⇒ 切回分頁才重讀；存檔沒變不重畫）。
+- **沒驗**：Safari 實機（上面是讀 WebKit 原始碼的推論）；真機量測流程。
+
+## Digital Gamma 迭代校正 (dg) v2.3.1 — 2026-09-30 ｜ PATCH
+
+判定依據：VERSIONING.md §1 表第 2 列 ⇒ PATCH，理由同上一條 dgself v2.5.1（同一批修正）。不標 ⚠ 輸出變更。
+
+- dg-measure.html `dgmCmpView()`：拿掉 `w.opener = null`（Safari 具名分頁重用），同 dgself v2.5.1。
+- dg.html `?view=cmp`：`visibilitychange`／`pageshow` 時存檔字串有變才重讀重畫。
+- 查證、實測與沒驗的部分見上一條 dgself v2.5.1。
+
 ## TCON 自檢畫面量測 (dgself) v2.5.0 — 2026-09-30 ｜ MINOR
 
 判定依據：VERSIONING.md §1「多了新能力，舊的操作都在原位 ⇒ MINOR」—— 「加入光學資料比較」視窗多一顆「查看光學資料比較 ↗」（加入後才出現），開不了新分頁時多一條提示；確定／取消／關閉、量測、回傳 DG 都沒動。量測數值與送出內容不變 ⇒ 不標 ⚠ 輸出變更。
