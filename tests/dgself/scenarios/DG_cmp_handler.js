@@ -67,6 +67,8 @@
     send({ type: 'dg-cmp-add', task: 11, name: '第一輪', edited: false });
     var a = last('dg-cmp-added');
     __ok('DG3 added as set 1', a && a.ok && a.no === 1 && a.count === 1 && !a.updated && a.name === '第一輪', JSON.stringify(a));
+    __ok('DG3 reply carries max + latest list (v2.2.1)', a.max === 10 && Array.isArray(a.list) && a.list.length === 1 && a.list[0].no === 1
+      && a.list[0].name === '第一輪' && typeof a.list[0].t === 'number', JSON.stringify(a.list));
     var s0 = DG_SLOTS[0] || {};
     __ok('DG3 default name is not user-set (next round can retitle)', s0.nameIsUserSet === false && dgSlotDisplayName(0) === '第一輪');
     __ok('DG3 primaries of this round stored', !!(s0.prim && s0.prim.r && s0.prim.g && s0.prim.b));
@@ -81,6 +83,7 @@
     send({ type: 'dg-cmp-add', task: 11, name: '  量測 A ', edited: true });
     a = last('dg-cmp-added');
     __ok('DG5 edited name updates set 1', a.ok && a.updated && a.name === '量測 A' && DG_SLOTS[0].nameIsUserSet === true && DG_SLOTS.length === 1, a.name);
+    __ok('DG5 updated reply list shows the new name', a.list && a.list.length === 1 && a.list[0].name === '量測 A', JSON.stringify(a.list));
 
     // ② 第 4 部分（確認結果）帶 cmpAsk
     DG_LIVE_TASKS[12] = 'conf'; DG_LIVE_TASK_KIND[12] = 'tcon';
@@ -137,6 +140,7 @@
     send({ type: 'dg-cmp-add', task: 15, name: '', edited: false });
     a = last('dg-cmp-added');
     __ok('DG10 full ⇒ not added, reason given', !a.ok && DG_SLOTS.length === 10 && a.note.indexOf('已滿 10 組') >= 0, a.note);
+    __ok('DG10 failed reply still carries list (10)', a.list && a.list.length === 10 && a.max === 10);
 
     __ok('DG version = common/version.js dg (' + window.__expectDgVer + ')', TOOL_VERSIONS.dg === window.__expectDgVer, TOOL_VERSIONS.dg);
   } catch (e) { window.__errs.push('scenario: ' + (e && e.stack || e)); }

@@ -14,7 +14,7 @@
 <title>TCON 自檢畫面量測 — TCON FAE專用工具箱</title>
 <link rel="stylesheet" href="common/common.css?v=20260903help">
 <!-- 🔴 version.js 必須最先載入（common/version.js 開頭那條規則）。 -->
-<script src="common/version.js?v=20260930dst240"></script>
+<script src="common/version.js?v=20260930dst241"></script>
 <style>
   /* ═══ 本頁專屬樣式 ════════════════════════════════════════════════════════
      只寫這一頁真的需要、而 common.css 沒有的東西。顏色一律走 common.css 的
@@ -474,6 +474,16 @@
   .dst-btn.on, .dst-btn.pri.on {
     background: rgba(37, 99, 235, .16); border-color: var(--primary); color: #fff;
   }
+  /* v2.4.1：「加入光學資料比較」視窗開著時，視窗裡的「確定」（#dst-cmp-ok，.dst-main）就是當下
+     唯一的主動作 ⇒ 頁面上原本的實心藍（dstRenderMain 挑的那一顆、v2.3.0「已送回 DG」提示條）
+     一律讓位成線框，呼吸燈暫停；關掉視窗就還原（body.dst-cmp-on 由 dstCmpOpen／Close 切）。
+     Bruce 2026-09-30：兩頁「確定」同一種實心主按鈕，照單一主動作規則。 */
+  body.dst-cmp-on .dst-btn.dst-main:not(#dst-cmp-ok), body.dst-cmp-on .dst-toggle.dst-main {
+    background: transparent; border-color: var(--border); color: var(--text);
+  }
+  body.dst-cmp-on .dst-back-cta { background: transparent; border-color: var(--border); color: var(--text); animation: none; box-shadow: none; }
+  body.dst-cmp-on .dst-back-cta .dst-cta-btn { background: transparent; color: var(--text); border: 1px solid var(--border); }
+  body.dst-cmp-on .dst-back-cta .dst-cta-sub { color: var(--text-sub); }
 
   /* 外框：2px → 1px（dg 的 .dg-part 同一個粗細） */
   .dst-box { border-width: 1px; }
@@ -7610,6 +7620,7 @@ var DST_CMP_I18N = {
   'dst.cmpAsking':  { 'zh-TW': '正在向 DG 查詢目前的筆數…', 'en': 'Asking DG how many sets it has…', 'zh-CN': '正在向 DG 查询目前的笔数…' },
   'dst.cmpUnknown': { 'zh-TW': '無法取得目前的筆數，按「確定」仍會送出。', 'en': 'Could not get the current count. "OK" will still send it.', 'zh-CN': '无法取得目前的笔数，按“确定”仍会送出。' },
   'dst.cmpListSum': { 'zh-TW': '看其他 {n} 筆', 'en': 'Show the other {n}', 'zh-CN': '看其他 {n} 笔' },
+  'dst.cmpListAll': { 'zh-TW': '看全部 {n} 筆', 'en': 'Show all {n}', 'zh-CN': '看全部 {n} 笔' },
   'dst.cmpSame':    { 'zh-TW': '這一份與第 {no} 筆（{name}）逐值相同，按「確定」只會更新名稱。', 'en': 'This is identical to set {no} ({name}); "OK" only updates its name.', 'zh-CN': '这一份与第 {no} 笔（{name}）逐值相同，按“确定”只会更新名称。' },
   'dst.cmpFull':    { 'zh-TW': '已滿 {max} 筆，按「確定」也加不進去；請先到 DG 的「光學資料比較」刪掉一筆。', 'en': 'Already {max} sets, so "OK" cannot add it. Delete one in DG\'s "Optical data comparison" first.', 'zh-CN': '已满 {max} 笔，按“确定”也加不进去；请先到 DG 的“光学数据比较”删掉一笔。' },
   'dst.cmpName':    { 'zh-TW': '名稱（可以改）', 'en': 'Name (editable)', 'zh-CN': '名称（可以改）' },
@@ -7662,7 +7673,8 @@ function dstCmpRender() {
     : I ? dstT('dst.cmpCount', { n: I.count, max: I.max }) : dstT('dst.cmpUnknown');
   var list = (I && I.list) || [];
   $('dst-cmp-list').classList.toggle('dst-hidden', !list.length);
-  $('dst-cmp-list-sum').textContent = dstT('dst.cmpListSum', { n: list.length });
+  // v2.4.1：加入之後清單已含這一筆 ⇒ 「看其他」改成「看全部」
+  $('dst-cmp-list-sum').textContent = dstT(dstCmpPhase === 'done' && dstCmpSaved ? 'dst.cmpListAll' : 'dst.cmpListSum', { n: list.length });
   var ol = $('dst-cmp-list-ol');
   ol.innerHTML = '';
   list.forEach(function (it) {
@@ -7708,12 +7720,16 @@ function dstCmpOpen() {
   if (!dstCmpPost({ type: 'dg-cmp-query', task: dstCmpLast.task })) dstCmpPhase = 'ready';
   else dstCmpT = setTimeout(function () { if (dstCmpPhase === 'ask') { dstCmpPhase = 'ready'; dstCmpRender(); } }, 1500);
   $('dst-modal-cmp').classList.add('open');
+  document.body.classList.add('dst-cmp-on');
+  $('dst-cmp-ok').classList.add('dst-main');   // 視窗開著的時候才是全頁唯一的 .dst-main
   dstCmpRender();
   try { $('dst-cmp-ok').focus(); } catch (e) {}
 }
 function dstCmpClose() {
   clearTimeout(dstCmpT);
   $('dst-modal-cmp').classList.remove('open');
+  document.body.classList.remove('dst-cmp-on');
+  $('dst-cmp-ok').classList.remove('dst-main');
   dstCmpPhase = 'idle';
   dstCmpRowRender();
 }
@@ -7746,9 +7762,28 @@ function dstCmpOk() {
   }, 2000);
   dstCmpRender();
 }
+/* v2.4.1：加入（或更新）之後，上方「已有幾筆」與展開清單也換成最新狀態，不能只有結果那一行是新的
+   （Bruce 2026-09-30）。DG v2.2.1 起回覆帶 list／max，直接用；舊版 DG 沒帶 ⇒ 在原清單上補這一筆／改名。 */
+function dstCmpApplyAdded(d) {
+  var had = !!dstCmpInfo;
+  var I = dstCmpInfo || { count: 0, max: 10, list: [], round: null, job: null, same: null, full: false };
+  if (typeof d.count === 'number') I.count = d.count;
+  if (typeof d.max === 'number') I.max = d.max;
+  if (Array.isArray(d.list)) I.list = d.list;
+  else if (d.ok && had) {
+    var L = (I.list || []).slice(), k = -1;
+    L.forEach(function (it, i) { if (it && it.no === d.no) k = i; });
+    if (k >= 0) L[k] = { no: d.no, name: String(d.name || ''), t: L[k].t };
+    else L.push({ no: d.no, name: String(d.name || ''), t: Date.now() });
+    I.list = L;
+  }
+  if (d.ok) { I.same = null; I.full = false; }   // 加進去了 ⇒ 「逐值相同／已滿」那兩句不再適用
+  if (had || Array.isArray(d.list) || typeof d.count === 'number') dstCmpInfo = I;
+}
 function dstCmpOnAdded(d) {
   if (!dstCmpLast || d.task !== dstCmpLast.task || dstCmpPhase !== 'send') return;
   clearTimeout(dstCmpT);
+  dstCmpApplyAdded(d);
   if (d.ok) {
     dstCmpSaved = { no: d.no, name: String(d.name || '') };
     dstCmpRes = { cls: 'ok', text: d.updated

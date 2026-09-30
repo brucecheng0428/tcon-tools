@@ -18,7 +18,10 @@
       }, 40);
       if (m.type === 'dg-cmp-add') setTimeout(function () {
         dg.count++;
-        dgmCmpOnAdded({ type: 'dg-cmp-added', task: m.task, ok: true, updated: false, no: dg.count, name: m.name, count: dg.count });
+        var ls = [];
+        for (var i = 1; i < dg.count; i++) ls.push({ no: i, name: '組' + i, t: Date.now() });
+        ls.push({ no: dg.count, name: m.name, t: Date.now() });
+        dgmCmpOnAdded({ type: 'dg-cmp-added', task: m.task, ok: true, updated: false, no: dg.count, name: m.name, count: dg.count, max: 10, list: ls });
       }, 40);
     };
     dgmGateLines = function () { return []; };
@@ -56,6 +59,15 @@
     var box = modal.querySelector('.dgm-cmp-box');
     __ok('DM1 box fits (≤ 440u and ≤ viewport)', box.getBoundingClientRect().width <= innerWidth, Math.round(box.getBoundingClientRect().width) + '/' + innerWidth);
     __ok('DM1 msg still says done', tx('dgm-msg').indexOf('✔ 已完成：256 筆') === 0, tx('dgm-msg'));
+    // v2.2.1：「確定」與自檢頁同一種實心主按鈕（#2563eb）；視窗開著時「重新量測」綠色實心讓位
+    var BLUE = 'rgb(37, 99, 235)', GREEN = 'rgb(22, 163, 74)';
+    __ok('DM1 OK is solid primary blue (same as selftest)', getComputedStyle(document.getElementById('dgm-cmp-ok')).backgroundColor === BLUE,
+      getComputedStyle(document.getElementById('dgm-cmp-ok')).backgroundColor);
+    var st = document.getElementById('dgm-start');
+    __ok('DM1 page main button yields while open', st.disabled || getComputedStyle(st).backgroundColor !== GREEN, getComputedStyle(st).backgroundColor + ' dis=' + st.disabled);
+    var solid = ['dgm-start', 'dgm-fs', 'dgm-link'].filter(function (id) { var e = document.getElementById(id);
+      return !e.disabled && getComputedStyle(e).backgroundColor !== 'rgba(0, 0, 0, 0)'; });
+    __ok('DM1 no other solid page button while open', solid.length === 0, solid.join(','));
     await __wait(150);
     if (C === 'C') {
       __ok('DM-C this line falls back to DG step name', tx('dgm-cmp-this') === '這一筆：電腦畫面', tx('dgm-cmp-this'));
@@ -93,8 +105,13 @@
     var add = sent.filter(function (m) { return m.type === 'dg-cmp-add'; })[0] || {};
     __ok('DM4 add sent (kind pc, default name)', add.kind === 'pc' && add.name === '第三輪' && add.edited === false && add.rows.length === 256 && add.task === 7);
     __ok('DM4 added text', tx('dgm-cmp-res') === '已加入，目前共 5 筆。', tx('dgm-cmp-res'));
+    var ol = document.getElementById('dgm-cmp-list-ol');
+    __ok('DM4 count line + list updated to 5', tx('dgm-cmp-count') === '「光學資料比較」目前已有 5 筆（上限 10）。' && ol.children.length === 5
+      && ol.children[4].textContent.indexOf('第三輪 · ') === 0 && tx('dgm-cmp-list-sum') === '看全部 5 筆', tx('dgm-cmp-count') + '|' + ol.children.length + '|' + tx('dgm-cmp-list-sum'));
     document.getElementById('dgm-cmp-ok').click();
     __ok('DM4 closed + row says added', !open() && tx('dgm-cmp-state') === '已加入第 5 筆（第三輪）。', tx('dgm-cmp-state'));
+    __ok('DM4 page main button restored after close', !document.body.classList.contains('dgm-cmp-on')
+      && (st.disabled || getComputedStyle(st).backgroundColor === GREEN), getComputedStyle(st).backgroundColor + ' dis=' + st.disabled);
     __ok('DM version = common/version.js dg (' + window.__expectDgVer + ')', TOOL_VERSIONS.dg === window.__expectDgVer, TOOL_VERSIONS.dg);
   } catch (e) { window.__errs.push('scenario: ' + (e && e.stack || e)); }
   __done();

@@ -30,8 +30,13 @@
       if (m.type === 'dg-cmp-add') setTimeout(function () {
         dg.adds.push(m);
         if (dg.count >= 10) dstCmpOnAdded({ type: 'dg-cmp-added', task: m.task, ok: false, count: 10, note: '光學量測組已滿 10 組，沒有加入。' });
-        else if (C === 'SAME') dstCmpOnAdded({ type: 'dg-cmp-added', task: m.task, ok: true, updated: true, no: 1, name: m.name, count: dg.count });
-        else { dg.count++; dstCmpOnAdded({ type: 'dg-cmp-added', task: m.task, ok: true, updated: false, no: dg.count, name: m.name, count: dg.count }); }
+        else if (C === 'SAME') { var ls = list(dg.count); ls[0].name = m.name;
+          dstCmpOnAdded({ type: 'dg-cmp-added', task: m.task, ok: true, updated: true, no: 1, name: m.name, count: dg.count, max: 10, list: ls }); }
+        else { dg.count++; var la = list(dg.count); la[dg.count - 1] = { no: dg.count, name: m.name, t: Date.now() };
+          // B ＝舊版 DG（回覆沒帶 list／max）⇒ 驗頁面自己補清單的備援
+          var rp = { type: 'dg-cmp-added', task: m.task, ok: true, updated: false, no: dg.count, name: m.name, count: dg.count };
+          if (C !== 'B') { rp.max = 10; rp.list = la; }
+          dstCmpOnAdded(rp); }
       }, 40);
     };
     var modal = document.getElementById('dst-modal-cmp');
@@ -63,7 +68,14 @@
     var box = modal.querySelector('.dst-modal-box');
     __ok('M1 quiet style: neutral border, box ≤ 440px', getComputedStyle(box).borderTopColor === 'rgb(51, 65, 85)' && box.getBoundingClientRect().width <= 440,
       getComputedStyle(box).borderTopColor + ' w=' + Math.round(box.getBoundingClientRect().width));
-    __ok('M1 OK button not solid blue (single-primary rule)', getComputedStyle(document.getElementById('dst-cmp-ok')).backgroundColor !== __BLUE);
+    // v2.4.1：視窗開著 ⇒ 「確定」是唯一的實心主按鈕，頁面上其他實心藍（主動作鈕、已送回 DG 提示條）讓位
+    function blues() { return Array.prototype.filter.call(document.querySelectorAll('button, .dst-back-cta'), function (el) {
+      return el.offsetParent !== null && getComputedStyle(el).backgroundColor === __BLUE; }).map(function (el) { return el.id || el.className; }); }
+    var bl = blues();
+    __ok('M1 OK is the solid primary button', getComputedStyle(document.getElementById('dst-cmp-ok')).backgroundColor === __BLUE);
+    __ok('M1 only OK is solid blue while open (page yields)', bl.length === 1 && bl[0] === 'dst-cmp-ok', bl.join(','));
+    __ok('M1 CTA breathing paused while open', getComputedStyle(document.getElementById('dst-back-warn')).animationName === 'none'
+      || !document.getElementById('dst-back-warn').classList.contains('dst-back-cta'), getComputedStyle(document.getElementById('dst-back-warn')).animationName);
     await __wait(150);
 
     if (C === 'C') {
@@ -91,6 +103,7 @@
       __ok('M-EN list summary', tx('dst-cmp-list-sum') === 'Show the other 2');
       document.getElementById('dst-cmp-ok').click(); await __wait(150);
       __ok('M-EN added', tx('dst-cmp-res') === 'Added. 3 set(s) now.', tx('dst-cmp-res'));
+      __ok('M-EN count + list summary updated', tx('dst-cmp-count') === '"Optical data comparison" has 3 set(s) now (max 10).' && tx('dst-cmp-list-sum') === 'Show all 3', tx('dst-cmp-count') + '|' + tx('dst-cmp-list-sum'));
       document.getElementById('dst-cmp-ok').click();
       __ok('M-EN re-add button', tx('dst-cmp-open') === 'Add to optical comparison…', tx('dst-cmp-open'));
       __done(); return;
@@ -128,6 +141,7 @@
       var a3 = sent.filter(function (m) { return m.type === 'dg-cmp-add'; })[0] || {};
       __ok('M-SAME sends edited name', a3.name === '改過的名字' && a3.edited === true);
       __ok('M-SAME updated text', tx('dst-cmp-res') === '已更新第 1 筆（改過的名字），目前共 2 筆。', tx('dst-cmp-res'));
+      __ok('M-SAME warn cleared, list shows new name', tx('dst-cmp-warn') === '' && ol.children[0].textContent.indexOf('改過的名字 · ') === 0, tx('dst-cmp-warn') + '|' + ol.children[0].textContent);
       __done(); return;
     }
 
@@ -151,6 +165,9 @@
       var a1 = sent.filter(function (m) { return m.type === 'dg-cmp-add'; });
       __ok('M-B Enter sends edited name (trimmed)', a1.length === 1 && a1[0].name === '我的第一輪' && a1[0].edited === true, a1[0] && a1[0].name);
       __ok('M-B added', tx('dst-cmp-res') === '已加入，目前共 3 筆。', tx('dst-cmp-res'));
+      __ok('M-B old DG (no list): count + list still updated locally', tx('dst-cmp-count') === '「光學資料比較」目前已有 3 筆（上限 10）。'
+        && ol.children.length === 3 && ol.children[2].textContent.indexOf('我的第一輪 · ') === 0 && tx('dst-cmp-list-sum') === '看全部 3 筆',
+        tx('dst-cmp-count') + '|' + ol.children.length + '|' + tx('dst-cmp-list-sum'));
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
       __ok('M-B row says added', tx('dst-cmp-state') === '已加入第 3 筆（我的第一輪）。', tx('dst-cmp-state'));
       __done(); return;
@@ -165,9 +182,14 @@
       && add[0].kind === 'tcon' && add[0].job === 'main');
     __ok('M3 added text', tx('dst-cmp-res') === '已加入，目前共 3 筆。' && !__cls('dst-cmp-res', 'err'), tx('dst-cmp-res'));
     __ok('M3 OK becomes Close, cancel hidden', tx('dst-cmp-ok') === '關閉' && __cls('dst-cmp-cancel', 'dst-hidden'));
+    __ok('M3 count line updated to 3', tx('dst-cmp-count') === '「光學資料比較」目前已有 3 筆（上限 10）。', tx('dst-cmp-count'));
+    __ok('M3 list updated to 3 (new one last)', ol.children.length === 3 && ol.children[2].textContent.indexOf('第一輪 · ') === 0
+      && tx('dst-cmp-list-sum') === '看全部 3 筆', ol.children.length + '|' + tx('dst-cmp-list-sum'));
     __ok('M3 focus stays on the button', document.activeElement && document.activeElement.id === 'dst-cmp-ok');
     document.getElementById('dst-cmp-ok').click();
     __ok('M3 closed', !open());
+    var bl2 = blues();
+    __ok('M3 page primary restored after close', bl2.length >= 1 && bl2.indexOf('dst-cmp-ok') < 0 && !document.body.classList.contains('dst-cmp-on'), bl2.join(','));
     __ok('M3 row says added', tx('dst-cmp-state') === '已加入第 3 筆（第一輪）。', tx('dst-cmp-state'));
     __ok('M3 CTA (sent back to DG) still there', document.getElementById('dst-back-warn').classList.contains('dst-back-cta'));
     __checkVersion('M-A');
