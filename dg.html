@@ -15,6 +15,7 @@
 <meta name="twitter:card" content="summary_large_image">
 <title>DG — Digital Gamma 迭代校正 — TCON FAE專用工具箱</title>
 <link rel="stylesheet" href="common/common.css?v=20260907dg1130">
+<link rel="stylesheet" href="common/done-step.css?v=20261001dg244">
 <style>
   /* ─── DG PAGE 專屬 CSS ─────────────────────────── */
   .dg-setup  .card-header { background: #6d28d9; }
@@ -816,6 +817,9 @@
   /* v1.25.1：第 4 部分的「要不要再跑一輪」決策列。看完圖就在圖的正下方按，
      不是彈出來蓋在圖上面。兩顆並排、主要動作用 primary 配色。 */
   .dg-conf-decide { margin-top: 10px; }
+  /* v2.4.4：「RGB LUT 深度轉換」分頁的兩個步驟框（做完的樣子由 common/done-step.css 接手） */
+  .dg-conv-step { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-top: 10px; }
+  .dg-conv-step-t { font-weight: 700; font-size: 13.5px; margin-bottom: 6px; }
   .dg-conf-decide .dg-btn { flex: 1 1 160px; }
   /* ═══ 🔴 v1.73.2：這一列從「一顆藍鈕」變成「一個框」═══════════════════════════
      Bruce 2026-09-22 實機：量完第 4 部分回到 DG，「不知道該怎麼樣繼續進行下去」。
@@ -2046,6 +2050,9 @@
     <div class="card-body">
 
       <input type="file" id="dg-file-conv" accept=".xlsx" style="display:none">
+      <!-- v2.4.4：兩個步驟各一個框（① 匯入／② 選目標深度並下載），做完的縮成「✓ …」一行（common/done-step.js）。 -->
+      <div class="dg-conv-step" id="dg-conv-step-imp">
+      <div class="dg-conv-step-t" data-i18n="dg.convStepImp">① 匯入 RGB LUT 檔</div>
       <div class="dg-btnrow">
         <button class="dg-btn dg-btn-imp" id="dg-btn-conv-imp">匯入 RGB LUT 檔<span class="dg-nowrap">（<span class="dg-fname">.xlsx</span>）</span></button>
       </div>
@@ -2060,6 +2067,10 @@
           <div class="dg-derived-val" id="dg-conv-entries">—</div>
         </div>
       </div>
+      </div><!-- /#dg-conv-step-imp -->
+
+      <div class="dg-conv-step" id="dg-conv-step-dl">
+      <div class="dg-conv-step-t" data-i18n="dg.convStepDl">② 選目標深度並下載</div>
 
       <!-- v1.33.0：附加末筆要不要跟著出（預設跟匯入檔走，見 dgConvImport()）。
            樣式沿用同一張卡片的 `.field` ＋ `.dg-sel`，沒有新增任何 CSS。 -->
@@ -2086,6 +2097,7 @@
       <div class="dg-btnrow">
         <button class="dg-btn primary" id="dg-btn-conv-dl" disabled>下載轉換後的 LUT（.xlsx）</button>
       </div>
+      </div><!-- /#dg-conv-step-dl -->
 
       <div class="dg-status" id="dg-conv-status">還沒有匯入 LUT 檔。</div>
 
@@ -2772,7 +2784,8 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20261001dg243"></script>
+<script src="common/version.js?v=20261001dg244"></script>
+<script src="common/done-step.js?v=20261001dg244"></script>
 <script src="common/i18n.js?v=20260923dg1754"></script>
 <!-- v1.68.1：xlsx 產生器（原本在本頁，現在與 dg-selftest.html 共用）。
      🔴 必須在本頁的 inline script 之前載入。 -->
@@ -2875,6 +2888,9 @@
                         'en': 'Part 1 is the factory linear table (the one the panel runs when DG_EN is off): a PQ Tools CCT file is by definition measured with DG_EN off, so that linear table is what the panel was running at the time. This path does not use the LUT inside the file.',
                         'zh-CN': '第 1 部分＝出厂等距表（DG_EN 关闭时面板走的那张）：PQ Tools 的 CCT 档本来就是在 DG_EN 关闭下量的，面板当时走的就是这张等距表。这一条路不会用档案里那张 LUT。' },
       /* v2.4.3：「要不要調色溫」那兩顆 —— 按下去直接開始計算，鈕面照 Bruce 的說法寫出結果。 */
+      /* v2.4.4：「RGB LUT 深度轉換」分頁的兩個步驟名（框內標題＋做完那一行共用） */
+      'dg.convStepImp': { 'zh-TW': '① 匯入 RGB LUT 檔', 'en': '① Import an RGB LUT file', 'zh-CN': '① 汇入 RGB LUT 档' },
+      'dg.convStepDl':  { 'zh-TW': '② 選目標深度並下載', 'en': '② Choose the target depth and download', 'zh-CN': '② 选目标深度并下载' },
       'dg.toneGammaGo': { 'zh-TW': '不調色溫並產生新的 RGB LUT', 'en': 'Generate the new RGB LUT without colour-temperature tuning',
                           'zh-CN': '不调色温并产生新的 RGB LUT' },
       'dg.toneCctGo':   { 'zh-TW': '調色溫並產生新的 RGB LUT', 'en': 'Tune colour temperature and generate the new RGB LUT',
@@ -11423,9 +11439,11 @@
     var miss = dgMissingParts(), folded = [];
     Object.keys(DG_PART_META).forEach(function (part) {
       var done = (miss.indexOf(part) < 0) && dgPartFilled(part);
-      dgPartFoldSet(part, done);
+      /* v2.4.4：做完的部分改由 dgDoneStepsSync() 縮成 ✓ 一行（點開回看時內容直接看得到），不再另外收折。 */
+      dgPartFoldSet(part, false);
       if (done) folded.push(part);
     });
+    dgDoneStepsSync();
     var target = miss.length ? dgPartEl(miss[0]) : $('dg-calc-act');
     dgGuideScrollTo(target);
     return { folded: folded, miss: miss.slice(), target: target ? target.id : null };
@@ -11821,6 +11839,51 @@
        對應目前輸入 —— 直接作廢，卡片收起來，不留一張顯示舊結果的卡片。 */
     if (missing.length && lastLut) dgInvalidateResult();
     else dgSyncOutCard();
+    dgDoneStepsSync();   // v2.4.4：做完的部分縮成 ✓ 一行
+  }
+
+  /* ═══ v2.4.4：做完的部分縮成一行「✓ 第 N 部分 …」（Bruce 2026-10-01 核准）═══════════════════
+     Bruce：「做過的步驟會變得很簡單的一個打勾，字變得很小，沒有什麼特殊外觀…我要你把這一套設計方式套用在
+     DG 的網頁上，一樣有第一步驟、第二步驟、第三步驟…完成過的就打勾縮小，點了以後又可以再復原。」
+     樣式與行為＝自檢頁 v2.7.4 那一套，抽成 common/done-step.css／done-step.js 三頁共用。
+     🔴 「做完」沿用本頁既有的判定：這個模式用得到這一部分（DG_PARTS_BY_TONE，只調 Gamma 時不含第 3 部分）
+        而且 dgPartFilled() 為真 —— 與計算鈕的閘門同一支，不另立狀態。
+     🔴 第 4 部分（確認結果）不縮：它的最後一步就是「查看目前結果／進行第 N+1 輪」這個決定，縮起來等於把
+        下一個動作藏起來；按「進行第 N+1 輪」之後第 1～4 部分本來就會重來。
+     🔴 焦點：某一部分**剛**變成做完（前一次還不是）⇒ 捲到目前要做的那一個（還缺的第一個部分；都齊了就是
+        「開始計算新的 RGB LUT」）。他正在那一部分裡面打字 ⇒ 不收、不捲（改成展開回看的樣子），免得打到一半
+        整格不見。載入頁面還原資料時只收、不捲。
+     🔴 還沒到的部分**不隱藏**（Bruce 這一次只要求縮小做完的）。 */
+  var DG_DONE_WAS = {}, DG_DONE_READY = false;
+  function dgPartShortName(part) {
+    var el = dgPartEl(part); if (!el) return '';
+    var no = el.querySelector('.dg-part-no'), ti = el.querySelector('.dg-part-title');
+    return ((no ? no.textContent : '') + '　' + (ti ? ti.textContent : '')).trim();
+  }
+  var dgDoneReadyT = 0;
+  function dgDoneStepsSync() {
+    if (typeof TCONDoneStep === 'undefined' || DG_VIEW) return;
+    /* 載入頁面時（自動還原上一次的資料）只收、不捲；那一陣子過去之後才開始「剛做完 ⇒ 捲到下一步」。 */
+    if (!DG_DONE_READY && !dgDoneReadyT) dgDoneReadyT = setTimeout(function () { DG_DONE_READY = true; }, 800);
+    var need = DG_PARTS_BY_TONE[dgToneMode()], newly = false;
+    Object.keys(DG_PART_META).forEach(function (part) {
+      var el = dgPartEl(part); if (!el) return;
+      var done = need.indexOf(part) >= 0 && dgPartFilled(part);
+      var key = 'dg-' + part;
+      if (done && !DG_DONE_WAS[part]) {
+        if (el.contains(document.activeElement) && document.activeElement !== document.body) TCONDoneStep.peek(key, true);
+        else { TCONDoneStep.peek(key, false); if (DG_DONE_READY) newly = true; }
+        dgPartFoldSet(part, false);   // v1.72.0 的收折與 ✓ 行不疊在一起：點開回看時內容直接看得到
+      }
+      if (!done) TCONDoneStep.peek(key, false);
+      DG_DONE_WAS[part] = done;
+      TCONDoneStep.set(el, { key: key, done: done, name: dgPartShortName(part), lineId: 'dg-done-' + part,
+                             onToggle: dgDoneStepsSync });
+    });
+    if (newly && DG_MODE === 'main') {
+      var miss = dgMissingParts();
+      dgGuideScrollTo(miss.length ? dgPartEl(miss[0]) : $('dg-calc-act'));
+    }
   }
 
   function dgSetSrc(part, src) { DG_SRC[part] = src || null; dgRefreshReady(); }
@@ -14113,7 +14176,7 @@
   function dgConvRenderNote() {
     dgAsSave();   // v1.48.0 自動保存掛點⑤（轉換分頁匯入／清空／改目標深度的匯流點）
     var box = $('dg-conv-fmt');
-    if (!DG_CV) { box.style.display = 'none'; box.innerHTML = ''; box.className = 'dg-fmt'; return; }
+    if (!DG_CV) { box.style.display = 'none'; box.innerHTML = ''; box.className = 'dg-fmt'; dgConvStepsSync(); return; }
     var from = DG_CV.fmt.hw, to = dgConvTo(), d = Math.abs(to - from);
     box.style.display = '';
     box.className = 'dg-fmt';
@@ -14132,10 +14195,11 @@
         + '不可逆（再轉回 ' + from + ' bit 不等於原表）。';
     }
     box.innerHTML = h;
+    dgConvStepsSync();   // v2.4.4
   }
 
   function dgConvClear(msg, cls) {
-    DG_CV = null;
+    DG_CV = null; DG_CV_DL = false;
     $('dg-conv-from').textContent = '—';
     $('dg-conv-entries').textContent = '—';
     $('dg-btn-conv-dl').disabled = true;
@@ -14158,6 +14222,7 @@
         }
         if (!det) throw new Error(err || '這個檔案裡找不到認得出來的 LUT 表。');
         DG_CV = { fmt: det.fmt, lut: det.lut, name: file.name };
+        DG_CV_DL = false;   // v2.4.4：新的一張表 ⇒ ② 還沒做
         $('dg-conv-from').textContent = det.fmt.hw + ' bit';
         $('dg-conv-entries').textContent = det.fmt.entries + (det.fmt.hasTail ? ' ＋末筆' : '');
         /* 🔴 v1.33.0：每次匯入都無條件把選單寫成這個檔的事實（dgDetectLut() 判出來的
@@ -14189,6 +14254,27 @@
     a.click();
     URL.revokeObjectURL(a.href);
     dgSetStatus('dg-conv-status', '已產生 ' + from + ' → ' + to + ' bit 的 LUT 檔（' + f.label + '）。', 'ok');
+    DG_CV_DL = true;          // v2.4.4：② 做完（下載已交給瀏覽器）
+    dgConvStepsSync();
+  }
+  /* ═══ v2.4.4：「RGB LUT 深度轉換」分頁的兩個步驟，做完縮成 ✓ 一行（與校正分頁、自檢頁同一套）═══
+     ① 匯入：DG_CV 有表 ＝ 做完（行尾帶檔名）；② 選目標深度並下載：這一張表按過下載 ＝ 做完。
+     🔴 ① 剛做完 ⇒ 捲到 ②（焦點移到目前要做的那一步）。還沒到的步驟不隱藏（Bruce 這次沒要求）。 */
+  var DG_CV_DL = false, DG_CV_WAS = false;
+  function dgConvStepsSync() {
+    if (typeof TCONDoneStep === 'undefined') return;
+    var imp = !!DG_CV;
+    TCONDoneStep.set($('dg-conv-step-imp'), { key: 'dg-conv-imp', done: imp, lineId: 'dg-done-conv-imp',
+      name: dgT('dg.convStepImp') + (imp ? '（' + DG_CV.name + '）' : ''), onToggle: dgConvStepsSync });
+    TCONDoneStep.set($('dg-conv-step-dl'), { key: 'dg-conv-dl', done: imp && DG_CV_DL, lineId: 'dg-done-conv-dl',
+      name: dgT('dg.convStepDl'), onToggle: dgConvStepsSync });
+    if (imp && !DG_CV_WAS && DG_MODE === 'conv') {
+      TCONDoneStep.peek('dg-conv-imp', false); TCONDoneStep.peek('dg-conv-dl', false);
+      TCONDoneStep.set($('dg-conv-step-imp'), { key: 'dg-conv-imp', done: true, lineId: 'dg-done-conv-imp',
+        name: dgT('dg.convStepImp') + '（' + DG_CV.name + '）', onToggle: dgConvStepsSync });
+      dgGuideScrollTo($('dg-btn-conv-dl'));
+    }
+    DG_CV_WAS = imp;
   }
 
   /* ─── v1.9.0：分頁切換 ────────────────────────────────────────────────

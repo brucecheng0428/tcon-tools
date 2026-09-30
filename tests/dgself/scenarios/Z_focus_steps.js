@@ -67,7 +67,7 @@
     // ── 做完 ① ──
     await dstStepLut(); await __wait(500);
     __ok('Z2 ① done (sent to DG)', !!dstStepDone.lut);
-    __ok('Z2 ① collapsed to a pale "✓ ①" line', __cls('dst-box-lut', 'dst-fs-done') && __vis('dst-fs-line-lut') && !__vis('dst-go-lut')
+    __ok('Z2 ① collapsed to a pale "✓ ①" line', __cls('dst-box-lut', 'tc-step-done') && __vis('dst-fs-line-lut') && !__vis('dst-go-lut')
       && (C === 'EN' ? tx('dst-fs-line-lut') === '✓ ' + I18N['dst.stepLut'].en : tx('dst-fs-line-lut') === '✓ ① 讀回目前的 RGB LUT')
       && parseFloat(getComputedStyle(document.getElementById('dst-fs-line-lut')).opacity) < 0.8, tx('dst-fs-line-lut'));
     __ok('Z2 ②③ now current and shown', __cls('dst-group23', 'dst-fs-cur') && __vis('dst-go-gray'));
@@ -75,14 +75,14 @@
     __ok('Z2 only one solid button = 開始量測', blues().length === 1 && blues()[0] === 'dst-go-gray', blues().join(','));
     if (C === 'EN') { __checkVersion('Z-EN'); throw 'done'; }
     document.getElementById('dst-fs-line-lut').click(); await __wait(50);
-    __ok('Z3 click the done line ⇒ expands to look back', __cls('dst-box-lut', 'dst-fs-peek') && __vis('dst-go-lut') && tx('dst-fs-line-lut').indexOf('▾ ') === 0);
+    __ok('Z3 click the done line ⇒ expands to look back', __cls('dst-box-lut', 'tc-step-peek') && __vis('dst-go-lut') && tx('dst-fs-line-lut').indexOf('▾ ') === 0);
     document.getElementById('dst-fs-line-lut').click(); await __wait(50);
-    __ok('Z3 click again ⇒ collapsed again', __cls('dst-box-lut', 'dst-fs-done') && !__vis('dst-go-lut'));
+    __ok('Z3 click again ⇒ collapsed again', __cls('dst-box-lut', 'tc-step-done') && !__vis('dst-go-lut'));
 
     // ── 量完 ──
     await dstRun(); await __wait(200);
     if (document.getElementById('dst-modal-cmp').classList.contains('open')) { document.getElementById('dst-cmp-cancel').click(); await __wait(1200); }
-    __ok('Z4 ②③ collapsed to a done line', __cls('dst-group23', 'dst-fs-done') && __vis('dst-fs-line-g23') && tx('dst-fs-line-g23').indexOf('✓ ') === 0, tx('dst-fs-line-g23'));
+    __ok('Z4 ②③ collapsed to a done line', __cls('dst-group23', 'tc-step-done') && __vis('dst-fs-line-g23') && tx('dst-fs-line-g23').indexOf('✓ ') === 0, tx('dst-fs-line-g23'));
     __ok('Z4 ④ shown in full and highlighted (current)', __cls('dst-box-back', 'dst-fs-hot') && __vis('dst-back-warn') && __vis('dst-cmp-row'));
     __ok('Z4 data cards opened automatically once the flow is done', folded().length === 0 && __vis('dst-res-wrap'), folded().join(','));
     __ok('Z4 progress bar hidden again after the run', !__vis('dst-steps-prog'));
