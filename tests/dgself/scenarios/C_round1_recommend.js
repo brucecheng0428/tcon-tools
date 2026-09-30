@@ -2,6 +2,9 @@
 (async function () {
   try {
     await __wait(500); await __arm(); await __wait(300);
+    /* v2.7.4：對位之後硬體卡縮成「✓ 外接硬體連線」一行 ⇒ 先點標題展開（使用者也是這樣回看），再打開細節。 */
+    __ok('C0 hardware card collapsed to a ✓ line after alignment', __cls('dst-hw-card', 'dst-pg-done'));
+    document.querySelector('#dst-hw-card > .card-header').click(); await __wait(50);
     var box = document.getElementById('dst-hw-more'); box.open = true; await __wait(300);
     __ok('C0 from DG round 1', dstDgAlive() && dstDgRound === 1, 'round=' + dstDgRound);
     __ok('C1 rec row (step card) + switch in T-CON row both visible', __vis('dst-dg-rec') && __vis('dst-dgsw-off') && document.getElementById('dst-dgsw').parentNode.id === 'dst-dgsw-slot-row');

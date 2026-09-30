@@ -14,7 +14,7 @@
 <title>TCON 自檢畫面量測 — TCON FAE專用工具箱</title>
 <link rel="stylesheet" href="common/common.css?v=20260903help">
 <!-- 🔴 version.js 必須最先載入（common/version.js 開頭那條規則）。 -->
-<script src="common/version.js?v=20261001dst273"></script>
+<script src="common/version.js?v=20261001dst274"></script>
 <style>
   /* ═══ 本頁專屬樣式 ════════════════════════════════════════════════════════
      只寫這一頁真的需要、而 common.css 沒有的東西。顏色一律走 common.css 的
@@ -526,6 +526,27 @@
   .card.dst-foldable > .card-header { cursor: pointer; user-select: none; }
   .card.dst-foldable > .card-header .dst-fold-ico { margin-left: auto; float: right; padding-left: 10px; color: var(--text-sub); font-size: 12px; }
   .card.dst-fold > .card-body { display: none; }
+  /* ═══ v2.7.4：整頁照步驟依序出現（Bruce 2026-10-01 核准，只在從 DG 開啟時，見 dstRenderPage）═══
+     · 還沒到的卡片／群組整個不顯示（.dst-pg-hide，連標題都沒有）
+     · 做完的卡片縮成一行淡灰「✓ 卡片名稱」（.dst-pg-done），點一下展開（.dst-pg-peek）
+     · 中途斷線 ⇒ 最上方一行醒目提示（#dst-pg-alert）就是目前這一步 */
+  .card.dst-pg-hide, .dst-hwgrp.dst-pg-hide, .dst-pg-hide-inline { display: none !important; }
+  .card.dst-pg-done { background: transparent; border-color: transparent; box-shadow: none; }
+  .card.dst-pg-done > .card-body { display: none; }
+  /* 硬體卡縮成 ✓ 時，仍然要看得到的兩行：第 2 輪「已自動開啟 DG_EN」（v2.2.0 規定收合時也要看得到）與
+     #dst-say-link 有字時（IC 認不出、DG_EN 寫入失敗…）。其餘一律收起。 */
+  #dst-hw-card.dst-pg-done > .card-body { display: block; padding-top: 0; padding-bottom: 0; }
+  #dst-hw-card.dst-pg-done > .card-body > :not(#dst-dg-autonote):not(#dst-say-link) { display: none !important; }
+  #dst-hw-card.dst-pg-done #dst-say-link:empty { display: none; }
+  .card.dst-pg-done > .card-header, .card.dst-pg-peek > .card-header {
+    cursor: pointer; user-select: none; opacity: .6; font-weight: 400; border-bottom-color: transparent; }
+  .card.dst-pg-done > .card-header:hover, .card.dst-pg-peek > .card-header:hover { opacity: .9; }
+  .dst-pg-ico:empty { display: none; }
+  .dst-pg-ico { margin-right: 4px; }
+  .dst-pg-alert { margin: 0 0 12px; padding: 12px 14px; border: 2px solid var(--primary); border-radius: 10px;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, .22); background: rgba(37, 99, 235, .10);
+    color: var(--text); font-size: 15px; font-weight: 700; line-height: 1.5; }
+  .dst-pg-alert.dst-hidden { display: none; }
   /* ④ 那一列的小連結（「查看比較」「加入比較」）：文字連結，不是按鈕 ⇒ 不參與「唯一實心」 */
   .dst-link { background: none; border: 0; padding: 0; margin-left: 6px; font: inherit; color: #93c5fd;
     text-decoration: underline; cursor: pointer; }
@@ -744,6 +765,8 @@
        🔴 `#dst-say-link` 留在三組**之外**：它不只講治具連線，IC 識別失敗
           （`dst.sayIcUnknown`）與 DG 強制寫入失敗（`dst.dgWriteFail`）也寫這裡，
           塞進任何一組都會變成名不副實。 -->
+  <!-- v2.7.4：中途斷線（I2C／量測儀）時的「目前這一步」（dstRenderPage 填）。已經出現的區塊不再藏回去。 -->
+  <div class="dst-pg-alert dst-hidden" id="dst-pg-alert" role="alert"></div>
   <div class="card" id="dst-hw-card">
     <div class="card-header dst-hd-act"><span class="icon">🔌</span><span data-i18n="dst.hdHw">外接硬體連線</span></div>
     <div class="card-body">
@@ -920,7 +943,7 @@
           可以用『畫面測試』之類的嗎？因為它不是在主要量測的流程裡，而是在量測
           之前的測試畫面流程。」）。**採用他建議的字**，不另創第三個名字。
        🔴 定位說明只有一行（他同時要求「版面精簡，一兩句就好」）。 -->
-  <div class="card">
+  <div class="card" id="dst-test-card">
     <div class="card-header dst-hd-pic"><span class="icon">🎚️</span><span data-i18n="dst.hdTest">畫面測試</span></div>
     <div class="card-body">
       <!-- 🔴 v1.13.0（F）：HTML 的 fallback 字面值要與 `common/i18n.js` 裡的
@@ -2154,6 +2177,17 @@ if (typeof I18N === 'object' && I18N) {
   I18N['dst.cmpStDeclined'] = { 'zh-TW': '這一輪沒有加入比較。', 'en': 'This round was not added to the comparison.', 'zh-CN': '这一轮没有加入比较。' };
   I18N['dst.cmpAddLink'] = { 'zh-TW': '加入比較', 'en': 'Add to comparison', 'zh-CN': '加入比较' };
   I18N['dst.cmpDecline'] = { 'zh-TW': '不加入', 'en': 'Don’t add', 'zh-CN': '不加入' };
+  /* v2.7.4：整頁依序出現 —— 中途斷線時最上方那一行（它就是目前這一步） */
+  I18N['dst.pgDropLn'] = {
+    'zh-TW': 'I2C 已斷線，請重新連線（「讀寫 I2C 治具」切回 ON）。',
+    'en': 'The I2C link dropped — reconnect it (switch “I2C read/write adapter” back to ON).',
+    'zh-CN': 'I2C 已断线，请重新连线（「读写 I2C 工装」切回 ON）。'
+  };
+  I18N['dst.pgDropCa'] = {
+    'zh-TW': '光學量測儀已斷線，請重新連線（「光學量測儀」切回 ON）。',
+    'en': 'The optical meter dropped — reconnect it (switch “Optical meter” back to ON).',
+    'zh-CN': '光学量测仪已断线，请重新连线（「光学量测仪」切回 ON）。'
+  };
   /* v2.7.2：匯出之後通知 DG 的結果 */
   I18N['dst.decSyncOk'] = {
     'zh-TW': '已通知 DG 分頁：第 {n} 輪確認滿意（DG 已停在「查看目前結果」）。',
@@ -7052,9 +7086,137 @@ function dstRenderHw() {
     box.open = !allOk;
     dstHwAllOk = allOk;
   }
+  dstRenderPage();        // v2.7.4：整頁依序出現（要在挑唯一實心之前 —— 它只挑看得到的鈕）
   dstRenderMain();
 }
 var dstHwAllOk = null;
+
+/* ═══ v2.7.4：整頁照步驟依序出現（Bruce 2026-10-01 核准，建立在 v2.7.3 之上）════════════════════
+   Bruce：「一開始應該是先確認外接硬體連線。在讀寫 I2C 治具還沒有打開之前，下方的 T-CON group 跟光學量測儀的
+   group 應該都要隱藏，連看都看不到。打開了 I2C 治具以後，才會自動跳出…光學量測儀打開以後，測試畫面的卡片才會
+   出現。在測試畫面按下『對位畫面』以後，下方『量測與調整 Gamma 所需步驟』…才會出現」「對位完以後…畫面測試就要
+   收折，讓所有的焦點 focus 在『量測與調整 Gamma 所需步驟』這張卡片上面」。
+   階段（全部由既有狀態推出，不另存一份）：
+     0 硬體：只有「讀寫 I2C 治具」     ← !dstLinked
+     1 硬體：＋ T-CON 群組、量測儀群組  ← I2C 通了，但 IC 還沒認出或量測儀還沒連
+     2 畫面測試卡                       ← IC 認出、量測儀也連了，還沒對位
+     3 步驟卡（＋資料卡）                ← 對位過（這個分頁按過「對位畫面」，或第 2 輪以後）
+   🔴 **只往前、不往回**（dstPgMax）：中途斷線不把已經出現的東西藏回去，改在最上方一行提示當作目前這一步；
+      重新連上就回到原本那一步。
+   🔴 「對位過」記在 sessionStorage（同一個分頁、同一次作業）⇒ 重新整理後硬體自動重連成功，就直接到該做的那一步。
+   🔴 只在**從 DG 開啟**時生效（與 v2.7.3 同一個條件）；直接開這一頁維持全部攤開。 */
+var DST_PG_KEY = 'dst-pg-v1';
+function dstPgLoad() { try { return JSON.parse(sessionStorage.getItem(DST_PG_KEY) || '{}') || {}; } catch (e) { return {}; } }
+function dstPgSave(k, v) { try { var o = dstPgLoad(); o[k] = v; sessionStorage.setItem(DST_PG_KEY, JSON.stringify(o)); } catch (e) {} }
+var dstAlignDone = false;          // 這個分頁按過「對位畫面」（dstBind 從 sessionStorage 取回）
+var dstPgMax = 0;                  // 已經走到過的最遠階段（只增不減）
+var dstPgPeek = {};                // 縮成 ✓ 的卡片被點開了沒
+var dstPgScrolled = false;         // 進到步驟卡時捲過了沒（同一個分頁一次）
+function dstPgOn() { return dstDgAlive(); }
+function dstPgAligned() { return dstAlignDone || (dstDgRound !== null && dstDgRound >= 2); }
+function dstPgLive() {
+  if (!dstLinked) return 0;
+  if (!dstIc || !dstCaLinked) return 1;
+  if (!dstPgAligned()) return 2;
+  return 3;
+}
+/* 目前這一步：'hw'（硬體卡，含斷線）／'test'／'steps'；不是從 DG 開的 ⇒ null。 */
+function dstPgCur() {
+  if (!dstPgOn()) return null;
+  var live = dstPgLive();
+  if (live <= 1) return 'hw';
+  if (dstPgMax >= 2 && !dstCaLinked) return 'hw';
+  return live === 2 ? 'test' : 'steps';
+}
+function dstPgCard(id, key, state) {    // state：'hide' | 'full' | 'done'
+  var c = $(id); if (!c) return;
+  var peek = (state === 'done') && !!dstPgPeek[key];
+  c.classList.toggle('dst-pg-hide', state === 'hide');
+  c.classList.toggle('dst-pg-done', state === 'done' && !peek);
+  c.classList.toggle('dst-pg-peek', peek);
+  var hd = c.querySelector(':scope > .card-header');
+  if (!hd) return;
+  var ico = hd.querySelector('.dst-pg-ico');
+  if (!ico) { ico = document.createElement('span'); ico.className = 'dst-pg-ico'; hd.insertBefore(ico, hd.firstChild); }
+  ico.textContent = (state !== 'done') ? '' : peek ? '▾' : '✓';
+}
+function dstRenderPage() {
+  var on = dstPgOn();
+  var live = dstPgLive();
+  if (on && live > dstPgMax) dstPgMax = live;
+  var max = on ? dstPgMax : 3;
+  var cur = dstPgCur();
+  /* 斷線提示：已經走過那一段、現在卻斷了 */
+  var dropLn = on && max >= 1 && !dstLinked;
+  var dropCa = on && !dropLn && max >= 2 && !dstCaLinked;
+  var al = $('dst-pg-alert');
+  if (al) {
+    al.classList.toggle('dst-hidden', !(dropLn || dropCa));
+    al.textContent = dropLn ? dstT('dst.pgDropLn') : dropCa ? dstT('dst.pgDropCa') : '';
+  }
+  /* 硬體卡：永遠在；到步驟卡之後、而且沒有斷線時縮成 ✓ 一行 */
+  dstPgCard('dst-hw-card', 'hw', (on && max >= 3 && cur !== 'hw') ? 'done' : 'full');
+  ['tcon', 'meter'].forEach(function (g) {
+    var e = $('dst-hwgrp-' + g); if (e) e.classList.toggle('dst-pg-hide', on && max < 1);
+  });
+  /* 摘要列裡講 T-CON／量測儀的那幾段，同一個時機才出現 */
+  ['dst-hw-sum', 'dst-dgsw-slot-sum', 'dst-casw-slot-sum', 'dst-hw-sum2'].forEach(function (id) {
+    var e = $(id); if (e) e.classList.toggle('dst-pg-hide-inline', on && max < 1);
+  });
+  /* 「這三樣都要連上」那一行：只看得到一樣時講「三樣」是錯的 ⇒ 另外兩組出現時才出現。 */
+  var hn = document.querySelector('#dst-hw-card [data-i18n="dst.hwNote"]');
+  if (hn) hn.classList.toggle('dst-pg-hide-inline', on && max < 1);
+  dstPgCard('dst-test-card', 'test', !on ? 'full' : max < 2 ? 'hide' : (max >= 3 && cur !== 'test') ? 'done' : 'full');
+  var st3 = (!on || max >= 3) ? 'full' : 'hide';
+  dstPgCard('dst-steps-card', 'steps', st3);
+  Object.keys(DST_FOLD_CARDS).forEach(function (k) {
+    var c = $(DST_FOLD_CARDS[k]); if (c) c.classList.toggle('dst-pg-hide', st3 === 'hide');
+  });
+}
+/* 按了「對位畫面」而且真的出了對位圖 ⇒ 對位完成：步驟卡出現、上面收成 ✓、捲到步驟卡。 */
+function dstPgOnAligned() {
+  if (dstShowing !== 'align') return;
+  var first = !dstAlignDone;
+  dstAlignDone = true;
+  dstPgSave('aligned', true);
+  dstRenderBtns();
+  if (first && dstPgOn() && !dstPgScrolled) {
+    dstPgScrolled = true;
+    var sc = $('dst-steps-card');
+    if (sc) {
+      try { sc.scrollIntoView({ block: 'start', behavior: dstReducedMotion() ? 'auto' : 'smooth' }); }
+      catch (e) { sc.scrollIntoView(); }
+    }
+  }
+}
+function dstPgPeekToggle(key, id) {
+  var c = $(id);
+  if (!c || !(c.classList.contains('dst-pg-done') || c.classList.contains('dst-pg-peek'))) return false;
+  dstPgPeek[key] = !dstPgPeek[key];
+  dstRenderPage();
+  return true;
+}
+/* 重新整理之後：這個分頁剛才連著的硬體自動重連一次（只有「剛才連著」才試，不問、不跳選埠視窗）。
+   I2C 走與 ON 開關同一條路；量測儀只開瀏覽器已經授權過的那一個埠（getPorts），沒有就不試。 */
+async function dstPgAutoReconnect() {
+  if (!dstPgOn()) return;
+  var st = dstPgLoad();
+  if (st.ln && !dstLinked && !dstBusy) {
+    dstLog('== reload: reconnecting the I2C bridge (this tab was connected before)', 'o');
+    try { await dstConnect(); } catch (e) {}
+    dstRenderBtns();
+    if (dstLinked) dstDgAutoThenStep1('connect');
+  }
+  if (st.ca && !dstCaLinked && navigator.serial && navigator.serial.getPorts) {
+    var ports = [];
+    try { ports = await navigator.serial.getPorts(); } catch (e) {}
+    if (ports && ports.length) {
+      dstLog('== reload: reopening the optical meter (already granted port)', 'o');
+      try { await dstCaOpen(); } catch (e) {}
+      dstRenderBtns();
+    }
+  }
+}
 
 /* ═══ v2.7.3：只看當下這一步（Bruce 2026-10-01 核准）═══════════════════════════════════
    Bruce：「我現在做到什麼步驟，就只顯示該步驟的卡片。還沒做到的步驟，請隱藏起來…已經做過的步驟…
@@ -7084,6 +7246,7 @@ function dstFsCurKey() {
 function dstRenderFocus() {
   var card = $('dst-steps-card');
   if (!card) return;
+  dstRenderPage();        // v2.7.4：步驟卡本身出不出現，先定（④ 第一次出現時要捲得到它）
   var on = dstDgAlive();
   card.classList.toggle('dst-focus', on);
   var cur = dstFsCurKey();
@@ -7247,7 +7410,7 @@ function dstDecNext() {
        這時全頁**沒有**實心藍 —— 下面的步驟鈕在硬體沒通之前本來就不該是「現在該按」的。
      · 連線中（開關顯示「連線中…」）不標任何一顆。
    ⇒ 規則寫成一句：「實心藍＝下一個動作；藍框＝下一個要切 ON 的開關；實心綠／灰＝開關現況」。 */
-var DST_MAIN_CAND = ['dst-probe', 'dst-dg-rec-go', 'dst-go-lut', 'dst-go-gray', 'dst-dec-export'];
+var DST_MAIN_CAND = ['dst-probe', 'dst-dg-rec-go', 'dst-go-lut', 'dst-go-gray', 'dst-dec-export', 'dst-align'];
 function dstRenderMain() {
   dstRenderDecide();      // v2.7.0：先把決策框的顯示／可按狀態定下來，下面才挑得準
   var want = null, next = null;
@@ -7269,6 +7432,8 @@ function dstRenderMain() {
   /* v2.7.0：第 2 輪以後改由決策框的「滿意 → 匯出」當唯一實心（④ 那一行在第 2 輪以後不再是
      實心提示條，見 dstRenderSteps）。匯出按不下去（表還沒讀回／不一致）⇒ 下一行把它清成一顆都不掛。 */
   if (dstDecShow()) want = 'dst-dec-export';
+  /* v2.7.4：整頁依序出現時，「畫面測試」是目前這一步 ⇒ 唯一實心＝「對位畫面」（按了才會出現步驟卡）。 */
+  if (dstPgCur() === 'test') want = 'dst-align';
   var w = want ? $(want) : null;
   if (w && (w.disabled || !w.offsetParent)) want = null;
   DST_MAIN_CAND.forEach(function (id) {
@@ -8647,6 +8812,7 @@ function dstBind() {
       var job = p[1] ? dstConnect().then(function () { return dstLinked; }) : dstDisconnect().then(function () { return true; });
       job.catch(function () { return false; }).then(function (ok) {
         dstLnPending = null;
+        if (ok) dstPgSave('ln', p[1]);                   // v2.7.4：重新整理後要不要自動重連
         dstRenderBtns();
         if (p[1] && ok) dstDgAutoThenStep1('connect');   // v2.2.0：round ≥ 2 先自動開 DG_EN
       });
@@ -8744,7 +8910,7 @@ function dstBind() {
 
   /* 🔴 v1.3.0：一顆切換鈕取代「對位畫面」「十字 ON」「十字 OFF」「離開出圖模式」
      四顆（Bruce 2026-09-20 裁示）。 */
-  $('dst-align').addEventListener('click', function () { dstGuard(dstAlignToggle); });
+  $('dst-align').addEventListener('click', function () { dstGuard(dstAlignToggle).then(dstPgOnAligned); });   // v2.7.4
 
   /* 🔴 v2.1.0：量測儀的「連線／中斷連線」換成 ON／OFF 開關（dstSwBuild('ca')）。按 ON ＝ dstCaOpen()
      （第一次會照原流程跳出瀏覽器的選序列埠視窗 —— requestPort 仍在這一次點擊裡呼叫），按 OFF ＝
@@ -8757,6 +8923,7 @@ function dstBind() {
       var job = p[1] ? dstCaOpen() : dstCaClose().then(function () { return true; });
       Promise.resolve(job).catch(function () { return false; }).then(function (ok) {
         dstCaPending = null;
+        if (ok) dstPgSave('ca', p[1]);                   // v2.7.4：重新整理後要不要自動重開
         dstRenderBtns();
       });
     });
@@ -8781,6 +8948,18 @@ function dstBind() {
     hd.addEventListener('click', function () { dstFoldToggle(k); });
     hd.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); dstFoldToggle(k); } });
   });
+  /* v2.7.4：整頁依序出現。「對位過」從這個分頁的 sessionStorage 取回；硬體卡／畫面測試卡縮成 ✓ 時，點標題展開回看。 */
+  dstAlignDone = !!dstPgLoad().aligned;
+  [['hw', 'dst-hw-card'], ['test', 'dst-test-card']].forEach(function (p) {
+    var hd = $(p[1]) && $(p[1]).querySelector(':scope > .card-header');
+    if (!hd) return;
+    hd.addEventListener('click', function () { dstPgPeekToggle(p[0], p[1]); });
+    hd.addEventListener('keydown', function (e) {
+      if ((e.key === 'Enter' || e.key === ' ') && dstPgPeekToggle(p[0], p[1])) e.preventDefault();
+    });
+    hd.tabIndex = 0;
+  });
+  setTimeout(dstPgAutoReconnect, 0);   // 重新整理後：剛才連著的硬體自動重連一次
   /* v2.1.0：「外接硬體」開合時三組開關一起搬家（見 dstSwPlace）。 */
   $('dst-hw-more').addEventListener('toggle', function () { dstRenderDgSw(); dstRenderConnSw(); });
   $('dst-settle').addEventListener('change', dstRenderHw);   // v2.0.3：一行摘要裡有換階等待
