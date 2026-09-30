@@ -15,7 +15,7 @@
 <meta name="twitter:card" content="summary_large_image">
 <title>DG — Digital Gamma 迭代校正 — TCON FAE專用工具箱</title>
 <link rel="stylesheet" href="common/common.css?v=20260907dg1130">
-<link rel="stylesheet" href="common/done-step.css?v=20261001dg244">
+<link rel="stylesheet" href="common/done-step.css?v=20261001dg245">
 <style>
   /* ─── DG PAGE 專屬 CSS ─────────────────────────── */
   .dg-setup  .card-header { background: #6d28d9; }
@@ -820,6 +820,16 @@
   /* v2.4.4：「RGB LUT 深度轉換」分頁的兩個步驟框（做完的樣子由 common/done-step.css 接手） */
   .dg-conv-step { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-top: 10px; }
   .dg-conv-step-t { font-weight: 700; font-size: 13.5px; margin-bottom: 6px; }
+  /* v2.4.5：只看目前這一步（與自檢頁 v2.7.3／v2.7.4 同一套，見 dgDoneStepsSync）
+     · 還沒走到的步驟整個不顯示（連標題都沒有）
+     · 資料卡片（位元深度與目標設定、輸出）流程跑完前收起，點標題隨時可開（數值同自檢頁 .dst-fold）
+     · 最上方的工作模式縮成 ✓ 時，只有「出錯」的那一行狀態仍看得到（開不了自檢分頁、套用存檔出錯） */
+  .dg-fs-hide { display: none !important; }
+  .card.dg-foldable > .card-header { cursor: pointer; user-select: none; }
+  .card.dg-foldable > .card-header .dg-fold-ico { margin-left: auto; float: right; padding-left: 10px; color: var(--text-sub); font-size: 12px; }
+  .card.dg-fold > .card-body { display: none; }
+  #dg-card-wmode.tc-step-done > .card-body { display: block !important; padding-top: 0; padding-bottom: 0; }
+  #dg-card-wmode.tc-step-done > .card-body > :not(#dg-wmode-status.err) { display: none !important; }
   .dg-conf-decide .dg-btn { flex: 1 1 160px; }
   /* ═══ 🔴 v1.73.2：這一列從「一顆藍鈕」變成「一個框」═══════════════════════════
      Bruce 2026-09-22 實機：量完第 4 部分回到 DG，「不知道該怎麼樣繼續進行下去」。
@@ -2784,8 +2794,8 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20261001dg244"></script>
-<script src="common/done-step.js?v=20261001dg244"></script>
+<script src="common/version.js?v=20261001dg245"></script>
+<script src="common/done-step.js?v=20261001dg245"></script>
 <script src="common/i18n.js?v=20260923dg1754"></script>
 <!-- v1.68.1：xlsx 產生器（原本在本頁，現在與 dg-selftest.html 共用）。
      🔴 必須在本頁的 inline script 之前載入。 -->
@@ -11848,42 +11858,115 @@
      樣式與行為＝自檢頁 v2.7.4 那一套，抽成 common/done-step.css／done-step.js 三頁共用。
      🔴 「做完」沿用本頁既有的判定：這個模式用得到這一部分（DG_PARTS_BY_TONE，只調 Gamma 時不含第 3 部分）
         而且 dgPartFilled() 為真 —— 與計算鈕的閘門同一支，不另立狀態。
-     🔴 第 4 部分（確認結果）不縮：它的最後一步就是「查看目前結果／進行第 N+1 輪」這個決定，縮起來等於把
-        下一個動作藏起來；按「進行第 N+1 輪」之後第 1～4 部分本來就會重來。
-     🔴 焦點：某一部分**剛**變成做完（前一次還不是）⇒ 捲到目前要做的那一個（還缺的第一個部分；都齊了就是
-        「開始計算新的 RGB LUT」）。他正在那一部分裡面打字 ⇒ 不收、不捲（改成展開回看的樣子），免得打到一半
-        整格不見。載入頁面還原資料時只收、不捲。
-     🔴 還沒到的部分**不隱藏**（Bruce 這一次只要求縮小做完的）。 */
+     ═══ v2.4.5：完整套用自檢頁的邏輯（Bruce 2026-10-01：「要，還沒走到的一定要隱藏，邏輯是一樣的」）═══
+     步驟（全部由既有狀態推出，不另存一份 —— 與自檢頁 dstFsCurKey／dstRenderPage 同一個原則）：
+       wmode  最上方「要用哪一種畫面調 Gamma？」   ← 還沒選（DG_WMODE 與 DG_PQ 都沒有）
+       lut／gray／prim  第 1／2／3 部分           ← 依序第一個還沒填齊的（dgMissingParts()，與計算鈕同一支）
+       calc   「開始計算新的 RGB LUT」             ← 三份齊了、還沒有結果（lastLut）
+       conf   第 4 部分：確認結果                  ← 有結果；它是最後一步，不縮（自檢頁的 ④ 也是）
+     · 目前這一步完整顯示；還沒走到的整個不顯示（.dg-fs-hide，連標題都沒有）；做完的縮成「✓ …」一行，點一下展開。
+       例外：電腦畫面模式按了「解除依序限制」⇒ 還沒到的部分照樣顯示（那顆鈕的用途就是跳著做）。
+     · 資料卡片（位元深度與目標設定、輸出 RGB Digital Gamma LUT）流程跑完前收起、點標題隨時可開；
+       「流程跑完」＝這一輪按了「查看目前結果」（或自檢頁回報滿意，同一支 dgViewResult）⇒ 自動打開。
+     · 焦點：目前這一步往後走了（例如某一部分剛填齊）⇒ 捲到新的那一步；他正在剛填齊的那一部分裡打字 ⇒
+       不收、不捲（改成展開回看的樣子）；載入頁面還原資料時只收、不捲。往回（清空某一部分）不捲。
+     · 斷線：DG 本身不連硬體；做完的步驟由資料本身決定，量測分頁斷線不會把任何已出現的步驟藏回去。
+     · 重新整理：工作模式照 Bruce 2026-09-21 第 6 條不記住（重整後仍先問）；選了之後資料還原，直接捲到該做的那一步。
+     · 第 N+1 輪：第 1／2 部分自動帶入並自動計算 ⇒ 它們打勾、計算打勾，停在第 4 部分（dgNextRound 的捲動改成捲到目前這一步）。 */
   var DG_DONE_WAS = {}, DG_DONE_READY = false;
+  var DG_FS_ORDER = ['wmode', 'lut', 'gray', 'prim', 'calc', 'conf'];
+  var DG_FS_CUR_WAS = null;
+  var DG_FS_CARDS = { setup: 'dg-card-setup', result: 'dg-card-result' };
+  var DG_FS_FOLD = { setup: null, result: null };   // null ＝ 自動（流程跑完才開）；true／false ＝ 他自己點的
   function dgPartShortName(part) {
     var el = dgPartEl(part); if (!el) return '';
     var no = el.querySelector('.dg-part-no'), ti = el.querySelector('.dg-part-title');
     return ((no ? no.textContent : '') + '　' + (ti ? ti.textContent : '')).trim();
   }
+  function dgFsCur() {
+    if (!DG_WMODE && !DG_PQ) return 'wmode';
+    var miss = dgMissingParts();
+    if (miss.length) return miss[0];
+    return lastLut ? 'conf' : 'calc';
+  }
+  function dgFsCurEl(cur) {
+    cur = cur || dgFsCur();
+    if (cur === 'wmode') return $('dg-card-wmode');
+    if (cur === 'calc') return $('dg-calc-act');
+    if (cur === 'conf') return $('dg-card-p4');
+    return dgPartEl(cur);
+  }
+  function dgFlowDone() {
+    return !!(lastLut && DG_P4 && DG_P4.rows && DG_P4.rows.length >= 2 && DG_VIEW_P4 === DG_P4);
+  }
+  function dgWmodeDoneName() {
+    if (DG_WMODE === 'pc') return dgT('dg.wmodePc');
+    if (DG_WMODE === 'tcon') return dgT('dg.wmodeTcon');
+    return dgT('dg.wmodeImp');
+  }
   var dgDoneReadyT = 0;
   function dgDoneStepsSync() {
     if (typeof TCONDoneStep === 'undefined' || DG_VIEW) return;
-    /* 載入頁面時（自動還原上一次的資料）只收、不捲；那一陣子過去之後才開始「剛做完 ⇒ 捲到下一步」。 */
+    /* 載入頁面時（自動還原上一次的資料）只收、不捲；那一陣子過去之後才開始「往後走 ⇒ 捲到新的那一步」。 */
     if (!DG_DONE_READY && !dgDoneReadyT) dgDoneReadyT = setTimeout(function () { DG_DONE_READY = true; }, 800);
-    var need = DG_PARTS_BY_TONE[dgToneMode()], newly = false;
+    var cur = dgFsCur(), need = DG_PARTS_BY_TONE[dgToneMode()], typing = false;
+    var showAhead = DG_WMODE === 'pc' && dgSeqUnlock;
+    var wm = $('dg-card-wmode');
+    if (wm) TCONDoneStep.set(wm, { key: 'dg-wmode', done: cur !== 'wmode', name: dgWmodeDoneName(), lineId: 'dg-done-wmode',
+                                   onToggle: dgDoneStepsSync });
     Object.keys(DG_PART_META).forEach(function (part) {
       var el = dgPartEl(part); if (!el) return;
       var done = need.indexOf(part) >= 0 && dgPartFilled(part);
       var key = 'dg-' + part;
       if (done && !DG_DONE_WAS[part]) {
-        if (el.contains(document.activeElement) && document.activeElement !== document.body) TCONDoneStep.peek(key, true);
-        else { TCONDoneStep.peek(key, false); if (DG_DONE_READY) newly = true; }
+        if (el.contains(document.activeElement) && document.activeElement !== document.body) { TCONDoneStep.peek(key, true); typing = true; }
+        else TCONDoneStep.peek(key, false);
         dgPartFoldSet(part, false);   // v1.72.0 的收折與 ✓ 行不疊在一起：點開回看時內容直接看得到
       }
       if (!done) TCONDoneStep.peek(key, false);
       DG_DONE_WAS[part] = done;
       TCONDoneStep.set(el, { key: key, done: done, name: dgPartShortName(part), lineId: 'dg-done-' + part,
                              onToggle: dgDoneStepsSync });
+      el.classList.toggle('dg-fs-hide', !done && part !== cur && need.indexOf(part) >= 0 && !showAhead);
     });
-    if (newly && DG_MODE === 'main') {
-      var miss = dgMissingParts();
-      dgGuideScrollTo(miss.length ? dgPartEl(miss[0]) : $('dg-calc-act'));
+    var ca = $('dg-calc-act'), cb = $('dg-btn-calc');
+    if (ca) {
+      if (!lastLut) TCONDoneStep.peek('dg-calc', false);
+      TCONDoneStep.set(ca, { key: 'dg-calc', done: !!lastLut && cur !== 'calc', name: cb ? cb.textContent.trim() : '',
+                             lineId: 'dg-done-calc', onToggle: dgDoneStepsSync });
+      ca.classList.toggle('dg-fs-hide', !lastLut && cur !== 'calc');
     }
+    /* 資料卡片：流程跑完前收起，點標題隨時可開（與自檢頁 dstRenderFold 同一套規則） */
+    if (!lastLut) DG_FS_FOLD.result = null;   // 結果作廢（含開始下一輪）⇒ 輸出卡回到自動
+    var fin = dgFlowDone();
+    Object.keys(DG_FS_CARDS).forEach(function (k) {
+      var c = $(DG_FS_CARDS[k]); if (!c) return;
+      var open = (DG_FS_FOLD[k] === null) ? fin : DG_FS_FOLD[k];
+      c.classList.add('dg-foldable');
+      c.classList.toggle('dg-fold', !open);
+      var hd = c.querySelector(':scope > .card-header');
+      if (!hd) return;
+      var ico = hd.querySelector('.dg-fold-ico');
+      if (!ico) {
+        ico = document.createElement('span'); ico.className = 'dg-fold-ico'; hd.appendChild(ico);
+        hd.setAttribute('role', 'button'); hd.tabIndex = 0;
+        hd.addEventListener('click', function (e) {
+          if (e.target && e.target.closest && e.target.closest('.dg-info-btn')) return;
+          DG_FS_FOLD[k] = c.classList.contains('dg-fold'); dgDoneStepsSync();
+        });
+        hd.addEventListener('keydown', function (e) {
+          if (e.target !== hd || (e.key !== 'Enter' && e.key !== ' ')) return;
+          e.preventDefault(); DG_FS_FOLD[k] = c.classList.contains('dg-fold'); dgDoneStepsSync();
+        });
+      }
+      ico.textContent = open ? '▾' : '▸';
+      hd.setAttribute('aria-expanded', String(open));
+    });
+    /* 每頁一顆實心：流程跑完之後主角是輸出卡的「下載新產出 RGB LUT 檔」，「查看目前結果」讓位成線框 */
+    var vb = $('dg-btn-view-result'); if (vb) vb.classList.toggle('primary', !fin);
+    var prev = DG_FS_CUR_WAS; DG_FS_CUR_WAS = cur;
+    if (DG_DONE_READY && !typing && DG_MODE === 'main' && prev && prev !== cur
+        && DG_FS_ORDER.indexOf(cur) > DG_FS_ORDER.indexOf(prev)) dgGuideScrollTo(dgFsCurEl(cur));
   }
 
   function dgSetSrc(part, src) { DG_SRC[part] = src || null; dgRefreshReady(); }
@@ -11912,6 +11995,7 @@
     ['dg-btn-lutfile', 'dg-btn-copy', 'dg-btn-xlsx'].forEach(function (id) {
       var b = $(id); if (b) b.disabled = !hasResult;
     });
+    dgDoneStepsSync();   // v2.4.5：算出／作廢結果 ⇒ 計算 ✓／第 4 部分出現（dgDoCalc 不經過 dgRefreshReady）
   }
 
   /* ─── v1.14.0：結果作廢（＝輸出卡片收起來）────────────────────────────────
@@ -12987,6 +13071,7 @@
        確認量測」）讓位成線框；沒有確認量測時它才是這張卡唯一要按的，恢復實心。 */
     var s4 = $('dg-btn-conf-setup');
     if (s4) s4.classList.toggle('dg-btn-imp', !has);
+    dgDoneStepsSync();   // v2.4.5：確認量測換了一份 ⇒ 「流程跑完」重新判斷
   }
 
   /* ═══ v2.4.0：「查看目前結果」（與「進行第 N+1 輪」並列）═══════════════════════
@@ -13003,6 +13088,8 @@
       return false;
     }
     DG_VIEW_P4 = DG_P4;
+    DG_FS_FOLD.result = null;   // v2.4.5：他明講要看結果 ⇒ 之前手動收起的輸出卡也回到自動（＝打開）
+    dgDoneStepsSync();          // 流程跑完 ⇒ 資料卡片（輸出）打開，下面才捲得到
     var vn = $('dg-view-note');
     if (vn) {
       vn.textContent = '停在' + dgRoundName(DG_ROUND) + '：這張卡片就是這一輪的成果 —— 用下面的'
@@ -13212,15 +13299,17 @@
          沒到就直接跳過去。**「捲回第 1 部分」是規格，動畫不是。**
          🔴 仍然用 window.scrollTo 不用 scrollIntoView —— 後者會連 overflow:hidden 的
             祖先一起捲，而且使用者捲不回來（既有教訓，v3.x 在 wfg 踩過）。 */
+      /* 🔴 v2.4.5：捲到的是**目前這一步**（dgFsCurEl）而不是固定第 1 部分 —— 第 1／2 部分已自動帶入、縮成 ✓，
+         自動計算成功就停在第 4 部分；還缺東西就停在缺的那一部分（Bruce 2026-10-01「邏輯是一樣的」）。 */
       var scrollTop = function () {
-        var p1 = $('dg-part-lut');
+        var p1 = dgFsCurEl();
         if (!p1 || !p1.getBoundingClientRect) return null;
         return Math.max(0, p1.getBoundingClientRect().top + window.pageYOffset - 90);
       };
       var t0 = scrollTop();
       if (t0 !== null) window.scrollTo({ top: t0, behavior: 'smooth' });
       setTimeout(function () {
-        var p1 = $('dg-part-lut');
+        var p1 = dgFsCurEl();
         if (!p1 || !p1.getBoundingClientRect) return;
         var tp = p1.getBoundingClientRect().top;
         if (tp < -120 || tp > window.innerHeight - 120) {
@@ -14259,7 +14348,8 @@
   }
   /* ═══ v2.4.4：「RGB LUT 深度轉換」分頁的兩個步驟，做完縮成 ✓ 一行（與校正分頁、自檢頁同一套）═══
      ① 匯入：DG_CV 有表 ＝ 做完（行尾帶檔名）；② 選目標深度並下載：這一張表按過下載 ＝ 做完。
-     🔴 ① 剛做完 ⇒ 捲到 ②（焦點移到目前要做的那一步）。還沒到的步驟不隱藏（Bruce 這次沒要求）。 */
+     🔴 ① 剛做完 ⇒ 捲到 ②（焦點移到目前要做的那一步）。
+     v2.4.5：還沒匯入 ⇒ ② 整個不顯示（連標題都沒有；Bruce 2026-10-01「還沒走到的一定要隱藏」）。 */
   var DG_CV_DL = false, DG_CV_WAS = false;
   function dgConvStepsSync() {
     if (typeof TCONDoneStep === 'undefined') return;
@@ -14268,6 +14358,7 @@
       name: dgT('dg.convStepImp') + (imp ? '（' + DG_CV.name + '）' : ''), onToggle: dgConvStepsSync });
     TCONDoneStep.set($('dg-conv-step-dl'), { key: 'dg-conv-dl', done: imp && DG_CV_DL, lineId: 'dg-done-conv-dl',
       name: dgT('dg.convStepDl'), onToggle: dgConvStepsSync });
+    $('dg-conv-step-dl').classList.toggle('dg-fs-hide', !imp);   // v2.4.5：還沒匯入 ⇒ ② 整個不顯示
     if (imp && !DG_CV_WAS && DG_MODE === 'conv') {
       TCONDoneStep.peek('dg-conv-imp', false); TCONDoneStep.peek('dg-conv-dl', false);
       TCONDoneStep.set($('dg-conv-step-imp'), { key: 'dg-conv-imp', done: true, lineId: 'dg-done-conv-imp',
@@ -14313,6 +14404,7 @@
        否則切到 conv 會走進 else 去量藏起來的主分頁幾何（那正是要避開的事）。 */
     if (mode === 'cmp') dgRenderCmpCharts();
     else if (mode === 'main') { dgRenderMainSide(); dgConfLegendSync(); }
+    else if (mode === 'conv') dgConvStepsSync();   // v2.4.5：② 在匯入之前整個不顯示
   }
   window.dgSwitchMode = dgSwitchMode;
 
@@ -14428,6 +14520,7 @@
       for (var i = 0; i < btns.length; i++) if (btns[i].style.display !== 'none') { anyVisible = true; break; }
       opt.style.display = anyVisible ? '' : 'none';
     });
+    dgDoneStepsSync();   // v2.4.5：工作模式選了 ⇒ 最上方縮成 ✓、目前這一步出現
   }
 
   /* 選一個工作模式（第一次選、或切換到另一個）。
@@ -14509,7 +14602,8 @@
         say.push('下面的卡片已經展開。自檢分頁請按第 1 部分的「接上 T-CON 讀回目前的 LUT」開。');
       }
     }
-    if (say.length) dgWmodeStatus(say.join('\n'), '');
+    /* v2.4.5：開不了自檢分頁是要他處理的事 ⇒ 標成 err，工作模式縮成 ✓ 時這一行照樣看得到 */
+    if (say.length) dgWmodeStatus(say.join('\n'), (mode === 'tcon' && (!dgOpenSelftest || !r)) ? 'err' : '');
     return true;
   }
 
