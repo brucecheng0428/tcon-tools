@@ -87,6 +87,13 @@ SCENARIOS = [
     ('S-R1',      'S_round2_flow.js',         '?round=1&job=main',    True,  {'__sCase': 'R1'},          False),
     ('S-EN',      'S_round2_flow.js',         '?round=2&job=conf',    True,  {'__sCase': 'EN'},          False),
     ('S-CN',      'S_round2_flow.js',         '?round=2&job=conf',    True,  {'__sCase': 'CN'},          False),
+    # v2.7.2：條件改成「確認量測」—— Bruce 實測的 DG 第 1 輪 → 寫入 → 自檢量測（round=1、job=conf）；匯出後通知 DG
+    ('S-C1',      'S_round2_flow.js',         '?round=1&job=conf',    True,  {'__sCase': 'C1', '__sRound': 1},                       False),
+    ('S-C1AUTO',  'S_round2_flow.js',         '?round=1&job=main',    True,  {'__sCase': 'C1AUTO', '__sRound': 1, '__sConf0': False}, False),
+    ('S-NOSYNC',  'S_round2_flow.js',         '?round=2&job=conf',    True,  {'__sCase': 'NOSYNC'},                                  False),
+    # dg v2.4.2：DG 收到「自檢頁已確認滿意」⇒ 停在「查看目前結果」
+    ('Y-OK',      'Y_conf_satisfied.js',      '',                     False, {'__yCase': 'OK'},          False, 'dg.html'),
+    ('Y-NOP4',    'Y_conf_satisfied.js',      '',                     False, {'__yCase': 'NOP4'},        False, 'dg.html'),
     # dg v2.4.0：一輪結束並列「查看目前結果／進行第 N+1 輪」，第 2 輪起不再問「要不要確認」
     ('R-PC',      'R_round_decide.js',        '',                     False, {'__rCase': 'PC'},          False, 'dg.html'),
     ('R-TCON',    'R_round_decide.js',        '',                     False, {'__rCase': 'TCON'},        False, 'dg.html'),

@@ -7,9 +7,17 @@
    DECL   ＝視窗選「不加入」⇒ ④ 沒有按鈕、只有「這一輪沒有加入比較。」＋「加入比較」小連結；連結重開視窗；
             加入之後變「已加入比較 ✓ · 查看比較」，點「查看比較」開 dg.html?view=cmp
    R1     ＝第 1 輪（同一條路）：決策框不出現、「讀取 DG LUT」還在；④ 的「不加入」連結（v2.7.1 起每一輪都一樣）
-   EN／CN ＝決策框與 ④ 狀態三語 */
+   EN／CN ＝決策框與 ④ 狀態三語
+   v2.7.2：條件改成「確認量測」（dstIsConf：job＝conf 或第 2 輪以後），不再是「第 2 輪以後」。
+   C1     ＝Bruce 2026-10-01 實測的那一條：DG 第 1 輪 → 寫入 → 自檢量測（round=1、job=conf）⇒ 決策框要出現、匯出 _R1
+   C1AUTO ＝第 1 輪基準量測（main）之後 DG 寫入、派確認量測（第 1 輪 conf）⇒ 卡片自動讀回並比對
+   NOSYNC ＝「滿意 → 匯出」照常下載；DG 沒回 ⇒「DG 分頁未同步（DG 沒有回應）」
+   匯出之後通知 DG（dg-conf-satisfied）：假 DG 回 ack ⇒「已通知 DG 分頁：第 N 輪確認滿意…」。
+   runner 參數：__sRound（DG 派工的輪數，預設 2）、__sConf0（開頁當下是不是確認量測，預設 true）。 */
 (async function () {
   var C = window.__sCase || 'AUTO';
+  var RND = window.__sRound || 2, CONF0 = (window.__sConf0 !== false);
+  var P = (C === 'C1' || C === 'NOSYNC') ? 'EXPORT' : (C === 'C1AUTO') ? 'AUTO' : C;   // 走哪一條路
   var dl = [];
   HTMLAnchorElement.prototype.click = function () { if (this.download) dl.push(this.download); };
   var opened = [];
@@ -29,6 +37,10 @@
     }, 30);
     if (m.type === 'dg-cmp-add') setTimeout(function () {
       cnt++; dstCmpOnAdded({ type: 'dg-cmp-added', task: m.task, ok: true, updated: false, no: cnt, name: m.name, count: cnt, max: 10, list: [], stored: true });
+    }, 30);
+    // v2.7.2：「滿意 → 匯出」之後的通知（NOSYNC ＝ DG 不回）
+    if (m.type === 'dg-conf-satisfied' && C !== 'NOSYNC') setTimeout(function () {
+      dstDecOnAck({ type: 'dg-conf-satisfied-ack', task: m.task, ok: true, round: m.round });
     }, 30);
   };
   /* DG 第 4 部分「即時更新 T-CON RGB LUT」送來的那張表（EM02A1：主表 256 筆、12-bit，遞增、步距 ≤ 17）。 */
@@ -50,22 +62,23 @@
     if (C === 'EN') applyLang('en');
     if (C === 'CN') applyLang('zh-CN');
     await __wait(500); await __arm(); await __wait(300);
-    var r2 = (C !== 'R1');
-    __ok('S0 round from URL', dstDgRound === (r2 ? 2 : 1) && dstR2() === r2, 'round=' + dstDgRound);
+    var r2 = (C !== 'R1') && CONF0;
+    __ok('S0 confirmation measurement? (dstIsConf) = ' + r2, dstIsConf() === r2, 'round=' + dstDgRound + ' job=' + dstDgJob);
 
-    if (C === 'AUTO' || C === 'BAD') {
+    if (P === 'AUTO' || P === 'BAD') {
       await dgWrite();
       __ok('S1 DG LUT write kept as the compare reference', !!dstLutSent && dstLutSent.main === 256 && dstLutSent.r[3] === 49,
         dstLutSent && dstLutSent.r[3]);
       __ok('S1 fixture: reference = table in the (fake) T-CON' + (C === 'BAD' ? ', one G value off' : ''), refFromCard(C === 'BAD'));
       // DG 派下一份工作（第 2 輪確認結果）⇒ 卡片被清空；不按任何鈕 ⇒ 自動讀回
       var nR0 = window.__readAddrs.length;
-      dstDgApplyTask({ type: 'dg-measure-task', round: 2, job: 'conf', mode: 'gray', step: 'gray', task: 78 });
+      dstDgApplyTask({ type: 'dg-measure-task', round: RND, job: 'conf', mode: 'gray', step: 'gray', task: 78 });
+      __ok('S1 DG sent a confirmation job ⇒ dstIsConf', dstIsConf(), 'round=' + dstDgRound + ' job=' + dstDgJob);
       await __wait(4000);
       __ok('S2 card read back automatically (no click)', !!dstLut && dstLut.src === 'tcon' && window.__readAddrs.length > nR0,
         (dstLut ? dstLut.src : 'null') + ' reads+' + (window.__readAddrs.length - nR0));
       __ok('S2 read button hidden in round 2, export next to it', !__vis('dst-lut-read') && __vis('dst-lut-xlsx'));
-      if (C === 'AUTO') {
+      if (P === 'AUTO') {
         __ok('S2 compare line: matches DG entry by entry', __vis('dst-lut-chk') && tx('dst-lut-chk') === '✓ 與 DG 送來的 LUT 逐筆相符（256 筆 × RGB）'
           && document.getElementById('dst-lut-chk').classList.contains('dst-say-info'), tx('dst-lut-chk'));
         __ok('S2 export enabled', __dis('dst-lut-xlsx') === false);
@@ -110,7 +123,7 @@
       __checkVersion('S-R1'); throw 'done';
     }
 
-    __ok('S1 popup cancel says 不加入 in round 2', (C !== 'EN' && C !== 'CN') ? tx('dst-cmp-cancel') === '不加入' : true, tx('dst-cmp-cancel'));
+    __ok('S1 popup cancel says 不加入', (C !== 'EN' && C !== 'CN') ? tx('dst-cmp-cancel') === '不加入' : true, tx('dst-cmp-cancel'));
     __ok('S1 while popup open: its OK is the only solid', blues().length === 1 && blues()[0] === 'dst-cmp-ok', blues().join(','));
 
     if (C === 'DECL') {
@@ -171,9 +184,20 @@
     }
     // EXPORT
     document.getElementById('dst-dec-export').click(); await __wait(500);
-    __ok('S-EXPORT one xlsx, same name rule as the card (…_R2.xlsx)', dl.length === 1 && /^DG_LUT_EM02A1_\d{8}_\d{4}_R2\.xlsx$/.test(dl[0]), JSON.stringify(dl));
+    __ok('S-EXPORT one xlsx, same name rule as the card (…_R' + RND + '.xlsx)', dl.length === 1 && new RegExp('^DG_LUT_EM02A1_\\d{8}_\\d{4}_R' + RND + '\\.xlsx$').test(dl[0]), JSON.stringify(dl));
     __ok('S-EXPORT done line inside the decision box', tx('dst-say-dec').indexOf('✔ 已匯出 ' + dl[0]) === 0, tx('dst-say-dec'));
-    __checkVersion('S-EXPORT');
+    // v2.7.2：通知 DG（同一條 postMessage 通道、帶 task／round／檔名）
+    var sat = sent.filter(function (m) { return m.type === 'dg-conf-satisfied'; });
+    __ok('S-SYNC told DG once (task, round, file)', sat.length === 1 && sat[0].task === dstDgTask && sat[0].round === RND && sat[0].file === dl[0], JSON.stringify(sat));
+    if (C === 'NOSYNC') {
+      await __wait(1800);
+      __ok('S-NOSYNC export still done, then "DG 分頁未同步（DG 沒有回應）"', dl.length === 1
+        && /DG 分頁未同步（DG 沒有回應）。$/.test(tx('dst-say-dec')) && tx('dst-say-dec').indexOf('✔ 已匯出 ') === 0, tx('dst-say-dec'));
+    } else {
+      await __wait(200);
+      __ok('S-SYNC DG acked ⇒ "已通知 DG 分頁：第 ' + RND + ' 輪確認滿意"', tx('dst-say-dec').indexOf('已通知 DG 分頁：第 ' + RND + ' 輪確認滿意（DG 已停在「查看目前結果」）。') > 0, tx('dst-say-dec'));
+    }
+    __checkVersion('S-' + C);
   } catch (e) { if (e !== 'done') window.__errs.push('test threw: ' + (e && e.stack || e)); }
   __done();
 })();
