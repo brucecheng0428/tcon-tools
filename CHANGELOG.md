@@ -4,15 +4,22 @@
 
 ## TCON 自檢畫面量測 (dgself) v2.1.0 — 2026-09-30 ｜ MINOR ｜ ⚠ 輸出變更
 
-判定依據：VERSIONING.md §1「多了新按鈕，舊的都在原位」—— DG_EN 開關多了一個操作位置（卡片展開時在 T-CON 那一行），摘要列那組照舊 ⇒ MINOR；版號 v2.1.0 由 Bruce 2026-09-30 經 Dispatch 指定（「請照規劃實作 v2.1.0」）。「讀取 DG LUT」在 DG_EN 關閉時不再讀 T-CON ＝ 依 Bruce 裁示修回 v1.18.0 起的規則（關 ⇒ 等距表），同一操作結果不同 ⇒ `⚠ 輸出變更`（R1），併入本版。DG_EN 開關改 ON／OFF 與配色（Bruce 2026-09-30 經 Dispatch「併入 v2.1.0」）＝ 同一組控制項的外觀與回饋，不另升版。
+判定依據：VERSIONING.md §1「多了新按鈕，舊的都在原位」—— DG_EN 開關多了一個操作位置（卡片展開時在 T-CON 那一行），摘要列那組照舊 ⇒ MINOR；版號 v2.1.0 由 Bruce 2026-09-30 經 Dispatch 指定（「請照規劃實作 v2.1.0」）。「讀取 DG LUT」在 DG_EN 關閉時不再讀 T-CON ＝ 依 Bruce 裁示修回 v1.18.0 起的規則（關 ⇒ 等距表），同一操作結果不同 ⇒ `⚠ 輸出變更`（R1），併入本版。DG_EN 開關改 ON／OFF 與配色（Bruce 2026-09-30 經 Dispatch「併入 v2.1.0」）＝ 同一組控制項的外觀與回饋，不另升版。I2C 治具／光學量測儀的「連線／中斷連線」改成同一種 ON／OFF 開關（Bruce 2026-09-30 經 Dispatch「放進同一版 v2.1.0」）＝ 同一個動作換控制項外觀，連線與斷線的路徑不變，不另升版。
 
 ### 為什麼
 - Bruce 2026-09-30：「外接硬體連線確認」卡片中黃色警告文字的地方，也能直接選擇關閉或開啟 DG_EN，並且和步驟卡的「關掉 DG_EN／維持現狀」同步 —— 同一個狀態、同一套配套。裁示（「照建議」）：① 硬體卡那一行不放「維持現狀」，只保留在步驟卡；② 開關在卡片展開時放 T-CON 那一行，收起時放摘要列。
 - Bruce 2026-09-30 裁示：DG_EN 關閉時暫存器裡的 LUT 還是原本那組，但實際輸出跑的是等間距 ⇒ 頁面上的 LUT 一律等間距；「讀取 DG LUT」不讀 T-CON 內部的表，直接給等間距，並顯示一行小字。
 - Bruce 2026-09-30：DG_EN 的「開」「關」兩個字太像，分不清哪個是開、哪個是關 ⇒ 改英文 ON／OFF（三語相同）、用顏色與 ●／○ 區分目前狀態，兩個位置統一；按下後讀回確認之前顯示「切換中…」，避免誤以為已經切好。
 - 根因（讀碼）：v2.0.4 以前「讀取 DG LUT」直接呼叫 `dstReadDgLut()`，是全頁唯一不看 DG_EN 的 LUT 路徑（步驟 ①、切換後自動重取都已照規則）。
+- Bruce 2026-09-30：「外接硬體連線確認」卡片裡的其他連線控制（讀寫 I2C 治具、光學量測儀的「連線／中斷連線」）也改成和 DG_EN 同一套 ON／OFF 開關；摘要列與展開後的各行統一用同一個元件；v2.0.0 那套「單一實心主要動作」規則要重新檢視。
 
 ### 改了什麼
+- **共用 ON／OFF 開關元件**：`dstSwBuild(key)`（產生 DOM）／`dstSwPlace(key)`（依「外接硬體」開合把同一個節點搬到摘要列或自己那一組）／`dstSwPaint(key, o)`（唯一的外觀寫入點），三個 key：`ln`（讀寫 I2C 治具）、`dg`（DG_EN）、`ca`（光學量測儀）。CSS 由 `.dst-dgsw*` 改成通用的 `.dst-sw*`（一份）。HTML 只留空位 `#dst-<key>sw-slot-sum`／`#dst-<key>sw-slot-row`；DG_EN 的 T-CON 那一格改名 `#dst-dgsw-slot-row`。按鈕 id：`dst-lnsw-on/off`、`dst-dgsw-on/off`（不變）、`dst-casw-on/off`。
+- **移除** `#dst-link`、`#dst-ca` 兩顆「連線／中斷連線」鈕與 i18n `dst.stOff`／`stOn`／`stCaOff`／`stCaOn`。按 ON ＝ 原本的 `dstConnect()`／`dstCaOpen()`（量測儀第一次照原流程跳出選序列埠視窗），按 OFF ＝ `dstDisconnect()`／`dstCaClose()`；按已經是的那一邊不做事。按下到整段做完之前，按的那一邊顯示「◌ 連線中…」（往 ON）或「◌ 切換中…」（往 OFF），兩邊停用；做完亮哪一邊只看 `dstLinked`／`dstCaLinked`。新增 `dst.swLinking`（三語）。
+- **失敗原因**：量測儀開啟失敗（取消選埠、埠打不開、瀏覽器不支援）的原因從步驟卡最下面（`#dst-say-run`）改寫到硬體卡那一行 `#dst-say-link`（開關旁邊，卡片收起也看得到）；I2C 失敗原本就寫在那裡。
+- **摘要列**：I2C 治具、DG_EN、量測儀三組開關都在摘要列（收起時），文字只剩開關講不到的「✔ IC 型號」與「換階等待」。
+- **實心主按鈕規則（dstRenderMain，重新檢視）**：開關的實心綠／灰是狀態，不再把開關塗成實心藍。規則改為「實心藍＝下一個動作鈕（重新識別／重新讀 DG_EN／步驟卡那一顆），全頁最多一顆；卡在 I2C 治具或量測儀沒連 ⇒ 那一組開關的 ON 加藍框（`.next`，線框），此時全頁沒有實心藍；連線中不標」。`DST_MAIN_CAND` 移除 `dst-link`／`dst-ca`。
+- 兩句引導改寫成開關的說法：`dst.stepsWhyLink`、`dst.whyNoMeter`（「先把上面『…』切到 ON」）。
 - `dstPlaceDgSw()`：**同一個** `#dst-dgsw` 節點依「外接硬體」開合搬家 —— 收起 ⇒ 摘要列（`#dst-dgsw-slot-sum`）；展開 ⇒ T-CON 組 DG_EN 那一行（`#dst-dgsw-slot-tcon`，黃字正上方）。只有一份 DOM 與一組事件，寫入照舊只走 `dstDgEnApply()`；由 `dstRenderDgSw()` 與 `<details>` 的 `toggle` 事件呼叫。
 - T-CON 那一行：讀得到 DG_EN 時切換取代狀態文字；讀不到時切換停用、原因照舊寫在 `#dst-v-dg`。切換自己的「DG_EN」字樣與「讀不到」在這一行不重複顯示（CSS）。
 - `dstLutReadBtn()`：「讀取 DG LUT」先重讀 DG_EN，再依 `dstStep1UsesIdentity()`（與步驟 ① 同一支）決定 —— 關 ⇒ `dstLutLoadIdentity()`（只讀 DG_EN 那顆 byte）；開／讀不到 ⇒ 照舊讀 T-CON。
@@ -23,6 +30,8 @@
 - ⚠ 輸出變更：DG_EN 關閉時按「讀取 DG LUT」，v2.0.4 顯示 T-CON 記憶體裡的表，本版顯示等距表。DG_EN 開著或讀不到時不變。
 
 ### 驗證（如實）
+- 硬體卡開關統一（本次追加）：headless Chrome，舊情境 A／C／E／F 全部重跑（改用新的 slot id）＋新情境 G 28 項，合計 78 項全過、0 失敗、無 JS 錯誤。G 用假 WebSocket 跑真的 `dstConnect()`／`dstDisconnect()`、假 Web Serial 跑真的 `dstCaOpen()`／`dstCaClose()`：三組各只有一個節點、舊鈕已移除；未連線時 OFF 灰底 ●、I2C 的 ON 有藍框、全頁沒有實心藍；按 ON ⇒「◌ 連線中…」虛線、兩邊停用 ⇒ 連上後 ON 綠底；按 OFF ⇒「切換中…」⇒ OFF 灰底；bridge 沒開 ⇒ 停回 OFF、原因在 `#dst-say-link`；量測儀取消選埠 ⇒ 有叫出選埠、停回 OFF、原因在 `#dst-say-link`；量測儀連線中／連上；IC 已識別但量測儀沒連 ⇒ 量測儀 ON 藍框、沒有實心藍；全連線 ⇒ 恰好一顆實心藍且是步驟鈕；IC 認不出 ⇒ 實心藍是「重新識別」；收起 ⇒ 三組都在摘要列、按已亮的一邊不開合也不動作；展開 ⇒ 回各自那一組；量測中兩組停用但保留綠底；en／zh-CN 字面與 Connecting…／连线中…；版號 v2.1.0。
+- 未驗證：真機 I2C Bridge 與實體量測儀序列埠沒有接（本機測試全用假物件）；本機沒有 `node`，`tools/check_ui_jargon.js` 等 node 檢查沒跑。
 - headless Chrome（暫存複本、假 bridge 模擬 EM02A1 的 0x005D、量測儀與出圖打樁），51 項全過、無 JS 錯誤（原 33 項＋ON／OFF 追加 18 項）：
   - 收起 ⇒ 切換在摘要列；展開 ⇒ 搬到 T-CON 那一行（全頁只有一個節點）、狀態文字隱藏、DG 開時黃字在正下方；在 T-CON 那一行按關 ⇒ 只寫一次 bit0（0x0D→0x0C）、黃字消失；收起 ⇒ 回摘要列且仍是關。硬體卡內沒有「維持現狀」。
   - 關著按「讀取 DG LUT」⇒ 等距表、只讀 0x005D、小字出現；切開 ⇒ 重讀 T-CON、小字消失；頁面以為開但 IC 已是關 ⇒ 按鈕先重讀 DG_EN、給等距表、切換跟著變關；讀不到 ⇒ T-CON 那一行切換停用、原因可見，「讀取 DG LUT」不主張等距表。
