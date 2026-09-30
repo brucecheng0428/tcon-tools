@@ -14,7 +14,7 @@
 <title>TCON 自檢畫面量測 — TCON FAE專用工具箱</title>
 <link rel="stylesheet" href="common/common.css?v=20260903help">
 <!-- 🔴 version.js 必須最先載入（common/version.js 開頭那條規則）。 -->
-<script src="common/version.js?v=20261001dst272"></script>
+<script src="common/version.js?v=20261001dst273"></script>
 <style>
   /* ═══ 本頁專屬樣式 ════════════════════════════════════════════════════════
      只寫這一頁真的需要、而 common.css 沒有的東西。顏色一律走 common.css 的
@@ -506,6 +506,26 @@
      「滿意 → 匯出」掛 .dst-main 時就是全頁唯一的實心；視窗開著時上面兩條 body.dst-*-on 規則照樣讓它讓位。 */
   .dst-dec { margin-top: 12px; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
   .dst-dec-q { font-weight: 700; color: var(--text); }
+  /* ═══ v2.7.3：只看當下這一步（Bruce 2026-10-01 核准，只在從 DG 開啟時＝#dst-steps-card.dst-focus）═══
+     · 現在這一步的框完整展開（.dst-fs-cur）；④ 當下再加醒目框（.dst-fs-hot）
+     · 還沒到的框整個不顯示（.dst-fs-future，連標題都沒有）
+     · 做完的框縮成一行淡灰「✓ 步驟名稱」（.dst-fs-done），點一下展開回看（.dst-fs-peek）
+     · 資料卡（DG LUT／量測／紀錄）流程跑完前收起（.dst-fold），點標題隨時可開 */
+  #dst-steps-card.dst-focus .dst-box.dst-fs-future { display: none; }
+  .dst-fs-line { display: none; width: 100%; text-align: left; background: none; border: 0; padding: 2px 0;
+    font: inherit; font-size: 13px; color: var(--text-sub); opacity: .6; cursor: pointer; }
+  .dst-fs-line:hover { opacity: .9; }
+  #dst-steps-card.dst-focus .dst-box.dst-fs-done,
+  #dst-steps-card.dst-focus .dst-box.dst-fs-peek { background: transparent; border-color: transparent; padding-top: 2px; padding-bottom: 2px; }
+  #dst-steps-card.dst-focus .dst-box.dst-fs-done > .dst-fs-line,
+  #dst-steps-card.dst-focus .dst-box.dst-fs-peek > .dst-fs-line { display: block; }
+  #dst-steps-card.dst-focus .dst-box.dst-fs-done > :not(.dst-fs-line) { display: none !important; }
+  #dst-steps-card.dst-focus .dst-box.dst-fs-peek > :not(.dst-fs-line) { opacity: .7; }
+  #dst-steps-card.dst-focus .dst-box.dst-fs-hot { border: 2px solid var(--primary); box-shadow: 0 0 0 3px rgba(37, 99, 235, .22); }
+  #dst-steps-card.dst-focus .dst-fs-off { display: none !important; }
+  .card.dst-foldable > .card-header { cursor: pointer; user-select: none; }
+  .card.dst-foldable > .card-header .dst-fold-ico { margin-left: auto; float: right; padding-left: 10px; color: var(--text-sub); font-size: 12px; }
+  .card.dst-fold > .card-body { display: none; }
   /* ④ 那一列的小連結（「查看比較」「加入比較」）：文字連結，不是按鈕 ⇒ 不參與「唯一實心」 */
   .dst-link { background: none; border: 0; padding: 0; margin-left: 6px; font: inherit; color: #93c5fd;
     text-decoration: underline; cursor: pointer; }
@@ -997,11 +1017,13 @@
           <button class="dst-btn dst-hidden" id="dst-dg-rec-keep"></button>
         </div>
       </div>
+      <!-- v2.7.3：DG LUT 讀回與 DG 送來的不一致 ⇒ 警告升到步驟卡（資料卡收起來也看得到，dstRenderLutChk 填） -->
+      <div class="dst-say dst-hidden" id="dst-steps-lutwarn"></div>
       <!-- 🔴 v1.12.0：一個步驟一個框（Bruce 2026-09-21：「步驟一應該是很單純的
            一個外框，要把它框起來。」）。框與硬體那三組共用 `.dst-box`。
            🔴 這一格**沒有 legend**：步驟名「① 讀回目前的 RGB LUT」本來就在列上，
               再放一個 legend 就是同一句話印兩次。 -->
-      <div class="dst-box">
+      <div class="dst-box" id="dst-box-lut">
         <div class="dst-step" id="dst-step-lut">
           <span class="dst-step-tick" id="dst-tick-lut">○</span>
           <!-- 🔴 v1.17.0（D）：這一步被順序鎖住時的原因就寫在這裡（停用必須說得出
@@ -1113,39 +1135,8 @@
              `.dst-row`。匯出收斂到 DG 的「光學資料比較」分頁 —— 理由與查證寫在
              JS 端 `dstExport*` 被刪掉的那一段。 -->
       </div>
-      <!-- 🔴 停用時才有字，可按時一個字都不出現（本頁既有準則）。 -->
-      <div class="dst-note" id="dst-steps-why"></div>
-      <!-- ═══ 🔴 v1.17.0（D）：重做／跳過某一步的退路 ═══════════════════════════════
-           Bruce 2026-09-22 要求步驟依序開放（做完的鎖住、還沒到的也鎖住），同時交辦
-           「某一步做完但結果不對、想重做怎麼辦？全鎖死就沒有出口」。
-           🔴 **放這裡的理由**：使用者發現按鈕是灰的、旁邊寫著「已完成」的那一刻，
-              視線就在這幾列上；退路擺在同一張卡、緊接在清單下面，不必去別的地方找。
-           🔴 **怎麼呈現**：原生 `<details>`，預設收合 ⇒ 平常畫面上只有一行小字，
-              不與步驟鈕搶注意力（Bruce：「不預設露出來、但找得到」）。
-              不自己寫開合是刻意的 —— 自己寫就會多一份「現在是開還是關」的狀態。
-           🔴 解除之後**藍色 highlight 一個字都不變**：它仍然指著照順序該做的那一步，
-              解除只是允許你按別的。兩者讀同一個 `dstCurGroupIdx()`。 -->
-      <!-- 🔴 v1.17.2：`data-dst-bootgate` ＝ 開機閘門要蓋住的東西（理由寫在 head 那一塊）。
-           本頁只有這一個元素掛它 —— 其餘會被藏的元素 markup 裡本來就有 `dst-hidden`。 -->
-      <details class="dst-seq" id="dst-seq-box" data-dst-bootgate>
-        <summary data-i18n="dst.seqMore">要重做或跳過某一步？</summary>
-        <div class="dst-note" data-i18n="dst.seqNote">步驟預設照 ①→②③→④ 的順序開放：做完的會鎖起來，還沒輪到的也按不下去。某一步的結果不對想重做，就在這裡解除限制。</div>
-        <div class="dst-row">
-          <button class="dst-btn" id="dst-seq-unlock" data-i18n="dst.seqUnlock">解除依序限制</button>
-        </div>
-        <!-- 字由 dstRenderSteps() 填（解除時才有字），所以不掛 data-i18n。 -->
-        <div class="dst-note" id="dst-seq-state"></div>
-      </details>
-      <div class="dst-say" id="dst-say-steps"></div>
-
-      <!-- ═══ 🔴 v1.10.0：進度條也放這裡一份 ═════════════════════════════════
-           Bruce 2026-09-21：「第二部分下面應該也要有進度條，讓我在這張卡片上就能
-           直接看到進度在哪裡；如果要看仔細的，自己再往下拉。」
-           🔴 下面「量測」那張卡的那一份**保留**（要看細節的地方）。兩份的內容由
-              同一支 `dstProg()` 同時寫進去 —— 不是兩套計算，不可能各講各的。 -->
-      <div class="dst-prog-outer"><div class="dst-prog-inner" id="dst-steps-prog"></div></div>
-      <div class="dst-note" id="dst-steps-progtxt">&nbsp;</div>
-
+      <!-- v2.7.3：④ 與決策框緊接在 ②③ 後面（原本在清單最下方、隔著「要重做或跳過」與進度條）——
+           「只看當下這一步」時做完的步驟是一行一行的 ✓，④ 出現時要直接接在它們下面。 -->
       <!-- ═══ 🔴 v1.10.0：卡片最下方也有一顆返回出口 ═══════════════════════════
            Bruce 2026-09-21：「在這張卡片的最下方，也就是我這三件事都做完以後，
            還有一個返回 DG 頁的按鈕，也可以在這邊按下去。」
@@ -1179,7 +1170,7 @@
               「他有沒有回去看，本頁無從得知」，而現在它代表的事情換了：**資料有沒有
               真的離開這一頁**，那件事本頁知道得一清二楚（`dstBackSent`）。
            🔴 提示那一行改成**送出去之後才出現**（原本是「按之前先警告」）。 -->
-      <div class="dst-box">
+      <div class="dst-box" id="dst-box-back">
         <div class="dst-step" id="dst-step-back">
           <span class="dst-step-tick" id="dst-tick-back">○</span>
           <span class="dst-step-txt" data-i18n="dst.stepBack">④ 資料自動回傳 DG</span>
@@ -1195,6 +1186,54 @@
           <span class="dst-note" id="dst-cmp-state" style="margin-top:0"></span>
         </div>
       </div>
+      <!-- ═══ v2.7.0：確認量測的決策框（Bruce 2026-09-30 核准；v2.7.2 起條件＝dstIsConf）═══
+           v2.7.3：從「量測」卡搬到這裡，緊接在 ④ 下面 —— 量完時 ④ 與這個框一起是焦點
+           （「量測」卡在流程跑完之前是收起來的）。
+           「第二輪以後量測都是在確認結果…滿意的話更重要的是 DG LUT 的匯出 Excel」。
+           滿意 ⇒ 匯出（全頁唯一實心）、不滿意 ⇒ 切回 DG 分頁。
+           顯示條件與內容由 dstRenderDecide() 決定；基準量測（第 1 輪 main）不出現。 -->
+      <div class="dst-dec dst-hidden" id="dst-dec">
+        <div class="dst-dec-q" id="dst-dec-q"></div>
+        <div class="dst-row" style="margin-top:8px">
+          <button class="dst-btn" id="dst-dec-export"></button>
+          <button class="dst-btn" id="dst-dec-next"></button>
+        </div>
+        <div class="dst-note dst-hidden" id="dst-dec-why" style="margin-top:6px"></div>
+        <div class="dst-say" id="dst-say-dec"></div>
+      </div>
+      <!-- 🔴 停用時才有字，可按時一個字都不出現（本頁既有準則）。 -->
+      <div class="dst-note" id="dst-steps-why"></div>
+      <!-- ═══ 🔴 v1.17.0（D）：重做／跳過某一步的退路 ═══════════════════════════════
+           Bruce 2026-09-22 要求步驟依序開放（做完的鎖住、還沒到的也鎖住），同時交辦
+           「某一步做完但結果不對、想重做怎麼辦？全鎖死就沒有出口」。
+           🔴 **放這裡的理由**：使用者發現按鈕是灰的、旁邊寫著「已完成」的那一刻，
+              視線就在這幾列上；退路擺在同一張卡、緊接在清單下面，不必去別的地方找。
+           🔴 **怎麼呈現**：原生 `<details>`，預設收合 ⇒ 平常畫面上只有一行小字，
+              不與步驟鈕搶注意力（Bruce：「不預設露出來、但找得到」）。
+              不自己寫開合是刻意的 —— 自己寫就會多一份「現在是開還是關」的狀態。
+           🔴 解除之後**藍色 highlight 一個字都不變**：它仍然指著照順序該做的那一步，
+              解除只是允許你按別的。兩者讀同一個 `dstCurGroupIdx()`。 -->
+      <!-- 🔴 v1.17.2：`data-dst-bootgate` ＝ 開機閘門要蓋住的東西（理由寫在 head 那一塊）。
+           本頁只有這一個元素掛它 —— 其餘會被藏的元素 markup 裡本來就有 `dst-hidden`。 -->
+      <details class="dst-seq" id="dst-seq-box" data-dst-bootgate>
+        <summary data-i18n="dst.seqMore">要重做或跳過某一步？</summary>
+        <div class="dst-note" data-i18n="dst.seqNote">步驟預設照 ①→②③→④ 的順序開放：做完的會鎖起來，還沒輪到的也按不下去。某一步的結果不對想重做，就在這裡解除限制。</div>
+        <div class="dst-row">
+          <button class="dst-btn" id="dst-seq-unlock" data-i18n="dst.seqUnlock">解除依序限制</button>
+        </div>
+        <!-- 字由 dstRenderSteps() 填（解除時才有字），所以不掛 data-i18n。 -->
+        <div class="dst-note" id="dst-seq-state"></div>
+      </details>
+      <div class="dst-say" id="dst-say-steps"></div>
+
+      <!-- ═══ 🔴 v1.10.0：進度條也放這裡一份 ═════════════════════════════════
+           Bruce 2026-09-21：「第二部分下面應該也要有進度條，讓我在這張卡片上就能
+           直接看到進度在哪裡；如果要看仔細的，自己再往下拉。」
+           🔴 下面「量測」那張卡的那一份**保留**（要看細節的地方）。兩份的內容由
+              同一支 `dstProg()` 同時寫進去 —— 不是兩套計算，不可能各講各的。 -->
+      <div class="dst-prog-outer"><div class="dst-prog-inner" id="dst-steps-prog"></div></div>
+      <div class="dst-note" id="dst-steps-progtxt">&nbsp;</div>
+
     </div>
   </div>
 
@@ -1205,7 +1244,7 @@
           ＋ 本次用的規格）。v1.6.0 那兩個下拉（bus enable 候選、18 種解碼方式）
           與候選分數表整組移除 —— 規格已由原廠源碼定案，沒有要他挑的東西了。
           細節（逐段位址、每段長度、bus enable 有沒有黏住）一律走「紀錄」那張卡。 -->
-  <div class="card">
+  <div class="card" id="dst-lut-card">
     <div class="card-header dst-hd-info"><span class="icon">📊</span><span data-i18n="dst.hdLut">DG LUT（RGB）檢視</span></div>
     <div class="card-body">
       <div class="dst-note" data-i18n="dst.lutNote">把 T-CON 裡目前的 RGB 對照表讀回來核對。只讀不寫，不會動到面板。</div>
@@ -1256,7 +1295,7 @@
   </div>
 
   <!-- ═══ 4. 量測 ═════════════════════════════════════════════════════════ -->
-  <div class="card">
+  <div class="card" id="dst-meas-card">
     <div class="card-header dst-hd-info"><span class="icon">📈</span><span data-i18n="dst.hdMeasure">量測</span></div>
     <div class="card-body">
       <!-- ═══ 🔴 v1.10.1：「換階等待」「停止」「匯出 XLSX」**已搬到上面那張
@@ -1300,24 +1339,11 @@
           <tbody id="dst-res"></tbody>
         </table>
       </div>
-      <!-- ═══ v2.7.0：第 2 輪以後的決策框（Bruce 2026-09-30 核准）══════════════════
-           「第二輪以後量測都是在確認結果…滿意的話更重要的是 DG LUT 的匯出 Excel」。
-           緊貼在量測結果正下方；滿意 ⇒ 匯出（全頁唯一實心）、不滿意 ⇒ 切回 DG 分頁。
-           顯示條件與內容由 dstRenderDecide() 決定；第 1 輪永遠不出現。 -->
-      <div class="dst-dec dst-hidden" id="dst-dec">
-        <div class="dst-dec-q" id="dst-dec-q"></div>
-        <div class="dst-row" style="margin-top:8px">
-          <button class="dst-btn" id="dst-dec-export"></button>
-          <button class="dst-btn" id="dst-dec-next"></button>
-        </div>
-        <div class="dst-note dst-hidden" id="dst-dec-why" style="margin-top:6px"></div>
-        <div class="dst-say" id="dst-say-dec"></div>
-      </div>
     </div>
   </div>
 
   <!-- ═══ 5. log ═════════════════════════════════════════════════════════ -->
-  <div class="card">
+  <div class="card" id="dst-log-card">
     <div class="card-header dst-hd-info"><span class="icon">📜</span><span data-i18n="dst.hdLog">紀錄</span></div>
     <div class="card-body">
       <!-- v2.0.3：紀錄是給維護者看的，預設收起（照 dg「說明不是刪掉就是收進按了才出現」）。 -->
@@ -4495,6 +4521,15 @@ function dstLutBlocked() { var c = dstLutChk(); return !!(c && c.st === 'bad'); 
 function dstRenderLutChk() {
   var e = $('dst-lut-chk'); if (!e) return;
   var c = dstLutBusy ? null : dstLutChk();
+  /* v2.7.3：不一致 ⇒ 同一句也升到步驟卡（資料卡在流程跑完前是收起來的，不能因此看不到）。 */
+  var sw = $('dst-steps-lutwarn');
+  if (sw) {
+    var bad = !!(c && c.st === 'bad');
+    sw.classList.toggle('dst-hidden', !bad);
+    if (bad) { var f0 = c.d.first;
+      dstSay('dst-steps-lutwarn', dstT('dst.lutChkBad', { i: f0.i, ch: f0.ch, want: f0.want, got: f0.got, n: c.d.n < 0 ? '>8' : c.d.n })); }
+    else dstSay('dst-steps-lutwarn', '');
+  }
   e.classList.toggle('dst-hidden', !c);
   if (!c) { dstSay('dst-lut-chk', ''); return; }
   if (c.st === 'bad') {
@@ -6886,6 +6921,10 @@ function dstRenderSteps() {
         任何東西要按。
      🔴 v1.13.0：`.cur` **不在這裡算** —— 整張卡的藍色由上面 `dstCurGroupIdx()`
         一次決定（含這一列）。原本這裡那條「送過任何一步就亮」已隨 A 一起移除。 */
+  /* v2.7.3：只看當下這一步＋資料卡收合。🔴 要在下面 ④ 那一段**之前**：那一段第一次看到「已送回」
+     時會把提示條捲進畫面，而 ④ 的框在這之前是藏著的（還沒到的步驟）—— 先揭開才捲得到。
+     也在 dstRenderHw 挑唯一實心之前（它只挑看得到的鈕）。 */
+  dstRenderFocus();
   var sent = dstBackSent();
   var br = $('dst-step-back');
   if (br) br.classList.toggle('done', sent);
@@ -7016,6 +7055,94 @@ function dstRenderHw() {
   dstRenderMain();
 }
 var dstHwAllOk = null;
+
+/* ═══ v2.7.3：只看當下這一步（Bruce 2026-10-01 核准）═══════════════════════════════════
+   Bruce：「我現在做到什麼步驟，就只顯示該步驟的卡片。還沒做到的步驟，請隱藏起來…已經做過的步驟…
+   讓它變得非常不明顯，一看就知道這個已經做完了」「第四部分…還沒有進到那個步驟的時候…最好是連看都
+   不要看到。等到全部完成了…當然就要 highlight 出來」「數據檢查的部分…預設在還沒量完之前都先收摺
+   起來，等到步驟全部都跑完以後，再自動把它打開，或是讓人為自己點開」。
+   🔴 只在**從 DG 開啟**時生效（與依序開放、藍色 highlight 同一個條件 `dstDgAlive()`）：直接開這一頁
+      沒有流程可言，維持全部攤開。
+   🔴 「現在是哪一步」讀的是既有的完成事實（dstStepIsDone／dstBackSent），不另立狀態：
+        ① 沒做（而且這份工作用得到）⇒ ①；②③ 沒量完 ⇒ ②③；都做完 ⇒ ④（資料已自動回傳，它就是當下）。
+      第 2 輪以後 ① 由既有的自動流程（自動開 DG_EN ＋ ① 自動重取／接手核對過的表）完成 ⇒ 一打勾就縮成
+      「✓ ①」，畫面直接停在 ②③。🔴 **不偽造打勾**：自動那一步還沒完成時 ① 仍是當下（打勾＝真的送到 DG）。
+   🔴 做完的那一行是 <button>（鍵盤可按），點一下展開回看、再點收回；每份工作重新開始（dstClearRound 清）。 */
+var dstFsPeek = {};
+var DST_FOLD_CARDS = { lut: 'dst-lut-card', meas: 'dst-meas-card', log: 'dst-log-card' };
+var dstFold = { lut: null, meas: null, log: null };   // null ＝ 自動（流程跑完才開）；true／false ＝ 他自己點的
+function dstFlowDone() {
+  return dstStepIsDone('lut') && dstStepIsDone('gray') && dstStepIsDone('prim') && dstBackSent();
+}
+function dstFsCurKey() {
+  /* 資料已經送回 DG ⇒ ④ 就是當下（即使 ① 被「解除依序限制」跳過了 —— 送出是真的發生了）。 */
+  if (dstBackSent()) return 'back';
+  if (dstStepNeeded('lut') && !dstStepIsDone('lut')) return 'lut';
+  if (!(dstStepIsDone('gray') && dstStepIsDone('prim'))) return 'g23';
+  return 'back';
+}
+function dstRenderFocus() {
+  var card = $('dst-steps-card');
+  if (!card) return;
+  var on = dstDgAlive();
+  card.classList.toggle('dst-focus', on);
+  var cur = dstFsCurKey();
+  var gt = $('dst-step-gray-t');
+  [
+    { key: 'lut',  box: $('dst-box-lut'),  name: dstT('dst.stepLut'), done: dstStepIsDone('lut') },
+    { key: 'g23',  box: $('dst-group23'),  name: gt ? String(gt.textContent || '') : '', done: dstStepIsDone('gray') && dstStepIsDone('prim') },
+    { key: 'back', box: $('dst-box-back'), name: dstT('dst.stepBack'), done: dstBackSent() }
+  ].forEach(function (it) {
+    var b = it.box; if (!b) return;
+    var ln = b.querySelector(':scope > .dst-fs-line');
+    if (!ln) {
+      ln = document.createElement('button');
+      ln.type = 'button'; ln.className = 'dst-fs-line'; ln.id = 'dst-fs-line-' + it.key;
+      ln.addEventListener('click', function () { dstFsPeek[it.key] = !dstFsPeek[it.key]; dstRenderFocus(); });
+      b.insertBefore(ln, b.firstChild);
+    }
+    var isCur = on && it.key === cur;
+    var isDone = on && !isCur && it.done;
+    var peek = isDone && !!dstFsPeek[it.key];
+    ln.textContent = (peek ? '▾ ' : '✓ ') + it.name;
+    b.classList.toggle('dst-fs-cur', isCur);
+    b.classList.toggle('dst-fs-done', isDone && !peek);
+    b.classList.toggle('dst-fs-peek', peek);
+    b.classList.toggle('dst-fs-future', on && !isCur && !it.done);
+    b.classList.toggle('dst-fs-hot', isCur && it.key === 'back');
+  });
+  /* 進度條：只在量測中出現（按「開始量測」之前，當下這一步下面不顯示東西）。 */
+  var po = $('dst-steps-prog'), pt = $('dst-steps-progtxt');
+  var hideProg = on && !dstRunning;
+  if (po && po.parentNode) po.parentNode.classList.toggle('dst-fs-off', hideProg);
+  if (pt) pt.classList.toggle('dst-fs-off', hideProg);
+  dstRenderFold();
+}
+function dstRenderFold() {
+  var on = dstDgAlive(), auto = !on || dstFlowDone();
+  Object.keys(DST_FOLD_CARDS).forEach(function (k) {
+    var c = $(DST_FOLD_CARDS[k]); if (!c) return;
+    var open = (dstFold[k] === null) ? auto : dstFold[k];
+    c.classList.toggle('dst-foldable', on);
+    c.classList.toggle('dst-fold', on && !open);
+    var hd = c.querySelector(':scope > .card-header');
+    if (!hd) return;
+    var ico = hd.querySelector('.dst-fold-ico');
+    if (on && !ico) {
+      ico = document.createElement('span'); ico.className = 'dst-fold-ico';
+      hd.appendChild(ico);
+      hd.setAttribute('role', 'button'); hd.tabIndex = 0;
+    }
+    if (ico) { ico.textContent = !on ? '' : open ? '▾' : '▸'; ico.style.display = on ? '' : 'none'; }
+    if (hd.hasAttribute('role')) hd.setAttribute('aria-expanded', String(!on || open));
+  });
+}
+function dstFoldToggle(k) {
+  var c = $(DST_FOLD_CARDS[k]);
+  if (!c || !c.classList.contains('dst-foldable')) return;
+  dstFold[k] = c.classList.contains('dst-fold');   // 目前收著 ⇒ 打開
+  dstRenderFold();
+}
 
 /* ═══ v2.7.0：第 2 輪以後的決策框（Bruce 2026-09-30 核准方案第 3、5 條）══════════════
    「第二輪以後量測都是在確認結果…如果當下就已經對這個 DG 的 Gamma 結果滿意，根本就沒有必要
@@ -7774,6 +7901,8 @@ function dstClearRound(n, roundChanged) {
   dstBackCtaStop();       // v2.3.0：上一份工作的呼吸燈／分頁標題提醒一起收掉
   /* v2.7.0：決策框「捲進畫面一次」與「不加入」都是這一份工作的狀態，跟著清。 */
   dstDecShown = false; dstCmpDeclined = false; dstCmpRowGo = false;
+  /* v2.7.3：新的一份工作 ⇒ 做完的步驟回到收起、資料卡回到「流程跑完才開」。 */
+  dstFsPeek = {}; dstFold = { lut: null, meas: null, log: null };
   dstSay('dst-say-dec', '');
   /* 🔴 v1.18.0（C）：「維持現狀」是**這一份工作**的例外，不跟著跨到下一份
      （與 `dstSeqUnlock` 同一個生命週期，所以清在同一處）。第 2 輪的警告本來就
@@ -8645,6 +8774,13 @@ function dstBind() {
   /* v2.7.0：決策框。匯出走卡上那顆同一支（格式、DG_EN OFF 先問、不一致不匯出全部一致），結果寫在框裡。 */
   $('dst-dec-export').addEventListener('click', function () { dstDecExport(); });   // v2.7.2：匯出後通知 DG
   $('dst-dec-next').addEventListener('click', dstDecNext);
+  /* v2.7.3：資料卡標題點一下開／關（從 DG 開啟時才可收合，見 dstRenderFold）。 */
+  Object.keys(DST_FOLD_CARDS).forEach(function (k) {
+    var c = $(DST_FOLD_CARDS[k]), hd = c && c.querySelector(':scope > .card-header');
+    if (!hd) return;
+    hd.addEventListener('click', function () { dstFoldToggle(k); });
+    hd.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); dstFoldToggle(k); } });
+  });
   /* v2.1.0：「外接硬體」開合時三組開關一起搬家（見 dstSwPlace）。 */
   $('dst-hw-more').addEventListener('toggle', function () { dstRenderDgSw(); dstRenderConnSw(); });
   $('dst-settle').addEventListener('change', dstRenderHw);   // v2.0.3：一行摘要裡有換階等待

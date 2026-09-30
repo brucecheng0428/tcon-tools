@@ -94,6 +94,18 @@ SCENARIOS = [
     # dg v2.4.2：DG 收到「自檢頁已確認滿意」⇒ 停在「查看目前結果」
     ('Y-OK',      'Y_conf_satisfied.js',      '',                     False, {'__yCase': 'OK'},          False, 'dg.html'),
     ('Y-NOP4',    'Y_conf_satisfied.js',      '',                     False, {'__yCase': 'NOP4'},        False, 'dg.html'),
+    # v2.7.3：只看當下這一步（自檢頁）＋ dg v2.4.3 色溫兩顆直接計算
+    ('Z-R1',      'Z_focus_steps.js',         '?round=1&job=main',    True,  {'__zCase': 'R1'},          False),
+    ('Z-MAN',     'Z_focus_steps.js',         '?round=1&job=main',    True,  {'__zCase': 'MAN'},         False),
+    ('Z-R2',      'Z_focus_steps.js',         '?round=2&job=main',    True,  {'__zCase': 'R2'},          False),
+    ('Z-CONF',    'Z_focus_steps.js',         '?round=1&job=conf',    True,  {'__zCase': 'CONF'},        False),
+    ('Z-EN',      'Z_focus_steps.js',         '?round=1&job=main',    True,  {'__zCase': 'EN'},          False),
+    ('Z-NODG',    'Z_focus_steps.js',         '',                     False, {'__zCase': 'NODG'},        False),
+    ('T-CCT',     'T_tone_calc.js',           '',                     False, {'__tCase': 'CCT'},         False, 'dg.html'),
+    ('T-GAMMA',   'T_tone_calc.js',           '',                     False, {'__tCase': 'GAMMA'},       False, 'dg.html'),
+    ('T-MISS',    'T_tone_calc.js',           '',                     False, {'__tCase': 'MISS'},        False, 'dg.html'),
+    ('T-EN',      'T_tone_calc.js',           '',                     False, {'__tCase': 'EN'},          False, 'dg.html'),
+    ('T-CN',      'T_tone_calc.js',           '',                     False, {'__tCase': 'CN'},          False, 'dg.html'),
     # dg v2.4.0：一輪結束並列「查看目前結果／進行第 N+1 輪」，第 2 輪起不再問「要不要確認」
     ('R-PC',      'R_round_decide.js',        '',                     False, {'__rCase': 'PC'},          False, 'dg.html'),
     ('R-TCON',    'R_round_decide.js',        '',                     False, {'__rCase': 'TCON'},        False, 'dg.html'),

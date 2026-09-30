@@ -9,7 +9,9 @@
     document.getElementById('dst-dg-rec-go').click(); await __wait(2500);
     __ok('C2 step-card "turn off" -> T-CON row switch shows off', dstDg.state === 'off' && __cls('dst-dgsw-off', 'on') && !__cls('dst-dgsw-on', 'on'));
     __ok('C2 rec row gone, yellow line gone', !__vis('dst-dg-rec') && !__vis('dst-dg-warn'));
-    __ok('C2 linear table sent to DG, note shown', dstLut && dstLut.src === 'ident' && __vis('dst-lut-identnote'), (dstLut && dstLut.src));
+    // v2.7.3：DG LUT 卡在流程跑完前是收起來的 ⇒ 看狀態（class），不看是否在畫面上
+    __ok('C2 linear table sent to DG, note set (card folded until the flow is done)', dstLut && dstLut.src === 'ident' && !__cls('dst-lut-identnote', 'dst-hidden')
+      && __cls('dst-lut-card', 'dst-fold'), (dstLut && dstLut.src));
     __clickSw('on'); await __wait(2500);
     __ok('C3 switch on in T-CON row -> rec row back (same state)', dstDg.state === 'on' && __vis('dst-dg-rec') && __vis('dst-dg-warn'));
   } catch (e) { window.__errs.push('test threw: ' + (e && e.stack || e)); }
