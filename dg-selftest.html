@@ -13,8 +13,9 @@
 <meta property="og:type" content="website">
 <title>TCON 自檢畫面量測 — TCON FAE專用工具箱</title>
 <link rel="stylesheet" href="common/common.css?v=20260903help">
+<link rel="stylesheet" href="common/done-step.css?v=20261001dst275">
 <!-- 🔴 version.js 必須最先載入（common/version.js 開頭那條規則）。 -->
-<script src="common/version.js?v=20261001dst274"></script>
+<script src="common/version.js?v=20261001dst275"></script>
 <style>
   /* ═══ 本頁專屬樣式 ════════════════════════════════════════════════════════
      只寫這一頁真的需要、而 common.css 沒有的東西。顏色一律走 common.css 的
@@ -509,18 +510,10 @@
   /* ═══ v2.7.3：只看當下這一步（Bruce 2026-10-01 核准，只在從 DG 開啟時＝#dst-steps-card.dst-focus）═══
      · 現在這一步的框完整展開（.dst-fs-cur）；④ 當下再加醒目框（.dst-fs-hot）
      · 還沒到的框整個不顯示（.dst-fs-future，連標題都沒有）
-     · 做完的框縮成一行淡灰「✓ 步驟名稱」（.dst-fs-done），點一下展開回看（.dst-fs-peek）
+     · 做完的框縮成一行淡灰「✓ 步驟名稱」（v2.7.5 起共用 common/done-step.css 的 .tc-step-done），點一下展開回看（.tc-step-peek）
      · 資料卡（DG LUT／量測／紀錄）流程跑完前收起（.dst-fold），點標題隨時可開 */
   #dst-steps-card.dst-focus .dst-box.dst-fs-future { display: none; }
-  .dst-fs-line { display: none; width: 100%; text-align: left; background: none; border: 0; padding: 2px 0;
-    font: inherit; font-size: 13px; color: var(--text-sub); opacity: .6; cursor: pointer; }
-  .dst-fs-line:hover { opacity: .9; }
-  #dst-steps-card.dst-focus .dst-box.dst-fs-done,
-  #dst-steps-card.dst-focus .dst-box.dst-fs-peek { background: transparent; border-color: transparent; padding-top: 2px; padding-bottom: 2px; }
-  #dst-steps-card.dst-focus .dst-box.dst-fs-done > .dst-fs-line,
-  #dst-steps-card.dst-focus .dst-box.dst-fs-peek > .dst-fs-line { display: block; }
-  #dst-steps-card.dst-focus .dst-box.dst-fs-done > :not(.dst-fs-line) { display: none !important; }
-  #dst-steps-card.dst-focus .dst-box.dst-fs-peek > :not(.dst-fs-line) { opacity: .7; }
+  /* v2.7.5：「做完縮成 ✓ 一行」的樣式搬到 common/done-step.css（DG 兩個分頁共用同一份，數值一個都沒改）。 */
   #dst-steps-card.dst-focus .dst-box.dst-fs-hot { border: 2px solid var(--primary); box-shadow: 0 0 0 3px rgba(37, 99, 235, .22); }
   #dst-steps-card.dst-focus .dst-fs-off { display: none !important; }
   .card.dst-foldable > .card-header { cursor: pointer; user-select: none; }
@@ -1449,6 +1442,7 @@
 <!-- v2.6.0：「匯出 Excel」—— 與 DG 第 3 部分「下載新產出 RGB LUT 檔」同一個格式表與同一個產生器 -->
 <script src="common/xlsx.js?v=20260930dst260"></script>
 <script src="common/dglut-fmt.js?v=20260930dst260"></script>
+<script src="common/done-step.js?v=20261001dst275"></script>
 <script>
 /* ═════════════════════════════════════════════════════════════════════════
    TCON 自檢畫面量測 — dg-selftest.html
@@ -7230,7 +7224,6 @@ async function dstPgAutoReconnect() {
       第 2 輪以後 ① 由既有的自動流程（自動開 DG_EN ＋ ① 自動重取／接手核對過的表）完成 ⇒ 一打勾就縮成
       「✓ ①」，畫面直接停在 ②③。🔴 **不偽造打勾**：自動那一步還沒完成時 ① 仍是當下（打勾＝真的送到 DG）。
    🔴 做完的那一行是 <button>（鍵盤可按），點一下展開回看、再點收回；每份工作重新開始（dstClearRound 清）。 */
-var dstFsPeek = {};
 var DST_FOLD_CARDS = { lut: 'dst-lut-card', meas: 'dst-meas-card', log: 'dst-log-card' };
 var dstFold = { lut: null, meas: null, log: null };   // null ＝ 自動（流程跑完才開）；true／false ＝ 他自己點的
 function dstFlowDone() {
@@ -7254,23 +7247,15 @@ function dstRenderFocus() {
   [
     { key: 'lut',  box: $('dst-box-lut'),  name: dstT('dst.stepLut'), done: dstStepIsDone('lut') },
     { key: 'g23',  box: $('dst-group23'),  name: gt ? String(gt.textContent || '') : '', done: dstStepIsDone('gray') && dstStepIsDone('prim') },
-    { key: 'back', box: $('dst-box-back'), name: dstT('dst.stepBack'), done: dstBackSent() }
+    { key: 'back', box: $('dst-box-back'), name: dstT('dst.stepBack'), done: dstStepIsDone('back') }
   ].forEach(function (it) {
     var b = it.box; if (!b) return;
-    var ln = b.querySelector(':scope > .dst-fs-line');
-    if (!ln) {
-      ln = document.createElement('button');
-      ln.type = 'button'; ln.className = 'dst-fs-line'; ln.id = 'dst-fs-line-' + it.key;
-      ln.addEventListener('click', function () { dstFsPeek[it.key] = !dstFsPeek[it.key]; dstRenderFocus(); });
-      b.insertBefore(ln, b.firstChild);
-    }
     var isCur = on && it.key === cur;
     var isDone = on && !isCur && it.done;
-    var peek = isDone && !!dstFsPeek[it.key];
-    ln.textContent = (peek ? '▾ ' : '✓ ') + it.name;
+    /* v2.7.5：「做完縮成 ✓ 一行、點開回看」交給共用的 TCONDoneStep（common/done-step.js），外觀與行為不變。 */
+    TCONDoneStep.set(b, { key: 'dst-' + it.key, done: isDone, name: it.name, lineId: 'dst-fs-line-' + it.key,
+                          onToggle: function () { dstRenderFocus(); } });
     b.classList.toggle('dst-fs-cur', isCur);
-    b.classList.toggle('dst-fs-done', isDone && !peek);
-    b.classList.toggle('dst-fs-peek', peek);
     b.classList.toggle('dst-fs-future', on && !isCur && !it.done);
     b.classList.toggle('dst-fs-hot', isCur && it.key === 'back');
   });
@@ -8067,7 +8052,7 @@ function dstClearRound(n, roundChanged) {
   /* v2.7.0：決策框「捲進畫面一次」與「不加入」都是這一份工作的狀態，跟著清。 */
   dstDecShown = false; dstCmpDeclined = false; dstCmpRowGo = false;
   /* v2.7.3：新的一份工作 ⇒ 做完的步驟回到收起、資料卡回到「流程跑完才開」。 */
-  dstFsPeek = {}; dstFold = { lut: null, meas: null, log: null };
+  TCONDoneStep.reset(); dstFold = { lut: null, meas: null, log: null };
   dstSay('dst-say-dec', '');
   /* 🔴 v1.18.0（C）：「維持現狀」是**這一份工作**的例外，不跟著跨到下一份
      （與 `dstSeqUnlock` 同一個生命週期，所以清在同一處）。第 2 輪的警告本來就
