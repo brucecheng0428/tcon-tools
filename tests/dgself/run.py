@@ -106,6 +106,14 @@ SCENARIOS = [
     ('T-MISS',    'T_tone_calc.js',           '',                     False, {'__tCase': 'MISS'},        False, 'dg.html'),
     ('T-EN',      'T_tone_calc.js',           '',                     False, {'__tCase': 'EN'},          False, 'dg.html'),
     ('T-CN',      'T_tone_calc.js',           '',                     False, {'__tCase': 'CN'},          False, 'dg.html'),
+    # v2.7.4：整頁照步驟依序出現
+    ('P-SEQ',     'P_page_stages.js',         '?round=1&job=main',    True,  {'__pCase': 'SEQ'},         False),
+    ('P-DROPLN',  'P_page_stages.js',         '?round=1&job=main',    True,  {'__pCase': 'DROPLN'},      False),
+    ('P-DROPCA',  'P_page_stages.js',         '?round=1&job=main',    True,  {'__pCase': 'DROPCA'},      False),
+    ('P-RELOAD',  'P_page_stages.js',         '?round=1&job=main',    True,  {'__pCase': 'RELOAD'},      False),
+    ('P-R2',      'P_page_stages.js',         '?round=2&job=main',    True,  {'__pCase': 'R2'},          False),
+    ('P-EN',      'P_page_stages.js',         '?round=1&job=main',    True,  {'__pCase': 'EN'},          False),
+    ('P-NODG',    'P_page_stages.js',         '',                     False, {'__pCase': 'NODG'},        False),
     # dg v2.4.0：一輪結束並列「查看目前結果／進行第 N+1 輪」，第 2 輪起不再問「要不要確認」
     ('R-PC',      'R_round_decide.js',        '',                     False, {'__rCase': 'PC'},          False, 'dg.html'),
     ('R-TCON',    'R_round_decide.js',        '',                     False, {'__rCase': 'TCON'},        False, 'dg.html'),

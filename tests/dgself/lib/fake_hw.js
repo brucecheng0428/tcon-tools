@@ -66,6 +66,9 @@ async function __arm() {
     return 'OK00';
   };
   await dstReadDgEn();
+  /* v2.7.4：整頁依序出現 —— __arm() 代表「硬體都好了、也對位過」，既有情境從步驟卡開始測。
+     要測各階段的情境（P_page_stages.js）自己把它設回 false。 */
+  if (typeof dstAlignDone !== 'undefined') dstAlignDone = true;
   dstRenderBtns(); dstRenderSteps();
 }
 function __clickSw(which) { document.getElementById(which === 'on' ? 'dst-dgsw-on' : 'dst-dgsw-off').click(); }

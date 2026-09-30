@@ -17,6 +17,8 @@
       return [n, who.join(',')]; }
     __ok('L0 from DG, before send: no cta', dstDgAlive() && !bw.classList.contains('dst-back-cta'));
     window.scrollTo(0, 0);
+    /* v2.7.4：這個情境不接硬體，直接把步驟設成做完 ⇒ 整頁依序出現要先走到「步驟卡」那一階（否則步驟卡不出現）。 */
+    dstAlignDone = true; dstPgMax = 3;
     dstStepDone.gray = true; dstStepDone.prim = true; dstStepDone.lut = true;
     dstRenderSteps();
     var cs = getComputedStyle(bw);
