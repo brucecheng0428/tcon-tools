@@ -122,6 +122,7 @@ SCENARIOS = [
     ('Q-WMODE',   'Q_done_steps.js',          '',                     False, {'__qCase': 'WMODE'},       False, 'dg.html'),
     ('Q-FLOW',    'Q_done_steps.js',          '',                     False, {'__qCase': 'FLOW'},        False, 'dg.html'),
     ('Q-UNLOCK',  'Q_done_steps.js',          '',                     False, {'__qCase': 'UNLOCK'},      False, 'dg.html'),
+    ('Q-AUTO',    'Q_done_steps.js',          '',                     False, {'__qCase': 'AUTO'},        False, 'dg.html'),
     # dg v2.4.0：一輪結束並列「查看目前結果／進行第 N+1 輪」，第 2 輪起不再問「要不要確認」
     ('R-PC',      'R_round_decide.js',        '',                     False, {'__rCase': 'PC'},          False, 'dg.html'),
     ('R-TCON',    'R_round_decide.js',        '',                     False, {'__rCase': 'TCON'},        False, 'dg.html'),
