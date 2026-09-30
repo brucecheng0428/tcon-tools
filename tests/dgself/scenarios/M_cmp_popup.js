@@ -8,7 +8,9 @@
    FULL＝已滿 10 筆（第 2 輪確認結果）⇒ 警告、DG 回 ok:false ⇒ 顯示原因
    SAME＝逐值相同 ⇒ 提示只更新名稱、DG 回 updated
    EN／CN＝英文／簡中字面
-   NODG＝不是從 DG 開的 ⇒ 不送、不跳視窗 */
+   NODG＝不是從 DG 開的 ⇒ 不送、不跳視窗
+   v2.7.1：④ 不再有「加入光學資料比較…」鈕（每一輪都一樣）—— 加入後「已加入比較 ✓ · 查看比較」，
+          選「不加入」才留「加入比較」小連結；視窗的取消鈕改寫「不加入」。 */
 (async function () {
   try {
     var C = window.__cmpCase || 'A';
@@ -42,6 +44,7 @@
     var modal = document.getElementById('dst-modal-cmp');
     function open() { return modal.classList.contains('open'); }
     function tx(id) { return __txt(id) || ''; }
+    function btnGone() { return !__vis('dst-cmp-open'); }
     await __arm();
     __ok('M0 no modal before run', !open());
     await dstRun();
@@ -99,20 +102,32 @@
       __ok('M-EN title', tx('dst-cmp-title') === 'Add to "Optical data comparison"?', tx('dst-cmp-title'));
       __ok('M-EN this', tx('dst-cmp-this') === 'This set: Round 1 · Main measurement · DG_EN ON', tx('dst-cmp-this'));
       __ok('M-EN count', tx('dst-cmp-count') === '"Optical data comparison" has 2 set(s) now (max 10).', tx('dst-cmp-count'));
-      __ok('M-EN buttons', tx('dst-cmp-ok') === 'OK' && tx('dst-cmp-cancel') === 'Cancel');
+      __ok('M-EN buttons', tx('dst-cmp-ok') === 'OK' && tx('dst-cmp-cancel') === 'Don’t add', tx('dst-cmp-cancel'));
       __ok('M-EN list summary', tx('dst-cmp-list-sum') === 'Show the other 2');
+      document.getElementById('dst-cmp-cancel').click();
+      __ok('M-EN declined (round 1): no button, state + add link', btnGone()
+        && tx('dst-cmp-state') === 'This round was not added to the comparison.Add to comparison', tx('dst-cmp-state'));
+      document.getElementById('dst-cmp-addlink').click(); await __wait(150);
       document.getElementById('dst-cmp-ok').click(); await __wait(150);
       __ok('M-EN added', tx('dst-cmp-res') === 'Added. 3 set(s) now.', tx('dst-cmp-res'));
       __ok('M-EN count + list summary updated', tx('dst-cmp-count') === '"Optical data comparison" has 3 set(s) now (max 10).' && tx('dst-cmp-list-sum') === 'Show all 3', tx('dst-cmp-count') + '|' + tx('dst-cmp-list-sum'));
       document.getElementById('dst-cmp-ok').click();
-      __ok('M-EN re-add button', tx('dst-cmp-open') === 'Add to optical comparison…', tx('dst-cmp-open'));
+      __ok('M-EN added (round 1): no button, "Added ✓ · View comparison"', btnGone() && !document.getElementById('dst-cmp-addlink')
+        && tx('dst-cmp-state') === 'Added to the comparison ✓ ·View comparison', tx('dst-cmp-state'));
       __done(); return;
     }
     if (C === 'CN') {
       __ok('M-CN title', tx('dst-cmp-title') === '加入“光学数据比较”？', tx('dst-cmp-title'));
       __ok('M-CN this', tx('dst-cmp-this') === '这一笔：第 1 轮 · 主测量 · DG_EN ON', tx('dst-cmp-this'));
       __ok('M-CN count', tx('dst-cmp-count') === '“光学数据比较”目前已有 2 笔（上限 10）。', tx('dst-cmp-count'));
-      __ok('M-CN buttons', tx('dst-cmp-ok') === '确定' && tx('dst-cmp-cancel') === '取消');
+      __ok('M-CN buttons', tx('dst-cmp-ok') === '确定' && tx('dst-cmp-cancel') === '不加入', tx('dst-cmp-cancel'));
+      await __wait(150);
+      document.getElementById('dst-cmp-cancel').click();
+      __ok('M-CN declined (round 1): no button, state + add link', btnGone() && tx('dst-cmp-state') === '这一轮没有加入比较。加入比较', tx('dst-cmp-state'));
+      document.getElementById('dst-cmp-addlink').click(); await __wait(150);
+      document.getElementById('dst-cmp-ok').click(); await __wait(150);
+      document.getElementById('dst-cmp-ok').click();
+      __ok('M-CN added (round 1): no button, "已加入比较 ✓ · 查看比较"', btnGone() && tx('dst-cmp-state') === '已加入比较 ✓ ·查看比较', tx('dst-cmp-state'));
       __done(); return;
     }
 
@@ -146,17 +161,17 @@
     }
 
     __ok('M2 name prefilled with DG default', nm.value === '第一輪', nm.value);
-    __ok('M2 cancel visible', !__cls('dst-cmp-cancel', 'dst-hidden') && tx('dst-cmp-cancel') === '取消');
+    __ok('M2 cancel visible, says 不加入', !__cls('dst-cmp-cancel', 'dst-hidden') && tx('dst-cmp-cancel') === '不加入', tx('dst-cmp-cancel'));
 
     if (C === 'B') {
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
       __ok('M-B Esc closes', !open());
       __ok('M-B nothing added', !sent.some(function (m) { return m.type === 'dg-cmp-add'; }));
       __ok('M-B result still on page', !__cls('dst-res-wrap', 'dst-hidden') && document.getElementById('dst-res').children.length > 0);
-      __ok('M-B re-add row shown', !__cls('dst-cmp-row', 'dst-hidden') && tx('dst-cmp-open') === '加入光學資料比較…'
-        && tx('dst-cmp-state') === '這一輪還沒加入「光學資料比較」。', tx('dst-cmp-state'));
+      __ok('M-B declined (round 1): row shows state + small add link, no button', !__cls('dst-cmp-row', 'dst-hidden') && btnGone()
+        && tx('dst-cmp-state') === '這一輪沒有加入比較。加入比較' && document.getElementById('dst-cmp-addlink').className === 'dst-link', tx('dst-cmp-state'));
       var nq = sent.filter(function (m) { return m.type === 'dg-cmp-query'; }).length;
-      document.getElementById('dst-cmp-open').click();
+      document.getElementById('dst-cmp-addlink').click();
       __ok('M-B reopen asks DG again', open() && sent.filter(function (m) { return m.type === 'dg-cmp-query'; }).length === nq + 1);
       await __wait(150);
       nm.value = '  我的第一輪 '; nm.dispatchEvent(new Event('input'));
@@ -169,7 +184,8 @@
         && ol.children.length === 3 && ol.children[2].textContent.indexOf('我的第一輪 · ') === 0 && tx('dst-cmp-list-sum') === '看全部 3 筆',
         tx('dst-cmp-count') + '|' + ol.children.length + '|' + tx('dst-cmp-list-sum'));
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-      __ok('M-B row says added', tx('dst-cmp-state') === '已加入第 3 筆（我的第一輪）。', tx('dst-cmp-state'));
+      __ok('M-B row says added, no button, no add link', btnGone() && !document.getElementById('dst-cmp-addlink')
+        && tx('dst-cmp-state') === '已加入比較 ✓ ·查看比較', tx('dst-cmp-state'));
       __done(); return;
     }
 
@@ -190,7 +206,8 @@
     __ok('M3 closed', !open());
     var bl2 = blues();
     __ok('M3 page primary restored after close', bl2.length >= 1 && bl2.indexOf('dst-cmp-ok') < 0 && !document.body.classList.contains('dst-cmp-on'), bl2.join(','));
-    __ok('M3 row says added', tx('dst-cmp-state') === '已加入第 3 筆（第一輪）。', tx('dst-cmp-state'));
+    __ok('M3 added in the popup (round 1) ⇒ no re-add button, "已加入比較 ✓ · 查看比較"', btnGone() && !document.getElementById('dst-cmp-addlink')
+      && tx('dst-cmp-state') === '已加入比較 ✓ ·查看比較' && __vis('dst-cmp-viewlink'), tx('dst-cmp-state'));
     __ok('M3 CTA (sent back to DG) still there', document.getElementById('dst-back-warn').classList.contains('dst-back-cta'));
     __checkVersion('M-A');
   } catch (e) { window.__errs.push('scenario: ' + (e && e.stack || e)); }

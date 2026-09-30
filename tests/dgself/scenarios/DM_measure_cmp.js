@@ -1,11 +1,14 @@
 /* DM：dg v2.2.0 電腦畫面量測頁（dg-measure.html）量完 ⇒ 跳「加入光學資料比較」視窗。
    注入在 dg-measure.html 的 IIFE 裡：假序列埠（cmd／dgmSerialOn／closePort）、畫面與等待一律立即完成，
    真的跑一輪 run()（256 階 ＋ 三個純色），走產品的送出路徑。假 DG 同 M 情境（換掉 opener.postMessage）。
-   A ＝正常加入；C ＝DG 不回；EN ＝英文字面（語言取 localStorage tcon-lang）；PRIM ＝純色模式不跳視窗。 */
+   A ＝正常加入；C ＝DG 不回；EN／CN ＝英文／簡中字面（語言取 localStorage tcon-lang）；PRIM ＝純色模式不跳視窗。
+   dg v2.4.1：底部不再有「加入光學資料比較…」鈕 —— 加入後「已加入比較 ✓ · 查看比較」，選「不加入」才留「加入比較」小連結。 */
 (async function () {
   try {
     var C = window.__cmpCase || 'A';
     if (C === 'EN') { try { localStorage.setItem('tcon-lang', 'en'); } catch (e) {} }
+    if (C === 'CN') { try { localStorage.setItem('tcon-lang', 'zh-CN'); } catch (e) {} }
+    function btnGone() { return getComputedStyle(document.getElementById('dgm-cmp-open')).display === 'none'; }
     await __wait(300);
     var sent = [], dg = { count: 4, reply: (C !== 'C') };
     window.opener.postMessage = function (m) {
@@ -81,24 +84,43 @@
       __ok('DM-C Esc closes', !open());
       __done(); return;
     }
-    if (C === 'EN') {
-      __ok('DM-EN title', tx('dgm-cmp-title') === 'Add to "Optical data comparison"?', tx('dgm-cmp-title'));
-      __ok('DM-EN this', tx('dgm-cmp-this') === 'This set: Round 3 · Main measurement · PC screen', tx('dgm-cmp-this'));
-      __ok('DM-EN count', tx('dgm-cmp-count') === '"Optical data comparison" has 4 set(s) now (max 10).', tx('dgm-cmp-count'));
-      __ok('DM-EN buttons', tx('dgm-cmp-ok') === 'OK' && tx('dgm-cmp-cancel') === 'Cancel');
+    if (C === 'EN' || C === 'CN') {
+      var en = (C === 'EN');
+      if (en) {
+        __ok('DM-EN title', tx('dgm-cmp-title') === 'Add to "Optical data comparison"?', tx('dgm-cmp-title'));
+        __ok('DM-EN this', tx('dgm-cmp-this') === 'This set: Round 3 · Main measurement · PC screen', tx('dgm-cmp-this'));
+        __ok('DM-EN count', tx('dgm-cmp-count') === '"Optical data comparison" has 4 set(s) now (max 10).', tx('dgm-cmp-count'));
+      }
+      __ok('DM-' + C + ' buttons', en ? (tx('dgm-cmp-ok') === 'OK' && tx('dgm-cmp-cancel') === 'Don’t add')
+                                      : (tx('dgm-cmp-ok') === '确定' && tx('dgm-cmp-cancel') === '不加入'), tx('dgm-cmp-ok') + '/' + tx('dgm-cmp-cancel'));
       document.getElementById('dgm-cmp-cancel').click();
-      __ok('DM-EN re-add button', tx('dgm-cmp-open') === 'Add to optical comparison…', tx('dgm-cmp-open'));
+      __ok('DM-' + C + ' declined: no button, state + add link', btnGone() && !!document.getElementById('dgm-cmp-addlink')
+        && tx('dgm-cmp-state') === (en ? 'This round was not added to the comparison.Add to comparison' : '这一轮没有加入比较。加入比较'), tx('dgm-cmp-state'));
+      document.getElementById('dgm-cmp-addlink').click(); await __wait(150);
+      document.getElementById('dgm-cmp-ok').click(); await __wait(150);
+      document.getElementById('dgm-cmp-ok').click();
+      __ok('DM-' + C + ' added: no button, "added ✓ · view"', btnGone() && !document.getElementById('dgm-cmp-addlink')
+        && tx('dgm-cmp-state') === (en ? 'Added to the comparison ✓ ·View comparison' : '已加入比较 ✓ ·查看比较'), tx('dgm-cmp-state'));
       __done(); return;
     }
     __ok('DM2 this line', tx('dgm-cmp-this') === '這一筆：第 3 輪 · 主量測 · 電腦畫面', tx('dgm-cmp-this'));
     __ok('DM2 count', tx('dgm-cmp-count') === '「光學資料比較」目前已有 4 筆（上限 10）。', tx('dgm-cmp-count'));
     __ok('DM2 list 4 items', document.getElementById('dgm-cmp-list-ol').children.length === 4);
     __ok('DM2 name prefilled', document.getElementById('dgm-cmp-name').value === '第三輪');
+    if (C === 'ADD') {   // 視窗裡直接按加入 ⇒ 底部從頭到尾不出現「加入光學資料比較…」鈕
+      document.getElementById('dgm-cmp-ok').click(); await __wait(150);
+      document.getElementById('dgm-cmp-ok').click();
+      __ok('DM-ADD added in the popup ⇒ no re-add button, "已加入比較 ✓ · 查看比較"', !open() && btnGone() && !document.getElementById('dgm-cmp-addlink')
+        && tx('dgm-cmp-state') === '已加入比較 ✓ ·查看比較', tx('dgm-cmp-state'));
+      __done(); return;
+    }
+    __ok('DM2 cancel says 不加入', tx('dgm-cmp-cancel') === '不加入', tx('dgm-cmp-cancel'));
     document.getElementById('dgm-cmp-cancel').click();
     __ok('DM3 cancel closes, nothing added', !open() && !sent.some(function (m) { return m.type === 'dg-cmp-add'; }));
-    __ok('DM3 re-add row visible', !document.getElementById('dgm-cmp-row').classList.contains('dgm-hidden')
-      && tx('dgm-cmp-state') === '這一輪還沒加入「光學資料比較」。', tx('dgm-cmp-state'));
-    document.getElementById('dgm-cmp-open').click();
+    __ok('DM3 declined: row shows state + small add link, no button', !document.getElementById('dgm-cmp-row').classList.contains('dgm-hidden')
+      && btnGone() && tx('dgm-cmp-state') === '這一輪沒有加入比較。加入比較'
+      && document.getElementById('dgm-cmp-addlink').className === 'dgm-link', tx('dgm-cmp-state'));
+    document.getElementById('dgm-cmp-addlink').click();
     await __wait(150);
     document.getElementById('dgm-cmp-ok').click();
     await __wait(150);
@@ -109,7 +131,8 @@
     __ok('DM4 count line + list updated to 5', tx('dgm-cmp-count') === '「光學資料比較」目前已有 5 筆（上限 10）。' && ol.children.length === 5
       && ol.children[4].textContent.indexOf('第三輪 · ') === 0 && tx('dgm-cmp-list-sum') === '看全部 5 筆', tx('dgm-cmp-count') + '|' + ol.children.length + '|' + tx('dgm-cmp-list-sum'));
     document.getElementById('dgm-cmp-ok').click();
-    __ok('DM4 closed + row says added', !open() && tx('dgm-cmp-state') === '已加入第 5 筆（第三輪）。', tx('dgm-cmp-state'));
+    __ok('DM4 closed + row: "已加入比較 ✓ · 查看比較", no button, no add link', !open() && btnGone() && !document.getElementById('dgm-cmp-addlink')
+      && tx('dgm-cmp-state') === '已加入比較 ✓ ·查看比較' && !!document.getElementById('dgm-cmp-viewlink'), tx('dgm-cmp-state'));
     __ok('DM4 page main button restored after close', !document.body.classList.contains('dgm-cmp-on')
       && (st.disabled || getComputedStyle(st).backgroundColor === GREEN), getComputedStyle(st).backgroundColor + ' dis=' + st.disabled);
     __ok('DM version = common/version.js dg (' + window.__expectDgVer + ')', TOOL_VERSIONS.dg === window.__expectDgVer, TOOL_VERSIONS.dg);
