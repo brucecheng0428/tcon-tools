@@ -38,7 +38,7 @@ python3 tests/dgself/run.py --list      # 列出情境與網址參數
 | I-on／I-idle／I-r1off／I-r1on | I_no_auto_write.js | 不該自動寫 DG_EN 的情況 |
 | J-conf／K | J_conf_auto_on.js | 「確認結果」(conf) 也自動開、不出現「關掉 DG_EN／維持現狀」；同輪 main→conf |
 | L-A／L-B／L-C／L-RM／L-EN | L_back_to_dg_cta.js | v2.3.0「已送回 DG」醒目提示：實心藍、↗、捲到可視、呼吸燈、標題輪替、離開／回來／點擊、reduced-motion、三語 |
-| M-A／B／C／FULL／SAME／EN／CN／NODG | M_cmp_popup.js | v2.4.0 量完跳「加入光學資料比較」：先送結果再問、筆數／清單／預設名、確定／Esc／重開／改名、DG 不回、已滿、逐值相同、三語、非 DG 開啟不跳（假 opener 回筆數） |
+| M-A／B／C／FULL／SAME／EN／CN／NODG | M_cmp_popup.js | v2.4.0 量完跳「加入光學資料比較」：先送結果再問、筆數／清單／預設名、確定／Esc／重開／改名、v2.4.1 確定後筆數與清單更新（含舊版 DG 備援）、確定為唯一實心主按鈕、DG 不回、已滿、逐值相同、三語、非 DG 開啟不跳（假 opener 回筆數） |
 | DM-A／C／EN／PRIM | DM_measure_cmp.js | dg-measure.html 同一個視窗（假序列埠跑完整一輪 `run()`） |
 | DG／DG-NR | DG_cmp_handler.js | dg.html：帶 cmpAsk 的結果不自動加、查詢／加入／更新／滿載／備援建組、舊版量測頁照舊自動加；確認結果取消後進下一輪不補記 |
 

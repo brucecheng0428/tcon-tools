@@ -17,7 +17,7 @@
      🔴 版號一律從 common/version.js 讀（TOOL_VERSIONS.dg），不在這裡硬編字串 ——
         硬編就是第二個來源，遲早跟 dg.html 各講各的，正好是本次要修的那個病。
      🔴 本頁其餘部分仍是自給自足的單檔（不載 i18n/common.js），只多這一個相依。 -->
-<script src="common/version.js?v=20260930dg220"></script>
+<script src="common/version.js?v=20260930dg221"></script>
 <style>
   /* ═══════════════════════════════════════════════════════════════════════
      即時量測分頁（DG 第 2 部分的第二個輸入管道）
@@ -584,8 +584,15 @@
     font-size: calc(13.5 * var(--dgm-cu));
     border: 1.5px solid #334155; background: #0f172a; color: #cbd5e1;
   }
-  #dgm-cmp-ok { background: #047857; border-color: #047857; color: #fff; }
+  /* v2.2.1：「確定」改成與自檢頁同一種實心主按鈕（DG 主色 #2563eb ＝ common.css --primary，
+     dg.html／dg-selftest.html 的「唯一實心藍」）。Bruce 2026-09-30：視窗開著時它就是當下唯一的
+     主動作 ⇒ 頁面上的「開始量測／重新量測」綠色實心讓位成線框（body.dgm-cmp-on，關視窗即還原）。 */
+  #dgm-cmp-ok { background: #2563eb; border-color: #2563eb; color: #fff; }
+  #dgm-cmp-ok:active { background: #3b82f6; }
   #dgm-cmp-ok:disabled { opacity: .6; cursor: default; }
+  body.dgm-cmp-on #dgm-start:not(:disabled), body.dgm-cmp-on #dgm-fs:not(:disabled), body.dgm-cmp-on #dgm-link:not(:disabled) {
+    background: transparent; box-shadow: inset 0 0 0 1.5px #334155; color: #cbd5e1;
+  }
   .dgm-cmp-act button.dgm-hidden { display: none; }
   /* 量完之後的「加入光學資料比較…」：放在底部說明區（它本身 pointer-events:none，這一列要打開） */
   #dgm-cmp-row { pointer-events: auto; display: flex; align-items: center; gap: calc(10 * var(--dgm-cu));
@@ -3886,6 +3893,7 @@
     asking:  { 'zh-TW': '正在向 DG 查詢目前的筆數…', 'en': 'Asking DG how many sets it has…', 'zh-CN': '正在向 DG 查询目前的笔数…' },
     unknown: { 'zh-TW': '無法取得目前的筆數，按「確定」仍會送出。', 'en': 'Could not get the current count. "OK" will still send it.', 'zh-CN': '无法取得目前的笔数，按“确定”仍会送出。' },
     listSum: { 'zh-TW': '看其他 {n} 筆', 'en': 'Show the other {n}', 'zh-CN': '看其他 {n} 笔' },
+    listAll: { 'zh-TW': '看全部 {n} 筆', 'en': 'Show all {n}', 'zh-CN': '看全部 {n} 笔' },
     same:    { 'zh-TW': '這一份與第 {no} 筆（{name}）逐值相同，按「確定」只會更新名稱。', 'en': 'This is identical to set {no} ({name}); "OK" only updates its name.', 'zh-CN': '这一份与第 {no} 笔（{name}）逐值相同，按“确定”只会更新名称。' },
     full:    { 'zh-TW': '已滿 {max} 筆，按「確定」也加不進去；請先到 DG 的「光學資料比較」刪掉一筆。', 'en': 'Already {max} sets, so "OK" cannot add it. Delete one in DG\'s "Optical data comparison" first.', 'zh-CN': '已满 {max} 笔，按“确定”也加不进去；请先到 DG 的“光学数据比较”删掉一笔。' },
     name:    { 'zh-TW': '名稱（可以改）', 'en': 'Name (editable)', 'zh-CN': '名称（可以改）' },
@@ -3934,7 +3942,7 @@
       : I ? dgmCT('count', { n: I.count, max: I.max }) : dgmCT('unknown');
     var list = (I && I.list) || [];
     $('dgm-cmp-list').classList.toggle('dgm-hidden', !list.length);
-    $('dgm-cmp-list-sum').textContent = dgmCT('listSum', { n: list.length });
+    $('dgm-cmp-list-sum').textContent = dgmCT(dgmCmpPhase === 'done' && dgmCmpSaved ? 'listAll' : 'listSum', { n: list.length });
     var ol = $('dgm-cmp-list-ol');
     ol.innerHTML = '';
     list.forEach(function (it) {
@@ -3976,12 +3984,14 @@
     if (!dgmCmpPost({ type: 'dg-cmp-query', task: dgmCmpLast.task })) dgmCmpPhase = 'ready';
     else dgmCmpT = setTimeout(function () { if (dgmCmpPhase === 'ask') { dgmCmpPhase = 'ready'; dgmCmpRender(); } }, 1500);
     $('dgm-cmp-modal').classList.add('on');
+    document.body.classList.add('dgm-cmp-on');
     dgmCmpRender();
     try { $('dgm-cmp-ok').focus(); } catch (e) {}
   }
   function dgmCmpClose() {
     clearTimeout(dgmCmpT);
     $('dgm-cmp-modal').classList.remove('on');
+    document.body.classList.remove('dgm-cmp-on');
     dgmCmpPhase = 'idle';
     dgmCmpRowRender();
   }
@@ -4011,9 +4021,28 @@
     }, 2000);
     dgmCmpRender();
   }
+  /* v2.2.1：加入之後上方「已有幾筆」與清單換成最新狀態（與自檢頁 dstCmpApplyAdded 同一套）。
+     DG v2.2.1 起回覆帶 list／max；舊版 DG 沒帶 ⇒ 在原清單上補這一筆／改名。 */
+  function dgmCmpApplyAdded(d) {
+    var had = !!dgmCmpInfo;
+    var I = dgmCmpInfo || { count: 0, max: 10, list: [], round: null, job: null, same: null, full: false };
+    if (typeof d.count === 'number') I.count = d.count;
+    if (typeof d.max === 'number') I.max = d.max;
+    if (Array.isArray(d.list)) I.list = d.list;
+    else if (d.ok && had) {
+      var L = (I.list || []).slice(), k = -1;
+      L.forEach(function (it, i) { if (it && it.no === d.no) k = i; });
+      if (k >= 0) L[k] = { no: d.no, name: String(d.name || ''), t: L[k].t };
+      else L.push({ no: d.no, name: String(d.name || ''), t: Date.now() });
+      I.list = L;
+    }
+    if (d.ok) { I.same = null; I.full = false; }
+    if (had || Array.isArray(d.list) || typeof d.count === 'number') dgmCmpInfo = I;
+  }
   function dgmCmpOnAdded(d) {
     if (!dgmCmpLast || d.task !== dgmCmpLast.task || dgmCmpPhase !== 'send') return;
     clearTimeout(dgmCmpT);
+    dgmCmpApplyAdded(d);
     if (d.ok) {
       dgmCmpSaved = { no: d.no, name: String(d.name || '') };
       dgmCmpRes = { cls: 'ok', text: d.updated
