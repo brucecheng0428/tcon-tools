@@ -46,6 +46,8 @@ python3 tests/dgself/run.py --list      # 列出情境與網址參數
 | DGV | DGV_cmp_view.js | dg.html：（v2.3.1 起加：storage 事件漏掉時切回分頁會重讀、存檔沒變不重畫）加入後立刻寫自動保存（回覆 stored）；`?view=cmp` 唯讀檢視只剩比較分頁、改資料的鈕藏起來、不寫存檔、不收訊息、storage 事件即時更新（含 iframe 裡另一份 DG 真的寫入）、讀不到存檔時提示切回 DG |
 | X-ON／OFF／NR／ALT／EN | X_lut_export.js | v2.6.0「DG LUT（RGB）檢視」的「匯出 Excel」：有表才可按、線框次要鈕；DG_EN ON 直接下載，OFF（等距表）先問「目前是等間距 LUT（DG_EN OFF），確定要匯出？」、取消不下載；檔名 `DG_LUT_<IC>_<YYYYMMDD>_<HHMM>_R<輪>.xlsx`（不知道輪次就不寫 _R）；解開 xlsx 逐列比對卡上的表（工作表 DG_12bit、B1:D1 合併、259 列含末筆）；撞號選到沒有確認格式的 IC ⇒ 不匯出並講明；三語 |
 | S-AUTO／BAD／EXPORT／NEXT／DECL／R1／EN／CN | S_round2_flow.js | v2.7.0 第 2 輪以後流程精簡：DG 寫 LUT 時留下送來的表；換一份工作後卡片**不按鈕自動讀回**、逐筆比對相符（「讀取 DG LUT」收起、只剩匯出）；T-CON 的表差一個值 ⇒ 紅字警告（第幾筆／送出／讀回／共幾處）、卡上與決策框的匯出都灰、硬按也不下載；量完關掉視窗 ⇒ 決策框在結果正下方、捲進畫面、「滿意 → 匯出」是全頁唯一實心、按了下載 `_R2.xlsx`；「不滿意 → 回 DG」叫 opener.focus()、沒切過去就講明；視窗選「不加入」⇒ ④ 只剩狀態＋「加入比較」小連結（重開視窗）、加入後「已加入比較 ✓ · 查看比較」開 `dg.html?view=cmp`；第 1 輪完全不變；三語。🔴 假 I2C 是平的 byte 表，寫入（打包排法）讀回（記憶體排法）不會相符，所以比對參考表用「假 T-CON 裡的那張」當 fixture（見檔頭） |
+| S-C1／C1AUTO／NOSYNC | S_round2_flow.js | v2.7.2：條件改成「確認量測」（`dstIsConf`：job＝conf 或第 2 輪以後）。C1＝Bruce 實測的 DG 第 1 輪 → 寫入 → 自檢量測（round=1、job=conf）⇒ 決策框、匯出 `_R1`、通知 DG；C1AUTO＝第 1 輪基準 → 寫入 → 第 1 輪確認量測 ⇒ 卡片自動讀回並比對；NOSYNC＝DG 不回 ⇒ 照常匯出＋「DG 分頁未同步」。其餘 S 情境也驗「匯出後通知 DG、DG 回覆後顯示已通知」 |
+| Y-OK／NOP4 | Y_conf_satisfied.js | dg v2.4.2：dg.html 收到 `dg-conf-satisfied` ⇒ 停在「查看目前結果」、「自檢頁已確認滿意（第一輪）」、「進行第二輪」照樣在、回 ack；沒有確認量測 ⇒ ok:false |
 | R-PC／R-TCON／R-NOMODE（＋R-SHOT-DECIDE／VIEW／NEXT 截圖用） | R_round_decide.js | dg v2.4.0：dg.html 第 4 部分一輪結束並列「查看目前結果」（框裡唯一實心、④ 讓位成線框）與「進行第 N+1 輪」；查看只導覽（輪數、第 1～4 部分、比較清單不動）、捲到結果卡並出現「停在第 N 輪」、按兩次無害、換一份確認量測就收掉、之後仍能進下一輪；第 1 輪算完照舊問「要不要確認」，第 2 輪起直接到下一層（電腦＝path、自檢＝push、未選模式＝wpick），不再出現「先不確認」 |
 
 ## 新增情境
