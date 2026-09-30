@@ -14,7 +14,7 @@
 <title>TCON 自檢畫面量測 — TCON FAE專用工具箱</title>
 <link rel="stylesheet" href="common/common.css?v=20260903help">
 <!-- 🔴 version.js 必須最先載入（common/version.js 開頭那條規則）。 -->
-<script src="common/version.js?v=20260930dst251"></script>
+<script src="common/version.js?v=20260930dst260"></script>
 <style>
   /* ═══ 本頁專屬樣式 ════════════════════════════════════════════════════════
      只寫這一頁真的需要、而 common.css 沒有的東西。顏色一律走 common.css 的
@@ -481,6 +481,14 @@
   body.dst-cmp-on .dst-btn.dst-main:not(#dst-cmp-ok), body.dst-cmp-on .dst-toggle.dst-main {
     background: transparent; border-color: var(--border); color: var(--text);
   }
+  /* v2.6.0：dstAsk(…, main=true) 開著時同一條規則 —— 視窗裡的主鈕（#dst-ask-yes.dst-main）是唯一實心。
+     只有「匯出 Excel」的 DG_EN OFF 提醒這樣開；其他既有問句不帶 main，外觀不變。 */
+  body.dst-ask-on .dst-btn.dst-main:not(#dst-ask-yes), body.dst-ask-on .dst-toggle.dst-main {
+    background: transparent; border-color: var(--border); color: var(--text);
+  }
+  body.dst-ask-on .dst-back-cta { background: transparent; border-color: var(--border); color: var(--text); animation: none; box-shadow: none; }
+  body.dst-ask-on .dst-back-cta .dst-cta-btn { background: transparent; color: var(--text); border: 1px solid var(--border); }
+  body.dst-ask-on .dst-back-cta .dst-cta-sub { color: var(--text-sub); }
   body.dst-cmp-on .dst-back-cta { background: transparent; border-color: var(--border); color: var(--text); animation: none; box-shadow: none; }
   body.dst-cmp-on .dst-back-cta .dst-cta-btn { background: transparent; color: var(--text); border: 1px solid var(--border); }
   body.dst-cmp-on .dst-back-cta .dst-cta-sub { color: var(--text-sub); }
@@ -1196,6 +1204,11 @@
 
       <div class="dst-row" style="margin-top:8px">
         <button class="dst-btn pri" id="dst-lut-read" data-i18n="dst.btnLutRead">讀取 DG LUT</button>
+        <!-- 🔴 v2.6.0：匯出 Excel（Bruce 2026-09-30）—— 把這張卡上「目前生效的 LUT」存成 TCON UI
+             能匯入的 RGB LUT 檔。格式不是這裡發明的：與 DG 第 3 部分「下載新產出 RGB LUT 檔（回
+             TCON 用）」同一個格式表（common/dglut-fmt.js）與同一個產生器（common/xlsx.js）。
+             線框次要鈕：這張卡的主動作仍是「讀取 DG LUT」。邏輯見 dstLutExport()。 -->
+        <button class="dst-btn" id="dst-lut-xlsx" data-i18n="dst.btnLutXlsx" disabled>匯出 Excel</button>
       </div>
 
       <div style="margin-top:8px">
@@ -1206,6 +1219,7 @@
       <!-- v2.1.0：DG_EN 關著時這張卡給的是等間距表、沒有讀 T-CON —— 一行小字講明（dstRenderLut）。 -->
       <div class="dst-note dst-hidden" id="dst-lut-identnote" data-i18n="dst.lutIdentNote">DG_EN 關閉，使用等間距 LUT，沒有讀取 T-CON。</div>
       <div class="dst-say" id="dst-say-lut"></div>
+      <div class="dst-say" id="dst-say-lutx"></div>
 
       <div id="dst-lut-body" class="dst-hidden">
         <div class="dst-lutchart" id="dst-lut-chart"></div>
@@ -1360,6 +1374,9 @@
 
 <script src="common/i18n.js?v=20260923dst1190"></script>
 <script src="common/common.js?v=20260923dst1190"></script>
+<!-- v2.6.0：「匯出 Excel」—— 與 DG 第 3 部分「下載新產出 RGB LUT 檔」同一個格式表與同一個產生器 -->
+<script src="common/xlsx.js?v=20260930dst260"></script>
+<script src="common/dglut-fmt.js?v=20260930dst260"></script>
 <script>
 /* ═════════════════════════════════════════════════════════════════════════
    TCON 自檢畫面量測 — dg-selftest.html
@@ -1955,6 +1972,19 @@ if (typeof I18N === 'object' && I18N) {
   I18N['dst.dgLutTooFew']  = { 'zh-TW': '只解出 {n} 筆（至少要 2 筆），沒有回傳。', 'en': 'Only {n} entries were decoded (at least 2 are needed); nothing was sent.', 'zh-CN': '只解出 {n} 笔（至少要 2 笔），没有回传。' };
   I18N['dst.copyOk']       = { 'zh-TW': '✔ {n} 筆已複製。到 DG 第 1 部分的表格點一下任一格再貼上。', 'en': '✔ {n} entries copied. Click any cell in DG part 1’s table and paste.', 'zh-CN': '✔ {n} 笔已复制。到 DG 第 1 部分的表格点一下任一格再贴上。' };
   I18N['dst.copyFail']     = { 'zh-TW': '瀏覽器拒絕了複製。', 'en': 'The browser refused the copy.', 'zh-CN': '浏览器拒绝了复制。' };
+
+  /* ═══ v2.6.0：DG LUT「匯出 Excel」（Bruce 2026-09-30）══════════════════════════════ */
+  I18N['dst.btnLutXlsx']   = { 'zh-TW': '匯出 Excel', 'en': 'Export Excel', 'zh-CN': '导出 Excel' };
+  I18N['dst.lutXAskTitle'] = { 'zh-TW': '匯出等間距 LUT？', 'en': 'Export the linear LUT?', 'zh-CN': '导出等间距 LUT？' };
+  I18N['dst.lutXAskBody']  = { 'zh-TW': '目前是等間距 LUT（DG_EN OFF），確定要匯出？', 'en': 'This is the linear LUT (DG_EN OFF). Export it anyway?', 'zh-CN': '目前是等间距 LUT（DG_EN OFF），确定要导出？' };
+  I18N['dst.lutXAskYes']   = { 'zh-TW': '匯出', 'en': 'Export', 'zh-CN': '导出' };
+  I18N['dst.lutXAskNo']    = { 'zh-TW': '取消', 'en': 'Cancel', 'zh-CN': '取消' };
+  I18N['dst.lutXOk']       = { 'zh-TW': '✔ 已匯出 {file}（{fmt}），可以在 TCON 的 UI 匯入。', 'en': '✔ Exported {file} ({fmt}); it can be imported in the TCON UI.', 'zh-CN': '✔ 已导出 {file}（{fmt}），可以在 TCON 的 UI 导入。' };
+  I18N['dst.lutXFmt']      = { 'zh-TW': '工作表「{sheet}」，主表 {n} 筆{tail}', 'en': 'sheet “{sheet}”, {n} main entries{tail}', 'zh-CN': '工作表「{sheet}」，主表 {n} 笔{tail}' };
+  I18N['dst.lutXTail']     = { 'zh-TW': '＋附加末筆', 'en': ' + tail entry', 'zh-CN': '＋附加末笔' };
+  I18N['dst.lutXNoFmt']    = { 'zh-TW': '沒有匯出：這一顆（{ic}）沒有確認過 TCON UI 能匯入的 RGB LUT 檔格式，不拿別顆的格式來猜。', 'en': 'Not exported: there is no verified TCON-UI RGB LUT file format for this chip ({ic}), and another chip’s format is not used as a guess.', 'zh-CN': '没有导出：这一颗（{ic}）没有确认过 TCON UI 能导入的 RGB LUT 档格式，不拿别颗的格式来猜。' };
+  I18N['dst.lutXNoDepth']  = { 'zh-TW': '沒有匯出：{ic} 的 RGB LUT 檔只有 {ok} bit，這張表是 {n} bit。', 'en': 'Not exported: {ic} RGB LUT files are {ok}-bit only, this table is {n}-bit.', 'zh-CN': '没有导出：{ic} 的 RGB LUT 档只有 {ok} bit，这张表是 {n} bit。' };
+  I18N['dst.lutXNoLib']    = { 'zh-TW': '沒有匯出：Excel 產生器沒有載入，請重新整理頁面。', 'en': 'Not exported: the Excel writer did not load. Reload the page.', 'zh-CN': '没有导出：Excel 产生器没有加载，请重新整理页面。' };
 
   /* ═══ v1.8.0：I2C Bridge 狀態碼對照表 ═══════════════════════════════════
      🔴 內容逐條對應 `tools/i2c-bridge/README.md` 的那張表，語意不改寫。
@@ -4905,7 +4935,7 @@ function dstFailAsk(step, total, p, res) {
    🔴 **重入防護**：上一個問句還開著就直接回 false —— 兩個問句疊在一起時使用者分不出
       自己在回答哪一個（DG 那一頁 v1.26.0 的「一個視窗解決一件事」同一條紀律）。 */
 var dstAskResolve = null;
-function dstAsk(titleKey, bodyKey, yesKey, noKey) {
+function dstAsk(titleKey, bodyKey, yesKey, noKey, main) {
   if (dstAskResolve) return Promise.resolve(false);
   var m = $('dst-modal-ask');
   if (!m) return Promise.resolve(true);      // DOM 被改壞時不要把流程卡死
@@ -4914,11 +4944,15 @@ function dstAsk(titleKey, bodyKey, yesKey, noKey) {
   var y = $('dst-ask-yes');   if (y) y.textContent = dstT(yesKey);
   var n = $('dst-ask-no');    if (n) n.textContent = dstT(noKey);
   m.classList.add('open');
+  /* v2.6.0：main ⇒ 主鈕實心、頁面其他實心讓位（見 body.dst-ask-on 那段 CSS）。不帶 ⇒ 與舊版逐字相同。 */
+  if (main) { if (y) y.classList.add('dst-main'); document.body.classList.add('dst-ask-on'); }
   dstLog('== asking: ' + titleKey, 'w');
   return new Promise(function (resolve) {
     dstAskResolve = function (ans) {
       dstAskResolve = null;
       m.classList.remove('open');
+      if (y) y.classList.remove('dst-main');
+      document.body.classList.remove('dst-ask-on');
       dstLog('== answer: ' + (ans ? 'yes' : 'no'), ans ? 'w' : 'o');
       resolve(!!ans);
     };
@@ -5492,6 +5526,8 @@ function dstLutErrText() {
 function dstRenderLut() {
   var body = $('dst-lut-body');
   var busy = dstLutBusy;
+  /* v2.6.0：表換了（讀取中／沒有表）⇒「已匯出」那一行講的是上一張表，收掉。 */
+  if (busy || !dstLut) dstSay('dst-say-lutx', '');
   /* ── 狀態列 ── */
   if (busy) dstShow('dst-lut-state', dstT('dst.lutBusy'), true);
   else if (dstLutErr) dstShow('dst-lut-state', dstT('dst.lutFailed'), false);
@@ -5545,6 +5581,93 @@ function dstRenderLut() {
     tb.innerHTML = '';
     for (var i = 0; i < n; i++) row(tb, i);
   }
+}
+
+/* ═══ 🔴 v2.6.0：DG LUT「匯出 Excel」（Bruce 2026-09-30）══════════════════════════
+   用途：調出一版滿意的 Gamma 後，直接從這張卡匯出，拿到 TCON 的 UI 匯入、另存成新版 TCON Code。
+   ── 格式：**沿用，不發明** ─────────────────────────────────────────────────────
+     交辦第 1 條「repo 裡有現成的就沿用同一個函式與同一種格式」。現成的就是 DG 第 3 部分
+     「下載新產出 RGB LUT 檔（回 TCON 用）」（dg.html `dgDownloadLutXlsx()`）：
+       · 格式表 DG_TCON／DG_TCON_STYLE ＋ `dgFmtFromTcon()` ＋ `dgLutRowsForFmt()`
+         ⇒ 本版搬到 `common/dglut-fmt.js`（TCONDgLutFmt），dg.html 改成別名，兩頁同一份。
+       · xlsx 產生器 `common/xlsx.js`（TCONXlsx）—— 交辦第 5 條要的「本機 vendor、不走 CDN」
+         專案裡已經有了（純 JS、零外部相依），所以沿用它，不另外引進 SheetJS。
+     格式的出處（各顆 TCON UI 工具內的 Excel 指令字串＋真檔）寫在 dg.html 那段長註解與
+     每一顆的 basis。
+   ── 哪一顆用哪一種 ─────────────────────────────────────────────────────────────
+     依 IC 名稱的前 4 碼對到 DG_TCON 的 key（E512A1 → E512、EM01A1 → EM01、EM02A1 → EM02）。
+     🔴 對不到（例如撞號下拉選了 VM01S1／V512S2）⇒ **停下來講明、不匯出**（交辦第 2 條：
+        無法確認就是 TCON UI 能匯入的格式時不要用猜的）—— 不拿同一條 DG LUT 讀取路徑的
+        那一顆的格式去套。
+   ── 內容：卡片上「目前生效的 LUT」（dstLut），逐值照抄 ─────────────────────────
+     · 主表 N 筆 ＝ `dstLutMainCount()`（與回傳 DG 同一支；257 ⇒ 256、1025 ⇒ 1024）。
+     · 附加末筆（index N）：格式有末筆時，`dgLutRowsForFmt()` 寫的是 2^深度 − 1；
+       🔴 這裡改寫成**卡上讀到的那一筆**（讀得到時）。匯出的是「目前生效的表」，
+          不是算出來的表 —— 讀回的末筆若不是滿值，照公式寫會讓匯回 TCON 時偷偷改掉它。
+          等距表（DG_EN OFF）的末筆本來就是 2^深度 − 1（dstLutIdentity），兩者相同。
+     · 深度 ＝ dstLut.depth（10／12）。該顆格式不支援這個深度 ⇒ 停下來講明、不匯出。
+   ── DG_EN OFF ⇒ 先問一句（交辦第 3 條）──────────────────────────────────────────
+     卡上是等距表（src 'ident'），或 DG_EN 目前讀到的是 OFF ⇒ dstAsk()（本頁既有的浮動視窗，
+     不是 window.confirm）：「目前是等間距 LUT（DG_EN OFF），確定要匯出？」取消 ⇒ 什麼都不做。
+   ── 檔名（交辦第 4 條）DG_LUT_<IC>_<YYYYMMDD>_<HHMM>_R<輪>.xlsx ────────────────────
+     時間用本機時間；輪次是 DG 帶來的 `round`（dstDgRound）。
+     🔴 不知道第幾輪（不是 DG 開的頁、或舊版 DG 沒帶）⇒ **不寫 _R 段**，不編一個輪次。 */
+function dstLutExportIc() {
+  var ic = dstIc;
+  if (!ic || !dstLut || ic.key !== dstLut.icKey) {
+    ic = null;
+    for (var i = 0; dstLut && i < DST_ICS.length; i++) if (DST_ICS[i].key === dstLut.icKey) ic = DST_ICS[i];
+    return ic ? ic.name : (dstLut ? String(dstLut.icKey) : '');
+  }
+  return (dstAltIdx >= 0 && ic.alts && ic.alts[dstAltIdx]) ? ic.alts[dstAltIdx].name : ic.name;
+}
+function dstLutExportName(icName, d) {
+  function p2(n) { return (n < 10 ? '0' : '') + n; }
+  d = d || new Date();
+  return 'DG_LUT_' + String(icName).replace(/[^0-9A-Za-z_-]/g, '') + '_'
+    + d.getFullYear() + p2(d.getMonth() + 1) + p2(d.getDate()) + '_' + p2(d.getHours()) + p2(d.getMinutes())
+    + (dstDgRound ? '_R' + dstDgRound : '') + '.xlsx';
+}
+/* 組出要寫的內容，不下載。回 { err } 或 { name, fmt, rows, bytes }。 */
+function dstLutExportBuild(when) {
+  if (!dstLut) return { err: '' };
+  if (typeof TCONDgLutFmt === 'undefined' || typeof TCONXlsx === 'undefined') return { err: dstT('dst.lutXNoLib') };
+  var icName = dstLutExportIc(), T = TCONDgLutFmt.TCON, key = null, k;
+  for (k in T) if (Object.prototype.hasOwnProperty.call(T, k) && String(icName).indexOf(k) === 0) key = k;
+  if (!key) return { err: dstT('dst.lutXNoFmt', { ic: icName }) };
+  var hw = dstLut.depth;
+  if (T[key].depths.indexOf(hw) < 0) return { err: dstT('dst.lutXNoDepth', { ic: icName, ok: T[key].depths.join('／'), n: hw }) };
+  var rgb = dstLut.rgb;
+  var n = Math.min(dstLutMainCount(dstLut.entries), rgb.r.length, rgb.g.length, rgb.b.length);
+  var fmt = TCONDgLutFmt.fmtFromTcon(key, hw, hw, n);
+  var body = [];
+  for (var i = 0; i < n; i++) body.push([rgb.r[i], rgb.g[i], rgb.b[i]]);
+  var rows = TCONDgLutFmt.lutRowsForFmt(fmt, body);
+  if (fmt.hasTail && rgb.r.length > n && rgb.g.length > n && rgb.b.length > n
+      && isFinite(rgb.r[n]) && isFinite(rgb.g[n]) && isFinite(rgb.b[n])) {
+    rows[rows.length - 1] = [n, rgb.r[n], rgb.g[n], rgb.b[n]];
+  }
+  var bytes = TCONXlsx.build([{ name: fmt.sheetName, rows: rows, merges: fmt.merges }]);
+  return { name: dstLutExportName(icName, when), fmt: fmt, rows: rows, bytes: bytes, key: key, ic: icName };
+}
+async function dstLutExport() {
+  if (!dstLut || dstLutBusy) return;
+  dstSay('dst-say-lutx', '');
+  if (dstLut.src === 'ident' || dstDg.state === 'off') {
+    if (!(await dstAsk('dst.lutXAskTitle', 'dst.lutXAskBody', 'dst.lutXAskYes', 'dst.lutXAskNo', true))) return;
+  }
+  var r = dstLutExportBuild();
+  if (r.err !== undefined) { if (r.err) dstSay('dst-say-lutx', r.err); dstLog('!  DG LUT export: ' + r.err, 'w'); return; }
+  var blob = new Blob([r.bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = r.name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+  var fmtTxt = dstT('dst.lutXFmt', { sheet: r.fmt.sheetName, n: r.fmt.entries, tail: r.fmt.hasTail ? dstT('dst.lutXTail') : '' });
+  dstSayInfo('dst-say-lutx', dstT('dst.lutXOk', { file: r.name, fmt: fmtTxt }));
+  dstLog('== DG LUT exported: ' + r.name + '  (' + r.key + ' / ' + r.fmt.hw + ' bit / sheet ' + r.fmt.sheetName
+    + ' / ' + r.rows.length + ' rows, src ' + dstLut.src + ')', 'o');
 }
 
 /* 撞號二選一：v1.4.0 起就是型號旁邊那一個下拉，沒有標題、沒有說明句
@@ -5771,6 +5894,9 @@ function dstRenderBtns() {
      「連著 ＋ 認得出 IC ＋ 這顆有 dgLut 設定」時可按。 */
   var lr = $('dst-lut-read');
   if (lr) lr.disabled = !(dstLinked && dstIc && dstIc.dgLut) || dstRunning || dstBusy || dstLutBusy;
+  /* v2.6.0：匯出 Excel —— 卡上有表才可按（不碰 I2C，所以不看 dstLinked／dstBusy）。 */
+  var lx = $('dst-lut-xlsx');
+  if (lx) lx.disabled = !dstLut || dstLutBusy || dstRunning;
   /* 🔴 v1.8.0：三步清單掛在這裡，不在連線／識別／掃描每一條路上各補一次。
      這一支本來就是本頁「狀態變了要重畫」的唯一匯流點（連線、識別、開始／結束掃描、
      dstGuard 的忙碌旗標全部會經過它）—— 列舉呼叫點漏一個的症狀是「連上了但清單
@@ -8218,6 +8344,8 @@ function dstBind() {
      DG_EN、重新識別都還按得動，同一條 I2C 會被插進別的寫入。dstGuard 現在也看
      dstLutBusy，所以「跟出圖那條路互相卡」變成正確的互斥，不是死鎖。 */
   $('dst-lut-read').addEventListener('click', function () { dstGuard(dstLutReadBtn); });
+  /* v2.6.0：匯出 Excel 只讀記憶體裡的 dstLut、不碰 I2C ⇒ 不走 dstGuard。 */
+  $('dst-lut-xlsx').addEventListener('click', function () { dstLutExport(); });
   /* v2.1.0：「外接硬體」開合時三組開關一起搬家（見 dstSwPlace）。 */
   $('dst-hw-more').addEventListener('toggle', function () { dstRenderDgSw(); dstRenderConnSw(); });
   $('dst-settle').addEventListener('change', dstRenderHw);   // v2.0.3：一行摘要裡有換階等待

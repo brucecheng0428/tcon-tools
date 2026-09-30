@@ -2,6 +2,39 @@
 
 ---
 
+## TCON 自檢畫面量測 (dgself) v2.6.0 — 2026-09-30 ｜ MINOR
+
+判定依據：VERSIONING.md §1「多了新能力，舊的操作都在原位 ⇒ MINOR」—— 「DG LUT（RGB）檢視」卡在「讀取 DG LUT」旁多一顆「匯出 Excel」；讀表、量測、回傳 DG 都沒動。量測數值與送出內容不變 ⇒ 不標 ⚠ 輸出變更。
+
+### 為什麼
+- Bruce 2026-09-30（經 Dispatch）：調出一版滿意的 Gamma 後，直接從這張卡匯出 .xlsx，到 TCON 的 UI 匯入、另存成新版 TCON Code。要求：① 先找 repo 裡現成的 RGB LUT xlsx 匯出，有就沿用同一個函式與格式；② 無法確認是 TCON UI 能匯入的格式就停下來回報、不要猜；③ 匯出卡上「目前生效的 LUT」，DG_EN OFF（等距表）先提醒「目前是等間距 LUT（DG_EN OFF），確定要匯出？」；④ 檔名帶型號、IC、日期時間、輪次；⑤ Excel 函式庫放本機、不走 CDN，專案已有就沿用。
+
+### 查證結果
+- 現成格式：dg.html 第 3 部分「下載新產出 RGB LUT 檔（回 TCON 用）」`dgDownloadLutXlsx()` → `DG_TCON`／`DG_TCON_STYLE` ＋ `dgFmtFromTcon()` ＋ `dgLutRowsForFmt()`。EM01／EM02／E512 三顆的出處是各自 TCON UI 工具內的 Excel 指令字串（EM02／E512 另有真檔佐證），寫在 dg.html 原處長註解與各顆 `basis`。自檢頁能讀 DG LUT 的正好是這三顆（E512A1／EM01A1／EM02A1）⇒ 格式有出處，沒有停下來要範例檔。
+- Excel 函式庫：專案已有本機 `common/xlsx.js`（純 JS、零外部相依，dg.html 在用）⇒ 沿用，沒有另外引進 SheetJS。
+
+### 改了什麼
+- 新 `common/dglut-fmt.js`（`TCONDgLutFmt`）：上述四個定義從 dg.html **逐字搬出**（只去一層縮排），兩頁共用同一份。
+- dg-selftest.html：
+  - 「匯出 Excel」（線框次要鈕）：卡上有表才可按。IC 名前 4 碼對格式表（E512A1→E512、EM01A1→EM01、EM02A1→EM02）；對不到（例如撞號選了 VM01S1／V512S2）或深度不在該顆格式內 ⇒ 不匯出並講明。
+  - 內容＝卡上的 `dstLut`：主表 `dstLutMainCount()` 筆（與回傳 DG 同一支），格式有附加末筆時寫**卡上讀到的那一筆**（`dgLutRowsForFmt()` 原本寫 2^深度−1；匯出的是目前生效的表，不是算出來的表，末筆若不是滿值照公式寫會在匯回時改掉它）。等距表的末筆本來就是 2^深度−1，兩者相同。
+  - 卡上是等距表或 DG_EN 讀到 OFF ⇒ 先用本頁既有的 `dstAsk()` 視窗問；取消不下載。`dstAsk` 多一個選用參數 `main`：帶 true 時視窗主鈕實心、頁面其他實心讓位（單一主動作規則）；其他既有問句不帶，外觀不變。
+  - 檔名 `DG_LUT_<IC>_<YYYYMMDD>_<HHMM>_R<輪>.xlsx`（本機時間；輪次取 DG 帶來的 `round`）。不知道第幾輪（非 DG 開啟、舊版 DG）⇒ 不寫 `_R` 段，不編一個輪次。自檢頁沒有面板型號可取，檔名只帶 IC 名。
+  - 匯出後卡上一行「✔ 已匯出 <檔名>（工作表、筆數），可以在 TCON 的 UI 匯入」；重新讀表時收掉。三語。
+- `<script src="common/xlsx.js">` 重新載入本頁（v1.13.0 移除「匯出 XLSX」時一併拿掉的那一支）。
+
+### 驗證（如實）
+- 新情境 `X-ON／X-OFF／X-NR／X-ALT／X-EN`：解開下載的 xlsx 逐列比對卡上的表與畫面表格（工作表 DG_12bit、B1:D1 合併、259 列含末筆 256）、DG_EN OFF 先問／取消不下載／視窗主鈕唯一實心、檔名與輪次、撞號選到沒有確認格式的 IC 不匯出、三語。`bash tests/dgself/run-all.sh`：43 個情境全過。
+- dg.html 搬移前後對照：舊版（HEAD）與新版各跑一次，六顆 TCON × 兩種深度 × 256／1024 筆共 18 種組合，`dgBuildLutXlsx()` 產出的 bytes 雜湊與格式說明全部相同。
+- 匯出檔用 LibreOffice 開啟確認可讀（截圖在回報）。
+- **沒驗**：TCON UI 實機匯入（格式依據是工具字串與真檔，同 DG 第 3 部分那顆鈕）；真機讀表後匯出。
+
+## Digital Gamma 迭代校正 (dg) v2.3.2 — 2026-09-30 ｜ PATCH
+
+判定依據：VERSIONING.md §2 案例 4「重構、行為不變 ⇒ PATCH」。RGB LUT 檔格式的四個定義搬到 `common/dglut-fmt.js`（與自檢頁共用），dg.html 改為同名別名；輸出逐位元不變 ⇒ 不標 ⚠ 輸出變更。
+
+- 對照與測試見上一條 dgself v2.6.0。dg-measure.html、index.html 只跟著 bump `version.js` 的 `?v=`。
+
 ## TCON 自檢畫面量測 (dgself) v2.5.1 — 2026-09-30 ｜ PATCH
 
 判定依據：VERSIONING.md §1 表第 2 列「改一個 bug ⇒ PATCH」。「查看光學資料比較 ↗」本來就要重用同一個比較分頁；v2.5.0／v2.3.0 開完切斷 opener，Safari 因此找不到它（每按一次多開一個），修回應有行為。dg.html 檢視頁切回前景時補一次重讀（storage 事件漏掉的保險），不改任何畫面與操作。量測數值與送出內容不變 ⇒ 不標 ⚠ 輸出變更。
