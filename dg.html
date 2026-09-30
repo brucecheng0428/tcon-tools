@@ -990,6 +990,10 @@
     var m = p.get('dgMode') || p.get('mode') || '';
     var h = (location.hash || '').replace('#', '');
     if (!m && (h === 'cmp' || h === 'dg-cmp')) m = 'cmp';
+    /* v2.3.0：?view=cmp ＝「光學資料比較」唯讀檢視（量測頁視窗的「查看光學資料比較 ↗」開的）。
+       第一次 paint 就只剩比較分頁，見 dgInit() 裡 DG_VIEW 那一段。 */
+    var v = p.get('view');
+    if (v === 'cmp' || v === 'compare') { m = 'cmp'; document.documentElement.setAttribute('data-dg-view', 'cmp'); }
     if (!m) m = sessionStorage.getItem('dg_active_mode') || '';
     /* v1.31.0：第三個分頁（conv）走**同一套**，只是換一個容器 id ——
        兩個分頁時是寫死的兩行，三個以後改成由 m 算出來，不另開第二套機制。 */
@@ -1002,6 +1006,28 @@
   } catch (e) {}
 })();
 </script>
+<!-- ══ v2.3.0：「光學資料比較」唯讀檢視（dg.html?view=cmp）══════════════════════════
+     Bruce 2026-09-30：量測頁的「加入光學資料比較」視窗多一顆「查看光學資料比較 ↗」，
+     開一個**只顯示比較分頁**的新分頁。資料來源＝本頁既有的自動保存（localStorage
+     `tcon-dg-autosave`，DG 分頁每次變動 800 ms 內寫入、加入比較時立刻寫）；
+     storage 事件一來就重讀 ⇒ 即時看到剛加進去的那一筆。
+     🔴 唯讀：不寫自動保存、不收任何 postMessage、不開量測分頁 ⇒ 原本 DG 分頁的輪次、
+        工作進度、存檔都不受影響；會改資料的鈕（匯入／清空／刪除／改名）藏起來。
+        「顯示」勾選只影響這個分頁自己的圖。 -->
+<style>
+  html[data-dg-view=cmp] #dg-mode-tabs, html[data-dg-view=cmp] #dg-auto-bar,
+  html[data-dg-view=cmp] #dg-round-bar, html[data-dg-view=cmp] #dg-main-content,
+  html[data-dg-view=cmp] #dg-conv-content, html[data-dg-view=cmp] #dg-btn-slot-new,
+  html[data-dg-view=cmp] #dg-btn-slot-clear, html[data-dg-view=cmp] .dg-slot-del { display: none !important; }
+  html[data-dg-view=cmp] .dg-slot-name { pointer-events: none; border-color: transparent; }
+  .dg-view-bar { display: none; }
+  html[data-dg-view=cmp] .dg-view-bar {
+    display: block; margin: 0 0 12px; padding: 10px 12px; border-radius: 8px;
+    border: 1px solid var(--primary, #2563eb); background: rgba(37, 99, 235, .12);
+    font-size: 13.5px; line-height: 1.65; color: var(--text, #e2e8f0); white-space: pre-line;
+  }
+  html[data-dg-view=cmp] .dg-view-bar.err { border-color: #f59e0b; background: rgba(245, 158, 11, .12); }
+</style>
 
 <!-- ══ 🔴 v1.75.2：開機閘門 —— 讓「該隱藏」在第一次 paint 當下就已經成立 ═══════════
      Bruce 2026-09-23：「重新整理 DG 頁面的時候，下面原本應該隱藏的卡片，居然會在還沒
@@ -1122,6 +1148,8 @@
         想清掉的那一刻，不該讓他去別的地方找。
      🔴 放在兩個分頁容器**外面**（與 #dg-round-bar 同一層），三個分頁都看得到：
         存檔是整頁一份，清除也是整頁一次，不該只有主分頁看得到。 -->
+<!-- v2.3.0：唯讀檢視（?view=cmp）才看得到的說明列；字由 dgViewRefresh() 填。 -->
+<div class="dg-view-bar" id="dg-view-bar" role="status"></div>
 <div class="dg-auto-bar" id="dg-auto-bar" style="display:none">
   <span class="dg-auto-text" id="dg-auto-text"></span>
   <span class="dg-auto-btns">
@@ -2725,7 +2753,7 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20260930dg221"></script>
+<script src="common/version.js?v=20260930dg230"></script>
 <script src="common/i18n.js?v=20260923dg1754"></script>
 <!-- v1.68.1：xlsx 產生器（原本在本頁，現在與 dg-selftest.html 共用）。
      🔴 必須在本頁的 inline script 之前載入。 -->
@@ -14156,8 +14184,15 @@
      容器的 display、同步 tab 的 active class、把目前這一頁記進 sessionStorage。
      沒有路由、沒有第二份狀態 —— DG_SLOTS 與 DG_CCT_MODE 都是同一份，切分頁不動它們。 */
   var DG_MODE = 'main';
+  /* v2.3.0：dg.html?view=cmp ＝「光學資料比較」唯讀檢視（見 dgViewInit）。載入當下定案、之後不變。 */
+  var DG_VIEW = (function () {
+    try { var v = new URLSearchParams(location.search).get('view'); return v === 'cmp' || v === 'compare'; }
+    catch (e) { return false; }
+  })();
+  var DG_VIEW_N = -1;   // 唯讀檢視目前顯示幾組（-1 ＝ 讀不到存檔）；驗證用
 
   function dgSwitchMode(mode) {
+    if (DG_VIEW) mode = 'cmp';   // v2.3.0：唯讀檢視只有比較分頁
     // v1.31.0：多一個 'conv'（RGB LUT 深度轉換）
     if (mode !== 'main' && mode !== 'cmp' && mode !== 'conv') mode = 'main';
     DG_MODE = mode;
@@ -16084,6 +16119,7 @@
     /* 量測頁把結果送回來。🔴 只收同源、且格式對得上的訊息 —— origin 是明確比對，
        量測頁那一端送出時也不用 '*'。 */
     window.addEventListener('message', function (e) {
+      if (DG_VIEW) return;   // v2.3.0：唯讀檢視不收任何訊息（不可能變成第二個 DG）
       if (e.origin !== window.location.origin) return;
       var d = e.data;
       /* v1.46.0：版號回報。🔴 來源必須真的是我們手上那個量測分頁 ——
@@ -16119,6 +16155,10 @@
       if (d && (d.type === 'dg-cmp-query' || d.type === 'dg-cmp-add')) {
         if (dgLiveAlive() && !dgLiveIsOurs(e.source)) return;
         var cmpRep = (d.type === 'dg-cmp-query') ? dgCmpInfo(d.task) : dgCmpAdd(d);
+        /* v2.3.0：加入之後**立刻**寫自動保存（不等 800 ms debounce），量測頁的「查看光學資料
+           比較 ↗」開的唯讀檢視讀的就是這一份。`stored` 告訴量測頁存檔有沒有寫成：
+           false（配額滿／localStorage 不可用）⇒ 檢視頁看不到最新的，量測頁改顯示「請切回 DG 分頁」。 */
+        if (d.type === 'dg-cmp-add') cmpRep.stored = dgAsWriteNow();
         if (e.source) {
           try { e.source.postMessage(cmpRep, window.location.origin); } catch (err) { /* 對方已經關了 */ }
         }
@@ -16541,6 +16581,9 @@
        ⇒ 這裡還原的是「光學資料比較十組 ＋ 深度轉換 ＋ 色溫基準」（不屬於任何一套），
          第 1／2／3／4 部分那一套由 dgWmodeSet() 在他選了之後才套。
        🔴 所以這一段套的是 dgAsCompose(wrap, **null**)：共用的那一份配一份空白主分頁。 */
+    /* v2.3.0：唯讀檢視到這裡就停 —— 不做下面的還原橫幅、不掛輸入掛點、**不打開自動保存**
+       （_dgAsEnabled 一直是 false ⇒ 這個分頁一個位元組都不會寫回存檔）。 */
+    if (DG_VIEW) { dgViewInit(); return; }
     _dgAsWrap = dgAsReadWrap();
     if (_dgAsWrap) {
       var _asOk = false;
@@ -16602,6 +16645,58 @@
     /* 還原完把這一份記成基準，第一次真正的變動才會寫。
        🔴 存檔是剛剛讀進來的那一份，內容相同 ⇒ 這裡不寫 IO，只是對齊比較基準。 */
     try { _dgAsLastJson = dgAsWrapJson(); } catch (e) { _dgAsLastJson = ''; }
+  }
+
+  /* ═══ v2.3.0：「光學資料比較」唯讀檢視（dg.html?view=cmp）═══════════════════════
+     Bruce 2026-09-30：量測頁「加入光學資料比較」視窗的「查看光學資料比較 ↗」開的就是這個。
+     ── 資料從哪裡來（查證過才選的）────────────────────────────────────────────
+       · 比較清單的本體是原 DG 分頁記憶體裡的 DG_SLOTS；它**每一種**變更都經過
+         dgRenderCharts() 的自動保存掛點②寫進 localStorage `tcon-dg-autosave`（800 ms
+         debounce；量測頁按「確定」加入時 dgCmpAdd 之後再立刻寫一次，不等 debounce）。
+       · 同網域分頁共用 localStorage，另一個分頁寫入時這裡會收到 `storage` 事件
+         ⇒ 重讀、重畫 ⇒ 「即時看到剛加進去的那一筆」。
+       · 不走 postMessage／BroadcastChannel 向原分頁要資料：那要原分頁多一套回應協定，
+         而且開著好幾個 DG 分頁時會有好幾個回答；存檔只有一份，就是 DG 自己重整時用的那一份。
+     🔴 唯讀的三道保證：① _dgAsEnabled 永遠 false（dgInit 提早 return）⇒ 不寫存檔；
+        ② message 監聽一開頭就 return ⇒ 量測頁的任何訊息都不會在這裡生效；
+        ③ 會改資料的鈕由 head 的 CSS 藏掉。 */
+  function dgViewBarSet(msg, isErr) {
+    var b = $('dg-view-bar');
+    if (!b) return;
+    b.textContent = msg;
+    b.className = 'dg-view-bar' + (isErr ? ' err' : '');
+  }
+  function dgViewRefresh() {
+    var w = dgAsReadWrap();
+    if (!w) {
+      DG_VIEW_N = -1;
+      dgViewBarSet('讀不到 DG 的資料（這個瀏覽器裡沒有 DG 的自動保存）。\n'
+        + '請切回 DG 分頁，點「光學資料比較」查看。', true);
+      return false;
+    }
+    try { dgAsApply(dgAsCompose(w, null)); }
+    catch (e) {
+      console.warn('[dg] view：套用存檔時發生例外（' + (e && e.message) + '）');
+      dgViewBarSet('DG 的資料讀得到、但顯示時出錯。\n請切回 DG 分頁，點「光學資料比較」查看。', true);
+      return false;
+    }
+    _dgAsWrap = w;
+    DG_VIEW_N = w.shared.slots.length;
+    dgSwitchMode('cmp');
+    var at = dgAsStamp(w._ts);
+    dgViewBarSet('這是「光學資料比較」的唯讀檢視（另開的分頁），共 ' + DG_VIEW_N + ' 組'
+      + (at ? '，資料時間 ' + at : '') + '。\n'
+      + 'DG 分頁一加入或修改，這裡會自動更新；這裡的「顯示」勾選只影響這個分頁，不會改到 DG。', false);
+    return true;
+  }
+  function dgViewInit() {
+    dgViewRefresh();
+    var t = null;
+    window.addEventListener('storage', function (e) {
+      if (e.key !== DG_AS_KEY && e.key !== null) return;   // null ＝ 別的分頁 localStorage.clear()
+      clearTimeout(t);
+      t = setTimeout(dgViewRefresh, 120);
+    });
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', dgInit);
@@ -16987,6 +17082,9 @@
     asSave: function () { return dgAsSave(); },             // 走 debounce 那條
     asClear: function () { return dgAsClear(); },           // 就是清除鈕的 onclick
     asEnabled: function () { return _dgAsEnabled; },
+    // v2.3.0 驗證用（唯讀）：是不是唯讀比較檢視、目前顯示幾組
+    viewMode: function () { return DG_VIEW; },
+    viewCount: function () { return DG_VIEW_N; },
     asBarText: function () {
       var bar = $('dg-auto-bar'), t = $('dg-auto-text');
       if (!bar || bar.style.display === 'none') return null;

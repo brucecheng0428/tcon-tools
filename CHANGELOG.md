@@ -2,6 +2,41 @@
 
 ---
 
+## TCON 自檢畫面量測 (dgself) v2.5.0 — 2026-09-30 ｜ MINOR
+
+判定依據：VERSIONING.md §1「多了新能力，舊的操作都在原位 ⇒ MINOR」—— 「加入光學資料比較」視窗多一顆「查看光學資料比較 ↗」（加入後才出現），開不了新分頁時多一條提示；確定／取消／關閉、量測、回傳 DG 都沒動。量測數值與送出內容不變 ⇒ 不標 ⚠ 輸出變更。
+
+### 為什麼
+- Bruce 2026-09-30（經 Dispatch）：在浮動視窗裡加一顆「查看光學資料比較 ↗」，讓使用者直接跳去看比較頁面；首選開新分頁，真的跳不過去才提示「請切回 DG 分頁，點『光學資料比較』查看」（樣式比照「已送回 DG」）。
+
+### 改了什麼
+- 視窗按鈕列多 `#dst-cmp-view`（線框次要鈕，在「關閉」左邊）。**這一份確定在比較清單裡（`dstCmpSaved`）才出現**：按「確定」加入之後，或這一輪已加入過再從 ④ 重開視窗時。理由：確定前這一筆還不在比較裡，開過去看不到它，反而像沒加成功；而且確定前多一顆會和「確定」搶注意力。
+- `dstCmpView()`：`window.open('dg.html?view=cmp', 'tcon-dg-cmpview')`。按鈕是使用者點的 ⇒ 不會被擋；固定視窗名 ⇒ 重按沿用同一個分頁（重新載入＝最新），不會越開越多；開完 `opener = null`，檢視頁與本頁沒有任何關係。
+- 回 `null`（被擋）或 DG 回覆 `stored:false`（自動保存沒寫成，檢視頁讀不到最新）⇒ 不開，改顯示 `#dst-cmp-go`：主色實心、18px 粗體、↗，比照 `.dst-back-cta`。它出現時就是「現在該做的事」⇒ 它是視窗裡唯一的實心，「關閉」讓位成線框（`#dst-modal-cmp.dst-cmp-going`）。重開視窗時清掉。
+- i18n：`dst.cmpView`、`dst.cmpGo`（三語）。
+
+### 驗證（如實）
+- `bash tests/dgself/run-all.sh`：38 個情境全過、無 JS 錯誤。新情境 V-OPEN／BLK／NOSTORE／EN（見 tests/dgself/README.md）。
+- **沒驗**：真機；真瀏覽器的彈出視窗攔截（headless 以假 `window.open` 回 null 模擬）。
+
+## Digital Gamma 迭代校正 (dg) v2.3.0 — 2026-09-30 ｜ MINOR
+
+判定依據：VERSIONING.md §1 ⇒ MINOR —— 新增 `dg.html?view=cmp`「光學資料比較」唯讀檢視，dg-measure.html 視窗多「查看光學資料比較 ↗」；不帶參數開 dg.html 的行為與畫面完全不變。`dg-cmp-added` 多帶 `stored` 一個欄位，舊量測頁忽略它。不標 ⚠ 輸出變更。
+
+### 資料放在哪裡（查證後的選擇）
+- 比較清單本體是原 DG 分頁記憶體裡的 `DG_SLOTS`；它每一種變更都經 `dgRenderCharts()` 的自動保存掛點②寫進 localStorage `tcon-dg-autosave`（v1.48.0，800 ms debounce）。同網域分頁共用 localStorage，另一個分頁寫入時會收到 `storage` 事件。
+- ⇒ 檢視頁**讀自動保存、聽 storage 事件**。不選 postMessage／BroadcastChannel 向原分頁要資料：要多一套回應協定，開著好幾個 DG 分頁時還會有好幾個回答；存檔只有一份，就是 DG 自己重整時用的那一份。
+
+### 改了什麼
+- dg.html：量測頁按「確定」加入後（`dg-cmp-add`）**立刻** `dgAsWriteNow()`，不等 debounce；回覆帶 `stored`（寫成沒有）。
+- dg.html `?view=cmp`（或 `view=compare`）＝唯讀檢視：head 在第一次 paint 前就只留比較分頁（藏分頁列、主分頁、深度轉換、自動保存橫幅、輪數標註、匯入／清空／刪除鈕，名稱不可改）；`dgInit()` 在還原前 `return` 進 `dgViewInit()` ⇒ **自動保存永遠不打開**（一個位元組都不寫）；message 監聽一開頭就 return（不會變成第二個 DG、不回任何量測頁）；`dgSwitchMode` 固定 cmp。頂端說明列寫「唯讀檢視、共 N 組、資料時間」；`storage` 事件 ⇒ 重讀重畫；讀不到存檔 ⇒ 說明列改成「請切回 DG 分頁，點『光學資料比較』查看」。「顯示」勾選只影響這個分頁。
+- dg-measure.html：與自檢頁同一顆鈕與提示（`dgmCmpView`、`#dgm-cmp-go`、`#dgm-cmp-modal.dgm-going`）。
+- tests/dgself/run.py：`DGSELF_SHOTS=<資料夾>` 時每個情境跑完截一張圖。
+
+### 驗證（如實）
+- DV-OPEN／BLK（量測頁）、DGV（dg.html：加入後立刻寫存檔、唯讀檢視的畫面與限制、不寫存檔、不收訊息、storage 事件更新；另外用 iframe 開一份一般 DG 真的加入第 3 組，檢視頁收到瀏覽器發的 storage 事件約 2 秒內變 3 組）。
+- **沒驗**：兩個真的分頁視窗（測試用同頁 iframe 代替，storage 事件機制相同）；自動保存配額真的寫滿的情況（`stored:false` 以假回覆驗）。
+
 ## TCON 自檢畫面量測 (dgself) v2.4.1 — 2026-09-30 ｜ PATCH
 
 判定依據：VERSIONING.md §2 案例 2（改 bug）＋案例 3（配色微調）⇒ PATCH —— v2.4.0 視窗按「確定」後，上方「已有幾筆」與展開清單沒有更新（只有結果那一行是新的），屬於 bug；「確定」改實心主按鈕、視窗開著時頁面主按鈕讓位是配色調整，沒有控制項移位或移除。量測數值與送出內容不變 ⇒ 不標 ⚠ 輸出變更。

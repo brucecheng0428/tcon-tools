@@ -61,8 +61,17 @@ SCENARIOS = [
     # dg.html：收量測結果不自動加、查詢／加入／更新／滿載／舊版量測頁照舊自動加
     ('DG',        'DG_cmp_handler.js',        '',                     False, {},                         False, 'dg.html'),
     ('DG-NR',     'DG_cmp_handler.js',        '',                     False, {'__dgCase': 'NR'},         False, 'dg.html'),
+    # v2.5.0／dg v2.3.0：視窗裡的「查看光學資料比較 ↗」與 dg.html?view=cmp 唯讀檢視
+    ('V-OPEN',    'V_cmp_view.js',            '?round=1&job=main',    True,  {'__viewCase': 'OPEN'},     False),
+    ('V-BLK',     'V_cmp_view.js',            '?round=1&job=main',    True,  {'__viewCase': 'BLK'},      False),
+    ('V-NOSTORE', 'V_cmp_view.js',            '?round=1&job=main',    True,  {'__viewCase': 'NOSTORE'},  False),
+    ('V-EN',      'V_cmp_view.js',            '?round=1&job=main',    True,  {'__viewCase': 'EN'},       False),
+    ('DV-OPEN',   'DV_measure_view.js',       '?task=7',              True,  {'__viewCase': 'OPEN'},     False, 'dg-measure.html'),
+    ('DV-BLK',    'DV_measure_view.js',       '?task=7',              True,  {'__viewCase': 'BLK'},      False, 'dg-measure.html'),
+    ('DGV',       'DGV_cmp_view.js',          '',                     False, {},                         False, 'dg.html'),
 ]
 TIMEOUT = 120   # 秒；最長的 H 約 40 秒
+SHOTS = os.environ.get('DGSELF_SHOTS')   # 設了就在每個情境跑完時截一張 <名稱>.png 到這個資料夾（停在情境最後的畫面）
 
 
 def read(p):
@@ -187,6 +196,12 @@ def run_one(tmp, sc, ver):
         if not raw:
             res['error'] = 'no result within %ds; JS errors: %s' % (TIMEOUT, ws.eval("(window.__errs||[]).join(' | ')"))
         else:
+            if SHOTS:
+                os.makedirs(SHOTS, exist_ok=True)
+                png = ws.call('Page.captureScreenshot', format='png').get('data')
+                if png:
+                    with open(os.path.join(SHOTS, name + '.png'), 'wb') as f:
+                        f.write(base64.b64decode(png))
             d = json.loads(raw[len('__JSON__'):-len('__END__')])
             res['results'] = d['res']; res['errs'] = d['errs']
             if not d['res']:
