@@ -6722,7 +6722,7 @@ function dstDgEnApply(on, why) {
      這一行就是補上的第二道防線，寫在**所有入口的共同出口**上。 */
   if (dstRunning) return Promise.resolve(false);
   /* v2.2.0：他自己要關 ⇒ 這一輪不再自動打開（尊重手動選擇），「已自動開啟」那一行收掉。 */
-  if (!on) { dstDgAutoRound = dstDgRound; dstDgAutoNoteOn = false; dstRenderDgAutoNote(); }
+  if (!on) { dstDgAutoRound = dstDgAutoKey(); dstDgAutoNoteOn = false; dstRenderDgAutoNote(); }
   var changed = false;
   /* 🔴 v1.19.0（D）：量過才問，沒量過直接改。問句與後果見 `dst.askDg*` 那一組。
      取消 ⇒ **什麼都不做**，並重畫一次讓核取方塊回到 IC 的真實狀態
@@ -6836,8 +6836,21 @@ function dstDgRecKind() {
         （`dstReadDgEn()` 的 `dgWhyNoIc`／`dgWhyNoAddr` 兩種 unknown 走不到這裡），
         所以落在這一格的只剩「匯流排讀回 0xFF」與「讀取失敗」兩種**真的可以重試**的。 */
   if (dstDg.state !== 'on' && dstDg.state !== 'off') return 'unk';
-  if (dstDgRound <= 1) return (dstDg.state === 'on') ? 'rec1' : null;
+  /* 🔴 v2.2.0：「已自動開啟 DG_EN」那一行在的時候，DG_EN 一定是 ON ⇒ 不再給任何建議
+     （Bruce 2026-09-30：不要再出現「關掉 DG_EN／維持現狀」，要關就用硬體卡的開關）。 */
+  if (dstDgAutoNoteOn) return null;
+  if (!dstDgWantOn()) return (dstDg.state === 'on') ? 'rec1' : null;
   return (dstDg.state === 'off') ? 'warn2' : null;
+}
+
+/* 🔴 v2.2.0：這一份工作是在驗證新寫入的 LUT 嗎？（要 DG_EN 開著）
+   第 2 輪以後，**或第 4 部分「確認結果」（job 'conf'）**。
+   🔴 根因（讀碼，dg.html 入口表與 dstJobOf 上方註解）：DG 的 `DG_ROUND` 要等他按「進行第 N+1 輪」
+      才 +1；第 1 輪算完、寫進 T-CON、按「確認結果」開回這一頁時，送來的是 `round=1, job=conf`。
+      只看 round ≥ 2 的話，這一次確認量測會被當成第 1 輪 ⇒ 出現「關掉 DG_EN／維持現狀」、也不會自動開。 */
+function dstDgWantOn() {
+  if (dstDgRound === null) return false;
+  return dstDgRound >= 2 || dstDgJob === 'conf';
 }
 
 function dstRenderDgRec() {
@@ -6914,7 +6927,8 @@ function dstDgRecMain() {
 /* ═══ 🔴 v2.2.0：第 2 輪以後自動打開 DG_EN ═══════════════════════════════════════════
    Bruce 2026-09-30：第 1 輪做完回 DG、按「確認結果」再開回這一頁（round ≥ 2）是要驗證新寫入的
    LUT ⇒ DG_EN 應該自動切回 ON，不要只顯示「建議開啟」讓他自己按。
-   · 條件：從 DG 開（dstDgAlive）、round ≥ 2、讀到 DG_EN 是 OFF、這一輪還沒自動過、這一輪還沒量。
+   · 條件：從 DG 開（dstDgAlive）、round ≥ 2 或「確認結果」（dstDgWantOn）、讀到 DG_EN 是 OFF、
+     這一份工作還沒自動過、還沒量。自動開成功後建議列不出現（dstDgRecKind 看 dstDgAutoNoteOn）。
      ON ⇒ 什麼都不寫；讀不到 ⇒ 不猜（v1.18.0 的紀律），維持原本的警示與擋住。
    · 寫入走同一支 `dstDgEnApply2()`（讀回確認、「切換中…」、① 重取都在那裡）。不經 `dstDgEnApply()`
      的問句 —— 會問的前提是「量過了」，而量過了這裡就不自動（上面最後一個條件）。
@@ -6924,12 +6938,16 @@ function dstDgRecMain() {
      建議列照常出現（dstDgRecKind 不看這個旗標）。
    · 要在 ① 自動重取**之前**跑：先開 DG_EN，① 讀到的才是新寫入的表而不是等距表。改 DG_EN 成功時
      `dstDgEnApply2()` 自己會叫 `dstStep1Auto()`；沒改（ON／讀不到／失敗）才由這裡補叫。 */
-var dstDgAutoRound = null;      // 這一輪（dstDgRound 的值）已經自動試過，或他手動關過
+var dstDgAutoRound = null;      // 這一份工作（dstDgAutoKey()）已經自動試過，或他手動關過
+/* 🔴 記的是「輪數，確認結果另算一份」：第 1 輪主量測時他照建議手動關掉 DG_EN，會記下這個值；
+   同一輪接著按「確認結果」（job conf）要能再自動開一次 ⇒ conf 另一個鍵。其他工作（main／slot…）
+   仍以輪數為單位 ⇒ 「手動關掉後同一輪不再自動打開」照舊。 */
+function dstDgAutoKey() { return String(dstDgRound) + (dstDgJob === 'conf' ? '|conf' : ''); }
 var dstDgAutoNoteOn = false;    // 「已自動開啟 DG_EN」那一行（硬體卡下方）
 function dstDgAutoCan() {
-  if (dstDgRound === null || dstDgRound < 2) return false;
+  if (!dstDgWantOn()) return false;       // 第 2 輪以後，或「確認結果」（見 dstDgWantOn）
   if (!dstDgAlive()) return false;
-  if (dstDgAutoRound === dstDgRound) return false;
+  if (dstDgAutoRound === dstDgAutoKey()) return false;
   if (!(dstLinked && dstIc && dstIc.dgEn)) return false;
   if (dstRunning || dstBusy || dstLutBusy) return false;
   if (dstStepDone.gray || dstStepDone.prim || dstRows.length) return false;
@@ -6942,12 +6960,13 @@ function dstDgAutoOn(src, reread) {
   return (reread ? dstGuard(async function () { await dstReadDgEn(); }) : Promise.resolve())
     .then(function () {
       if (!dstDgAutoCan() || dstDg.state !== 'off') return false;
-      dstDgAutoRound = dstDgRound;
+      dstDgAutoRound = dstDgAutoKey();
       dstLog('== round ' + dstDgRound + ' (' + src + '): DG_EN is OFF -> auto ON (once per round)', 'w');
       return dstDgEnApply2(true, 'auto-r2').then(function () {
         var ok = (dstDg.state === 'on');
         dstDgAutoNoteOn = ok;
         dstRenderDgAutoNote();
+        dstRenderBtns();   // 建議列／②③ 閘門跟著提示走（提示在 ⇒ 不給建議列）
         if (!ok) dstLog('!  auto DG_EN ON did not take -> not retried; warning and block stay', 'e');
         return ok;
       });
