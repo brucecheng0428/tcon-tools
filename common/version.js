@@ -13,7 +13,7 @@ var TOOL_VERSIONS = {
   wfg:     'v4.53.1',     // 面板訊號模擬與取樣
   pattern: 'v3.8.2',       // Pattern Generator 畫面產生器
   dg:      'v2.4.0',       // Digital Gamma 迭代校正（含量測頁 dg-measure.html）
-  i2c:     'v1.27.1',       // I2C（讀寫測試）
+  i2c:     'v1.28.0',       // I2C（讀寫測試）
   /* 🔴 TCON 自檢畫面量測（dg-selftest.html）。
      這一頁**還沒登記在首頁**（入口與 dg-measure 的拆除是下一階段），所以
      `app` 這一輪不動 —— 首頁上看不到任何新東西。等入口接上去再依
@@ -170,11 +170,21 @@ var HELPER_PKG = {
      libMPSSE 916584df…、ftd2xx 46cff89a…、DLL_I2C_BCB d441d08e…；只有 exe 換掉。
      exe 驗證：`file` ⇒ PE32 executable (console) Intel 80386、machine 0x014c、
      subsystem 3；337,408 bytes（v1.15.1 是 333,312）。 */
-  pkg:    'v1.16.0',                      // 下載包（zip）版本 ＝ 檔名
-  exe:    '1.16.0',                       // exe 內的 I2C_BRIDGE_VERSION（ping 回報值）
-  proto:  5,                             // wire protocol 版本（5 起有 awid 3 與 batchwrite 的 gap）
-  file:   'data/i2c-bridge-v1.16.0.zip',
-  bytes:  404776,                             // zip 位元組數（打包後填）
-  zipSha: '19d0aa2f6e0537d81c423b736fee2461da8c196d4b528672577d743a8a189370',
-  exeSha: '8182604f113e80d6575fd815ded051cf0b3c09d114c5d46640a77ea6aa3ed48e'
+  /* 🔴 v1.17.0（2026-09-30）：exe **有重編** —— 新增唯讀命令 `chandiag`（治具通道診斷：
+     列出 A／B 通道、標出 bridge 在用哪一個、slave 位址掃描、其他通道腳位側錄）。
+     既有命令的行為一律未動。⇒ SHA 變 ⇒ 使用者要重新過一次 SmartScreen。
+     proto 5 ⇒ **6**（多一個命令型別）。網頁的其他功能仍只看原本的 proto 門檻，
+     拿著 v1.16.0 的人照常能用，只有診斷區塊會請他換新版。
+     `data/i2c-bridge-v1.16.0.zip` 與更舊的包一律保留不刪。
+     包內四個檔不變，三支 DLL 是**從 v1.16.0 的包原樣搬過來**（SHA 逐一比對相同：
+     libMPSSE 916584df…、ftd2xx 46cff89a…、DLL_I2C_BCB d441d08e…），只有 exe 換掉。
+     exe 驗證：`file` ⇒ PE32 executable (console) Intel 80386；348,160 bytes；
+     zip 解出來後四個檔的 SHA256 逐一重算相同。 */
+  pkg:    'v1.17.0',                      // 下載包（zip）版本 ＝ 檔名
+  exe:    '1.17.0',                       // exe 內的 I2C_BRIDGE_VERSION（ping 回報值）
+  proto:  6,                             // wire protocol 版本（6 起有 chandiag）
+  file:   'data/i2c-bridge-v1.17.0.zip',
+  bytes:  410470,                             // zip 位元組數（打包後填）
+  zipSha: 'b3f46a83373e725d307e58dd707c2d96c3ae1b4caaf691ed28dc057d0a6a1859',
+  exeSha: '0ef2d20fa4343a1caef871fa89022a58426d01022c5e934003afba001b747898'
 };

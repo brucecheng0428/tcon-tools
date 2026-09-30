@@ -80,8 +80,12 @@ static uint32_t  fake_Write(void* h, uint32_t a, uint32_t n, unsigned char* b, u
     memcpy(dgh_fake_last_write,b,(size_t)dgh_fake_last_write_len);
     if(dgh_fake_eeprom && dgh_fake_write_status==0) fake_eeprom_write(n,b);
     if(t)*t=n; return dgh_fake_write_status; }
+/* 1.17.0：`chandiag` 的位址掃描測試用。≥0 ⇒ 只有這個 7-bit 位址回 ACK，其他位址
+   模擬 NACK（回 FT_DEVICE_NOT_FOUND＝2、0 byte）。預設 -1 ＝ 舊行為（全部成功）。 */
+int dgh_fake_ack_addr = -1;
 static uint32_t  fake_Read(void* h, uint32_t a, uint32_t n, unsigned char* b, uint32_t* t, uint32_t o){
-    (void)h;(void)a; dgh_fake_reads++; dgh_fake_last_read_opts=o;
+    (void)h; dgh_fake_reads++; dgh_fake_last_read_opts=o;
+    if(dgh_fake_ack_addr >= 0 && a != (uint32_t)dgh_fake_ack_addr){ if(t)*t=0; return 2; }
     if(dgh_fake_eeprom){
         /* 循序讀：位址一路往前（**沒有** page 的概念，只有整顆容量的回捲）。 */
         for(uint32_t i=0;i<n;i++) b[i]=dgh_fake_mem[(dgh_fake_addr+i)&0xFFFFu];

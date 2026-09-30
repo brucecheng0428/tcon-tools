@@ -253,8 +253,21 @@
  *     `gap` 缺席 ⇒ 完全走舊的 `twr` 行為 ⇒ 舊網頁的 wire byte 一個都沒變。
  *   - wire format 只有**新增**欄位與**放寬**既有欄位的值域 ⇒ **proto 4 → 5**
  *     （放寬值域會讓新網頁送出舊 exe 看不懂的 awid=3，網頁要判得出來）。 */
-#define I2C_BRIDGE_VERSION "1.16.0"
-#define I2C_BRIDGE_PROTO   5
+/* ═══ 1.17.0（2026-09-30）══════════════════════════════════════════════════
+ *   - 新增唯讀命令 **`chandiag`**（治具通道診斷，Bruce 2026-09-30）：列出 D2XX 看得到的
+ *     所有 interface（A／B）、標出 bridge 在用哪一個、在那個通道上做 slave 位址掃描
+ *     0x08～0x77（每個位址 1 byte 目前位址讀取，沒有 offset 相位、沒有資料寫入），
+ *     其他有 MPSSE 的通道也掃；沒人開著的其他通道把腳位全部設成輸入後側錄，
+ *     看它是不是跟著掃描一起跳動（＝接在同一條 I2C 線上）。
+ *   - 既有命令的行為與 wire byte 一律未動；多一個命令型別與一個 progress phase
+ *     ⇒ **proto 5 → 6**（網頁用 `I2C_BRIDGE_PROTO_CHANDIAG` 判斷這支 exe 懂不懂）。
+ *   - 🔴 未在硬體上驗證：原廠 DLL 在 offBytes=0 時的實際波形、NACK 時的回傳值，
+ *     以及 FT2232C/D 的 B 通道在全輸入 bit-bang 模式下讀到的腳位，只有 Bruce 的
+ *     治具能確認。 */
+#define I2C_BRIDGE_VERSION "1.17.0"
+#define I2C_BRIDGE_PROTO   6
+/* 🔴 `chandiag` 需要的 proto 下限。 */
+#define I2C_BRIDGE_PROTO_CHANDIAG 6
 /* 🔴 24 位元 offset（awid=3）與目標段間距（`gap`）需要的 proto 下限。
    網頁用它決定「這支 exe 懂不懂 awid 3 / gap」，而不是把 5 寫死在兩個地方。 */
 #define I2C_BRIDGE_PROTO_AWID3 5
@@ -267,9 +280,10 @@
 
    (1) 「上一個版本」——啟動橫幅與『新版有問題就先退回去』的泛用退路。
        1.14.0 的上一個是 **v1.13.0**。 */
-/* 🔴 1.16.0：上一個版本是 **v1.15.1**（1.15.1 時這裡指 v1.15.0）。 */
+/* 🔴 1.16.0：上一個版本是 **v1.15.1**（1.15.1 時這裡指 v1.15.0）。
+   🔴 1.17.0：上一個版本是 **v1.16.0**。 */
 #define I2C_BRIDGE_PREV_PKG \
-    "https://brucecheng0428.github.io/tcon-tools/data/i2c-bridge-v1.15.1.zip"
+    "https://brucecheng0428.github.io/tcon-tools/data/i2c-bridge-v1.16.0.zip"
 /* (2) 「**沒有 ACK 守衛**的那一版」——只出現在 ACK 守衛擋下讀寫時的錯誤訊息裡。
        它的意思不是「上一版」，而是「**這道守衛不存在的那一版**」：使用者若判斷
        是守衛誤殺，他要的是一個不做這個檢查的 exe。
