@@ -183,6 +183,7 @@ Windows 排程器量化的結果，證明的是「出貨的等待路徑不依賴
 | `{"type":"rawwrite","slave":104,"addr":0,"data":[..],"awid":2}` | `{"type":"result","cmd":"rawwrite","ok":true,"status":0,"transferred":N}` |
 | `{"type":"batchwrite","slave":80,"addr":0,"awid":2,"page":32,"twr":5,"len":8192,"data":[..]}` | 過程中多則 `{"type":"progress",…}`，最後 `{"type":"result","cmd":"batchwrite",…}` |
 | `{"type":"abortwrite","batch":N}` | **不回覆**（結果由那次 batchwrite 自己的 result 報告） |
+| `{"type":"chandiag","id":N}`（proto 6，v1.17.0） | 唯讀的治具通道診斷：過程中多則 `{"type":"progress","cmd":"chandiag","phase":…}`，最後 `{"type":"result","cmd":"chandiag","nodes":[…],"scans":[…],"sniff":[…]}`。別的頁面握著治具 ⇒ `busy:true`。說明見 `i2c_bridge.c` 的 `cd_run`；`test/test_server.c` §12 釘住「零寫入」 |
 | `{"type":"lock","id":N,"on":1}` | `{"type":"result","cmd":"lock","ok":true,"locked":true}` |
 | `{"type":"close"}` | `{"type":"result","cmd":"close","ok":true}` |
 

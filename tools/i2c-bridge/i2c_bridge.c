@@ -223,6 +223,28 @@ static PFN_FT_GetDeviceInfo     p_FT_GetDeviceInfo     = NULL;
 static PFN_FT_GetDriverVersion  p_FT_GetDriverVersion  = NULL;
 static PFN_FT_GetLibraryVersion p_FT_GetLibraryVersion = NULL;
 static PFN_FT_GetQueueStatus    p_FT_GetQueueStatus    = NULL;
+/* ═══ 1.17.0：治具通道診斷（`chandiag`）要用的六支 D2XX 函式 ═══════════════════
+   用途只有三件，全部唯讀：
+     ① FT_CreateDeviceInfoList／FT_GetDeviceInfoList：列出**所有** interface
+        （A 與 B 都列）。libMPSSE 的 I2C_GetNumChannels 只列它認為有 MPSSE 的
+        通道 —— FT2232C/D 的 MPSSE 只在 A 通道，所以光靠 libMPSSE 看不到 B。
+     ② FT_Open／FT_Close：只在診斷期間開**別的**通道，用完立刻關。
+     ③ FT_SetBitMode(mask=0x00)／FT_GetBitMode：把那個通道的 8 支腳**全部設成輸入**
+        （高阻抗，不驅動任何一支）後讀腳位電位，最後 FT_SetBitMode(0,0) 還原。
+   參數型別照官方 ftd2xx.h（全部 WINAPI ⇒ __stdcall）。第一個參數用 void* 收
+   FT_DEVICE_LIST_INFO_NODE，實際型別是下面的 FT_NODE（佈局相同）。 */
+typedef unsigned long (__stdcall *PFN_FT_CreateDeviceInfoList)(unsigned long*);
+typedef unsigned long (__stdcall *PFN_FT_GetDeviceInfoList)(void*, unsigned long*);
+typedef unsigned long (__stdcall *PFN_FT_Open)(int, void**);
+typedef unsigned long (__stdcall *PFN_FT_Close)(void*);
+typedef unsigned long (__stdcall *PFN_FT_SetBitMode)(void*, unsigned char, unsigned char);
+typedef unsigned long (__stdcall *PFN_FT_GetBitMode)(void*, unsigned char*);
+static PFN_FT_CreateDeviceInfoList p_FT_CreateDeviceInfoList = NULL;
+static PFN_FT_GetDeviceInfoList    p_FT_GetDeviceInfoList    = NULL;
+static PFN_FT_Open                 p_FT_Open                 = NULL;
+static PFN_FT_Close                p_FT_Close                = NULL;
+static PFN_FT_SetBitMode           p_FT_SetBitMode           = NULL;
+static PFN_FT_GetBitMode           p_FT_GetBitMode           = NULL;
 /* FT_DEVICE 列舉（ftd2xx.h）。🔴 **4 = FT_DEVICE_2232C 涵蓋 FT2232C/D**，
    6 才是 FT2232H —— 這正是 Codex 要我們分辨的那一格。 */
 static const char* ft_device_name(unsigned long t){
@@ -731,6 +753,12 @@ static int try_dir(const char* dirIn) {
             p_FT_GetDriverVersion =(PFN_FT_GetDriverVersion) GetProcAddress(d2,"FT_GetDriverVersion");
             p_FT_GetLibraryVersion=(PFN_FT_GetLibraryVersion)GetProcAddress(d2,"FT_GetLibraryVersion");
             p_FT_GetQueueStatus   =(PFN_FT_GetQueueStatus)   GetProcAddress(d2,"FT_GetQueueStatus");
+            p_FT_CreateDeviceInfoList=(PFN_FT_CreateDeviceInfoList)GetProcAddress(d2,"FT_CreateDeviceInfoList");
+            p_FT_GetDeviceInfoList   =(PFN_FT_GetDeviceInfoList)   GetProcAddress(d2,"FT_GetDeviceInfoList");
+            p_FT_Open      =(PFN_FT_Open)      GetProcAddress(d2,"FT_Open");
+            p_FT_Close     =(PFN_FT_Close)     GetProcAddress(d2,"FT_Close");
+            p_FT_SetBitMode=(PFN_FT_SetBitMode)GetProcAddress(d2,"FT_SetBitMode");
+            p_FT_GetBitMode=(PFN_FT_GetBitMode)GetProcAddress(d2,"FT_GetBitMode");
             { unsigned long lv=0;
               if(p_FT_GetLibraryVersion && p_FT_GetLibraryVersion(&lv)==0)
                   logline("  d2xx    : FT_GetLibraryVersion = %lu.%lu.%lu (0x%06lX)",
@@ -2301,6 +2329,342 @@ static double batch_wait_twr(uint32_t slave, uint32_t addr, uint32_t awid,
     }
 }
 
+/* ═══ 1.17.0：治具通道診斷 `chandiag`（Bruce 2026-09-30）══════════════════════════
+   問題：FT2232 治具的 A／B 兩個通道能不能分開用（一個給網頁、一個給原廠 PQ Tool）。
+   這個命令只回答「現在的樣子」，**全部唯讀**：
+     ① 用 D2XX 列出所有 interface（A、B 都列），標出哪一個被別的程式開著、
+        哪一個是 bridge 自己在用（開 bridge 的後端前後各列一次，比對「開啟中」旗標）。
+     ② 在 bridge 用的那個通道上做 slave 位址掃描 0x08～0x77：每個位址做一次
+        **1 byte 的目前位址讀取**（沒有 offset 相位、沒有任何資料寫入）。
+        有 ACK ＝ 那個位址有裝置。
+     ③ 其他有 MPSSE 的通道（FT2232H 的 B）也用 libMPSSE 同樣掃一次。
+     ④ 沒有被任何程式開著的其他通道：把 8 支腳**全部設成輸入**（不驅動任何一支），
+        先在匯流排安靜時讀 300 ms，再在 ② 掃描期間讀，記下每支腳看過的 0／1。
+        掃描期間才跳動的腳 ⇒ 那支腳和 bridge 那個通道接在**同一條 I2C 線**上。
+        （FT2232C/D 的 B 通道沒有 MPSSE，③ 做不了，只能靠這一步回答「線有沒有接過去」。）
+   🔴 不做的事：不寫任何暫存器、不換驅動、不動 EEPROM、不碰被別的程式開著的通道。
+   🔴 診斷期間 bridge 會先放掉自己握著的通道，做完再用原本的時脈重新開回去。 */
+#define CD_MAX_NODES      8
+#define CD_SCAN_LO        0x08
+#define CD_SCAN_HI        0x77
+#define CD_SCAN_N         (CD_SCAN_HI - CD_SCAN_LO + 1)   /* 112 個位址 */
+#define CD_SCAN_HZ        100000u                          /* 掃描一律用 100 kHz */
+#define CD_SNIFF_MAX      3
+#define CD_SNIFF_IDLE_MS  300    /* 匯流排安靜時讀多久（對照組） */
+#define CD_SNIFF_BUSY_MS  600    /* 掃描期間至少要讀這麼久；掃太快就重掃（仍然只讀） */
+#define CD_SCAN_PASS_MAX  20
+
+typedef struct { int ok; unsigned long n; FT_NODE node[CD_MAX_NODES]; } CD_LIST;
+
+/* 字串只保留可見 ASCII，去掉 `"` 與 `\`（要直接嵌進 JSON，這支 bridge 沒有 escape 函式）。 */
+static void cd_clean(char* dst, const char* src, size_t srcCap, size_t dstCap){
+    size_t i, o = 0;
+    for(i = 0; i < srcCap && src[i] && o + 1 < dstCap; i++){
+        unsigned char ch = (unsigned char)src[i];
+        if(ch >= 0x20 && ch < 0x7F && ch != '"' && ch != '\\') dst[o++] = (char)ch;
+    }
+    dst[o] = 0;
+}
+static void cd_list(CD_LIST* L){
+    unsigned long n = 0, got;
+    FT_NODE* buf;
+    memset(L, 0, sizeof(*L));
+    if(!p_FT_CreateDeviceInfoList || !p_FT_GetDeviceInfoList) return;
+    if(p_FT_CreateDeviceInfoList(&n) != 0) return;
+    L->ok = 1;
+    if(n == 0) return;
+    /* 🔴 緩衝區要裝得下**全部**裝置（GetDeviceInfoList 會寫 n 筆），複製時才截到 8 筆。 */
+    buf = (FT_NODE*)calloc(n, sizeof(FT_NODE));
+    if(!buf){ L->ok = 0; return; }
+    got = n;
+    if(p_FT_GetDeviceInfoList(buf, &got) != 0){ free(buf); L->ok = 0; return; }
+    if(got > n) got = n;
+    L->n = got > CD_MAX_NODES ? CD_MAX_NODES : got;
+    memcpy(L->node, buf, L->n * sizeof(FT_NODE));
+    free(buf);
+}
+static int cd_find_loc(const CD_LIST* L, uint32_t loc){
+    unsigned long i;
+    for(i = 0; i < L->n; i++) if(L->node[i].LocId == loc) return (int)i;
+    return -1;
+}
+
+typedef struct {
+    int      node;               /* D2XX 清單裡的序號 */
+    int      ok;
+    void*    h;
+    HANDLE   th;
+    volatile int stop;
+    volatile int win;            /* 0 ＝ 安靜時（對照組）、1 ＝ 掃描期間 */
+    unsigned char and0[2], or1[2];
+    unsigned long n[2], err;
+    char     msg[96];
+} CD_SNIFF;
+#ifdef _WIN32
+static DWORD WINAPI cd_sniff_proc(LPVOID p){
+    CD_SNIFF* s = (CD_SNIFF*)p;
+    while(!s->stop){
+        unsigned char v = 0; int w = s->win ? 1 : 0;
+        if(p_FT_GetBitMode(s->h, &v) == 0){ s->and0[w] &= v; s->or1[w] |= v; s->n[w]++; }
+        else { s->err++; Sleep(1); }
+    }
+    return 0;
+}
+#endif
+static int cd_sniff_start(CD_SNIFF* s, int node){
+    memset(s, 0, sizeof(*s));
+    s->node = node; s->and0[0] = s->and0[1] = 0xFF;
+    if(!p_FT_Open || !p_FT_Close || !p_FT_SetBitMode || !p_FT_GetBitMode){
+        snprintf(s->msg, sizeof(s->msg), "D2XX bit-mode functions not available"); return 0; }
+#ifdef _WIN32
+    if(p_FT_Open(node, &s->h) != 0 || !s->h){
+        s->h = NULL; snprintf(s->msg, sizeof(s->msg), "FT_Open failed (held by another program?)"); return 0; }
+    /* 🔴 mask 0x00 ＝ 8 支腳全部是輸入。這一步**不驅動任何一支腳**。 */
+    if(p_FT_SetBitMode(s->h, 0x00, 0x01) != 0){
+        p_FT_Close(s->h); s->h = NULL;
+        snprintf(s->msg, sizeof(s->msg), "FT_SetBitMode(input-only) failed"); return 0; }
+    s->th = CreateThread(NULL, 0, cd_sniff_proc, s, 0, NULL);
+    if(!s->th){
+        p_FT_SetBitMode(s->h, 0x00, 0x00); p_FT_Close(s->h); s->h = NULL;
+        snprintf(s->msg, sizeof(s->msg), "CreateThread failed"); return 0; }
+    s->ok = 1;
+    return 1;
+#else
+    snprintf(s->msg, sizeof(s->msg), "pin sampling is only built for Windows");
+    return 0;
+#endif
+}
+static void cd_sniff_stop(CD_SNIFF* s){
+    if(!s->ok) return;
+    s->stop = 1;
+#ifdef _WIN32
+    WaitForSingleObject(s->th, 3000);
+    CloseHandle(s->th);
+#endif
+    /* 🔴 還原成預設模式再關 —— 通道交回去時跟診斷之前一樣。 */
+    p_FT_SetBitMode(s->h, 0x00, 0x00);
+    p_FT_Close(s->h);
+    s->h = NULL;
+}
+static void cd_progress(SOCKET c, long id, const char* phase){
+    char m[160];
+    snprintf(m, sizeof(m), "{\"type\":\"progress\",\"id\":%ld,\"cmd\":\"chandiag\",\"phase\":\"%s\"}", id, phase);
+    ws_send_text(c, m);
+}
+/* 一個位址一次 1 byte 的目前位址讀取。回傳 ACK 個數；ack[] 逐位址填 0／1。 */
+/* 掃描途中每 16 個位址送一則 progress：原廠 DLL 遇到 NACK 要花多久沒有實測值，
+   不能讓網頁在掃描途中以為 bridge 沒反應。 */
+static SOCKET cd_pc = INVALID_SOCKET; static long cd_pid = 0;
+static void cd_scan_tick(int a){
+    char m[160];
+    if(cd_pc == INVALID_SOCKET || ((a - CD_SCAN_LO) & 15) != 0) return;
+    snprintf(m, sizeof(m), "{\"type\":\"progress\",\"id\":%ld,\"cmd\":\"chandiag\",\"phase\":\"scan\",\"addr\":%d}", cd_pid, a);
+    ws_send_text(cd_pc, m);
+}
+static int cd_scan_vendor(unsigned char* ack){
+    int a, n = 0;
+    for(a = CD_SCAN_LO; a <= CD_SCAN_HI; a++){
+        unsigned char b = 0;
+        cd_scan_tick(a);
+        /* offBytes = 0 ⇒ 沒有 offset 相位（見 1.16.0 對 0x402208 的反組譯：n=0..4 都正確） */
+        unsigned short r = pv_Get((unsigned char)a, 0u, 1u, &b, 0u);
+        ack[a - CD_SCAN_LO] = (r == 1) ? 1 : 0;
+        n += ack[a - CD_SCAN_LO];
+    }
+    return n;
+}
+static int cd_scan_mpsse_h(FT_HANDLE h, unsigned char* ack){
+    int a, n = 0;
+    for(a = CD_SCAN_LO; a <= CD_SCAN_HI; a++){
+        uint8_t b = 0; uint32_t got = 0;
+        cd_scan_tick(a);
+        /* 0x0B ＝ START | STOP | NACK_LAST_BYTE。只有讀取，沒有 I2C_DeviceWrite。 */
+        FT_STATUS st = p_Read(h, (uint32_t)a, 1u, &b, &got, 0x0Bu);
+        ack[a - CD_SCAN_LO] = (st == FT_OK && got == 1) ? 1 : 0;
+        n += ack[a - CD_SCAN_LO];
+    }
+    return n;
+}
+static FT_HANDLE cd_mpsse_open(uint32_t ch, char* err, size_t ecap){
+    FT_HANDLE h = NULL; ChannelConfig cfg;
+    if(!g_dllOk){ snprintf(err, ecap, "libMPSSE not loaded"); return NULL; }
+    if(p_Open(ch, &h) != FT_OK || !h){
+        snprintf(err, ecap, "I2C_OpenChannel(%u) failed -- held by another program", (unsigned)ch); return NULL; }
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.ClockRate = CD_SCAN_HZ; cfg.LatencyTimer = 1; cfg.Options = 3;
+    if(p_Init2(h, &cfg) != FT_OK){
+        p_Close(h); snprintf(err, ecap, "I2C_InitChannel(%u) failed", (unsigned)ch); return NULL; }
+    return h;
+}
+typedef struct {
+    char via[12]; int mch; uint32_t loc; int ok; int acks; int passes; double ms;
+    unsigned char ack[CD_SCAN_N]; char err[120];
+} CD_SCAN;
+
+static void cd_run(int idx, long id){
+    SOCKET c = g_cl[idx].s;
+    static char rep[24576];
+    static CD_LIST L0, L1;
+    FT_NODE mi[CD_MAX_NODES];
+    CD_SNIFF sn[CD_SNIFF_MAX];
+    CD_SCAN  sc[1 + CD_MAX_NODES];
+    int nsn = 0, nsc = 0, i, k;
+    uint32_t mn = 0;
+    size_t o = 0;
+    int owner = (g_ownerIdx == idx);
+    int wasOpen = owner && (g_vendorOpen || g_opened);
+    const char* heldBefore = g_vendorOpen ? "vendor" : (g_opened ? "libmpsse" : "none");
+    uint32_t prevHz = g_clockHz;
+    int useVendor = (dgh_mode == DGH_MODE_VENDOR && g_vendorOk);
+    int primOk = 0, restored = -1, primNode = -1;
+    uint32_t primLoc = 0;
+    FT_HANDLE ph = NULL;
+    char primErr[120] = "";
+    double t0 = now_ms();
+
+    /* 別的頁面握著治具 ⇒ 不搶（診斷不是接手的理由），請使用者先切回那一頁放掉。 */
+    if(g_ownerIdx >= 0 && !owner){
+        snprintf(rep, sizeof(rep),
+            "{\"type\":\"result\",\"id\":%ld,\"cmd\":\"chandiag\",\"ok\":false,\"busy\":true,"
+            "\"err\":\"another page holds the I2C jig; release it there first\"}", id);
+        logline("[cmd] chandiag from #%d -> BUSY (owner is #%d)", idx, g_ownerIdx);
+        ws_send_text(c, rep); return;
+    }
+    cd_pc = c; cd_pid = id;
+    logline("[cmd] chandiag from #%d: held=%s primary=%s (read-only diagnostic)",
+            idx, heldBefore, useVendor ? "vendor DLL" : "libMPSSE ch0");
+    memset(mi, 0, sizeof(mi)); memset(sc, 0, sizeof(sc));
+
+    cd_progress(c, id, "list");
+    i2c_close();                          /* 先放掉 bridge 自己的通道 */
+    cd_list(&L0);                         /* 此時「開啟中」＝ 別的程式開著 */
+    if(g_dllOk){
+        if(p_Init) p_Init();
+        if(p_GetNum(&mn) != FT_OK) mn = 0;
+        if(mn > CD_MAX_NODES) mn = CD_MAX_NODES;
+        if(p_ChanInfo) for(i = 0; i < (int)mn; i++) p_ChanInfo((uint32_t)i, &mi[i]);
+    }
+
+    /* ── 開 bridge 平常用的那個後端（主要通道） ── */
+    if(useVendor){
+        primOk = vendor_open(CD_SCAN_HZ);
+        if(!primOk) snprintf(primErr, sizeof(primErr), "vendor DLL Open() failed -- jig held by another program?");
+    } else {
+        ph = cd_mpsse_open(0, primErr, sizeof(primErr));
+        primOk = (ph != NULL);
+    }
+    cd_list(&L1);                         /* 開啟前後比對 ⇒ 哪一個是 bridge 在用 */
+    if(L0.ok && L1.ok){
+        for(i = 0; i < (int)L1.n; i++){
+            int j = cd_find_loc(&L0, L1.node[i].LocId);
+            if((L1.node[i].Flags & 1u) && (j < 0 || !(L0.node[j].Flags & 1u))){ primNode = i; primLoc = L1.node[i].LocId; break; }
+        }
+    }
+    if(primNode < 0 && !useVendor && mn > 0){ primLoc = mi[0].LocId; primNode = L1.ok ? cd_find_loc(&L1, primLoc) : -1; }
+
+    if(primOk){
+        CD_SCAN* s = &sc[nsc++];
+        double ts, busyUntil;
+        snprintf(s->via, sizeof(s->via), "%s", useVendor ? "vendor" : "libmpsse");
+        s->mch = useVendor ? -1 : 0; s->loc = primLoc; s->ok = 1;
+        /* ── 其他沒人開著的通道：腳位全部設成輸入後側錄 ── */
+        if(L1.ok) for(i = 0; i < (int)L1.n && nsn < CD_SNIFF_MAX; i++){
+            if(i == primNode || (L1.node[i].Flags & 1u)) continue;
+            cd_sniff_start(&sn[nsn], i); nsn++;
+        }
+        { int any = 0; for(i = 0; i < nsn; i++) any |= sn[i].ok;
+          if(any){ cd_progress(c, id, "idle"); Sleep(CD_SNIFF_IDLE_MS); }
+          for(i = 0; i < nsn; i++) sn[i].win = 1;
+          cd_progress(c, id, "scan");
+          ts = now_ms(); busyUntil = ts + (any ? CD_SNIFF_BUSY_MS : 0);
+          do {
+              unsigned char tmp[CD_SCAN_N]; int j;
+              int n = useVendor ? cd_scan_vendor(tmp) : cd_scan_mpsse_h(ph, tmp);
+              if(s->passes == 0){ memcpy(s->ack, tmp, sizeof(tmp)); s->acks = n; }
+              else for(j = 0; j < CD_SCAN_N; j++) if(tmp[j] != s->ack[j]) s->ack[j] |= 2; /* 2 ＝ 前後不一致 */
+              s->passes++;
+          } while(now_ms() < busyUntil && s->passes < CD_SCAN_PASS_MAX);
+          s->ms = now_ms() - ts; }
+        for(i = 0; i < nsn; i++) cd_sniff_stop(&sn[i]);
+        logline("  chandiag: primary scan via %s: %d ACK of %d, %d pass(es), %.0f ms",
+                s->via, s->acks, CD_SCAN_N, s->passes, s->ms);
+    }
+    if(useVendor){ if(g_vendorOpen) vendor_close(); }
+    else if(ph){ p_Close(ph); ph = NULL; }
+
+    /* ── 其他有 MPSSE 的通道（FT2232H 的 B；FT2232C/D 只有 A，這一步不會有東西） ── */
+    cd_progress(c, id, "others");
+    for(k = 0; k < (int)mn && nsc < (int)(sizeof(sc)/sizeof(sc[0])); k++){
+        CD_SCAN* s;
+        FT_HANDLE h;
+        double ts;
+        if(!useVendor && k == 0) continue;                  /* 上面已經掃過 */
+        if(useVendor && primNode >= 0 && mi[k].LocId == primLoc) continue;
+        s = &sc[nsc++];
+        snprintf(s->via, sizeof(s->via), "libmpsse"); s->mch = k; s->loc = mi[k].LocId;
+        h = cd_mpsse_open((uint32_t)k, s->err, sizeof(s->err));
+        if(!h) continue;
+        ts = now_ms();
+        s->acks = cd_scan_mpsse_h(h, s->ack); s->passes = 1; s->ok = 1;
+        s->ms = now_ms() - ts;
+        p_Close(h);
+        logline("  chandiag: libMPSSE ch%d scan: %d ACK of %d, %.0f ms", k, s->acks, CD_SCAN_N, s->ms);
+    }
+
+    /* ── 還原：診斷之前握著就用原本的時脈開回去 ── */
+    g_clockHz = prevHz;
+    if(wasOpen) restored = i2c_open(prevHz) ? 1 : 0;   /* 通道已關 ⇒ 走完整的開啟流程（含 apply_mode） */
+    logline("  chandiag: done in %.0f ms, restore=%d", now_ms() - t0, restored);
+
+    /* ── 組回覆 ── */
+#define CD_APP(...) do{ if(o < sizeof(rep)) { int _w = snprintf(rep + o, sizeof(rep) - o, __VA_ARGS__); \
+                        if(_w > 0) o += (size_t)_w; } }while(0)
+    CD_APP("{\"type\":\"result\",\"id\":%ld,\"cmd\":\"chandiag\",\"ok\":true,\"bridge\":\"%s\","
+           "\"primary\":\"%s\",\"heldBefore\":\"%s\",\"restored\":%d,\"primOk\":%s,\"primErr\":\"%s\","
+           "\"primNode\":%d,\"primLoc\":%u,\"d2xx\":%s,\"scanLo\":%d,\"scanHi\":%d,\"ms\":%.0f,",
+           id, I2C_BRIDGE_VERSION, useVendor ? "vendor" : "libmpsse", heldBefore, restored,
+           primOk ? "true" : "false", primErr, primNode, (unsigned)primLoc,
+           (L0.ok && L1.ok) ? "true" : "false", CD_SCAN_LO, CD_SCAN_HI, now_ms() - t0);
+    CD_APP("\"nodes\":[");
+    for(i = 0; i < (int)L1.n; i++){
+        char snb[20], ds[70]; int j = cd_find_loc(&L0, L1.node[i].LocId), m, mp = -1;
+        cd_clean(snb, L1.node[i].SerialNumber, sizeof(L1.node[i].SerialNumber), sizeof(snb));
+        cd_clean(ds,  L1.node[i].Description,  sizeof(L1.node[i].Description),  sizeof(ds));
+        for(m = 0; m < (int)mn; m++) if(mi[m].LocId == L1.node[i].LocId) mp = m;
+        CD_APP("%s{\"i\":%d,\"type\":%u,\"id\":%u,\"loc\":%u,\"sn\":\"%s\",\"desc\":\"%s\","
+               "\"openedBefore\":%d,\"openedDuring\":%d,\"mpsse\":%d}",
+               i ? "," : "", i, (unsigned)L1.node[i].Type, (unsigned)L1.node[i].ID,
+               (unsigned)L1.node[i].LocId, snb, ds,
+               j >= 0 ? (int)(L0.node[j].Flags & 1u) : -1, (int)(L1.node[i].Flags & 1u), mp);
+    }
+    CD_APP("],\"mpsseCount\":%u,\"scans\":[", (unsigned)mn);
+    for(i = 0; i < nsc; i++){
+        int j, first = 1, flaky = 0;
+        CD_APP("%s{\"via\":\"%s\",\"mch\":%d,\"loc\":%u,\"ok\":%s,\"n\":%d,\"passes\":%d,\"ms\":%.0f,\"err\":\"%s\",\"acks\":[",
+               i ? "," : "", sc[i].via, sc[i].mch, (unsigned)sc[i].loc, sc[i].ok ? "true" : "false",
+               sc[i].acks, sc[i].passes, sc[i].ms, sc[i].err);
+        for(j = 0; j < CD_SCAN_N; j++) if(sc[i].ack[j] & 1){ CD_APP("%s%d", first ? "" : ",", j + CD_SCAN_LO); first = 0; }
+        CD_APP("],\"flaky\":[");
+        for(j = 0; j < CD_SCAN_N; j++) if(sc[i].ack[j] & 2){ CD_APP("%s%d", flaky ? "," : "", j + CD_SCAN_LO); flaky = 1; }
+        CD_APP("]}");
+    }
+    CD_APP("],\"sniff\":[");
+    for(i = 0; i < nsn; i++){
+        CD_APP("%s{\"node\":%d,\"ok\":%s,\"msg\":\"%s\",\"idleN\":%lu,\"idleAnd\":%u,\"idleOr\":%u,"
+               "\"busyN\":%lu,\"busyAnd\":%u,\"busyOr\":%u,\"err\":%lu}",
+               i ? "," : "", sn[i].node, sn[i].ok ? "true" : "false", sn[i].msg,
+               sn[i].n[0], sn[i].and0[0], sn[i].or1[0], sn[i].n[1], sn[i].and0[1], sn[i].or1[1], sn[i].err);
+    }
+    CD_APP("]}");
+#undef CD_APP
+    cd_pc = INVALID_SOCKET;
+    if(o >= sizeof(rep)){
+        snprintf(rep, sizeof(rep), "{\"type\":\"result\",\"id\":%ld,\"cmd\":\"chandiag\",\"ok\":false,"
+                                   "\"err\":\"diagnostic reply too large\"}", id);
+    }
+    ws_send_text(c, rep);
+}
+
 static void handle_command(int idx, const char* json){
     SOCKET c=g_cl[idx].s;
     char type[24]={0}; if(!dgh_json_type(json,type,sizeof(type))) return;
@@ -2971,6 +3335,8 @@ static void handle_command(int idx, const char* json){
         snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"note\",\"ok\":true}",id);
         ws_send_text(c,rep); return;
     }
+    /* 1.17.0：治具通道診斷（唯讀）。持有者檢查在 cd_run 裡面自己做。 */
+    if(strcmp(type,"chandiag")==0){ cd_run(idx, id); return; }
     if(strcmp(type,"ping")==0){
         /* 🔴 wire 欄位仍叫 `helper`（不是 `bridge`）：改名只為了讓人看得懂，
            而這個欄位是**協定**。改掉它，手上還拿著舊 exe 的人配新頁面、或舊頁面

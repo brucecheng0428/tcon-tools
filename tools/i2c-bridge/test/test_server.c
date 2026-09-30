@@ -269,7 +269,7 @@ int main(void){
        這個主動推送的訊息型別）。這一條刻意寫死數字而不是讀巨集：**協定版本是
        對外承諾**，跟著巨集走的斷言等於永遠不會失敗，那就不是斷言。
        改這個數字時請同時確認網頁端的 `I2CT_PROTO_BATCH`。 */
-    CHECKS(hello,"\"proto\":5","hello 回報 proto 5（1.16.0 起；4 是 1.15.x）");
+    CHECKS(hello,"\"proto\":6","hello 回報 proto 6（1.17.0 起；5 是 1.16.0、4 是 1.15.x）");
     /* 🔴 就是這一條。v1.4.x 在 A 的 WS 開著時卡在 serve_ws 的 recv 迴圈裡，
        這個 GET 會一直躺在 backlog、永遠不回 —— 使用者看到的就是「打不開」。 */
     /* 🔴 v1.4.x 的致命傷：A 的 WS 開著時第二個 HTTP 請求永遠不會被處理。
@@ -946,6 +946,66 @@ int main(void){
             free(req); free(rbuf); free(want);
             close(B); msleep(200);
         } else { if(req)free(req); if(rbuf)free(rbuf); if(want)free(want); }
+    }
+
+    G("12. 🔴 1.17.0 chandiag：治具通道診斷必須是唯讀");
+    {
+        /* 收 chandiag 的最終結果；途中的 progress 只計數。 */
+        #define CD_WAIT(sock, out, nprog) do{ (nprog)=0; (out)[0]=0; \
+            for(;;){ char _m[16384]; if(!ws_recv((sock),_m,sizeof(_m))) break; \
+                if(strstr(_m,"\"type\":\"progress\"")){ (nprog)++; continue; } \
+                snprintf((out),sizeof(buf),"%s",_m); break; } }while(0)
+        extern int dgh_fake_ack_addr;
+        int X, Y, np, w0, live0;
+        dgh_fake_read_status = 0; dgh_fake_write_status = 0; dgh_fake_eeprom = 0;
+        X = ws_open(hello, sizeof(hello));
+        Y = ws_open(hello, sizeof(hello));
+        CHECK(X >= 0 && Y >= 0, "兩個 client 都連上");
+        ws_cmd(X, "{\"type\":\"open\",\"id\":1,\"takeover\":1,\"mode\":2}", buf, sizeof(buf));
+        CHECKS(buf, "\"ok\":true", "X 取得治具");
+        live0 = dgh_fake_live;
+
+        /* ① 別的頁面握著 ⇒ 不搶、不碰硬體 */
+        w0 = dgh_fake_writes;
+        { int r0 = dgh_fake_reads;
+          ws_send(Y, "{\"type\":\"chandiag\",\"id\":2}"); CD_WAIT(Y, buf, np);
+          CHECKS(buf, "\"busy\":true", "🔴 別的頁面握著治具 ⇒ chandiag 回 busy");
+          EQ_I(dgh_fake_reads - r0, 0, "🔴 busy 時一次都沒讀");
+          EQ_I(dgh_fake_live, live0, "busy 時 X 的通道沒被動到"); }
+
+        /* ② 持有者自己跑：只有 1 byte 讀取、沒有任何寫入，做完開回去 */
+        dgh_fake_ack_addr = 0x50;
+        { int oc0 = dgh_fake_open_calls;
+          ws_send(X, "{\"type\":\"chandiag\",\"id\":3}"); CD_WAIT(X, buf, np);
+          CHECKS(buf, "\"cmd\":\"chandiag\",\"ok\":true", "chandiag 回 ok");
+          CHECK(np >= 2, "途中有 progress（網頁靠它續命逾時）");
+          EQ_I(dgh_fake_writes - w0, 0, "🔴🔴 整個診斷沒有任何一次 I2C 寫入");
+          EQ_I((long)dgh_fake_last_read_opts, 0x0B, "🔴 掃描的讀取是 START|STOP|NACK_LAST（不是 fast、沒有位址相位）");
+          CHECKS(buf, "\"heldBefore\":\"libmpsse\"", "回報診斷前握著的後端");
+          CHECKS(buf, "\"primary\":\"libmpsse\"", "shim 沒有原廠 DLL ⇒ 主要通道走 libMPSSE ch0");
+          CHECKS(buf, "\"acks\":[80]", "🔴 只有 0x50 ACK ⇒ 結果只列 80");
+          CHECKS(buf, "\"n\":1,", "ACK 個數 ＝ 1");
+          CHECKS(buf, "\"d2xx\":false", "shim 沒有 ftd2xx ⇒ 如實回報 D2XX 清單不可用");
+          CHECKS(buf, "\"restored\":1", "🔴 做完用原本設定開回去");
+          EQ_I(dgh_fake_live, 1, "🔴 做完只剩 bridge 自己那一個 handle（診斷用的都關了）");
+          CHECK(dgh_fake_open_calls - oc0 >= 2, "診斷自己開過通道（不是只看快取）"); }
+        dgh_fake_ack_addr = -1;
+        /* ③ 做完之後持有權不變，照常讀得到 */
+        ws_cmd(X, "{\"type\":\"read\",\"id\":4,\"slave\":80,\"addr\":0,\"awid\":2,\"len\":4}", buf, sizeof(buf));
+        CHECKS(buf, "\"ok\":true", "🔴 診斷後 X 仍持有治具、讀取照常");
+
+        /* ④ 沒人握著時也能跑，做完不佔住治具 */
+        ws_cmd(X, "{\"type\":\"close\",\"id\":5}", buf, sizeof(buf));
+        EQ_I(dgh_fake_live, 0, "X 放掉治具");
+        ws_send(Y, "{\"type\":\"chandiag\",\"id\":6}"); CD_WAIT(Y, buf, np);
+        CHECKS(buf, "\"ok\":true", "沒人握著 ⇒ 任何頁面都能跑");
+        CHECKS(buf, "\"heldBefore\":\"none\"", "回報診斷前沒有握著");
+        CHECKS(buf, "\"restored\":-1", "原本沒開 ⇒ 不替它開");
+        EQ_I(dgh_fake_live, 0, "🔴 做完不留任何 handle");
+        ws_cmd(Y, "{\"type\":\"ping\",\"id\":7}", buf, sizeof(buf));
+        CHECKS(buf, "\"owner\":false", "🔴 診斷不會讓 Y 變成持有者");
+        close(X); close(Y); msleep(200);
+        #undef CD_WAIT
     }
 
     printf("\n================================================================\n");

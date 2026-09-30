@@ -30,7 +30,7 @@
           出來」。那個前提**早就不成立**：bridge 的靜態檔服務拒絕子資料夾、而且自 v1.7.0
           起預設關閉 —— 詳細依據與行號寫在 body 末端那兩個 <script> 的上面。）
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="common/version.js?v=20260930i2c1271"></script>
+<script src="common/version.js?v=20260930i2c1280"></script>
 <style>
   * { box-sizing: border-box; }
   :root{
@@ -1315,6 +1315,31 @@
     </details>
   </details>
 
+  <!-- ═══ v1.28.0：治具通道診斷（只讀，Bruce 2026-09-30）═══════════════════════
+       問題：FT2232 治具的 A／B 兩個通道能不能分開用（一個給網頁、一個給別的程式）。
+       這一塊只回答「現在接成什麼樣子」，不換驅動、不寫 TCON／EEPROM。
+       ① 經 I2C Bridge（`chandiag`，bridge ≥ 1.17.0／proto 6）：列通道、標出 bridge 在用哪一個、
+          位址掃描、另一個通道的腳位側錄（全部設成輸入）。
+       ② WebUSB：只讀描述子，試 open／claimInterface 並只記錄成敗（Windows 上沒換驅動就會失敗，是預期的）。
+       放在 debug 區（?debug=1 或連點標題三下），不佔主畫面。 -->
+  <details class="card dbgonly" id="chdiag-card" style="margin-top:12px;">
+    <summary style="cursor:pointer;list-style:none;font-size:11px;font-weight:700;letter-spacing:.9px;
+                    text-transform:uppercase;color:var(--sub)">
+      <span data-i18n="i2c.hdChDiag">治具通道診斷（只讀）</span>
+    </summary>
+    <div class="kv" style="margin-top:8px;line-height:1.8" data-i18n-html="i2c.cdIntro">看治具的兩個通道各自接了什麼。</div>
+    <div class="row" style="align-items:center;margin-top:8px;gap:8px;flex-wrap:wrap">
+      <button id="btn-cd-bridge" data-i18n="i2c.cdBtnBridge">① 通道與位址掃描</button>
+      <button id="btn-cd-usb" data-i18n="i2c.cdBtnUsb">② 讀 USB 描述</button>
+      <button id="btn-cd-copy" data-i18n="i2c.cdBtnCopy">複製結果</button>
+      <span class="kv" id="cd-status"></span>
+    </div>
+    <textarea id="cd-out" class="mono" readonly rows="16" spellcheck="false"
+              style="width:100%;box-sizing:border-box;margin-top:8px;font-size:11.5px;line-height:1.5;
+                     background:transparent;color:inherit;border:1px solid var(--line,#334155);
+                     border-radius:6px;padding:8px;resize:vertical"></textarea>
+  </details>
+
   <div class="card" style="margin-top:12px;">
     <div class="row" style="align-items:center;margin-bottom:6px;">
       <!-- 🔴 v1.22.2：標題換成下面那四個字（Bruce 2026-09-20 已確認）。
@@ -1400,8 +1425,8 @@
      🔴 **CSS 沒有跟著載**（見 style 區塊頂端的說明）：common.css 有 `.card`／`.row`／
         無範圍的 `label{}` 等等，與本頁同名而語意完全不同，載進來會整頁走樣。
         頁首那四條宣告是逐字抄過來的，來源行號寫在各自上面。 -->
-<script src="common/i18n.js?v=20260930i2c1271"></script>
-<script src="common/common.js?v=20260930i2c1271"></script>
+<script src="common/i18n.js?v=20260930i2c1280"></script>
+<script src="common/common.js?v=20260930i2c1280"></script>
 
 <script>
 'use strict';
@@ -7236,6 +7261,10 @@ function i2ctInit(){
           + i2ctT('i2c.needReconnect'), 'w');
   });
   $('btn-getshow').addEventListener('click', function () { i2ctNeedHelper({ k: 'i2c.whyManualDl' }); });
+  /* v1.28.0：治具通道診斷（只讀） */
+  $('btn-cd-bridge').addEventListener('click', function () { i2ctCdRunBridge(); });
+  $('btn-cd-usb').addEventListener('click', function () { i2ctCdRunUsb(); });
+  $('btn-cd-copy').addEventListener('click', function () { i2ctCdCopy(); });
   /* 🔴 重試必須是使用者按的：權限提示要有 user gesture 才問得出來（自動重試只會
      再被同一個決定拒絕一次）。所以這裡不做自動重試，只給一顆按鈕。 */
   $('btn-lna-retry').addEventListener('click', function () {
@@ -7968,6 +7997,283 @@ window.__i2ct = {
   }
 };
 
+/* ═══ v1.28.0：治具通道診斷（只讀，Bruce 2026-09-30）════════════════════════
+   目的：判斷 FT2232 治具的 A／B 兩個通道能不能分開用（一個給網頁、一個給別的程式）。
+   🔴 全部唯讀：
+      · ① 經 I2C Bridge 的 `chandiag`（bridge 端的說明見 i2c_bridge.c cd_run）：
+        每個位址只做 1 byte 的目前位址讀取，沒有 offset 相位、沒有任何寫入；
+        另一個通道只把腳位全部設成輸入後讀電位，不驅動任何一支腳。
+      · ② WebUSB：只讀描述子；open／claimInterface 只記錄成敗，成功就立刻
+        release／close。不 selectConfiguration（那會改變裝置狀態）。
+   🔴 結果存**原始資料**（i2ctCdBridge／i2ctCdUsb），文字每次從原始資料組 ——
+      換語言時 _onLangChange 呼叫 i2ctCdRender() 就會整段換掉。 */
+var I2CT_PROTO_CHANDIAG = 6;          /* ＝ bridge 的 I2C_BRIDGE_PROTO_CHANDIAG */
+var I2CT_CD_BRIDGE_MIN = '1.17.0';
+var i2ctCdBridge = null;              /* bridge 回來的 chandiag 結果（原始 JSON） */
+var i2ctCdBridgeAt = '';
+var i2ctCdUsb = null;                 /* WebUSB 讀到的東西（原始） */
+var i2ctCdRunning = false;
+
+function i2ctCdHex(n, w){ return '0x' + ('00000000' + ((n >>> 0).toString(16).toUpperCase())).slice(-(w || 2)); }
+function i2ctCdStatus(txt){ var s = $('cd-status'); if (s) s.textContent = txt || ''; }
+function i2ctCdStamp(){
+  var d = new Date(), p = function (x) { return (x < 10 ? '0' : '') + x; };
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+}
+/* 通道字母：描述字串最後一個字（FTDI 雙通道晶片的描述結尾是 " A"／" B"）。
+   被別的程式開著時 D2XX 不給描述 ⇒ 兩個通道的清單依序猜 A／B，並加問號。 */
+function i2ctCdLetter(r, i){
+  var n = (r && r.nodes && r.nodes[i]) || null;
+  if (!n) return '?';
+  var m = /([AB])\s*$/.exec(n.desc || '');
+  if (m) return m[1];
+  if (r.nodes.length === 2) return (i === 0 ? 'A' : 'B') + '?';
+  return '#' + i;
+}
+function i2ctCdChip(type){
+  return ({ 4: 'FT2232C/D', 5: 'FT232R', 6: 'FT2232H', 7: 'FT4232H', 8: 'FT232H' })[type] || ('type ' + type);
+}
+/* 這個通道有沒有硬體 I2C：'y'／'n'／'?' */
+function i2ctCdHw(r, i){
+  var n = r.nodes[i];
+  if (n.mpsse >= 0) return 'y';
+  if (n.type === 4 && /^B/.test(i2ctCdLetter(r, i))) return 'n';   /* FT2232C/D：只有 A 通道有 */
+  if (n.openedBefore === 1) return '?';
+  return 'n';
+}
+function i2ctCdPins(mask){
+  var out = [], b;
+  for (b = 0; b < 8; b++) if (mask & (1 << b)) out.push('D' + b);
+  return out.length ? out.join(' ') : i2ctT('i2c.cdRpNone');
+}
+function i2ctCdList(arr){
+  if (!arr || !arr.length) return i2ctT('i2c.cdRpNone');
+  return arr.map(function (a) { return i2ctCdHex(a); }).join(' ');
+}
+function i2ctCdNodeByLoc(r, loc){
+  for (var i = 0; i < (r.nodes || []).length; i++) if (r.nodes[i].loc === loc) return i;
+  return -1;
+}
+function i2ctCdAckAll(s){ return s.n >= 100; }
+
+/* 判斷：回傳一串句子。規則寫在這裡，不藏在字典裡。 */
+function i2ctCdVerdict(r){
+  var out = [], i;
+  var pi = r.primNode, pch = pi >= 0 ? i2ctCdLetter(r, pi) : 'A?';
+  var prim = (r.scans || [])[0] || null;
+  if (!r.primOk || !prim) { out.push(i2ctT('i2c.cdVdNoPrim', { ch: pch })); return out; }
+  if (i2ctCdAckAll(prim)) { out.push(i2ctT('i2c.cdVdAckAll', { ch: pch })); return out; }
+  if (!prim.acks.length) { out.push(i2ctT('i2c.cdVdNoDev', { ch: pch })); return out; }
+  out.push(i2ctT('i2c.cdVdFound', { ch: pch, list: i2ctCdList(prim.acks) }));
+  if (!r.d2xx) { out.push(i2ctT('i2c.cdVdNoList')); return out; }
+  var others = [];
+  for (i = 0; i < r.nodes.length; i++) if (i !== pi) others.push(i);
+  if (!others.length) { out.push(i2ctT('i2c.cdVdNoOther')); return out; }
+  others.forEach(function (j) {
+    var ch2 = i2ctCdLetter(r, j), k, sc = null, sn = null;
+    for (k = 1; k < (r.scans || []).length; k++) if (i2ctCdNodeByLoc(r, r.scans[k].loc) === j) sc = r.scans[k];
+    for (k = 0; k < (r.sniff || []).length; k++) if (r.sniff[k].node === j) sn = r.sniff[k];
+    if (sc && sc.ok && !i2ctCdAckAll(sc) && sc.acks.length) {
+      out.push(i2ctT('i2c.cdVdBoth', { ch2: ch2, list: i2ctCdList(sc.acks) })); return;
+    }
+    if (sn && sn.ok) {
+      var tgIdle = (sn.idleOr & ~sn.idleAnd) & 0xFF, tgBusy = (sn.busyOr & ~sn.busyAnd) & 0xFF;
+      var tied = tgBusy & ~tgIdle;
+      if (tied) {
+        out.push(i2ctT('i2c.cdVdTied', { ch2: ch2, pins: i2ctCdPins(tied) }));
+        if (i2ctCdHw(r, j) !== 'y') out.push(i2ctT('i2c.cdVdTiedNoHw', { ch2: ch2 }));
+        return;
+      }
+      if (sn.busyN < 50) { out.push(i2ctT('i2c.cdVdUnknown', { ch2: ch2, why: i2ctT('i2c.cdVdWhyFew', { n: sn.busyN }) })); return; }
+      if (!sc || !sc.ok || !sc.acks.length) { out.push(i2ctT('i2c.cdVdOnlyOne', { ch: pch, ch2: ch2 })); return; }
+    }
+    if (r.nodes[j].openedBefore === 1) { out.push(i2ctT('i2c.cdVdUnknown', { ch2: ch2, why: i2ctT('i2c.cdVdWhyHeld') })); return; }
+    out.push(i2ctT('i2c.cdVdUnknown', { ch2: ch2, why: (sn && sn.msg) || (sc && sc.err) || '—' }));
+  });
+  return out;
+}
+
+function i2ctCdRenderBridge(r){
+  var L = [], i;
+  L.push('[' + i2ctT('i2c.cdRpChan') + ']');
+  if (!r.d2xx || !r.nodes || !r.nodes.length) L.push('  ' + i2ctT('i2c.cdRpNoList'));
+  (r.nodes || []).forEach(function (n, i) {
+    var st = (i === r.primNode) ? i2ctT('i2c.cdRpStBridge')
+           : (n.openedBefore === 1 ? i2ctT('i2c.cdRpStOther') : i2ctT('i2c.cdRpStFree'));
+    var hw = i2ctCdHw(r, i);
+    L.push('  ' + i2ctCdLetter(r, i) + '  #' + i + '  ' + i2ctCdChip(n.type) + '  id=' + i2ctCdHex(n.id, 8)
+         + '  loc=' + i2ctCdHex(n.loc, 4) + '  sn="' + n.sn + '"  desc="' + n.desc + '"  '
+         + st + '  ' + (hw === 'y' ? i2ctT('i2c.cdRpHwYes') : hw === 'n' ? i2ctT('i2c.cdRpHwNo') : i2ctT('i2c.cdRpHwUnk')));
+  });
+  L.push('');
+  L.push('[' + i2ctT('i2c.cdRpScan', { lo: i2ctCdHex(r.scanLo), hi: i2ctCdHex(r.scanHi) }) + ']');
+  if (!r.primOk) L.push('  ' + i2ctT('i2c.cdRpScanErr', { msg: r.primErr || '—' }));
+  (r.scans || []).forEach(function (s, k) {
+    var ni = i2ctCdNodeByLoc(r, s.loc);
+    var ch = ni >= 0 ? i2ctCdLetter(r, ni) : (k === 0 && r.primNode >= 0 ? i2ctCdLetter(r, r.primNode) : '?');
+    var via = (k === 0) ? i2ctT('i2c.cdRpViaBridge') : i2ctT('i2c.cdRpViaHw');
+    var line = '  ' + ch + ' (' + via + '): ';
+    if (!s.ok) line += i2ctT('i2c.cdRpScanErr', { msg: s.err || '—' });
+    else if (i2ctCdAckAll(s)) line += i2ctT('i2c.cdRpAckAll', { n: s.n });
+    else if (!s.acks.length) line += i2ctT('i2c.cdRpAckNone', { ms: s.ms });
+    else line += i2ctT('i2c.cdRpAck', { list: i2ctCdList(s.acks), n: s.n, passes: s.passes, ms: s.ms });
+    L.push(line);
+    if (s.flaky && s.flaky.length) L.push('     ' + i2ctT('i2c.cdRpFlaky', { list: i2ctCdList(s.flaky) }));
+  });
+  (r.nodes || []).forEach(function (n, i) {
+    if (i === r.primNode || i2ctCdHw(r, i) === 'y') return;
+    var scanned = (r.scans || []).some(function (s) { return i2ctCdNodeByLoc(r, s.loc) === i; });
+    if (!scanned) L.push('  ' + i2ctCdLetter(r, i) + ': ' + i2ctT('i2c.cdRpNoScan'));
+  });
+  (r.sniff || []).forEach(function (s) {
+    L.push('');
+    L.push('[' + i2ctT('i2c.cdRpSniff', { ch: i2ctCdLetter(r, s.node) }) + ']');
+    if (!s.ok) { L.push('  ' + i2ctT('i2c.cdRpSniffErr', { msg: s.msg || '—' })); return; }
+    L.push('  ' + i2ctT('i2c.cdRpSniffIdle', { n: s.idleN, hi: i2ctCdPins(s.idleAnd), lo: i2ctCdPins(~s.idleOr & 0xFF),
+                                                tg: i2ctCdPins((s.idleOr & ~s.idleAnd) & 0xFF) }));
+    L.push('  ' + i2ctT('i2c.cdRpSniffBusy', { n: s.busyN, tg: i2ctCdPins((s.busyOr & ~s.busyAnd) & 0xFF) }));
+  });
+  if (r.heldBefore && r.heldBefore !== 'none')
+    L.push('', i2ctT('i2c.cdRpRestored', { ok: r.restored === 1 ? 'OK' : 'FAIL' }));
+  return L;
+}
+function i2ctCdRenderUsb(u){
+  var L = ['[' + i2ctT('i2c.cdUsbHd') + ']'];
+  if (u.err) { L.push('  ' + u.err); return L; }
+  var d = u.dev;
+  L.push('  ' + i2ctCdHex(d.vendorId, 4).slice(2) + ':' + i2ctCdHex(d.productId, 4).slice(2)
+       + '  "' + (d.manufacturerName || '') + '" / "' + (d.productName || '') + '"  sn="' + (d.serialNumber || '') + '"'
+       + '  USB ' + d.usb + '  bcdDevice ' + d.ver + '  class ' + d.cls);
+  (d.configs || []).forEach(function (c) {
+    L.push('  configuration ' + c.value + (c.name ? ' "' + c.name + '"' : '') + '  '
+         + i2ctT('i2c.cdUsbIf', { n: c.ifs.length, list: c.ifs.map(function (f) { return '#' + f.num; }).join(' ') }));
+    c.ifs.forEach(function (f) {
+      f.alts.forEach(function (a) {
+        L.push('    #' + f.num + ' alt ' + a.alt + '  class ' + a.cls + '  "' + (a.name || '') + '"  ep '
+             + (a.eps.length ? a.eps.map(function (e) { return e.dir + e.num + '/' + e.type + '/' + e.size; }).join(' ') : '—'));
+      });
+    });
+  });
+  L.push('  ' + i2ctT('i2c.cdUsbTry'));
+  L.push('    open: ' + u.open);
+  if (u.noCfg) L.push('    ' + i2ctT('i2c.cdUsbNoCfg'));
+  (u.claims || []).forEach(function (c) { L.push('    claimInterface(' + c.num + '): ' + c.res); });
+  return L;
+}
+function i2ctCdRender(){
+  var out = $('cd-out'); if (!out) return;
+  if (!i2ctCdBridge && !i2ctCdUsb) { out.value = ''; return; }
+  var L = ['== ' + i2ctT('i2c.cdRpTitle') + ' ==  i2c ' + ((typeof TOOL_VERSIONS !== 'undefined' && TOOL_VERSIONS.i2c) || '')
+         + (i2ctHelperVer ? '  ·  I2C Bridge ' + i2ctHelperVer + ' (proto ' + i2ctHelperProto + ')' : '')
+         + '  ·  ' + (i2ctCdBridgeAt || i2ctCdStamp())];
+  if (i2ctCdBridge) {
+    L.push('');
+    L = L.concat(i2ctCdRenderBridge(i2ctCdBridge));
+    L.push('', '[' + i2ctT('i2c.cdRpVerdict') + ']');
+    i2ctCdVerdict(i2ctCdBridge).forEach(function (s) { L.push('  ' + s); });
+  }
+  if (i2ctCdUsb) { L.push(''); L = L.concat(i2ctCdRenderUsb(i2ctCdUsb)); }
+  out.value = L.join('\n');
+}
+
+async function i2ctCdRunBridge(){
+  if (i2ctCdRunning) return;
+  if (!i2ctWs || i2ctWs.readyState !== 1) { i2ctCdStatus(i2ctT('i2c.cdNeedLink')); return; }
+  if (!i2ctHelperProto || i2ctHelperProto < I2CT_PROTO_CHANDIAG) {
+    i2ctCdStatus(i2ctT('i2c.cdNeedNew', { got: i2ctHelperVer || '?', need: I2CT_CD_BRIDGE_MIN })); return;
+  }
+  var phases = { list: 'i2c.cdPhList', idle: 'i2c.cdPhIdle', scan: 'i2c.cdPhScan', others: 'i2c.cdPhOthers' };
+  i2ctCdRunning = true;
+  var wasBusy = i2ctBusy; i2ctBusy = true; i2ctSyncButtons();       /* 診斷期間讀寫鈕讓位 */
+  $('btn-cd-bridge').disabled = true;
+  i2ctCdStatus(i2ctT('i2c.cdRunning', { phase: i2ctT('i2c.cdPhList') }));
+  i2ctLog(i2ctT('i2c.cdRunning', { phase: i2ctT('i2c.cdPhList') }), 'n');
+  try {
+    /* 🔴 逾時用「多久沒有動靜」：bridge 每 16 個位址送一則 progress。
+       原廠讀取路徑遇到 NACK 要花多久沒有實測值 ⇒ 靜止 60 秒才算失敗。 */
+    var m = await i2ctSendLong({ type: 'chandiag' }, function (p) {
+      var k = phases[p.phase]; if (!k) return;
+      i2ctCdStatus(i2ctT('i2c.cdRunning', { phase: i2ctT(k, { addr: (typeof p.addr === 'number') ? i2ctCdHex(p.addr) : '' }) }));
+    }, 60000);
+    if (!m.ok) {
+      i2ctCdStatus(m.busy ? i2ctT('i2c.cdBusyOther') : i2ctT('i2c.cdFail', { msg: m.err || '?' }));
+      i2ctLog('✕ chandiag: ' + (m.err || '?'), 'e');
+    } else {
+      i2ctCdBridge = m; i2ctCdBridgeAt = i2ctCdStamp();
+      i2ctCdRender();
+      i2ctCdStatus(i2ctT('i2c.cdDone'));
+      i2ctLog('chandiag: ' + i2ctCdVerdict(m).join(' '), 'n');
+    }
+  } catch (e) {
+    i2ctCdStatus(i2ctT('i2c.cdFail', { msg: (e && e.message) || String(e) }));
+    i2ctLog('✕ chandiag: ' + ((e && e.message) || e), 'e');
+  } finally {
+    i2ctCdRunning = false; i2ctBusy = wasBusy; $('btn-cd-bridge').disabled = false; i2ctSyncButtons();
+  }
+}
+
+/* WebUSB：描述子只讀；open／claim 只記成敗，成功就立刻放掉。 */
+async function i2ctCdRunUsb(){
+  if (!navigator.usb || !navigator.usb.requestDevice) {
+    i2ctCdUsb = { err: i2ctT('i2c.cdUsbNone') }; i2ctCdRender(); i2ctCdStatus(i2ctT('i2c.cdUsbNone')); return;
+  }
+  var dev;
+  try { dev = await navigator.usb.requestDevice({ filters: [{ vendorId: 0x0403 }] }); }
+  catch (e) {
+    if (e && e.name === 'NotFoundError') { i2ctCdStatus(i2ctT('i2c.cdUsbCancel')); return; }
+    i2ctCdUsb = { err: (e && (e.name + ': ' + e.message)) || String(e) }; i2ctCdRender(); return;
+  }
+  var ep = function (e) { return { num: e.endpointNumber, dir: e.direction === 'in' ? 'IN' : 'OUT', type: e.type, size: e.packetSize }; };
+  var hx = function (n) { return ('0' + (n >>> 0).toString(16)).slice(-2); };
+  var u = {
+    dev: {
+      vendorId: dev.vendorId, productId: dev.productId,
+      manufacturerName: dev.manufacturerName, productName: dev.productName, serialNumber: dev.serialNumber,
+      usb: dev.usbVersionMajor + '.' + dev.usbVersionMinor + '.' + dev.usbVersionSubminor,
+      ver: dev.deviceVersionMajor + '.' + dev.deviceVersionMinor + '.' + dev.deviceVersionSubminor,
+      cls: hx(dev.deviceClass) + '/' + hx(dev.deviceSubclass) + '/' + hx(dev.deviceProtocol),
+      configs: (dev.configurations || []).map(function (c) {
+        return { value: c.configurationValue, name: c.configurationName,
+                 ifs: c.interfaces.map(function (f) {
+                   return { num: f.interfaceNumber, alts: f.alternates.map(function (a) {
+                     return { alt: a.alternateSetting, name: a.interfaceName,
+                              cls: hx(a.interfaceClass) + '/' + hx(a.interfaceSubclass) + '/' + hx(a.interfaceProtocol),
+                              eps: a.endpoints.map(ep) };
+                   }) };
+                 }) };
+      })
+    },
+    open: '', claims: [], noCfg: false
+  };
+  var opened = false;
+  try { await dev.open(); opened = true; u.open = 'OK'; }
+  catch (e) { u.open = '✕ ' + ((e && (e.name + ': ' + e.message)) || e); }
+  if (opened) {
+    if (!dev.configuration) u.noCfg = true;
+    else {
+      for (var i = 0; i < dev.configuration.interfaces.length; i++) {
+        var n = dev.configuration.interfaces[i].interfaceNumber;
+        try { await dev.claimInterface(n); u.claims.push({ num: n, res: 'OK' });
+              try { await dev.releaseInterface(n); } catch (e2) {} }
+        catch (e) { u.claims.push({ num: n, res: '✕ ' + ((e && (e.name + ': ' + e.message)) || e) }); }
+      }
+    }
+    try { await dev.close(); } catch (e3) {}
+  }
+  i2ctCdUsb = u;
+  i2ctCdRender();
+  i2ctCdStatus(i2ctT('i2c.cdUsbDone'));
+  i2ctLog('WebUSB: open ' + u.open + (u.claims.length ? ' · ' + u.claims.map(function (c) { return '#' + c.num + ' ' + c.res; }).join(' · ') : ''), 'n');
+}
+function i2ctCdCopy(){
+  var out = $('cd-out');
+  if (!out || !out.value) { i2ctCdStatus(i2ctT('i2c.cdEmpty')); return; }
+  var done = function () { i2ctCdStatus(i2ctT('i2c.cdCopied')); };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(out.value).then(done, function () { out.select(); try { document.execCommand('copy'); done(); } catch (e) {} });
+  } else { out.select(); try { document.execCommand('copy'); done(); } catch (e) {} }
+}
+
 /* ═══ 🔴 切語言 ⇒ 把「不是靜態文字」的那一半重畫 ═══════════════════════════
    common.js 的 applyLang() 會先掃完所有 `data-i18n*` 屬性，**最後**才呼叫
    `window._onLangChange`。所以這一支跑的時候，靜態文字已經是新語言了，
@@ -7986,6 +8292,7 @@ window._onLangChange = function () {
     i2ctSetLink(i2ctLinkState.on, i2ctLinkState.txt, i2ctLinkState.cls);
     if (i2ctGetWhy !== null) { var w = $('get-why'); if (w) w.textContent = i2ctSrcTxt(i2ctGetWhy); }
     i2ctFillHelperCard();
+    i2ctCdRender();             /* v1.28.0：診斷結果是從原始資料組出來的，換語言就重組 */
     /* 🔴 slave 那三格的小字（`= 0x68·104 · 十進位 +d`）**不在 i2ctUpdateHints 裡** ——
        它們由 i2ctSlaveSync 寫。第一版漏掉這一行，切成英文後那三行仍停在
        「十進位 +d」，而旁邊 offset 的那一行已經是 "decimal: add d" ——

@@ -2,6 +2,28 @@
 
 ---
 
+## I2C 讀寫測試 (i2c) v1.28.0 — 2026-09-30 ｜ MINOR
+
+判定依據：VERSIONING.md §1「功能增減：新增獨立功能」—— 新增「治具通道診斷」區塊（debug 區）＋ I2C Bridge 新命令 `chandiag` ＝ 多了一件能做的事，既有讀寫、A／B、EEPROM 流程一行未改 ⇒ MINOR，不標 `⚠ 輸出變更`。I2C Bridge 1.16.0 → **1.17.0**（proto 5 → 6），下載包 `data/i2c-bridge-v1.17.0.zip`；舊包全部保留。
+
+- Bruce 2026-09-30（經 Dispatch）：想知道 FT2232 治具的 A／B 兩個通道能不能分開用（一個給網頁、一個給別的程式）。這一版只做診斷：不換驅動、不寫 TCON／EEPROM、不動任何程式的設定。
+- 背景（journal 2026-09-17／09-19）：治具實測是 `FT_DEVICE_2232C`（FT2232C/D，不是 H）。FT2232C/D 的 MPSSE 只在 A 通道；libMPSSE 的 `I2C_GetNumChannels` 只列有 MPSSE 的通道，所以光靠它看不到 B。網頁端讀寫預設走原廠 DLL（`DLL_I2C_BCB.dll` 的 `Open()` 不帶通道參數，開哪一個要實測）。
+- **bridge `chandiag`**（`i2c_bridge.c` `cd_run`，全部唯讀）：
+  1. 先放掉 bridge 自己的通道，用 D2XX `FT_CreateDeviceInfoList`／`FT_GetDeviceInfoList` 列出所有 interface（型號、序號、描述、LocId、是否被別的程式開著）。
+  2. 開 bridge 平常的後端，再列一次，比對「開啟中」旗標 ⇒ 標出 bridge 用的是哪一個通道（原廠 DLL 不告訴我們，只能這樣量）。
+  3. 在那個通道上掃 0x08～0x77：每個位址一次 1 byte 目前位址讀取（原廠 DLL `GetBytesEx(offBytes=0)`；libMPSSE 則是 `I2C_DeviceRead` options 0x0B），沒有 offset 相位、**沒有任何寫入**。
+  4. 其他有 MPSSE 的通道（FT2232H 才有 B）用 libMPSSE 同樣掃一次。
+  5. 沒被別的程式開著的其他通道：`FT_SetBitMode(mask=0x00)` 把 8 支腳全部設成輸入（不驅動任何一支），先在匯流排安靜時讀 300 ms，再在第 3 步掃描期間讀（掃太快就重掃到滿 600 ms，仍然只讀），最後 `FT_SetBitMode(0,0)` 還原再關。掃描期間才跳動的腳 ⇒ 接在同一條 I2C 線上。這一步是 FT2232C/D 上回答「B 有沒有接到 I2C 線」的唯一方法（B 沒有 MPSSE，第 4 步做不了）。
+  6. 診斷前本頁握著治具 ⇒ 用原本的時脈重新開回去；另一個頁面握著 ⇒ 回 busy，不搶。掃描途中每 16 個位址送一則 progress。
+- **網頁**：`?debug=1` 才看得到的「治具通道診斷（只讀）」卡。① 通道與位址掃描（需要 bridge ≥ 1.17.0，舊版會請他下載新版）；② 讀 USB 描述（WebUSB `requestDevice` VID 0x0403，讀 interface 數量／編號／class／endpoint；試 `open()` 與每個 interface 的 `claimInterface()`，只記成敗，成功就立刻 release／close；沒有選定 configuration 時不去選）；複製結果。結果從原始資料組成文字（三語，換語言即重組），最後一段自動下判斷：兩個通道都掃到裝置／B 的腳跟著掃描跳動（同一條線，但 B 沒有硬體 I2C）／B 的腳完全沒動（線只接在 A ⇒ 分開用不成立）／無法判斷的原因。
+- i18n 新增 `i2c.hdChDiag`、`i2c.cd*`（三語）；`check_ui_jargon.js` 通過（畫面文字不出現 MPSSE／API 名稱／工具名）。
+- 驗證：
+  - bridge `test_server` 新增 §12（24 項，全過）：別的頁面握著 ⇒ busy 且零讀取；持有者跑 ⇒ **I2C 寫入次數 0**、讀取 options 0x0B、只有 0x50 ACK 時結果只列 80、做完只剩一個 handle 且持有權不變、之後照常讀；沒人握著 ⇒ 做完不留 handle、不變成持有者。shim 的假讀取新增 `dgh_fake_ack_addr`（只有指定位址 ACK）。
+  - 既有測試：`test_proto` 248/248、`test_ackguard` 32/32、`test_vendor_len` 43/43 全過；`test_server` 270 項中 4 項、`test_wait` 32 項中 4 項未過，**同樣 4 項在未改動的 HEAD 上一樣不過**（都是毫秒級計時斷言，這台 Mac 的計時解析度問題，與本版無關）。`i2c_tool_selftest.js` 1408 項中 1 項未過（§64 group card 標籤多了 EEPROM），HEAD 上同樣不過。
+  - jsdom 以假 bridge／假 WebUSB 驅動新卡：三語輸出、「只接 A」「B 腳跟著跳」「B 被別的程式開著」三種判斷、舊 bridge（proto 5）不送 chandiag、複製內容與畫面相同，無 JS 錯誤。
+  - exe：zig 0.16.0 `x86-windows-gnu` 交叉編譯，`file` ⇒ PE32 executable (console) Intel 80386，348,160 bytes，SHA256 `0ef2d20f…`；三支 DLL 從 v1.16.0 包原樣搬（SHA 逐一相同）。
+  - 🔴 **實機未驗**：原廠 DLL 在 offBytes=0 時的波形與 NACK 回傳值、B 通道全輸入模式下讀到的腳位、Windows 上 WebUSB 的實際錯誤訊息，只有 Bruce 的治具與電腦能確認。
+
 ## Digital Gamma 迭代校正 (dg) v2.4.0 — 2026-09-30 ｜ MINOR
 
 判定依據：VERSIONING.md §1「多了新能力，舊的操作都在原位 ⇒ MINOR」—— 第 4 部分多一顆「查看目前結果」；「進行第 N+1 輪」照舊在原位、做的事一個字沒變。第 2 輪起算完少問一層「要不要確認」（流程順序調整，計算與輸出不變）⇒ 不標 ⚠ 輸出變更。
