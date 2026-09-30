@@ -75,6 +75,15 @@ SCENARIOS = [
     ('X-NR',      'X_lut_export.js',          '',                     False, {'__xCase': 'NR'},          False),
     ('X-ALT',     'X_lut_export.js',          '?round=2&job=main',    True,  {'__xCase': 'ALT'},         False),
     ('X-EN',      'X_lut_export.js',          '?round=2&job=main',    True,  {'__xCase': 'EN'},          False),
+    # v2.7.0：第 2 輪以後流程精簡（自動讀回＋比對、決策框、④ 改狀態列）；R1＝第 1 輪不變
+    ('S-AUTO',    'S_round2_flow.js',         '?round=2&job=main',    True,  {'__sCase': 'AUTO'},        False),
+    ('S-BAD',     'S_round2_flow.js',         '?round=2&job=main',    True,  {'__sCase': 'BAD'},         False),
+    ('S-EXPORT',  'S_round2_flow.js',         '?round=2&job=conf',    True,  {'__sCase': 'EXPORT'},      False),
+    ('S-NEXT',    'S_round2_flow.js',         '?round=2&job=conf',    True,  {'__sCase': 'NEXT'},        False),
+    ('S-DECL',    'S_round2_flow.js',         '?round=2&job=conf',    True,  {'__sCase': 'DECL'},        False),
+    ('S-R1',      'S_round2_flow.js',         '?round=1&job=main',    True,  {'__sCase': 'R1'},          False),
+    ('S-EN',      'S_round2_flow.js',         '?round=2&job=conf',    True,  {'__sCase': 'EN'},          False),
+    ('S-CN',      'S_round2_flow.js',         '?round=2&job=conf',    True,  {'__sCase': 'CN'},          False),
     # dg v2.4.0：一輪結束並列「查看目前結果／進行第 N+1 輪」，第 2 輪起不再問「要不要確認」
     ('R-PC',      'R_round_decide.js',        '',                     False, {'__rCase': 'PC'},          False, 'dg.html'),
     ('R-TCON',    'R_round_decide.js',        '',                     False, {'__rCase': 'TCON'},        False, 'dg.html'),
