@@ -14,7 +14,7 @@
 <title>TCON 自檢畫面量測 — TCON FAE專用工具箱</title>
 <link rel="stylesheet" href="common/common.css?v=20260903help">
 <!-- 🔴 version.js 必須最先載入（common/version.js 開頭那條規則）。 -->
-<script src="common/version.js?v=20260930dst210"></script>
+<script src="common/version.js?v=20260930dst220"></script>
 <style>
   /* ═══ 本頁專屬樣式 ════════════════════════════════════════════════════════
      只寫這一頁真的需要、而 common.css 沒有的東西。顏色一律走 common.css 的
@@ -820,6 +820,9 @@
       </fieldset>
       </details>
 
+      <!-- v2.2.0：第 2 輪以後讀到 DG_EN 是 OFF、自動切成 ON 之後的一行提示（dstDgAutoOn）。放在 <details>
+           外面 ⇒ 卡片收起也看得到；DG_EN 不再是 ON 或換了一輪就收掉（dstRenderDgAutoNote）。 -->
+      <div class="dst-say dst-say-info dst-hidden" id="dst-dg-autonote" data-i18n="dst.dgAutoOnNote">確認結果：已自動開啟 DG_EN，套用新的 LUT</div>
       <!-- 🔴 三組**之外**：這一行講的不只是治具（見卡片上方那段註解）。 -->
       <div class="dst-say" id="dst-say-link"></div>
     </div>
@@ -1803,6 +1806,8 @@ if (typeof I18N === 'object' && I18N) {
   I18N['dst.lutIdent']     = { 'zh-TW': '出廠等距表（沒有讀 T-CON）', 'en': 'factory linear table (T-CON not read)', 'zh-CN': '出厂等距表（没有读 T-CON）' };
   /* v2.1.0：Bruce 2026-09-30 裁示「DG_EN 關閉，使用等間距 LUT」那一行小字（LUT 檢視卡）。 */
   I18N['dst.lutIdentNote'] = { 'zh-TW': 'DG_EN 關閉，使用等間距 LUT，沒有讀取 T-CON。', 'en': 'DG_EN is off: using the linear LUT, the T-CON was not read.', 'zh-CN': 'DG_EN 关闭，使用等间距 LUT，没有读取 T-CON。' };
+  /* v2.2.0：第 2 輪以後自動開 DG_EN 之後，硬體卡下方那一行（Bruce 2026-09-30 指定字面）。 */
+  I18N['dst.dgAutoOnNote'] = { 'zh-TW': '確認結果：已自動開啟 DG_EN，套用新的 LUT', 'en': 'Confirmation: DG_EN was turned on automatically to apply the new LUT', 'zh-CN': '确认结果：已自动开启 DG_EN，套用新的 LUT' };
   I18N['dst.dgLabelIdent'] = { 'zh-TW': '出廠等距表（DG_EN 關閉）', 'en': 'Factory linear table (DG_EN off)', 'zh-CN': '出厂等距表（DG_EN 关闭）' };
   I18N['dst.dgSentIdent']  = { 'zh-TW': '✔ 出廠等距表 {n} 筆已回到 DG 的{dest}（DG_EN 關著，沒有讀 T-CON）。', 'en': '✔ {n} entries of the factory linear table are back in DG ({dest}) — DG_EN is off, the T-CON was not read.', 'zh-CN': '✔ 出厂等距表 {n} 笔已回到 DG 的{dest}（DG_EN 关着，没有读 T-CON）。' };
   I18N['dst.stepLutNoDgIdent'] = {
@@ -5144,6 +5149,7 @@ function dstRenderDg() {
     w.textContent = on ? (dstT('dst.dgWarnOn') + (dstDgLut ? '' : ' ' + dstT('dst.dgNoLut'))) : '';
   }
   dstRenderDgSw();
+  dstRenderDgAutoNote();   // v2.2.0：DG_EN 不再是 ON ⇒「已自動開啟」那一行收掉
   /* 🔴 v1.18.0（C）：DG_EN 一變，步驟卡上那一行建議／警告就要跟著變。
      這一支是 DG_EN 狀態的唯一渲染出口（`dstReadDgEn()` 每次都叫它），掛在這裡
      不會漏；`dstRenderSteps()` 末尾也叫一次（輪數／忙碌狀態變了的那一條）。 */
@@ -6715,6 +6721,8 @@ function dstDgEnApply(on, why) {
      但 `dstGuard()` 只看 `dstBusy`、**不看 `dstRunning`** ⇒ 那一層不是第二道防線。
      這一行就是補上的第二道防線，寫在**所有入口的共同出口**上。 */
   if (dstRunning) return Promise.resolve(false);
+  /* v2.2.0：他自己要關 ⇒ 這一輪不再自動打開（尊重手動選擇），「已自動開啟」那一行收掉。 */
+  if (!on) { dstDgAutoRound = dstDgRound; dstDgAutoNoteOn = false; dstRenderDgAutoNote(); }
   var changed = false;
   /* 🔴 v1.19.0（D）：量過才問，沒量過直接改。問句與後果見 `dst.askDg*` 那一組。
      取消 ⇒ **什麼都不做**，並重畫一次讓核取方塊回到 IC 的真實狀態
@@ -6901,6 +6909,60 @@ function dstDgRecMain() {
   var wantOn = (kind !== 'rec1');
   /* 回傳值 ＝ 「DG_EN 真的被寫進去了嗎」（`dstDgEnApply()` 的既有語意）。 */
   return dstDgEnApply(wantOn, 'dgrec');
+}
+
+/* ═══ 🔴 v2.2.0：第 2 輪以後自動打開 DG_EN ═══════════════════════════════════════════
+   Bruce 2026-09-30：第 1 輪做完回 DG、按「確認結果」再開回這一頁（round ≥ 2）是要驗證新寫入的
+   LUT ⇒ DG_EN 應該自動切回 ON，不要只顯示「建議開啟」讓他自己按。
+   · 條件：從 DG 開（dstDgAlive）、round ≥ 2、讀到 DG_EN 是 OFF、這一輪還沒自動過、這一輪還沒量。
+     ON ⇒ 什麼都不寫；讀不到 ⇒ 不猜（v1.18.0 的紀律），維持原本的警示與擋住。
+   · 寫入走同一支 `dstDgEnApply2()`（讀回確認、「切換中…」、① 重取都在那裡）。不經 `dstDgEnApply()`
+     的問句 —— 會問的前提是「量過了」，而量過了這裡就不自動（上面最後一個條件）。
+   · 🔴 **每一輪只試一次**：先記 `dstDgAutoRound` 再寫 ⇒ 寫入失敗不重試，原本的第 2 輪警告列
+     （開啟 DG_EN／維持現狀）與 ②③ 的擋住照舊出現，出路是他自己按。
+   · 🔴 **他手動關掉就不再自動打開**（同一輪）：`dstDgEnApply()` 收到「關」時也記 `dstDgAutoRound`；
+     建議列照常出現（dstDgRecKind 不看這個旗標）。
+   · 要在 ① 自動重取**之前**跑：先開 DG_EN，① 讀到的才是新寫入的表而不是等距表。改 DG_EN 成功時
+     `dstDgEnApply2()` 自己會叫 `dstStep1Auto()`；沒改（ON／讀不到／失敗）才由這裡補叫。 */
+var dstDgAutoRound = null;      // 這一輪（dstDgRound 的值）已經自動試過，或他手動關過
+var dstDgAutoNoteOn = false;    // 「已自動開啟 DG_EN」那一行（硬體卡下方）
+function dstDgAutoCan() {
+  if (dstDgRound === null || dstDgRound < 2) return false;
+  if (!dstDgAlive()) return false;
+  if (dstDgAutoRound === dstDgRound) return false;
+  if (!(dstLinked && dstIc && dstIc.dgEn)) return false;
+  if (dstRunning || dstBusy || dstLutBusy) return false;
+  if (dstStepDone.gray || dstStepDone.prim || dstRows.length) return false;
+  return true;
+}
+/* 回傳 true ＝ DG_EN 由 OFF 變成 ON（① 已由 dstDgEnApply2 重取）。reread：先重讀一次 DG_EN
+   （換輪時用 —— 畫面上的狀態可能是上一輪讀的）。 */
+function dstDgAutoOn(src, reread) {
+  if (!dstDgAutoCan()) return Promise.resolve(false);
+  return (reread ? dstGuard(async function () { await dstReadDgEn(); }) : Promise.resolve())
+    .then(function () {
+      if (!dstDgAutoCan() || dstDg.state !== 'off') return false;
+      dstDgAutoRound = dstDgRound;
+      dstLog('== round ' + dstDgRound + ' (' + src + '): DG_EN is OFF -> auto ON (once per round)', 'w');
+      return dstDgEnApply2(true, 'auto-r2').then(function () {
+        var ok = (dstDg.state === 'on');
+        dstDgAutoNoteOn = ok;
+        dstRenderDgAutoNote();
+        if (!ok) dstLog('!  auto DG_EN ON did not take -> not retried; warning and block stay', 'e');
+        return ok;
+      });
+    });
+}
+/* 自動開 DG_EN（有條件）→ 沒改到才補叫 ① 自動重取。三個「識別完成／換輪」時點共用。 */
+function dstDgAutoThenStep1(src, reread) {
+  return dstDgAutoOn(src, reread).then(function (changed) {
+    return changed ? true : dstStep1Auto(src);
+  });
+}
+function dstRenderDgAutoNote() {
+  if (dstDgAutoNoteOn && dstDg.state !== 'on') dstDgAutoNoteOn = false;
+  var n = $('dst-dg-autonote');
+  if (n) n.classList.toggle('dst-hidden', !dstDgAutoNoteOn);
 }
 
 /* 主表筆數（不含附加末筆）。
@@ -7133,6 +7195,8 @@ function dstClearRound(n, roundChanged) {
      不給這顆鈕，所以這一行實際上只影響「第 1 輪按過維持現狀 → 換到下一份工作」
      那一格 —— 那時推薦本來就該再出現一次（新的一輪、新的前提）。 */
   dstDgRecDismissed = false;
+  /* v2.2.0：換了一輪 ⇒ 上一輪「已自動開啟 DG_EN」那一行不再成立。同一輪換工作留著。 */
+  if (roundChanged) dstDgAutoNoteOn = false;
   /* 🔴 v1.17.0（C）：`dstLutVerified` **刻意不在這裡清**。
      它記的不是「這一輪做了什麼」，而是「T-CON 裡現在是哪一張表」—— 那是面板的現況，
      不隨 DG 換一份工作而改變。它的清除點只有一個：下一次寫入沒有核對相符
@@ -7338,8 +7402,9 @@ function dstDgApplyTask(d) {
      🔴 也放在 `dstSayInfo()` 之後：自動那一段會寫 `#dst-say-steps`（另一行），
         而這一行是 `#dst-say-run`，兩者不互相覆蓋；順序只是讓「這一次要做什麼」先出現。
      🔴 不 await（這一支不是 async，呼叫端是 message 事件）—— 自動那一支自己有
-        完整的 try/catch 與忙碌旗標，失敗不會外溢。 */
-  dstStep1Auto('dg-task');
+        完整的 try/catch 與忙碌旗標，失敗不會外溢。
+     v2.2.0：round ≥ 2 先重讀 DG_EN、是 OFF 就自動開，再做 ①（畫面上的 DG_EN 可能是上一輪讀的）。 */
+  dstDgAutoThenStep1('dg-task', true);
   dstLog('== DG task ' + dstDgTask + ': mode=' + dstDgMode + ' step=' + dstDgStep
     + ' job=' + dstDgJob + ' round=' + dstDgRound + ' dest=' + dstDgDest, 'o');
 }
@@ -7568,13 +7633,13 @@ function dstBind() {
       job.catch(function () { return false; }).then(function (ok) {
         dstLnPending = null;
         dstRenderBtns();
-        if (p[1] && ok) dstStep1Auto('connect');
+        if (p[1] && ok) dstDgAutoThenStep1('connect');   // v2.2.0：round ≥ 2 先自動開 DG_EN
       });
     });
   });
   $('dst-probe').addEventListener('click', function () {
     dstGuard(async function () { await dstCommTest(); await dstScanIdentify(); await dstReadRes(); })
-      .then(function () { dstStep1Auto('probe'); });
+      .then(function () { dstDgAutoThenStep1('probe'); });
   });
   $('dst-alt').addEventListener('change', function () {
     dstAltIdx = parseInt(this.value, 10);
