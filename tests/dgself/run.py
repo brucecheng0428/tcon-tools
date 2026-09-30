@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """tests/dgself/run.py — DG 自檢頁（dg-selftest.html）headless 回歸測試。
+v2.4.0 起也跑 dg-measure.html（電腦畫面量測頁）與 dg.html（DG 主頁）的情境（SCENARIOS 第 7 欄）。
 
-做法：每個情境把 repo 裡的 dg-selftest.html 複製一份到暫存資料夾，
+做法：每個情境把 repo 裡的頁面（預設 dg-selftest.html）複製一份到暫存資料夾，
   · <head> 最前面加 <base href="file://<repo>/">（讓 common/*.js 照常載入）＋ lib/pre.js（錯誤收集、假 DG opener）
   · 頁面最後那個 IIFE 結尾加 lib/fake_hw.js（假 I2C／假量測）＋ 情境腳本
 再用自有 profile 的 headless Chrome（CDP）打開，等 <pre id="__out"> 出現後解析結果。
@@ -21,10 +22,10 @@ from concurrent.futures import ThreadPoolExecutor
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, '..', '..'))
-PAGE = os.path.join(REPO, 'dg-selftest.html')
+PAGE = 'dg-selftest.html'
 CHROME = os.environ.get('CHROME', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome')
 
-# 名稱, 情境檔, 網址查詢字串, 是否假裝由 DG 開啟, 額外的 pre 變數, reduced-motion
+# 名稱, 情境檔, 網址查詢字串, 是否假裝由 DG 開啟, 額外的 pre 變數, reduced-motion[, 頁面（預設 dg-selftest.html）]
 SCENARIOS = [
     ('A',         'A_dgen_switch_lut.js',     '',                     False, {},                         False),
     ('C',         'C_round1_recommend.js',    '?round=1&job=main',    True,  {},                         False),
@@ -43,6 +44,23 @@ SCENARIOS = [
     ('L-C',       'L_back_to_dg_cta.js',      '?round=1&job=main',    True,  {'__ctaCase': 'C'},         False),
     ('L-RM',      'L_back_to_dg_cta.js',      '?round=1&job=main',    True,  {'__ctaCase': 'RM'},        True),
     ('L-EN',      'L_back_to_dg_cta.js',      '?round=1&job=main',    True,  {'__ctaCase': 'EN'},        False),
+    # v2.4.0：量完跳「加入光學資料比較」視窗（假 opener 模擬 DG 回筆數）
+    ('M-A',       'M_cmp_popup.js',           '?round=1&job=main',    True,  {'__cmpCase': 'A'},         False),
+    ('M-B',       'M_cmp_popup.js',           '?round=1&job=main',    True,  {'__cmpCase': 'B'},         False),
+    ('M-C',       'M_cmp_popup.js',           '?round=1&job=main',    True,  {'__cmpCase': 'C'},         False),
+    ('M-FULL',    'M_cmp_popup.js',           '?round=2&job=conf',    True,  {'__cmpCase': 'FULL'},      False),
+    ('M-SAME',    'M_cmp_popup.js',           '?round=1&job=main',    True,  {'__cmpCase': 'SAME'},      False),
+    ('M-EN',      'M_cmp_popup.js',           '?round=1&job=main',    True,  {'__cmpCase': 'EN'},        False),
+    ('M-CN',      'M_cmp_popup.js',           '?round=1&job=main',    True,  {'__cmpCase': 'CN'},        False),
+    ('M-NODG',    'M_cmp_popup.js',           '',                     False, {'__cmpCase': 'NODG'},      False),
+    # dg-measure.html（電腦畫面）：同一個視窗，假序列埠跑完整一輪
+    ('DM-A',      'DM_measure_cmp.js',        '?task=7&dest=%E7%AC%AC%202%20%E9%83%A8%E5%88%86', True, {'__cmpCase': 'A'}, False, 'dg-measure.html'),
+    ('DM-C',      'DM_measure_cmp.js',        '?task=7',              True,  {'__cmpCase': 'C'},         False, 'dg-measure.html'),
+    ('DM-EN',     'DM_measure_cmp.js',        '?task=7',              True,  {'__cmpCase': 'EN'},        False, 'dg-measure.html'),
+    ('DM-PRIM',   'DM_measure_cmp.js',        '?task=7&mode=prim',    True,  {'__cmpCase': 'PRIM'},      False, 'dg-measure.html'),
+    # dg.html：收量測結果不自動加、查詢／加入／更新／滿載／舊版量測頁照舊自動加
+    ('DG',        'DG_cmp_handler.js',        '',                     False, {},                         False, 'dg.html'),
+    ('DG-NR',     'DG_cmp_handler.js',        '',                     False, {'__dgCase': 'NR'},         False, 'dg.html'),
 ]
 TIMEOUT = 120   # 秒；最長的 H 約 40 秒
 
@@ -52,16 +70,16 @@ def read(p):
         return f.read()
 
 
-def expect_version():
-    m = re.search(r"^\s*dgself\s*:\s*'(v\d+\.\d+\.\d+)'", read(os.path.join(REPO, 'common', 'version.js')), re.M)
+def expect_version(tool='dgself'):
+    m = re.search(r"^\s*" + tool + r"\s*:\s*'(v\d+\.\d+\.\d+)'", read(os.path.join(REPO, 'common', 'version.js')), re.M)
     if not m:
-        raise SystemExit('cannot read dgself version from common/version.js')
+        raise SystemExit('cannot read %s version from common/version.js' % tool)
     return m.group(1)
 
 
-def build(tmp, name, scen, as_dg, extra, ver):
-    src = read(PAGE)
-    pre_vars = {'__expectVer': ver, '__asFromDg': as_dg}
+def build(tmp, name, scen, as_dg, extra, ver, page=PAGE):
+    src = read(os.path.join(REPO, page))
+    pre_vars = {'__expectVer': ver, '__expectDgVer': expect_version('dg'), '__asFromDg': as_dg}
     pre_vars.update(extra)
     pre = ''.join('window.%s=%s;' % (k, json.dumps(v)) for k, v in pre_vars.items())
     head = '<base href="file://%s/"><script>%s\n%s</script>' % (REPO, pre, read(os.path.join(HERE, 'lib', 'pre.js')))
@@ -135,9 +153,10 @@ def free_port():
 
 
 def run_one(tmp, sc, ver):
-    name, scen, query, as_dg, extra, rm = sc
+    name, scen, query, as_dg, extra, rm = sc[:6]
+    page = sc[6] if len(sc) > 6 else PAGE
     t0 = time.time()
-    html = build(tmp, name, scen, as_dg, extra, ver)
+    html = build(tmp, name, scen, as_dg, extra, ver, page)
     prof = os.path.join(tmp, 'prof-' + name)
     port = free_port()
     p = subprocess.Popen([CHROME, '--headless=new', '--remote-debugging-port=%d' % port, '--user-data-dir=' + prof,
@@ -190,7 +209,7 @@ def main(argv):
         if a == '--jobs': jobs = int(next(it))
         elif a == '--tmp': tmp_arg = next(it)
         elif a == '--list':
-            for s in SCENARIOS: print('%-8s %-26s %s' % (s[0], s[1], s[2]))
+            for s in SCENARIOS: print('%-8s %-26s %-18s %s' % (s[0], s[1], s[6] if len(s) > 6 else PAGE, s[2]))
             return 0
         elif a != '--keep': names.append(a)
     if not os.path.exists(CHROME):
@@ -202,7 +221,7 @@ def main(argv):
     ver = expect_version()
     tmp = tmp_arg or tempfile.mkdtemp(prefix='dgself-tests-')
     os.makedirs(tmp, exist_ok=True)
-    print('dg-selftest.html dgself %s | %d scenario(s) | tmp %s' % (ver, len(todo), tmp), flush=True)
+    print('dgself %s / dg %s | %d scenario(s) | tmp %s' % (ver, expect_version('dg'), len(todo), tmp), flush=True)
     with ThreadPoolExecutor(max_workers=jobs) as ex:
         results = list(ex.map(lambda s: run_one(tmp, s, ver), todo))
     npass = nfail = 0; bad = []
