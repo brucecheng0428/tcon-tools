@@ -1,0 +1,72 @@
+name: Pages（去註解後發佈）
+
+# P103（Bruce 2026-10-05 選 A）：線上站不再直接發佈 repo 原檔，而是先去掉註解再發佈。
+#   原因：wfg.html 原始 gzip 909KB，約六成是註解；網路到 GitHub Pages 變慢時從首頁進 WFG 要將近一分鐘。
+#   repo 原始碼一律保留註解；看程式、改程式以 repo 為準（見 CLAUDE.md「線上站是去註解版」）。
+# 流程：checkout → 去註解（tools/build/strip-comments.mjs，自帶 token/結構/行數驗證）
+#       → 發佈前關卡（tools/build/verify-site.mjs：每頁去註解前後在 headless Chrome 表現一致、wfg 體積上限）
+#       → 既有瀏覽器測試跑在去註解版上 → 發佈。
+#   任何一步失敗，deploy 不會執行，線上維持上一版。
+# Pages 來源須設為「GitHub Actions」（repo Settings → Pages → Build and deployment → Source）。
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CHROME: /usr/bin/google-chrome
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: 安裝建置工具（acorn / parse5 / postcss，版本鎖在 package-lock.json）
+        run: npm ci --prefix tools/build --no-audit --no-fund
+
+      - name: 去註解
+        run: node tools/build/strip-comments.mjs . _site
+
+      # Ubuntu 24.04 runner 預設禁止非特權 user namespace，Chrome 的 sandbox 會起不來
+      - name: 允許 Chrome sandbox
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      - name: 發佈前關卡（每頁去註解前後一致）
+        run: node tools/build/verify-site.mjs . _site
+
+      - name: 既有測試（跑在去註解版上）— LA 解碼卡片收折後最大化
+        run: node _site/tests/la/decode_max_collapsed.test.mjs
+
+      - name: 既有測試（跑在去註解版上）— DG 自檢／量測／主頁回歸（tests/dgself）
+        run: bash _site/tests/dgself/run-all.sh
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
