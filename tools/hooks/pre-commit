@@ -12,6 +12,36 @@
 # 逃生門：git commit --no-verify（git 內建，本 hook 不另做）。
 
 REPO="$(git rev-parse --show-toplevel)"
+
+# ══ 🔴 2026-10-05 新增（P104）：擋「大量已追蹤檔被 commit 成刪除，但檔案其實還在」══
+#   事故：主工作區 .git/index 停在 9/30 以前的舊內容，之後新增的 33 個已追蹤檔
+#   （common/done-step.*、tests/dgself/* 等）在 git status 顯示「已暫存刪除」，
+#   檔案本身都還在；另有 11 個檔被暫存成舊版內容。任何人用一般 `git commit`
+#   （不帶路徑）就會把這些檔從 repo 刪掉、把程式退回舊版。
+#   規則：本次 commit 刪除的已追蹤檔中，仍存在於工作區的超過 5 個 ⇒ 擋下。
+#   真的要刪：先把檔案移到垃圾桶（工作區不再有）再 commit，或分批每次 ≤5 個。
+#   index 過期時的修法：git restore --staged -- <這些路徑>（只動 index、不改檔案）。
+#   放在最前面：不依賴 python／node，其他檢查跑不起來時這道仍有效。
+_ghost_n=0
+_ghost_list=""
+_oldifs="$IFS"
+IFS='
+'
+for _f in $(git -c core.quotepath=off diff --cached --diff-filter=D --name-only); do
+  if [ -e "$REPO/$_f" ]; then
+    _ghost_n=$((_ghost_n+1))
+    if [ $_ghost_n -le 10 ]; then _ghost_list="$_ghost_list
+     $_f"; fi
+  fi
+done
+IFS="$_oldifs"
+if [ $_ghost_n -gt 5 ]; then
+  echo "🛑 這次 commit 會刪除 $_ghost_n 個已追蹤檔，但它們都還在工作區（最多列 10 個）：$_ghost_list"
+  echo "   這通常是 .git/index 過期或被換掉，不是真的要刪。commit 已中止。"
+  echo "   修法（只動 index、不改檔案）：git restore --staged -- <上列路徑>，再看 git status。"
+  echo "   真的要刪：先把檔案移到垃圾桶再 commit，或分批每次 ≤5 個。"
+  exit 1
+fi
 CHK="$REPO/tools/version_bump_check.py"
 
 # 🔴 2026-08-12 修正之一：檢查腳本不見就**擋下**，不是略過。
