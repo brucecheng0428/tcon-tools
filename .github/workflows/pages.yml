@@ -3,7 +3,7 @@ name: Pages（去註解後發佈）
 # P103（Bruce 2026-10-05 選 A）：線上站不再直接發佈 repo 原檔，而是先去掉註解再發佈。
 #   原因：wfg.html 原始 gzip 909KB，約六成是註解；網路到 GitHub Pages 變慢時從首頁進 WFG 要將近一分鐘。
 #   repo 原始碼一律保留註解；看程式、改程式以 repo 為準（見 CLAUDE.md「線上站是去註解版」）。
-# 流程：checkout → 去註解（tools/build/strip-comments.mjs，自帶 token/結構/行數驗證）
+# 流程：誤刪／退版檢查（history_guard.py）→ checkout → 去註解（tools/build/strip-comments.mjs，自帶 token/結構/行數驗證）
 #       → 發佈前關卡（tools/build/verify-site.mjs：每頁去註解前後在 headless Chrome 表現一致、wfg 體積上限）
 #       → 既有瀏覽器測試跑在去註解版上 → 發佈。
 #   任何一步失敗，deploy 不會執行，線上維持上一版。
@@ -24,7 +24,32 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # 誤刪／退版檢查（P105 的 tools/guard/history_guard.py，與 history-guard.yml 同一支）。
+  # 沒過就不建置、不發佈 —— 過期 index 造成的誤刪／退版 commit 永遠不會上線（Dispatch 2026-10-05 要求）。
+  history-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: 檢查這次要發佈的每個 commit
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          SITE_REPORT: https://brucecheng0428.github.io/tcon-tools/_build/report.json
+        run: |
+          if [ "$EVENT" = "push" ]; then
+            RANGE="${BEFORE}..${GITHUB_SHA}"
+          else
+            # 手動重跑：從線上目前那一版的 commit 檢查到現在；抓不到就檢查目前這個 commit
+            LIVE=$(curl -fsS --max-time 20 "$SITE_REPORT" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("commit") or "")' 2>/dev/null || true)
+            if [ -n "$LIVE" ] && git cat-file -e "$LIVE^{commit}" 2>/dev/null; then RANGE="${LIVE}..${GITHUB_SHA}"; else RANGE="${GITHUB_SHA}~1..${GITHUB_SHA}"; fi
+          fi
+          echo "檢查範圍：$RANGE"
+          python3 tools/guard/history_guard.py --range "$RANGE"
+
   build:
+    needs: history-guard
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:

@@ -23,7 +23,7 @@
 
 ## 線上站是去註解版（Bruce 2026-10-05 決策，P103）
 
-- push 到 main 後由 `.github/workflows/pages.yml` 建置發佈：`tools/build/strip-comments.mjs` 去掉 HTML／JS／CSS 註解 → `tools/build/verify-site.mjs` 發佈前關卡（每頁去註解前後在 headless Chrome 表現一致、wfg 體積上限）→ 既有瀏覽器測試 → 發佈。任一步失敗就不發佈，線上維持上一版。Pages 來源是「GitHub Actions」，不是分支。
+- push 到 main 後由 `.github/workflows/pages.yml` 建置發佈：誤刪／退版檢查（`tools/guard/history_guard.py`，沒過就不建置）→ `tools/build/strip-comments.mjs` 去掉 HTML／JS／CSS 註解 → `tools/build/verify-site.mjs` 發佈前關卡（每頁去註解前後在 headless Chrome 表現一致、wfg 體積上限）→ 既有瀏覽器測試 → 發佈。任一步失敗就不發佈，線上維持上一版。Pages 來源是「GitHub Actions」，不是分支。
 - 看程式、改程式、grep、寫測試一律以 repo 原始碼為準。線上檔案沒有註解，不要從線上抓檔回來當原始碼，也不要用線上檔案判斷「某段註解／說明還在不在」。
 - 行號對照：線上行號＝原始碼行號（跨行註解換成等量換行）。少數整段刪掉的跨行 HTML 註解會讓後面行號前移，逐筆記在線上 `/_build/report.json` 的 `lineShifts`。換算：`node tools/build/map-line.mjs <檔名> <線上行號>`，先確認本機 HEAD 與 report.json 的 `commit` 相同。同一行裡若刪了行內註解，該行後段的欄位會左移，以印出的原始碼行內容對照。
 - 本機重現線上版：`npm ci --prefix tools/build && node tools/build/strip-comments.mjs . _site && node tools/build/verify-site.mjs . _site`；`_site/` 不進版控。
