@@ -45,6 +45,7 @@ Bruce 2026-10-05：「從首頁進到 WFG 分頁…一直在轉圈圈，可能�
 - `tools/build/strip-comments.mjs`：用解析器定位註解（HTML：parse5；JS：acorn；CSS：postcss tokenizer），不用正規式猜。保留 `/*! */`、@license、@preserve、sourceMappingURL、HTML 條件註解；不碰非 JS 的 `<script>`、on* 屬性、style 屬性。跨行註解換成等量換行 → 線上行號＝原始碼行號；例外記在 `_site/_build/report.json` 的 `lineShifts`。自我驗證：JS token 序列（含換行＝ASI 依據）、CSS token 序列（含空白有無）、HTML 元素樹、行數，去註解前後必須一致，否則 exit 1。
 - `tools/build/verify-site.mjs`：兩個本機伺服器（原始碼／去註解版）＋自有暫存 profile 的 headless Chrome，逐頁比 JS 例外、console.error、載入失敗資源、元素數、id、畫面文字、標題；另有 wfg 發佈版 gzip 上限 480KB（防回歸）。
 - `tools/build/map-line.mjs`：線上行號換算原始碼行號。
+- pages.yml 加前置 job `history-guard`（P105 的 `tools/guard/history_guard.py`）：這次要發佈的 commit 有誤刪／退版就不建置、不發佈（Dispatch 2026-10-05 要求）。
 - `tools/build/package.json`／`package-lock.json`：acorn 8.19.0、parse5 7.3.0、postcss 8.5.29。
 - `CLAUDE.md`：新增「線上站是去註解版」一節（看程式以 repo 為準、行號對照方法、本機重現、線上驗收方式）。
 - `.gitignore`：`_site/`、`tools/build/node_modules/`。
