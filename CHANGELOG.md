@@ -2,6 +2,64 @@
 
 ---
 
+## 面板訊號模擬與取樣 (wfg) v4.53.2 — 2026-10-05 ｜ PATCH
+
+**LA 分頁「解碼結果」卡片收折時按 ⛶（最大化），不再是一整片空白：最大化會自動把卡片展開、看得到解碼表格；按 ⇱ 還原後回到原本的收折狀態。最大化時點卡片標題列＝退出最大化並收折。**
+
+判定依據：`docs/VERSIONING.md` §1 判定表 ＋ R1～R4 逐項判、取最高者。
+
+| 規則 | 判定 | 說明 |
+|---|---|---|
+| §1 判定表「既有功能：**修正為原本就該有的行為**」 | **PATCH** | 最大化本來就是要把解碼表格放大來看；收折狀態下放大成空卡是 bug。本版最高級別 |
+| §2 案例 2「改一個 bug」 | **PATCH** | 回到應有行為 |
+| R1「修 bug 若輸出會變要標 `⚠ 輸出變更`」 | **不適用** | 只改卡片的顯示／收折狀態；解碼結果、匯出 Excel、波形都沒變 |
+| R3「使用者能做的事有沒有多一件」 | **沒有** | 沒有新增按鈕或設定；⛶／⇱／標題列還是原本那三個操作 |
+| R4「起始狀態／預設值改變」 | **不適用** | 預設狀態、快捷設定內容都沒動 |
+| 不是 MAJOR | — | 沒有控制項移位或消失，使用者原本會的操作照舊 |
+| 🔴 實際採用 | **PATCH** | wfg v4.53.1 → v4.53.2 |
+
+### 起因
+
+Bruce 2026-10-05 回報：「在 LA 匯入 .KVDAT 或選快捷 eDP AUX 檔案 → 關閉 DP AUX 分析器 → 把解碼結果卡片收折到最小 → 重新加入 DP AUX 分析器 → 不展開卡片、直接按解碼結果卡片的最大化按鈕，解碼結果很大機率（可能 100%）完全空白。」
+
+### 重現（自有 headless Chrome、1600×1000，快捷設定「eDP AUX解碼(異常範例)」）
+
+| 步驟 | 修前 | 修後 |
+|---|---|---|
+| Bruce 原步驟（從非最大化開始：移除 DP AUX → 收折 → 加回 → ⛶） | 空白（卡片 `is-collapsed`、body `display:none`、表格 43 列都在 DOM 但高度 0） | 表格可見 |
+| **最小觸發**：收折解碼結果卡片 → ⛶（不必移除／加回分析器、不限檔案來源） | 空白，3／3 次 | 表格可見 |
+| 卡片收折時套用會自動最大化的快捷設定 | 空白 | 表格可見 |
+| 最大化時點標題列 | 收折成撐滿整欄的空卡 | 退出最大化並收折 |
+
+重現率 100%：觸發條件是純狀態組合（收折 ＋ 最大化），沒有時序成分。Bruce 描述裡「移除再加回分析器」不是必要條件；選快捷 eDP AUX 範例時頁面本來就會自動進入最大化，所以那條路徑上要先按一次 ⇱ 才會走到 ⛶。
+
+### 根因
+
+「最大化」（`#wfg-la-workbench.decode-expanded`）與「卡片收折」（`#wfg-la-decode-card.is-collapsed`）是兩個獨立狀態，`wfgLaToggleDecodeExpanded()`／`wfgLaApplyDecodeExpandedState()` 從來不看 `is-collapsed`：
+
+- 最大化的 CSS 讓卡片 `flex:1; height:100%` 撐滿右欄；
+- 但 `.wfg-la-collapsible-card.is-collapsed > .wfg-la-meas-body { display:none }` 還在 ⇒ 表格容器高度 0 ⇒ 一張大空卡。
+
+解碼本身、表格建立都正常（DOM 裡 43 列都在），不是虛擬捲動或重新渲染的問題。
+
+### 改了什麼
+
+| 位置 | 改動 |
+|---|---|
+| `wfg.html` `wfgLaApplyDecodeExpandedState()` | 進入最大化時若卡片是收折的 ⇒ 展開並記在 `data-collapsed-before-expand`；退出最大化時依這個記號收回去。放在這支而不是 toggle，是因為快捷設定的 `decodeExpanded` 也走這裡 |
+| `wfg.html` `wfgLaTogglePanelCard()` | 解碼結果卡片在最大化時點標題列 ⇒ 先退出最大化再收折（不再留下撐滿整欄的空卡） |
+| `tests/la/decode_max_collapsed.test.mjs` | 新增回歸測試（自起靜態伺服器＋自有 headless Chrome profile，A～F 六項，見檔頭） |
+| `common/version.js`、`index.html`、`wfg.html` | wfg v4.53.2；`version.js?v=20261005wfg4532` |
+
+### 驗證
+
+- `node tests/la/decode_max_collapsed.test.mjs`：修後 6／6 通過；對修前程式（HEAD 02f59b5）A、B、C、E 四項失敗，D、F 通過（D 修前通過是因為修前根本不會展開，還原後自然仍是收折）。
+- 一般操作不受影響：展開狀態下 ⛶／⇱ 照舊、表格可見；移除再加回分析器（不收折）照舊。
+- 截圖：修前（最大化後空白）／修後（最大化後有表格）在 P102 完成回報附件。
+- 未驗：實機 Safari／iPad 版面（窄版 media query 下同一套 class，邏輯相同，未截圖）；.KVDAT 匯入路徑未單獨跑（根因與資料來源無關）。
+
+---
+
 ## Digital Gamma 迭代校正 (dg) v2.4.7 — 2026-10-01 ｜ PATCH ｜ ⚠ 輸出變更
 
 判定依據：VERSIONING.md §1＋R1～R4 取最高者。
