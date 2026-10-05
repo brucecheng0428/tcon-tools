@@ -7,6 +7,8 @@
 #    實際生效的是 .git/hooks/pre-commit，而 .git/ 不進版控 —— 也就是說
 #    重新 clone 一份 repo，這道閘門預設是**不存在**的。安裝／更新：
 #        ln -sf ../../tools/hooks/pre-commit .git/hooks/pre-commit
+#    2026-10-05（P105）起改用：sh tools/setup-hooks.sh（設 core.hooksPath=tools/hooks，
+#    連同 commit-msg 一起生效；worktree 共用）。上面的 symlink 只裝 pre-commit，不再建議。
 #    （用 symlink，正本改了就自動跟著改，不會出現兩份不同步的版本）
 #
 # 逃生門：git commit --no-verify（git 內建，本 hook 不另做）。
@@ -42,6 +44,28 @@ if [ $_ghost_n -gt 5 ]; then
   echo "   真的要刪：先把檔案移到垃圾桶再 commit，或分批每次 ≤5 個。"
   exit 1
 fi
+# ══ 🔴 2026-10-05 新增（P105）：不在掛載／沙盒 clone 提交；index 與 HEAD 差異異常大時提醒 ══
+#   P104 的過期 index 與工作區裡的 .fuse_hidden* 同時出現 —— 掛載進沙盒（Linux VM）的 repo
+#   由兩邊同時寫 .git，index 容易停在舊狀態。提交一律在主機端本機 repo 做。
+case "$(uname -s 2>/dev/null)" in
+  Linux)
+    case "$REPO" in
+      /sessions/*|*/mnt/*)
+        echo "🛑 這份 repo 在沙盒／掛載路徑（$REPO），commit 已中止。"
+        echo "   在掛載的 clone 提交容易用到過期的 .git/index。請改在主機端（Mac mini／MBP）本機 repo 提交。"
+        exit 1 ;;
+    esac ;;
+esac
+#   退版偵測在 commit-msg（tools/hooks/commit-msg → tools/guard/history_guard.py），
+#   因為要讀 commit message 裡的 Allow-Revert:／Allow-Mass-Delete: 例外欄位。
+_staged_n=$(git diff --cached --name-only | wc -l | tr -d ' ')
+if [ "$_staged_n" -gt 30 ]; then
+  echo "⚠️  這次 commit 一次包含 $_staged_n 個檔（新增／修改／刪除）："
+  git diff --cached --name-status | cut -c1 | sort | uniq -c | sed 's/^/     /'
+  echo "   如果你沒有刻意改這麼多檔，多半是 .git/index 過期或用了 git add -A。"
+  echo "   先 Ctrl-C／取消，核對 git diff --cached --stat；確定無誤才繼續（此項只提醒，不擋）。"
+fi
+
 CHK="$REPO/tools/version_bump_check.py"
 
 # 🔴 2026-08-12 修正之一：檢查腳本不見就**擋下**，不是略過。

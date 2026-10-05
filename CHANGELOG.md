@@ -2,6 +2,34 @@
 
 ---
 
+## 提交防線：擋「過期 index 誤刪／退版」三層 — 2026-10-05 ｜ 不進版
+
+**不論誰（Claude、Codex、其他 AI、人）在哪台機器提交，過期 .git/index 造成的誤刪與退回舊版都會被擋下或在 GitHub 上標紅。頁面與功能不變。**
+
+判定依據：`docs/VERSIONING.md` §3「不進版的情況」——只改提交流程的檢查工具與文件，沒有任何分頁的顯示、計算、事件行為改變，不動工具版號。
+
+### 起因
+
+P104（2026-10-05）發現主工作區 `.git/index` 過期，照常 commit 會刪 33 個仍在的檔、把 11 檔退回 9/21–9/28 舊版。8d4850a 的 pre-commit 只擋刪除、只在裝了 hook 的 clone 有效，`--no-verify` 也能繞過。Bruce 10/5：「就算我突然換 Codex 來處理，或是換其他的 AI 來處理，也不會再發生這種錯誤？」
+
+### 改了什麼
+
+- `tools/guard/history_guard.py`（新）：本機與 GitHub 共用的單一檢查。每個 commit 對前一版：一次刪除 >5 個已追蹤檔（rename 不算）→ 擋；修改檔的新內容＝該檔歷史上較舊的某一版、且前一版不同 → 擋（退版）。刻意的寫 `Allow-Mass-Delete:`／`Allow-Revert:`；`git revert` 產生的訊息免寫。沒有 `Guard-Checked: tcon-hooks` trailer 的 commit 標為警告（＝沒經過本機 hook）。
+- `tools/hooks/commit-msg`（新）：跑上面的檢查（--staged），通過後加 trailer。
+- `tools/hooks/pre-commit`：Linux 沙盒／掛載路徑（`/sessions/*`、`*/mnt/*`）一律擋；staged 超過 30 檔時提醒（不擋）。
+- `tools/setup-hooks.sh`（新）：設 `core.hooksPath=tools/hooks`；`--check` 在沒啟用時 exit 1 並大聲提示。
+- `.github/workflows/history-guard.yml`（新，獨立檔，不動 pages.yml／version-gate.yml）：每次 push（任何分支）與 PR 跑同一支檢查；失敗則執行標紅、`::error` 標註、自動開 issue。
+- `AGENTS.md`（新）：給 Codex 等 AI；指向 `CLAUDE.md`，並列出 git 提交安全 7 條。`CLAUDE.md`、`docs/VERSIONING.md` 的 hook 安裝說明改為 `sh tools/setup-hooks.sh`。
+
+### 證據
+
+- 拋棄式 clone 實測 9/9 過：未啟用時 `--check` rc=1；正常 commit 通過並帶 trailer；index 換成 9/23 舊 tree（刪 45、退版 18）被 pre-commit 擋；只退版 3 檔被 commit-msg 擋；`Allow-Revert:` 放行；`--no-verify` 提交後伺服端檢查 rc=1（MASS DELETE＋ROLLBACK＋未經 hook 警告）；照 workflow run 區塊實跑 exit 1 並輸出 `::error`；正常 commit 伺服端通過。
+- Linux 沙盒（Cowork VM 掛載路徑）實跑 `git commit` 被 pre-commit 擋下。
+- 全歷史 1,503 個 commit 回測：誤報 3 個（17bfc1e、34ad19c、5a5b672，皆為刻意的小幅回復），今後同類情況寫 `Allow-Revert:` 即可。
+- 尚未驗：GitHub 上實際執行（要等 push 後看 Actions）；main 分支保護未設定（本機沒有 gh／GitHub 登入）。
+
+---
+
 ## 部署：線上站改為去註解後發佈 — 2026-10-05 ｜ 不進版
 
 **push 到 main 後改由 GitHub Actions 先去掉 HTML／JS／CSS 註解、通過發佈前關卡才發佈。畫面與功能不變；wfg.html 下載量（gzip）909KB → 約 360KB。**

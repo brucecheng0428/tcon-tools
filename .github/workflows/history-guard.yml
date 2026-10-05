@@ -1,0 +1,72 @@
+name: 誤刪／退版檢查（history guard）
+
+# 🔴 為什麼要有這個 workflow（P105，2026-10-05）
+#   P104 發現主工作區 .git/index 過期：照常 commit 會刪 33 個仍在的檔、把 11 檔退回舊版。
+#   本機 hook 擋得住，但 hook 不隨 clone 走、換機器／換 AI 可能沒裝、--no-verify 可直接跳過。
+#   這個 workflow 跑在 GitHub 上，與誰提交、用哪個 AI、有沒有裝 hook 都無關，是最後一道。
+#   檢查邏輯與本機 commit-msg hook 共用 tools/guard/history_guard.py（單一來源）。
+#   失敗時：本次執行標紅＋自動開 issue（GitHub 會通知 repo 擁有者）。
+#   獨立檔案，不動 pages.yml（P103）／version-gate.yml。
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  history-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0        # 退版判定要看該檔完整歷史
+
+      - name: 檢查本次 push／PR 的每個 commit
+        id: guard
+        env:
+          BEFORE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          AFTER: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set +e
+          python3 tools/guard/history_guard.py --range "${BEFORE}..${AFTER}" --report guard-report.txt
+          rc=$?
+          set -e
+          while IFS= read -r line; do
+            case "$line" in
+              BLOCKED*) echo "::error title=history guard::${line#BLOCKED }" ;;
+              WARNING*) echo "::warning title=history guard::${line#WARNING }" ;;
+            esac
+          done < guard-report.txt
+          { echo '### 誤刪／退版檢查'; echo '```'; cat guard-report.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit $rc
+
+      - name: 失敗時開 issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="history guard 擋下：${GITHUB_REF_NAME} @ ${GITHUB_SHA::8}"
+          if gh issue list --state open --search "$title in:title" --json number -q '.[0].number' | grep -q .; then
+            echo "issue 已存在，不重開"; exit 0
+          fi
+          {
+            echo "GitHub 上的誤刪／退版檢查擋下了 \`${GITHUB_REF_NAME}\` 的 \`${GITHUB_SHA::8}\`。"
+            echo "這通常是過期 .git/index 被直接 commit（P104 事故同型）。"
+            echo
+            echo '```'
+            cat guard-report.txt 2>/dev/null || echo "（檢查本身沒跑起來，看執行紀錄）"
+            echo '```'
+            echo
+            echo "執行紀錄：${RUN_URL}"
+            echo
+            echo "處理：不 force push、不改寫歷史；用新 commit 把被刪／被退的檔恢復成前一版。"
+            echo "確屬刻意：在 commit message 加 \`Allow-Revert: <原因>\` 或 \`Allow-Mass-Delete: <原因>\`。"
+          } > issue.md
+          gh issue create --title "$title" --body-file issue.md

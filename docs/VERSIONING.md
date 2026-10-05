@@ -120,7 +120,7 @@ SemVer 的 MAJOR 定義是「破壞向後相容的 API 變更」。**這裡沒�
    閘門的正本在 **`tools/hooks/pre-commit`**（有進版控、可被審閱）；實際生效的是 `.git/hooks/pre-commit`，而 `.git/` 不進版控 —— **重新 clone 一份 repo，這道閘門預設不存在**。安裝／更新：
 
    ```
-   ln -sf ../../tools/hooks/pre-commit .git/hooks/pre-commit
+   sh tools/setup-hooks.sh   # 2026-10-05 起（P105）：設 core.hooksPath=tools/hooks，pre-commit 與 commit-msg 一起生效
    ```
 
    用 symlink 而不是複製，正本改了就自動跟著改，不會出現兩份不同步的版本。此 hook 在三種情況會擋下 commit：版號判定不合規（rc=1）、**檢查腳本不見**、**檢查本身跑不起來（rc=2）**。後兩者原本都是「印一行警告然後放行」，等於刪掉守門員就能通過 —— 比填一個欄位還容易，2026-08-12 一併改為擋下。
