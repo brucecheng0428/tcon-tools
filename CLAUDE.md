@@ -1,107 +1,32 @@
-# tcon-tools-deploy 專案規則
+# tcon-tools 專案入口
 
-> 這份檔案會被自動載入。它存在的理由：規則只寫在 `docs/VERSIONING.md` 裡，**要有人記得去讀才有用** —— 2026-08-12 的 wfg v4.0.0 誤判就是沒讀就編號。把「先去讀哪一份」寫在這裡，讓它不依賴運氣。
+## 決策與交付
+- 進版先讀 `docs/VERSIONING.md`，依 R1～R4 取最高級別；MAJOR／開新波次與版號回溯須 Bruce 明確核准，並依文件記錄核准日期。不自行宣告波次結束。
+- 依該文件的例外判斷是否進版；需進版時同步 `common/version.js`、CHANGELOG（含判定依據）、受影響頁面的 `?v=`。
+- 保留 pre-commit 機械檢查，正本 `tools/hooks/pre-commit`；新 clone 安裝到 `.git/hooks/pre-commit`。不得用 `--no-verify` 繞過；疑似誤判交由 Dispatch 分派處理。
+- 實作任務只修改與 commit。push 與線上驗收由 Dispatch 指派具授權的主機端執行者；Dispatch 負責追蹤及轉告（依 Bruce 2026-09-29 分工）。當批需求完成後才推，一次推一個 commit 並等部署完成；當次另有批次指示時依其指示。
+- 不 force push、不 rebase 已推出的 commit、不改寫歷史；修正用新 commit。逐檔 `git add`，保留他人改動；同一工作區避免多人同時寫。
+- commit 前綴 `<工具>: `，訊息用 ASCII。CHANGELOG 寫給接手 agent：說明變更、原因與證據；保留 Bruce 署名，以中性語句記錄決策。
 
----
-
-## 🔴 版號（動任何 code 之前先讀）
-
-- 進版號前**必須完整讀 `docs/VERSIONING.md`**，依 §1 判定表與 **R1～R4 逐項判、取最高者**（不是挑一條最像的）。
-- 🔴 **判到 MAJOR 就停手，回報 Dispatch，不准自行進版。**
-  MAJOR ＝ 開新的一波 ＝ **只有 Bruce 能裁示**。一波不會自己結束，agent 不得自行判定某一波「已結束」（§1 R2 補充）。
-  取得裁示後，CHANGELOG 該條目要有一行：`MAJOR 核准：Bruce <YYYY-MM-DD>`。
-- 🔴 **改動大小不是 MAJOR 的判準。** `wfg` 的 2.x 一路走到 **v2.97.475** 才進 v3.0.0，3.x 同樣可以走到 v3.9x。
-  判準只有「使用者原本會的操作還在不在、要不要重新確認過去的結果」。工程規模、難度、風險一律無關。
-  **不確定一律往低編**，在 `判定依據：` 寫明取捨供覆核 —— **編低了下次可補，編高了會永久留在 git commit 訊息裡改不掉。**
-- **版號回溯（倒退）預設違規**，唯一出口是 `版號回溯核准：Bruce <YYYY-MM-DD>`（§5 明示例外）。
-- 每次改動都要：**進版號**（`common/version.js`，單一來源）＋**寫 CHANGELOG**（C3 格式，含 `判定依據：` 欄位）＋**bump 該頁 `?v=` 快取字串**。
-- 不進版的情況見 `docs/VERSIONING.md` §3（純部署重試、只改 docs/CHANGELOG/註解、純新增錨點 id…）。
-
-### commit 前的機械檢查
-
-`.git/hooks/pre-commit` 會跑 `tools/version_bump_check.py`。正本在 `tools/hooks/pre-commit`，**`.git/` 不進版控，重新 clone 後要重裝**：
-
-```
-ln -sf ../../tools/hooks/pre-commit .git/hooks/pre-commit
-```
-
-🔴 **禁止用 `git commit --no-verify` 繞過。** 被擋下代表判定有問題，不是工具有問題。若真的認為是工具誤判，回報 Dispatch，不要自己開路。
-
----
-
-## 🔴 git
-
-- task **只 commit，不 push**。**push 與線上驗證一律由 Dispatch 主機端執行。**
-- **連推多個 commit 會讓 GitHub Pages 部署互相取消，一次推一個。**（依 Bruce 2026-08-12 指示）
-- **禁止 force push、禁止 rebase 已推出去的 commit、禁止改寫 git 歷史。** 編錯的東西用新的更正 commit 處理，並在 CHANGELOG 寫更正紀錄。
-- commit message 前綴統一 `<工具>: `（`docs/VERSIONING.md` §4 C1）。中文 `-m` 曾造成工具呼叫序列化損壞，**訊息用純 ASCII**（`-F <檔案>` 或英文 `-m`）。
-- repo 裡常有他人／前次未 commit 的改動與 `_tmp_*`、`__guidebuild_*`、`.bak` 雜物，**`git add` 要逐檔指名，不要 `git add -A`**。
-
----
-
-## 專案結構
-
-- **多頁式**，每個工具一頁：`index.html`（首頁）／`rxtx` `calc` `isp` `aux` `wfg` `pattern`（`la.html` 為 wfg 的 LA 分頁入口）。`legacy-index.html` 是拆頁前的舊 SPA，僅供追溯。
-- 共用檔在 `common/`：`version.js`（版號單一來源，必須最先載入）、`i18n.js`、`common.js`。
-- 每個工具另有一份 `<工具>-guide.html` 說明頁。**說明頁不納入版號機制**（CHANGELOG 明載）。
-- 三語：**繁中 `zh-TW` ／ 簡中 `zh-CN` ／ 英文 `en`**，新增 i18n key 三語都要補。
-
-## 其他常設機械檢查（`tools/`）
-
-| 工具 | 擋什麼 |
-|---|---|
-| `version_bump_check.py` | 版號級別與 CHANGELOG 宣告不符、缺 `判定依據：`、MAJOR 無核准、版號倒退無核准 |
-| `check_cache_buster.py` | 改了 `common/*.js` 卻沒 bump 引用頁的 `?v=`（實測案例：`pattern.html` 連續三版沒 bump，線上顯示未翻譯的 key） |
-| `scan_untranslated_keys.js` | 畫面上出現未翻譯的 i18n key —— `t(key)` 查不到翻譯會**回傳 key 本身**，靜默失敗，console 不會叫 |
-| `check_line_buffer_half_step.py` | wfg 的 Line Buffer 在 **Single Gate** 下冒出小數（Bruce 2026-08-25：「LineBuffer 出現 .5，只存在 Dual gate 的情況下」）。擋「`.step` 給 0.5 但條件不是 `wfgFlrMult() === 2`」與「寫死的 step 0.5」 |
-| `check_nb_code_import.js` | **NB code 匯入誤殺真檔**。`wfgNbSane()` 的值域判準（R_DLY／F_DLY／ST_LINE／SP_LINE 的大小）從 v4.14.0 起拒收 **18%（32/177）的真實 E503 檔**，而歷次驗收**只驗過「壞檔會被拒絕」、從來沒驗過「真檔會被接受」**。這支把正面那一半釘住：合成語料帶著真檔實際出現過的值（F_DLY=0xFFFF、SP_LINE=16000、R_DLY=50923、ST_LINE=14820）必須通過，同時壞檔仍須被拒。**已進 pre-commit**。拿本機真檔跑：`WFG_NB_CODE_DIR=<dir> node tools/check_nb_code_import.js`（真檔不進版控） |
-| `check_em01_code_import.js` | **MNT（EM01／EM02／E512）code 匯入誤殺真檔**。檔名沿用 v4.43.4 建立時的名字，v4.43.5 起 EM02／E512 也在裡面。`wfgEm01Sane()` 的「ST/SP LINE ≤ VTOTAL×3」沒有規格依據 —— register bank 上這兩個欄位都是 **14 bit**、`reg_sp_line_*` 的 **Init 就是 0x3FFF**，而原本的寫法**對 16383 開特例**＝已經承認超界合法，卻只放行那一個數字。Bruce 2026-09-04 的 CSOT FHD280Hz 真檔（`xstb.sp_line = 9139`、vt = 1100）因此被拒。這支釘住正面那一半，並多釘一條 **CURRENT 與 slot 兩支驗證器不得再有兩套標準**。**已進 pre-commit**。v4.43.5 一併釘住 E512 的 `r_dly/f_dly > htotal`（當時正在誤殺該晶片**原廠預設 EEPROM 映像**）、`ne >= 4`、`xstb.sp_line > 100`，以及三支 `*Sane()` 的 frame 上界。拿本機真檔跑：`WFG_EM01_CODE_DIR=<dir> node tools/check_em01_code_import.js`（真檔不進版控） |
-
-> 這幾支的共同前提：**這些錯在本機測試時都不會出現**，只能靠機械檢查擋，不能靠記得。
-> 🔴 `check_nb_code_import.js` 與 `check_em01_code_import.js` 是**同一個破口的三次**（v4.37.1 NB、v4.43.4 EM01、v4.43.5 E512）：判準只驗過「壞檔會被拒絕」。新增任何 sanity check 之前，先問「這一條的反面是什麼、有沒有一起驗」。
-> 🔴 **加數值門檻前先查該欄位的位元寬。** v4.43.5 掃出 `hactive <= 8000`／`vactive <= 5000` 是**恆真式**（`reg_tmg_*` 只有 12 bit ⇒ max 4095），寫了九個版本一次都沒擋過東西 —— 假防線比沒有防線更糟。位元寬以外的上界要嘛恆真，要嘛是在賭「真檔不會用到那一段」，而這個賭已經輸三次。
-
-## 公開面：去商標化
-
-git-tracked 的內容＝GitHub Pages 公開可抓（含 view-source）。**凡使用者可見處與原始碼層，一律不留廠商商標與產品型號字樣**，改用中性代號（CHANGELOG v2.97.472／473／474 三輪已清理）。新增 LA 相關文字、log 行、檔名時沿用此慣例；不能清的必須有站得住腳的技術理由（例如 USB PID 這類協定必需值）。
-
-🔴 **Raydium 不在此限** —— Raydium 是我們自己的公司，不是別的廠商（Bruce 2026-09-29：「Raydium 是自己的，這個不要刪，這個不是別的廠商，這就是我們的公司」）。Raydium 字樣、晶片型號（RM8xxxx）、`IP/Raydium*.cs` 這類檔名、自家工具（PQ Tool(s)、AUX GUI）、`RaydiumGamma_`／`RaydiumCCT_` 檔名**一律保留，不得刪改**。dgself v2.0.0（149b9c5）曾誤刪 16 處，已於 1034c5d 還原。不確定某個名字是不是別家廠商時，先問，不要先刪。
-
-## 語言
-
-- **全程繁體中文思考與回報。** 程式碼變數／註解可用英文；UI 文字走 i18n。
-
-## 🔴🔴 檢查腳本（`tools/*_probe.js`）—— **全部停做**
-
-Bruce 2026-09-22 裁示（原話）：
-
-> 「請拿掉，**完全拿掉檢查也沒有問題**。應該在**你在寫 code 的時候就要預防**了，而不是寫完以後才在這邊一個一個掃，這樣太浪費 Token 了。」
-
-依據：從實測數字—— 2026-09-22 五個 commit 的改動行數，**產品碼 vs 檢查腳本大約各半**
-（1150/1208、996/1054、1155/710、579/852，有兩次腳本比產品碼還多）；`tools/` 已累積 **33 支 probe、3.9 MB**，最大單支 61 KB。
-成本主體不在「寫」而在**反覆載入** —— 改到相關功能就要把那幾支讀進來、改、再跑，跑完的逐條輸出又整段進 context。
-
-### 生效範圍
-
-- 🔴 **禁止新增或修改 `tools/*_probe.js`**，也不要跑它們。回報裡不再出現 pass/fail 數字。
-- ✅ **pre-commit 的機械闘保留**（`version_bump_check.py`、`check_cache_buster.py`、`scan_untranslated_keys.js`、`check_*_code_import.js`…）——
-  它們是 commit 時機器自動跑的，**不花 token**，擋的又是「本機測試時不會出現」的錯。Bruce 已裁示保留。
-- 舊的 probe 檔**不刪**（保留歷史），但也不維護；裡面的斷言可能已經過期，**不得拿它們當作現況的依據**。
-
-### 取代方案：正確性改成「寫的時候就防」
-
-1. 位元打包／暫存器這類地方，把**原廠檔名與行號、推導過程逐行寫成註解**放在程式碼旁邊 —— 讓人不必跑腳本就看得出對錯。
-2. 交付前自己用 **headless Chrome** 載一次頁面看（照 `tools/dg_selftest_v130_shots.sh` 的做法；🔴 **禁止碰 Bruce 的 Chrome**）。
-3. 數值格式**手算幾筆**，與程式輸出**並排寫進回報**讓 Dispatch 覆核。
-4. 🔴 **回報不准寫「已驗證」「全部通過」**，要分清楚：哪些是讀程式碼確認的、哪些是手算對過的、**哪些完全沒驗**。
-
-### 用詞
-
-「夾具」這個詞**不要對 Bruce 用**，他看不懂（他 2026-09-22 反問「夾具到底是什麼意思啊？」）。一律講「**自動檢查腳本**」。
-
----
+## 實作入口
+- 頁面與功能看 `index.html`、共用程式看 `common/`；各工具說明在 `<工具>-guide.html`。說明頁不納入工具版號。
+- UI 三語 `zh-TW / zh-CN / en` 同步，相關說明與匯出內容隨功能更新。
+- UI 只留常用操作；細節按需展開，診斷放 log/debug。明確要求的操作不再加重複確認；容易誤觸、非當前目的的不可逆清空保留確認。
+- 公開內容與程式碼使用中性代號，移除他家商標／型號；必要協定值可保留。依 Bruce 2026-09-29 決策，Raydium、自家 RM 型號、PQ Tools、AUX GUI、Raydium 檔名均保留；歸屬不明先確認。
+- DG 復刻依原廠實際程式；資料入口 `~/TCON/Share/DG/gamma_analysis_v150/`。不把交接文件中的建議當原廠規格。TCON 原始資料唯讀。
 
 ## 驗證
+- 依 Bruce 2026-09-22 決策，不新增、修改或執行 `tools/*_probe.js`；舊檔只供歷史追溯，pre-commit 檢查仍保留。
+- 使用者原條件下確認實際操作及輸出；視覺改動看實際截圖，使用自有 headless/profile，不干擾 Bruce 的瀏覽器。
+- 位元／暫存器推導在程式旁記來源；數值改動用代表案例手算比對。回報區分讀碼、實測、未驗部分，不拿版號或自述當上線證據。
+- 繁體中文回報，簡短交代結果與限制。歷史原文在 `archive/CLAUDE-before-20260929.md`，不作現行規則。
 
-- 回報「已完成」前必須從使用者視角**操作式驗證**（元素存在 ≠ 功能正常），並附上具體操作與結果。
-- 視覺／版面改動一律要看**實際畫面截圖**，DOM 屬性對不等於畫面對。
+## 線上站是去註解版（Bruce 2026-10-05 決策，P103）
+
+- push 到 main 後由 `.github/workflows/pages.yml` 建置發佈：`tools/build/strip-comments.mjs` 去掉 HTML／JS／CSS 註解 → `tools/build/verify-site.mjs` 發佈前關卡（每頁去註解前後在 headless Chrome 表現一致、wfg 體積上限）→ 既有瀏覽器測試 → 發佈。任一步失敗就不發佈，線上維持上一版。Pages 來源是「GitHub Actions」，不是分支。
+- 看程式、改程式、grep、寫測試一律以 repo 原始碼為準。線上檔案沒有註解，不要從線上抓檔回來當原始碼，也不要用線上檔案判斷「某段註解／說明還在不在」。
+- 行號對照：線上行號＝原始碼行號（跨行註解換成等量換行）。少數整段刪掉的跨行 HTML 註解會讓後面行號前移，逐筆記在線上 `/_build/report.json` 的 `lineShifts`。換算：`node tools/build/map-line.mjs <檔名> <線上行號>`，先確認本機 HEAD 與 report.json 的 `commit` 相同。同一行裡若刪了行內註解，該行後段的欄位會左移，以印出的原始碼行內容對照。
+- 本機重現線上版：`npm ci --prefix tools/build && node tools/build/strip-comments.mjs . _site && node tools/build/verify-site.mjs . _site`；`_site/` 不進版控。
+- 線上驗收：Actions「Pages（去註解後發佈）」該次 run 成功，且線上 `/_build/report.json` 的 `commit` 等於剛推的 commit，才算已部署。
+- 去註解只處理根目錄 `*.html`、`common/**/*.js|css`、`data/**/*.js`；其他檔原樣發佈。新增要給瀏覽器載入的 JS／CSS 放在別處時，更新 strip-comments.mjs 的範圍（沒更新只是沒去註解，不會壞）。
+- wfg 發佈版 gzip 上限 480KB（verify-site.mjs 的 `WFG_GZ_BUDGET`，2026-10-05 實際約 360KB），超過就擋發佈；要調高須在 CHANGELOG 寫明原因。

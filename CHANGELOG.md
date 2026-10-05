@@ -2,6 +2,32 @@
 
 ---
 
+## 部署：線上站改為去註解後發佈 — 2026-10-05 ｜ 不進版
+
+**push 到 main 後改由 GitHub Actions 先去掉 HTML／JS／CSS 註解、通過發佈前關卡才發佈。畫面與功能不變；wfg.html 下載量（gzip）909KB → 約 360KB。**
+
+判定依據：`docs/VERSIONING.md` §3「不進版的情況」——只改部署流程與建置工具，沒有任何分頁的顯示、計算、事件行為改變（發佈前關卡逐頁比對去註解前後一致），不動工具版號。
+
+### 起因
+Bruce 2026-10-05：「從首頁進到 WFG 分頁…一直在轉圈圈，可能要跑到將近一分鐘網頁才會出來。」
+實測（Mac mini，自有 headless Chrome＋curl）：時間全花在下載 wfg.html；有快取時 0.1 秒開好。wfg.html 9/21 後沒改過，原因是這段網路到 GitHub Pages 只有 45～470 KB/s（同時 Cloudflare 17 MB/s、本機頻寬 683 Mbps、GitHub 狀態正常），而 wfg.html 是全站最大頁（原始 2.87MB／gzip 909KB，約六成是註解）。Bruce 選 A：部署時去註解（他已了解：檢視原始碼看不到註解、線上錯誤行號要對照原始碼）。
+
+### 改了什麼
+- `.github/workflows/pages.yml`：checkout → `tools/build/strip-comments.mjs` → `tools/build/verify-site.mjs` → `_site/tests/la/decode_max_collapsed.test.mjs` → 發佈到 Pages。任一步失敗不發佈，線上維持上一版。Pages 來源改為 GitHub Actions。
+- `tools/build/strip-comments.mjs`：用解析器定位註解（HTML：parse5；JS：acorn；CSS：postcss tokenizer），不用正規式猜。保留 `/*! */`、@license、@preserve、sourceMappingURL、HTML 條件註解；不碰非 JS 的 `<script>`、on* 屬性、style 屬性。跨行註解換成等量換行 → 線上行號＝原始碼行號；例外記在 `_site/_build/report.json` 的 `lineShifts`。自我驗證：JS token 序列（含換行＝ASI 依據）、CSS token 序列（含空白有無）、HTML 元素樹、行數，去註解前後必須一致，否則 exit 1。
+- `tools/build/verify-site.mjs`：兩個本機伺服器（原始碼／去註解版）＋自有暫存 profile 的 headless Chrome，逐頁比 JS 例外、console.error、載入失敗資源、元素數、id、畫面文字、標題；另有 wfg 發佈版 gzip 上限 480KB（防回歸）。
+- `tools/build/map-line.mjs`：線上行號換算原始碼行號。
+- `tools/build/package.json`／`package-lock.json`：acorn 8.19.0、parse5 7.3.0、postcss 8.5.29。
+- `CLAUDE.md`：新增「線上站是去註解版」一節（看程式以 repo 為準、行號對照方法、本機重現、線上驗收方式）。
+- `.gitignore`：`_site/`、`tools/build/node_modules/`。
+
+### 證據
+- 去註解：全站 37 頁＋common/data JS/CSS 自我驗證全過；wfg.html 2,873,047 → 1,673,596 B，gzip 898,613 → 367,944 B（−59%）。
+- 發佈前關卡（本機）：37 頁全過；dg-measure.html、fstest.html 的畫面文字原始碼自己每次都不同（含時間），該項不列比對。
+- 既有測試跑在去註解版上：LA `decode_max_collapsed` 6/6 過；dgself 回歸見完成回報。
+
+---
+
 ## 面板訊號模擬與取樣 (wfg) v4.53.2 — 2026-10-05 ｜ PATCH
 
 **LA 分頁「解碼結果」卡片收折時按 ⛶（最大化），不再是一整片空白：最大化會自動把卡片展開、看得到解碼表格；按 ⇱ 還原後回到原本的收折狀態。最大化時點卡片標題列＝退出最大化並收折。**
