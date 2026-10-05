@@ -3,7 +3,7 @@
 ## 決策與交付
 - 進版先讀 `docs/VERSIONING.md`，依 R1～R4 取最高級別；MAJOR／開新波次與版號回溯須 Bruce 明確核准，並依文件記錄核准日期。不自行宣告波次結束。
 - 依該文件的例外判斷是否進版；需進版時同步 `common/version.js`、CHANGELOG（含判定依據）、受影響頁面的 `?v=`。
-- 保留 pre-commit 機械檢查，正本 `tools/hooks/pre-commit`；新 clone 安裝到 `.git/hooks/pre-commit`。不得用 `--no-verify` 繞過；疑似誤判交由 Dispatch 分派處理。
+- 保留 pre-commit 機械檢查，正本在 `tools/hooks/`；新 clone／新 worktree 先跑 `sh tools/setup-hooks.sh`。提交步驟（只 add 自己的檔、commit 前核對 staged 清單等）見 `AGENTS.md`「git 提交安全」，Claude 同樣適用。不得用 `--no-verify` 繞過；疑似誤判交由 Dispatch 分派處理。
 - 實作任務只修改與 commit。push 與線上驗收由 Dispatch 指派具授權的主機端執行者；Dispatch 負責追蹤及轉告（依 Bruce 2026-09-29 分工）。當批需求完成後才推，一次推一個 commit 並等部署完成；當次另有批次指示時依其指示。
 - 不 force push、不 rebase 已推出的 commit、不改寫歷史；修正用新 commit。逐檔 `git add`，保留他人改動；同一工作區避免多人同時寫。
 - commit 前綴 `<工具>: `，訊息用 ASCII。CHANGELOG 寫給接手 agent：說明變更、原因與證據；保留 Bruce 署名，以中性語句記錄決策。

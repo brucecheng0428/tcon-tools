@@ -1,0 +1,27 @@
+#!/bin/sh
+# commit-msg：過期 index 防線第二道（P105，2026-10-05）。
+#   pre-commit 擋「刪掉仍在工作區的檔」；這裡擋「把檔案退回較舊的已提交版本」，
+#   並在通過後於 commit message 加上 trailer「Guard-Checked: tcon-hooks」。
+#   GitHub 上的 history-guard workflow 用同一支 tools/guard/history_guard.py 再檢查一次；
+#   沒有這個 trailer 的 commit ＝ 沒裝 hook 或用了 --no-verify，會在 GitHub 上被標出。
+#   刻意退版：commit message 寫「Allow-Revert: <原因>」；刻意大量刪除：「Allow-Mass-Delete: <原因>」。
+#   檢查跑不起來（rc=2）不當作通過。
+REPO="$(git rev-parse --show-toplevel)"
+G="$REPO/tools/guard/history_guard.py"
+if [ ! -f "$G" ]; then
+  echo "🛑 找不到 $G —— 退版檢查無法執行，commit 已中止。"
+  exit 1
+fi
+python3 "$G" --staged --msg-file "$1"
+rc=$?
+if [ $rc -eq 1 ]; then
+  echo "🛑 退版／大量刪除檢查不通過，commit 已中止。"
+  exit 1
+fi
+if [ $rc -ne 0 ]; then
+  echo "🛑 退版檢查跑不起來（rc=$rc），commit 已中止 —— 檢查失效不當作通過。"
+  exit 1
+fi
+git interpret-trailers --in-place --if-exists replace --trailer "Guard-Checked: tcon-hooks" "$1" || {
+  echo "🛑 無法寫入 Guard-Checked trailer，commit 已中止。"; exit 1; }
+exit 0
