@@ -2,6 +2,42 @@
 
 ---
 
+## Data Mapping (datamap) v1.2.1 — 2026-10-07 ｜ PATCH
+
+**MNT 第二組 r2..b3：Zigzag type7／type8 改為長循環（line 5~8），開放 24 格第二組下拉。**
+
+### 需求（Bruce 2026-10-07 原話）
+
+> Dispatch 問：「研究報告建議把 Zigzag type7/8 也歸成長循環，但這版是照你說的條件，把它歸在短循環，目前列在已知限制裡。要不要也把它改成長循環？」Bruce 回：「ok」
+
+### 改了什麼
+
+- v1.2.1：Zigzag type7/8 改為長循環（Bruce 10/7 同意）。
+  - 對應值：panel_mode＝1（EM02 原廠 UI 的 Zigzag，rt7+0x00[2:1]）、sub_panel_mode＝6（type7，ZZ+LLLLRRRR）／7（type8，ZZ+RRRRLLLL）（rt7+0x00[7:5]），force_sel_en＝1（Manual）。ltps_zz 不參與判定（只有 LTPS 用）。
+  - 第二組實際意義：line 5~8。依 #9b56c775 報告（EM02_第二組DataMapping規則_報告_20261007.md）：1D1G／Zigzag 第一組 `_0~_3`＝gate line 1~4，第二組＝line 5~8（ZigZag.png）；LOD 循環 8 line×1 pixel（RApp_Table.h stLOD_DataType 第 7、8 筆）；xlsx「register force setting」第 15、16 列兩組不同。
+  - 沒有要固定寫 0 的格子（不像 MUX3 的 _1／_3）：報告 §5 對 ZZ type7/8 是 `cells: 'all'`，xlsx 第 15、16 列 24 格都有值。
+  - `secondSetRule`：pm＝1 且 sub＝6／7（Manual）⇒ `mode 'free'、cycle 'long'、meaning 'line58'`。Auto（force_sel_en＝0）仍是 ignored。新增 `secondMeaning(row)`：`_0~_3` 依序回 `line5~line8`，頁面每格下方標「line 5」…「line 8」，判定列寫「長循環 — 第二組＝line 5~8（_0~_3 依序 line 5、6、7、8）」。
+  - 行為同其他長循環：改第一組不動第二組（使用者自己填）；選項 0~29＋X(31)，0 是有效值；第二組被填過才進匯出 script／Write to TCON。
+- 原廠預設樣式 (7)(8)(15)(16) 本身是 Auto（force_sel_en＝0），套用後仍是 Auto，不受影響。
+- 其他頁面沒有動；datamap.html 的 cache buster 改為 `?v=20261007dm121`。
+
+### 證據
+
+- `node tools/check_datamap.js` ✓ 282／0（v1.2.0 是 249）。新增：EM01／EM02／E512 各自的 Zigzag type7、type8 ⇒ 長循環、24 格可填、`_0~_3`＝line 5~8；Auto ⇒ ignored；改第一組不動第二組；24 格各填（含 0、X＝31）後匯出 script 的 24 行 `write -m <r2..b3 位址> <值> 1F` 逐格相符、第一組不變；30 拒絕；type1~6 仍短循環；I2C 假裝置 Zigzag type7 填 r2_3 只寫那一個位址、讀回相符。用 v1.2.0 的 datamap-core.js 跑同一份測試會失敗（確認測試有抓到改動）。
+- 真檔：`--real ~/BOEMNT ~/TCON/Model --pyui <SourceCode_V5.0.4>`（2032 支，含 473 支 MNT）✓ 3822／0。另掃 473 支 MNT 的循環判定：Zigzag type7/8 0 支（Manual 或 Auto 都沒有），所以沒有真檔可對拍（見已知限制）。headless 以外另在 Chrome 開本機頁面：EM02 套 (7) ZZ+LLLLRRRR、勾 Hand Mode ⇒ 判定列顯示長循環 line 5~8、24 格可選、每格標 line 5~8；r2_3 選 5、g2_0 選 X ⇒ 匯出 script 寫 `write -m 04E1 05 1F`、`write -m 04E2 1F 1F`。
+- `tools/build/verify-site.mjs`：去註解前後 38 頁一致 ✓。
+
+### 版號判定
+
+判定依據：`docs/VERSIONING.md` §1，PATCH：同一個功能（第二組循環判定）多涵蓋兩種 sub panel 模式，修正 v1.2.0 已知限制；沒有新增步驟或移除功能。
+
+### 已知限制
+
+- Zigzag type7/8＋Manual 的真檔：本機 473 支 MNT code 裡 0 支（與 #9b56c775 報告 577 支 0 支一致），所以沒有真檔可以對拍，line 5~8 的意義來自原廠圖、LOD 表與 xlsx。
+- v1.2.0 已知限制 1~6 不變。
+
+---
+
 ## Data Mapping (datamap) v1.2.0 — 2026-10-07 ｜ MINOR
 
 **外觀改回站內風格（拿掉 v1.1.0 的淺灰 Windows 仿製區），內容與規則照 Python UI；每一格改成下拉選單；步驟式流程、未匯出提示、精簡 Code 表、訊息集中。** Python UI 的計算與輸出不變（自測與 --pyui 真檔對拍全過）。
@@ -28,7 +64,7 @@
   - 短循環（不是下面三種）：第二組隱藏；使用者改第一組時第二組自動＝第一組（`syncSecondSet` policy 'mirror'），沒改第一組就保留原值，匯出 script 與 Write to TCON 都不出現 r2..b3。
   - 長循環：HSD sub4「8-pixel」（第二組＝pixel 5~8）、HSD sub5「4line,4pixel」（第 3~4 列 G5~G8）、LTPS MUX3（sub 0/2/4/6，第 3 個 mux 時槽）⇒ 開放 24 格下拉（0~29＋X＝31，0 是有效值 R3），每格標實際意義；MUX3 只開 _0／_2，_1／_3 一律寫 0。改第一組不動第二組。
   - 套用原廠預設樣式：兩組都照原廠表 RApp_TX.h:530-567 寫入（(23)(28)(32) 第二組全 0，(18)-(21)、(29)-(31) 獨立值）。⚠ **與原廠工具實際行為不同**：原廠 `RApp_TX_RT7_DataMapping_RegSet` 用 `u8reg_force_sel[i-10]`／`[i-34]`（TX.cpp:10934、10939），但 r0_0 的 index 是 11（TX.h:57），整組錯開 1 byte（r0_0、r2_0 沒寫到，b1_3 寫進 rt7+0x1B、b3_3 寫進 rt7+0x76）。網頁照語意位址寫（r0_0→rt7+0x03、r2_0→rt7+0x5E），不照抄這個 bug；自測確認 rt7+0x1B／0x76 不會被寫。
-  - 與報告的差異：報告的 `secondSetRule` 另把 Zigzag type7/8 與 reg_nml_4line_4pix_en 列為 free；Dispatch 10/7 的條件只列上面三種長循環，本版照 Dispatch，這兩種歸短循環（見已知限制）。
+  - 與報告的差異：報告的 `secondSetRule` 另把 Zigzag type7/8 與 reg_nml_4line_4pix_en 列為 free；Dispatch 10/7 的條件只列上面三種長循環，本版照 Dispatch，這兩種歸短循環（Zigzag type7/8 已在 v1.2.1 改為長循環）。
 - EM02 規則解析時 Data Mapping byte 的 [7:5]≠0 ⇒ 判定可能是 V512，只讀不寫（表格、匯出、寫入都鎖住），畫面提示。
 
 ### 未改的（功能不退步）
@@ -54,7 +90,7 @@ I2C 即時讀寫（含 M-Bus to C-Bus、E503 3E:0059 條件）、Check T-CON、�
 4. 長循環第二組的名稱表（原廠 rt7_data_mapping.xls 本機找不到）：下拉以數字為主，0~17 附 GN1 名稱、18~29 只有數字。
 5. EM02 是否真的移除了 first_2_line 覆寫組（Excel 與 WPF model 不一致）；EM01 的 first_2_line（rt7+0x1F[4]）網頁沒有處理。
 6. 原廠 RegSet 的 off-by-one 只在原始碼層級發現，沒有在實機或原廠工具上重現過。
-- 另：Zigzag type7/8（報告推定需要 line 5~8）本版照 Dispatch 條件歸短循環，Manual 模式下若實際需要獨立第二組，要再調整 `secondSetRule`。
+- v1.2.1：Zigzag type7/8 改為長循環（Bruce 10/7 同意）。
 - 舊有：EM01 Flash 定位會把少數非 EM01 的 code（例如 NT71855、RM80100）誤認成 EM01（v1.0.0 起就有，這版沒改）。
 
 ---
