@@ -85,9 +85,9 @@ function fakeE501(isA, o) {
       if (s === 0x7C && a === 0x98) return [o.v98 !== undefined ? o.v98 : 0x01];
       if (s === 0x7C && a === 0xD8) return [0x02];
       if (s === 0x7C && a === 0xBB) return [0x00, 0x00, 0x00];
-      if (s === 0x7D && a === 0x0246) return [0xEF, 0x40, 0x16];
+      if (s === 0x7D && a === 0x0246) return (o.id || [0xEF, 0x40, 0x16]).slice();
       if (s === 0x7C && a === 0xD0) {
-        if (mode === 0x9F) return [0xEF, 0x40, 0x15].slice(0, n);
+        if (mode === 0x9F) return (o.id || [0xEF, 0x40, 0x15]).slice(0, n);
         if (mode === 0x05) { if (busy > 0) { busy--; return [0x03]; } return [0x00]; }
         const ad = addrAt(0xAF); return Array.from(mem.slice(ad, ad + n));
       }
@@ -119,7 +119,7 @@ function fakeEM01(o) {
         if (flip > 0) { ahb[aa + 3] ^= (flip & 0xFF) || 1; flip--; }   /* 每次翻不同的值 ⇒ 連續兩次讀到的不同 */
         else if (vflip > 0) { ahb[aa + 9] ^= 0x01; vflip--; }
       }
-      if (a === 0xFE10 && b[0] === 0x02) { reg[0xFE46] = 0xEF; reg[0xFE47] = 0x40; reg[0xFE48] = 0x16; }
+      if (a === 0xFE10 && b[0] === 0x02) { const id = o.id || [0xEF, 0x40, 0x16]; reg[0xFE46] = id[0]; reg[0xFE47] = id[1]; reg[0xFE48] = id[2]; }
       if (a === 0xFE02) cmd = b[0];
       if (a === 0xFE09 && b[0] === 0x20) sr0 = reg[0xFE4B];
     },
@@ -621,10 +621,19 @@ function en01Header(maps, flags) {
   }
 
   /* ════════════════════════ 共用 ════════════════════════ */
-  G('JEDEC 容量用容量碼 2^n（修正原廠表的 bit／byte 錯置）');
-  EQ(SF.jedecInfo([0x85, 0x60, 0x10]).size, 0x10000, 'PUYA P25Q05U＝64 KB（PY:2590 寫 512K Bytes、EMH:150 寫 0x80000 都是錯的）');
-  EQ(SF.jedecInfo([0xC8, 0x60, 0x13]).size, 0x80000, 'GD25LE40C＝512 KB');
-  EQ(SF.jedecInfo([0xEF, 0x40, 0x14]).size, 0x100000, 'W25Q80BL＝1 MB（與兩張表相同）');
+  G('v1.33.1 JEDEC 容量：原廠表＝容量碼 2^n 才算確定，其他一律不確定（size 0）');
+  {
+    const J = id => { const f = SF.jedecInfo(id); return [f.size, f.sizeSure, f.codeSize, f.tblSize, f.why]; };
+    EQ(J([0xEF, 0x40, 0x16]), [0x400000, true, 0x400000, 0x400000, ''], 'W25Q32BV：4 MB 確定（EMH:123 0x00400000＝2^0x16）');
+    EQ(J([0xEF, 0x40, 0x14]), [0x100000, true, 0x100000, 0x100000, ''], 'W25Q80BL：1 MB 確定');
+    EQ(J([0xC2, 0x28, 0x16]), [0x400000, true, 0x400000, 0x400000, ''], 'MX25R3235F：4 MB 確定');
+    EQ(J([0x68, 0x40, 0x18]), [0x1000000, true, 0x1000000, 0x1000000, ''], 'BY25Q128AS：16 MB 確定');
+    EQ(J([0xEF, 0x30, 0x10]), [0x10000, true, 0x10000, 0x10000, ''], 'W25X05CL：64 KB 確定（真的小於 0x40000 的情況）');
+    EQ(J([0x85, 0x60, 0x10]), [0, false, 0x10000, 0x80000, 'tblMismatch'], 'P25Q05U：容量碼 64 KB vs EMH:150 0x80000 ⇒ 不確定');
+    EQ(J([0xC8, 0x60, 0x13]), [0, false, 0x80000, 0x400000, 'tblMismatch'], 'GD25LE40C：容量碼 512 KB vs 表 4 MB ⇒ 不確定');
+    EQ(J([0x20, 0xBA, 0x10]), [0, false, 0x10000, 0, 'notInTable'], '🔴 不在表、第三 byte 0x10 ⇒ 不確定（v1.33.0 會當成 64 KB）');
+    EQ(J([0x1F, 0x86, 0x01]), [0, false, 0, 0, 'notInTable'], '不在表、容量碼不合理 ⇒ 不確定');
+  }
   EQ(SF.jedecInfo([0xFF, 0xFF, 0xFF]).blank, true, 'FF FF FF ⇒ 沒有 Flash');
   EQ(SF.jedecInfo([0x00, 0x00, 0x00]).blank, true, '00 00 00 ⇒ 沒有 Flash');
   G('範圍檢查');
@@ -795,9 +804,54 @@ function en01Header(maps, flags) {
     CHECK(/E501B/.test($('sf-id').textContent) && /0x00/.test($('sf-id').textContent), '顯示選的與讀到的不同：' + $('sf-id').textContent);
     CHECK($('sf-read').disabled && $('sf-write').disabled, '讀寫都停用');
 
-    G('畫面：自動判斷（E501）');
-    dev = fakeE501(true); await SFU.auto();
-    EQ($('sf-model').value, 'E501A', '7C:95＝00 ⇒ E501A');
+    /* v1.33.1（Bruce 2026-10-06「沒有先 check tcon，而直接按下…「自動判斷」，為什麼它不會去做 check tcon 的動作？」）：
+       修改前 i2ctSfAuto 只讀 7C:95／98、只分 E501A／B，不跑 0xFF00 IC ID 那段，也不回寫 ②／①。 */
+    G('畫面：v1.33.1 自動判斷＝② Check T-CON（同一支函式），結果同步 ② 與 ①');
+    {
+      await A.disconnect(); await sleep(10); await A.connect(); for (let i = 0; i < 200 && A.state().busy; i++) await sleep(10);
+      EQ(win.i2ctCkResult, null, '重連後沒有 Check T-CON 結果');
+      CHECK(!vis($('sf-recheck')), '沒有結果時不顯示「重新判斷」');
+      SFU.setModel('');
+      CHECK(vis($('sf-auto')) && !$('sf-auto').disabled, '自動判斷鈕顯示、可按');
+      dev = fakeE501(true); let n1 = sent.length; const l1 = SFU.logText().length;
+      await SFU.auto();
+      const reads = since(n1).filter(m => m.type === 'read').map(asLine);
+      CHECK(reads.includes(Rd(0x7C, 1, 0x95, 1)) && reads.includes(Rd(0x7C, 1, 0x98, 1)), '跑了 Check T-CON 第一段（7C:95／98）');
+      CHECK(since(n1).some(m => m.type === 'read' && m.addr === 0xFF00), '也跑了第二段 0xFF00 IC ID（舊版自動判斷不會）');
+      EQ([win.i2ctCkResult && win.i2ctCkResult.name, $('sf-model').value, SFU.state().src], ['E501A', 'E501A', 'ck'], '結果寫進 i2ctCkResult，型號依 Check T-CON 帶入');
+      CHECK(/E501A/.test($('tcon-name').textContent), '② T-CON 欄同步：' + $('tcon-name').textContent);
+      CHECK(/E501A/.test($('conn-info').textContent), '① T-CON 欄同步：' + $('conn-info').textContent);
+      CHECK(/還沒有 Check T-CON 結果，執行 ② Check T-CON/.test(SFU.logText().slice(l1)), 'Flash log 寫明執行了 Check T-CON');
+      EQ($('sf-rd-len').value, '0x040000', '帶入 E501A 後長度欄 0x040000');
+      CHECK(vis($('sf-recheck')), '有結果 ⇒ 出現「重新判斷」');
+      /* 已有結果 ⇒ 沿用，不送任何 I2C */
+      n1 = sent.length; const l2 = SFU.logText().length;
+      await SFU.auto();
+      EQ(since(n1).length, 0, '再按自動判斷 ⇒ 沿用結果，不送 I2C');
+      CHECK(/沿用 ② Check T-CON 結果 E501A/.test(SFU.logText().slice(l2)), 'log 寫沿用與「重新判斷」的方法');
+      /* 重新判斷 ⇒ 一定重跑（換板子：E501A → E501B） */
+      dev = fakeE501(false); n1 = sent.length;
+      await SFU.recheck();
+      CHECK(since(n1).some(m => m.type === 'read' && m.addr === 0x95), '重新判斷 ⇒ 重跑 Check T-CON');
+      EQ([/^E501B[12]$/.test(win.i2ctCkResult.name), $('sf-model').value], [true, 'E501B'], '換成 E501B 板（7C:95＝41）⇒ ② 與型號跟著變：' + win.i2ctCkResult.name);
+      CHECK(/E501B/.test($('tcon-name').textContent) && /E501B/.test($('conn-info').textContent), '② ① 同步成 E501B');
+      /* 斷線重連（結果過期）⇒ 自動判斷再跑一次 */
+      await A.disconnect(); await sleep(10);
+      EQ(win.i2ctCkResult, null, '斷線 ⇒ 結果清掉');
+      await A.connect(); for (let i = 0; i < 200 && A.state().busy; i++) await sleep(10);
+      dev = fakeE501(true); n1 = sent.length;
+      await SFU.auto();
+      CHECK(since(n1).some(m => m.type === 'read' && m.addr === 0x95) && win.i2ctCkResult.name === 'E501A', '重連後自動判斷 ⇒ 重跑，得到 E501A');
+      /* 有結果但認不出（unknown）⇒ 結果用不上，自動判斷重跑 */
+      win.i2ctCkResult = { name: '?', unknown: true, alts: [] };
+      n1 = sent.length; await SFU.auto();
+      CHECK(since(n1).some(m => m.type === 'read' && m.addr === 0x95) && win.i2ctCkResult.name === 'E501A', '結果認不出 ⇒ 自動判斷重跑');
+      /* Check T-CON 對不到外部 Flash 型號 ⇒ log 請手選 */
+      dev = fakeE501(true, { v98: 0x00 }); const l3 = SFU.logText().length;
+      await SFU.recheck();
+      CHECK(/對不到外部 Flash 型號，請手選/.test(SFU.logText().slice(l3)) && $('sf-model').value === '', '認出的不是外部 Flash 型號 ⇒ 不帶、log 請手選：' + win.i2ctCkResult.name);
+      win.i2ctCkResult = null; win.i2ctSfOnCk(); dev = fakeE501(true);
+    }
 
     G('畫面：EM01（主 code／Demura）');
     SFU.setModel('EM01');
@@ -822,17 +876,86 @@ function en01Header(maps, flags) {
 
     CHECK(!vis($('sf-eraseall')), 'EM01 沒有「整顆抹除」鈕');
 
+    /* v1.33.1：上一版（v1.33.0）只測了「頁面載入／換型號」時的 HTML value，沒測「讀 ID 之後」長度欄被
+       i2ctSfDetect 改成 min(容量, 0x40000) 的最後值；EM01 的 UI 測試只用了一顆 EF 40 16 而且沒斷言長度欄。
+       這裡逐型號 × 逐顆 ID 跑真的讀 ID 流程，直接斷言 #sf-rd-len 最後的值、畫面容量文字與 log。 */
+    G('畫面：v1.33.1 各型號讀 ID 後的長度欄（Bruce 2026-10-06「EM01 預設讀取長度是 0x040000，你卻用成 0x010000」）');
+    {
+      EQ(win.I2CT_SF_DEF_LEN_BY || null, { E501A: 0x40000, E501B: 0x40000, EM01: 0x40000, EN01: 0x20000 }, '預設長度集中在一張表：E501A／E501B／EM01＝0x40000、EN01＝0x20000');
+      /* Bruce 10/6 上機：「出現 0x010000 的條件，應該是我沒有按一下讀Flash ID時它的預設長度」——選了型號、還沒讀 ID。
+         v1.32.1 的 i2ctSfModelChanged 寫死 '0x010000'（e5613ba:i2c.html:8822）。這裡把「讀 ID 前」的每條路徑都走一次。 */
+      const DEF = { E501A: '0x040000', E501B: '0x040000', EM01: '0x040000', EN01: '0x020000' };
+      for (const m of ['E501A', 'E501B', 'EM01', 'EN01']) {
+        $('sf-rd-len').value = '0x2000'; SFU.setModel(m);
+        EQ([$('sf-rd-len').value, SFU.state().det], [DEF[m], null], m + '：手選型號後、讀 ID 前 ⇒ 長度欄 ' + DEF[m]);
+      }
+      for (const [ck, m] of [['E501A', 'E501A'], ['E501B1', 'E501B'], ['E501B2', 'E501B'], ['EM01A1', 'EM01'], ['EN01', 'EN01']]) {
+        $('sf-model').value = ''; SFU.setModel(''); $('sf-rd-len').value = '0x2000';
+        win.i2ctCkResult = { name: ck }; win.i2ctSfOnCk();
+        EQ([$('sf-model').value, SFU.state().src, $('sf-rd-len').value], [m, 'ck', DEF[m]], 'Check T-CON 認出 ' + ck + ' 帶入 ' + m + ' ⇒ 讀 ID 前長度欄 ' + DEF[m]);
+        win.i2ctSfOnCk();
+        EQ($('sf-rd-len').value, DEF[m], '同型號再按一次 Check T-CON ⇒ 仍是 ' + DEF[m]);
+      }
+      win.i2ctCkResult = null; win.i2ctSfOnCk();
+      SFU.setModel('EM01');
+      for (const pad of ['2', '1']) { $('sf-pad').value = pad; $('sf-pad').dispatchEvent(new win.Event('change')); EQ($('sf-rd-len').value, '0x040000', 'EM01 切到 ' + (pad === '2' ? 'Demura' : '主 code') + ' ⇒ 長度欄 0x040000'); }
+      for (const s of ['6A', '6F', '68']) { $('sf-emslv').value = s; $('sf-emslv').dispatchEvent(new win.Event('change')); EQ($('sf-rd-len').value, '0x040000', 'EM01 主 slave 改 0x' + s + ' ⇒ 長度欄 0x040000'); }
+      const CASES = [
+        { id: [0xEF, 0x40, 0x16], len: '0x040000', txt: /4 MB/, all: true,  nm: 'W25Q32BV 4 MB（Bruce 那片的容量）' },
+        { id: [0xC2, 0x28, 0x16], len: '0x040000', txt: /4 MB/, all: true,  nm: 'MX25R3235F 4 MB' },
+        { id: [0xEF, 0x40, 0x18], len: '0x040000', txt: /16 MB/, all: true, nm: 'W25Q128FV 16 MB' },
+        { id: [0xEF, 0x30, 0x12], len: '0x040000', txt: /256 KB/, all: true, nm: 'W25X20CL 256 KB（＝預設，不縮）' },
+        { id: [0xEF, 0x30, 0x10], len: '0x010000', txt: /64 KB/, all: true,  nm: 'W25X05CL 64 KB 確定 ⇒ 帶容量' },
+        { id: [0x85, 0x60, 0x10], len: '0x040000', txt: /容量未確定/, all: false, nm: 'P25Q05U 表與容量碼不一致 ⇒ 不縮' },
+        { id: [0x20, 0xBA, 0x10], len: '0x040000', txt: /容量未確定/, all: false, nm: '🔴 不在表、第三 byte 0x10 ⇒ 不縮（v1.33.0 這裡變 0x010000）' },
+        { id: [0x1F, 0x86, 0x01], len: '0x040000', txt: /不在清單/, all: false, nm: '不在表、容量碼不合理 ⇒ 不縮' }
+      ];
+      for (const model of ['E501A', 'E501B', 'EM01']) {
+        SFU.setModel(model);
+        if (model === 'EM01') { $('sf-pad').value = '1'; $('sf-pad').dispatchEvent(new win.Event('change')); }
+        for (const c of CASES) {
+          dev = model === 'EM01' ? fakeEM01({ id: c.id }) : fakeE501(model === 'E501A', { id: c.id });
+          $('sf-rd-len').value = '0x2000';                       /* 先手改，確定讀 ID 後被規則蓋回 */
+          const l0 = SFU.logText().length;
+          await SFU.detect();
+          const tag = model + ' ' + c.id.map(b => H(b)).join(' ') + '：';
+          EQ($('sf-rd-len').value, c.len, tag + c.nm + ' ⇒ 長度欄最後＝' + c.len);
+          CHECK(c.txt.test($('sf-id').textContent), tag + '容量顯示：' + $('sf-id').textContent);
+          EQ(!$('sf-rd-all').disabled, c.all, tag + '「整顆讀出」' + (c.all ? '可勾' : '不開放（容量不確定）'));
+          const lg = SFU.logText().slice(l0);
+          CHECK(lg.includes('JEDEC ID 原始 3 byte：' + c.id.map(b => H(b)).join(' ')) && lg.includes('容量碼 0x' + H(c.id[2])), tag + 'log 印原始 ID 與容量碼');
+          CHECK(c.all ? true : /容量不確定/.test(lg), tag + '不確定 ⇒ log 警告');
+          if (c.len === '0x010000') CHECK(/容量確定是 64 KB，比預設 0x040000 小/.test(lg), tag + '縮長度時 log 寫明原因');
+          $('sf-rd-start').value = '0x000000';
+          const rg = win.i2ctSfRange('sf-rd-start', 'sf-rd-len') || {};
+          CHECK(!rg.err && rg.len === parseInt(c.len, 16), tag + '帶入的範圍可直接讀（不被容量檢查擋）：' + JSON.stringify(rg));
+        }
+      }
+      /* 讀 ID 後：Check T-CON 帶入的 EM01、Demura、改 slave 之後再讀 */
+      win.i2ctCkResult = { name: 'EM01A1' }; win.i2ctSfOnCk();
+      dev = fakeEM01({ id: [0xEF, 0x40, 0x16] }); await SFU.detect();
+      EQ([SFU.state().src, $('sf-rd-len').value], ['ck', '0x040000'], 'Check T-CON 帶入 EM01 → 讀 ID（4 MB）⇒ 0x040000');
+      $('sf-pad').value = '2'; $('sf-pad').dispatchEvent(new win.Event('change')); await SFU.detect();
+      EQ($('sf-rd-len').value, '0x040000', 'EM01 Demura 讀 ID ⇒ 0x040000');
+      $('sf-emslv').value = '6A'; $('sf-emslv').dispatchEvent(new win.Event('change')); await SFU.detect();
+      EQ($('sf-rd-len').value, '0x040000', 'EM01 主 slave 0x6A 讀 ID ⇒ 0x040000');
+      $('sf-emslv').value = '68'; $('sf-emslv').dispatchEvent(new win.Event('change'));
+      $('sf-pad').value = '1'; $('sf-pad').dispatchEvent(new win.Event('change'));
+      win.i2ctCkResult = null; win.i2ctSfOnCk();
+    }
+
     G('畫面：EN01 讀取、寫入、整顆抹除（v1.30.0）');
     $('sf-rd-len').value = '0x2000';
     SFU.setModel('EN01');
-    EQ($('sf-rd-len').value, '0x040000', 'v1.33.0：換型號 ⇒ 長度回預設 0x040000');
+    EQ($('sf-rd-len').value, '0x020000', 'v1.33.1：換到 EN01 ⇒ 長度回 EN01 預設 0x020000（原廠 RomCodeInfo.cs:1230）');
     EQ(Array.from($('sf-slaves').querySelectorAll('b')).map(b => b.textContent), ['0x3E', '0x64'], 'EN01：0x3E／0x64');
     CHECK(/待上機確認/.test($('sf-modelnote').textContent) && /現行序列/.test($('sf-modelnote').textContent), '畫面標「依原廠現行序列，待上機確認」');
     CHECK(/待上機確認/.test($('sf-wrnote').textContent) && /Lock/.test($('sf-wrnote').textContent), '寫入說明標「待上機確認」並寫明 Unlock／Lock');
-    CHECK(!vis($('sf-auto')), 'EN01 不顯示自動判斷');
+    CHECK(vis($('sf-auto')), 'v1.33.1：EN01 也顯示自動判斷（它就是 Check T-CON）');
     CHECK(vis($('sf-eraseall')) && $('sf-eraseall').disabled, 'EN01 出現「整顆抹除」鈕，讀 IC 版本前停用');
-    dev = fakeEN01(); await SFU.detect();
+    dev = fakeEN01(); $('sf-rd-len').value = '0x3000'; await SFU.detect();
     CHECK(/A2/.test($('sf-id').textContent), '顯示 IC 版本 A2');
+    EQ($('sf-rd-len').value, '0x020000', 'v1.33.1：EN01 讀 IC 版本後長度欄＝EN01 預設 0x020000（先手改成 0x3000 也蓋回）');
     CHECK(!$('sf-pick').disabled && !$('sf-eraseall').disabled, '讀到 IC 版本後：選檔、整顆抹除開了');
     $('sf-rd-start').value = '0'; $('sf-rd-len').value = '0x2000';
     await SFU.read();
@@ -887,7 +1010,7 @@ function en01Header(maps, flags) {
     EQ(slv(), ['0x3E', '0x7C', '0x64', '0x7D'], 'slave 位址一起帶入');
     EQ($('sf-slaves').querySelectorAll('input,select').length, 0, '位址仍鎖定、沒有可編輯欄位');
     CHECK(/依 Check T-CON 結果（E501B2）帶入/.test(ck().textContent) && /\bok\b/.test(ck().className), '畫面註明「依 Check T-CON 結果」（綠）：' + ck().textContent);
-    CHECK(!vis($('sf-auto')), '有 Check T-CON 結果 ⇒ 不顯示「自動判斷」');
+    CHECK(vis($('sf-auto')) && vis($('sf-recheck')), 'v1.33.1：有 Check T-CON 結果 ⇒ 自動判斷（沿用）與「重新判斷」都在');
     CHECK(/Check T-CON 結果 E501B2 ⇒ 型號帶入 E501B/.test(SFU.logText()), 'Flash 紀錄寫明型號來源');
     CHECK(SFU.state().det === null && !$('sf-detect').disabled, '帶入後要重新讀 ID（讀 ID 鈕可按）');
 

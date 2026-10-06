@@ -2,6 +2,50 @@
 
 ---
 
+## I2C 讀寫測試 (i2c) v1.33.1 — 2026-10-06 ｜ PATCH
+
+**外部 Flash 讀取長度：四顆型號的預設集中成一張表（E501A／E501B／EM01＝0x40000、EN01＝原廠 0x20000）；讀 ID 後只有容量「確定」比預設小才縮，容量不確定一律不縮並在 log 警告；log 印 JEDEC 原始 3 byte 與推算容量。型號旁「自動判斷」改成直接執行 ② Check T-CON（同一支函式），結果同步 ② 與 ①；做過就沿用，另有「重新判斷」。**
+
+判定依據：`docs/VERSIONING.md` R1～R4。
+
+| 規則 | 判定 | 說明 |
+|---|---|---|
+| R1「輸出會變」 | **不適用** | 同樣的起點／長度讀出內容、檔名不變；log 多兩行說明 |
+| R2「既有操作失效」 | **沒有** | 讀寫序列（送出的 I2C 交易）完全沒動 |
+| R3「能做的事多一件」 | **沒有** | 「自動判斷」改走 ② Check T-CON、「重新判斷」也是重跑 ② Check T-CON，都是既有能力換入口 |
+| R4「起始狀態／預設值改變」 | **PATCH** | 修正讀 ID 後被縮成 0x010000 的錯；EN01 預設 0x40000 → 0x20000（原廠值，待 Bruce 決定） |
+| 🔴 實際採用 | **PATCH** | i2c v1.33.0 → v1.33.1（Dispatch 指定） |
+
+### 起因
+
+Bruce 2026-10-06：「為什麼我說 EM01 的 Flash 預設讀取的長度是 0x040000，可是你卻用成 0x010000？」「那個驗證有檢查嗎？為什麼沒有檢查？」「當我讀 Flash ID 的時候，雖然內容是 4MB，但預設讀出的長度也是要符合 0x40000」「我看到出現 0x010000 的條件，應該是我沒有按一下讀Flash ID時它的預設長度」「E501A 跟 B 預設的讀取長度也是這個 0x40000」「EN01，你看一下 Source Code 是不是也是這個長度？」（派工 233121515428765696）
+
+### 原因（兩處）
+
+1. **選型號後、讀 ID 前顯示 0x010000**：這是 v1.32.1 的行為——`i2ctSfModelChanged` 寫死 `'0x010000'`（`e5613ba:i2c.html:8822`）。v1.33.0（44ad69b）已改成 0x040000，正式站 `_build/report.json` builtAt 2026-10-06T06:58:21Z、i2c.html Last-Modified 07:04:20 GMT、`cache-control: max-age=600`；Bruce 回報（派工 07:01:40Z）時瀏覽器拿到的很可能仍是 v1.32.1。現行原始碼裡沒有任何路徑在讀 ID 前寫 0x010000（grep `sf-rd-len` 只剩換型號重設與讀 ID 後兩處），新測試把 v1.32.1 跑一次會重現 `got 0x010000`。
+2. **v1.33.0 讀 ID 後仍可能縮成 0x010000**：`i2ctSfDetect` 帶 `min(容量, 0x40000)`，容量一律取 JEDEC 第三個 byte 的 2^n。第三個 byte 是 0x10 的 ID（不在原廠表的晶片、或原廠表與容量碼對不上的 PUYA P25Q05U／GD25LE05C）就被當成 64 KB。原廠 ISP Get 鈕（EM01 `SDIMAIN.cpp:1514–1546`）讀完 ID 只顯示（`RApp_Flash.cpp:647–665` 查 `astFlashID[]`），**不改讀取長度**；容量 `u32CHIP_Size` 只給 RTPM 用（`RApp_RTPM.cpp:552–568`）。PY 的 E501 `i2c_flash_info`（PY:33523–33576）同樣只查表印出。
+   - 讀 ID 的序列本身與原廠逐筆相同（EM01：`RApp_Flash.cpp:526–601` FE00←20、FE10←00／02／02、輪詢 FE14 bit0、讀 FE46 3 byte，[0]＝廠商、[2]＝容量碼，與 `:656–658` 比對順序一致；E501：PY:33523–33556），沒有 byte 偏移錯。
+
+### 改了什麼
+
+- `common/i2c-spiflash.js`：新增 `JEDEC_TBL`（EMH:114–178 的 `u32CHIP_Size`；PY:2559–2598 是子集、數值相同）。`jedecInfo` 回 `codeSize`／`tblSize`／`sizeSure`／`why`；`size` 只在「ID 在原廠表且表值＝容量碼」時有值，其餘 0（不確定）。不確定 ⇒ 不縮長度、「整顆讀出」與容量範圍檢查不開放。
+- `i2c.html`：`I2CT_SF_DEF_LEN_BY = { E501A: 0x40000, E501B: 0x40000, EM01: 0x40000, EN01: 0x20000 }` 集中管理，換型號（手選、Check T-CON 帶入）與讀 ID 後都從這裡取。讀 ID 後 `i2ctSfApplyDetLen`：一律帶預設；容量確定且較小才帶容量（log 寫原因）；不確定 log 警告。log 印 JEDEC 原始 3 byte、容量碼、推算容量與原廠表值。畫面容量不確定時寫「容量未確定（容量碼 X／原廠表 Y）」。
+- 預設值出處：EM01 原廠 ISP 切 Flash 帶 `"0x40000"`（`SDIMAIN.cpp:12076`）；E501A／B 依 Bruce 指定 0x40000（原廠 PY Flash 模式帶 131072＝0x20000，PY:31096–31098）；**EN01 原廠 WPF 切 FLASH 帶 `ROMParam.Length = 131072`（0x20000，`Wpf.RomCodeProcessUI/Models/RomCodeInfo.cs:1230`，WPF_RomCodeProcessUI@acdb7f9；欄位是 `AppHeaderView.xaml:103` Read Length），與 0x40000 不同，先照原廠值，待 Bruce 決定**。
+- 自動判斷（Bruce 同日「我沒有先 check tcon，而直接按下 tcon 型號旁邊的「自動判斷」，為什麼它不會去做 check tcon 的動作？」）：
+  - 修改前：`i2ctSfAuto` 只讀 `7C:0x95`／`0x98`（PY:33501–33521 那一段），只分得出 E501A／E501B，不跑 Check T-CON 第二段（0xFF00 IC ID）、不寫 `i2ctCkResult`，② 與 ① 的 T-CON 欄不更新，型號來源記成 'auto'；只有 Check T-CON 沒給型號且型號是空白／E501 時才顯示。
+  - 修改後：`i2ctSfAuto(force)` 直接呼叫 `i2ctCheckTcon()`（② 按鈕同一支），不另寫判斷。沒有結果（沒按過，或斷線即清 `i2ctSetLink`，換板子要經斷線）⇒ 執行；有結果但認不出／衝突／對不到外部 Flash 型號 ⇒ 重跑；有可用結果 ⇒ 沿用（不送 I2C），log 提示；`#sf-recheck`「重新判斷」（有結果才出現）一律重跑。結果由 `i2ctCheckTconRun` 寫回 ②（`i2ctCkRender`）與 ① 的 T-CON，型號由 `i2ctSfOnCk` 帶入。自動判斷鈕各型號都顯示。
+- i18n 三語（`i2c.sfLogIdRaw`／`sfLogLenCap`／`sfLogLenDef`／`sfLogCapUnsure`／`sfCapWhy_*`／`sfCapUnsureShort`／`sfBtnRecheck`／`sfTipRecheck`／`sfLogAutoRunCk`／`sfLogAutoRecheck`／`sfLogAutoReuse`／`sfLogAutoNoModel`，`sfTipAuto` 改寫；移除 `sfLogUnknownId`／`sfLogAuto`／`sfLogAutoNo`）；說明頁三語更新；`?v=20261006i2c1331`。
+
+### 驗證
+
+- 自動判斷測試：重連後無結果 ⇒ 按自動判斷送出 7C:95／98 與 0xFF00 兩段、`i2ctCkResult`＝E501A、② `#tcon-name` 與 ① `#conn-info` 都顯示 E501A、型號來源 'ck'、長度 0x040000；再按 ⇒ 0 筆 I2C、log 沿用；重新判斷換 E501B 板 ⇒ ② ① 型號都變；斷線重連 ⇒ 重跑；結果 unknown ⇒ 重跑；對不到型號 ⇒ log 請手選。舊的「有結果就隱藏自動判斷／EN01 不顯示」兩項改成新行為。
+- `tools/i2c_spiflash_selftest.js` 573/573（v1.33.0 時 377）。新增：jedecInfo 確定／不確定 9 筆；四顆型號「手選後、讀 ID 前」長度欄；Check T-CON 帶入（E501A／E501B1／E501B2／EM01A1／EN01）與重按；EM01 切主 code／Demura、改主 slave 6A／6F／68；E501A／E501B／EM01 × 8 顆 ID 讀 ID 後長度欄最後值、容量文字、整顆讀出開關、log 原始 ID、範圍可直接讀；EN01 讀版本後 0x020000。
+- 對照：同一支新測試跑 v1.32.1（e5613ba）⇒ 「EM01 讀 ID 前」got `0x010000`；跑 v1.33.0（44ad69b）⇒ 81 項失敗（讀 ID 後被縮、EN01 預設）。
+- 上一版為什麼沒抓到：v1.33.0 的測試只斷言頁面載入與換型號時的 HTML value，讀 ID 後只用一顆 EF 40 16（4 MB）跑 E501B；EM01 的畫面測試沒有斷言長度欄，也沒有第三個 byte 是 0x10 的 ID。
+- 沒有上機；Bruce 上機確認方法：選 EM01（讀 ID 前長度欄應為 0x040000）→ 讀 Flash ID → log 看「JEDEC ID 原始 3 byte：…；容量碼 0x..」與容量 → 長度欄應仍為 0x040000。
+
+---
+
 ## I2C 讀寫測試 (i2c) v1.33.0 — 2026-10-06 ｜ MINOR
 
 **外部 Flash 讀取長度預設改為 0x40000（256 KB）；Check T-CON 下拉可手選 EN01，選定後讀 3E:207E 顯示 A1／A2／Unknown。**

@@ -41,10 +41,9 @@
 
   /* ═══ JEDEC 清單 ═══════════════════════════════════════════════════════════
      名稱取 EMH:114–178（EM01 的 astFlashID[]，涵蓋 PY:2559–2598 的全部條目）。
-     🔴 容量**不照抄**任一張表：PY 的 PUYA／GigaDevice 與 EMH 的 PUYA／GigaDevice／Fudan
-        把 bit 數寫成 byte 數（例：P25Q05U＝512 Kbit＝64 KB，PY:2590 寫 512K Bytes、
-        EMH:150 寫 0x80000）。改用 JEDEC 第三個 byte（容量碼）＝ 2^n byte，
-        這條規則與兩張表裡 Winbond／MXIC／Boya 的每一筆都相符。 */
+     容量：PY 的 PUYA／GigaDevice 與 EMH 的 PUYA／GigaDevice／Fudan 的表值與 JEDEC 容量碼（2^n byte）對不上
+        （例：P25Q05U 容量碼 0x10＝64 KB，PY:2590 寫 512K Bytes、EMH:150 寫 0x80000）。
+        v1.33.1 起這類「對不上」一律算容量不確定（見 jedecInfo），不再自行選一邊。 */
   var JEDEC_NAMES = {
     'EF3010': 'Winbond W25X05CL', 'EF3011': 'Winbond W25X10CL', 'EF3012': 'Winbond W25X20CL',
     'EF3013': 'Winbond W25X40CL', 'EF3014': 'Winbond W25X80CL', 'EF4013': 'Winbond W25Q40BL',
@@ -66,13 +65,43 @@
     '681014': 'Boya BY25Q80AW', '681015': 'Boya BY25Q16AW', '681016': 'Boya BY25Q32BS',
     '684017': 'Boya BY25Q64BS', '684018': 'Boya BY25Q128AS', '684019': 'Boya BY25Q256AS'
   };
+  /* i2c v1.33.1：原廠型號表的容量欄（EMH:114–178 u32CHIP_Size；PY:2559–2598 是其子集，相同條目數值相同）。
+     原廠讀 ID 後只拿 3 byte 查表顯示（EMF:647–665；PY:33557–33565），容量只給 RTPM 用（RApp_RTPM.cpp:552–568），
+     ISP 分頁 Get 鈕（SDIMAIN.cpp:1514–1546）**不會**改讀取長度。 */
+  var JEDEC_TBL = {
+    'EF3010': 0x10000, 'EF3011': 0x20000, 'EF3012': 0x40000, 'EF3013': 0x80000, 'EF3014': 0x100000,
+    'EF4013': 0x80000, 'EF4014': 0x100000, 'EF4015': 0x200000, 'EF4016': 0x400000, 'EF4017': 0x800000,
+    'EF4018': 0x1000000, 'EF4019': 0x2000000, 'EF5012': 0x40000, 'EF5013': 0x80000, 'EF5014': 0x100000,
+    'EF6012': 0x40000, 'EF6013': 0x80000, 'EF6014': 0x100000, 'EF6015': 0x200000, 'EF6016': 0x400000,
+    'EF6017': 0x800000, 'EF6018': 0x1000000, 'EF6019': 0x2000000,
+    'C22810': 0x10000, 'C22811': 0x20000, 'C22812': 0x40000, 'C22813': 0x80000, 'C22814': 0x100000,
+    'C22815': 0x200000, 'C22816': 0x400000, 'C22817': 0x800000,
+    '856010': 0x80000, '856011': 0x100000, '856012': 0x200000, '856013': 0x400000,
+    '856014': 0x800000, '856015': 0x1000000, '856016': 0x2000000, '856017': 0x4000000,
+    'C86010': 0x80000, 'C86011': 0x100000, 'C86012': 0x200000, 'C86013': 0x400000,
+    'A13111': 0x100000, 'A13112': 0x200000, 'A14013': 0x400000, 'A14014': 0x800000,
+    'A14015': 0x1000000, 'A14016': 0x2000000, 'A14017': 0x4000000,
+    '681014': 0x100000, '681015': 0x200000, '681016': 0x400000,
+    '684017': 0x800000, '684018': 0x1000000, '684019': 0x2000000
+  };
+  /* i2c v1.33.1（Bruce 2026-10-06「為什麼我說 EM01 的 Flash 預設讀取的長度是 0x040000，可是你卻用成 0x010000？」）：
+     容量分成「確定」與「不確定」。
+       codeSize＝JEDEC 第三個 byte（容量碼）＝ 2^n byte；tblSize＝原廠型號表的值。
+       sizeSure：ID 在原廠表、而且兩者相同（Winbond／MXIC／Boya 全部條目）⇒ size＝該值。
+       其他（ID 不在表、容量碼不在 0x10～0x19、或原廠表與容量碼對不上——PUYA／GigaDevice／Fudan 那幾筆）
+       ⇒ size＝0（不確定）：畫面不縮讀取長度、不拿它擋範圍，只把兩個數字都印出來。
+     v1.33.0 的錯：size 一律取 2^容量碼，第三個 byte 讀到 0x10 就當成 64 KB，讀 ID 後長度被改成 0x010000。 */
   function jedecInfo(id3) {
     var key = hx(id3[0]) + hx(id3[1]) + hx(id3[2]);
     var allSame = (id3[0] === id3[1] && id3[1] === id3[2]) && (id3[0] === 0x00 || id3[0] === 0xFF);
     var c = id3[2] & 0xFF;
     /* 容量碼 0x10（64 KB）～0x19（32 MB）才算得出容量；24-bit 位址最多 16 MB。 */
-    var size = (c >= 0x10 && c <= 0x19) ? Math.pow(2, c) : 0;
-    return { id: key, name: JEDEC_NAMES[key] || '', known: !!JEDEC_NAMES[key], size: size, blank: allSame };
+    var codeSize = (c >= 0x10 && c <= 0x19) ? Math.pow(2, c) : 0;
+    var tblSize = JEDEC_TBL[key] || 0, known = !!JEDEC_NAMES[key];
+    var sure = !allSame && known && codeSize > 0 && tblSize === codeSize;
+    var why = sure ? '' : (allSame ? 'blank' : (!known ? 'notInTable' : (!codeSize ? 'badCode' : 'tblMismatch')));
+    return { id: key, name: JEDEC_NAMES[key] || '', known: known, size: sure ? codeSize : 0, sizeSure: sure,
+             codeSize: codeSize, tblSize: tblSize, why: why, blank: allSame };
   }
 
   /* ═══ E501A（RM81010）／E501B（RM81011）— 依 PY ═════════════════════════════
