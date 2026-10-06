@@ -2,6 +2,58 @@
 
 ---
 
+## Data Mapping (datamap) v1.0.0 — 2026-10-06 ｜ MINOR
+
+**全新第 9 個分頁 `datamap.html`：MNT T-CON（EM01／EM02／E512）的 Data Mapping，介面照 Python UI 的 Data Mapping 分頁。** 初版。
+
+判定依據：`docs/VERSIONING.md` §2 案例 12（新增一個獨立的新分頁工具 ⇒ 該分頁 **v1.0.0**、首頁 `app` 進 MINOR）。`tools/version_bump_check.py` 對新工具不判級別，這裡標 MINOR 只是照 §1 判定表「新增獨立功能」那一格；不構成放行條件。不是 MAJOR：既有頁面的操作與輸出一個都沒變（I2C 頁、WFG 頁沒有動到）。
+
+### 需求（Bruce 2026-10-06 原話，未增刪）
+
+> 「回到 T-CON Tools 專案，我需要再新增一個功能，也就是第九個分頁，叫做 Data Mapping 分頁。這個分頁的功能，設計上請幫我參考 Python UI 裡面的 Data Mapping 分頁……另外也幫我參考 EM01、EM02、E512 這幾個MNT TCON UI 的 Data Mapping 頁面。因為 MNT T-CON UI 的Data Mapping 頁面設計得不好，我需要可以在這個網頁裡面統一做成像是 Python UI 的那種介面，去改 Data Mapping。……1. I2C 打開的狀況下：可以即時調整不同的 T-CON Data Mapping。2. I2C 關掉的狀況下：可以匯出 script……3. 匯入與匯出：匯入可以直接匯入不同TCON的code，但匯出只能匯出 script(格式請依照WFG網頁)。請先做一個初版出來給我看……」
+
+### 做了什麼
+
+- `datamap.html`：Hand Mode Enable（force_sel_en）、Panel mode／Sub panel mode／Read mode／LTPS zigzag shift、Mirror／R↔B 互換／RGB 反相、DE phase、Port 反向讀取（read_rvs）、原廠 34 筆預設樣式；右邊兩張 4×6 表（Line 1-1～2-2 × r0..b1／r2..b3），儲存格依 R／G／B 上色（Python UI 的配色），名稱依時槽 T1～T5 顯示；下方 Data Mapping Code 表列出所有會碰到的位址、遮罩與原值。
+- I2C 連線（I2C Bridge，協定同 i2c.html／dg-selftest.html）：讀 0xFF00 認 IC → 自動選型號 → 讀回目前值；改任何欄位立即寫入（寫前讀、遮罩合併、寫後讀回比對，全部記在記錄區）。只寫**有變的欄位**的位元，同一個 byte 裡沒動的欄位保留 TCON 上的值。
+- I2C 未連線：只改頁面，按「匯出 script」→ `DataMap_<型號>_<時間>.script`，格式照 WFG（`write -m AAAA VV MM`、ASCII、檔頭註解）。
+- 匯入 .bin：讀 code 自己 sys 區的 bank 起點表找到 rt7／rt8_tcon_1；只接受恰好一個型號通過。匯出只有 script，沒有 code／bin。
+- `common/datamap-core.js`：頁面與自測共用的核心（暫存器表、解碼、匯出、I2C 寫入流程）。出處（檔案:行號）全部寫在檔頭。
+- `tools/check_datamap.js`：合成語料自測 115 項（定位、解碼、匯出→套回原檔只動 DM 位元、I2C 假裝置、預設樣式與原廠 `RApp_TX.h` 逐字比對）。
+
+### 各 TCON 的 Data Mapping 暫存器
+
+| | EM01 | EM02 | E512 |
+|---|---|---|---|
+| rt7 base | 0x0400 | 0x0480 | 0x0480 |
+| panel/ltps_zz/sub_panel | base+0 [2:1]/[4:3]/[7:5] | 同左 | 同左 |
+| mirror/chrb/chwb/force_sel_en | base+1 [0]/[3]/[4]/[7] | 同左 | 同左 |
+| force_de_en | base+2 [0] | 同左 | 同左 |
+| force_de_sel | base+0x45 [5:0] | base+0x45 [5:0] | **base+2 [7:4]** |
+| read_rvs | base+0x46..0x47 | 同左 | 同左 |
+| force_sel r0..b1 ×4 | base+0x03..0x1A [4:0] | 同左 | 同左 |
+| force_sel r2..b3 ×4 | base+0x5E..0x75 [4:0] | 同左 | 同左 |
+| rd_mode | 0x0504 [7:6] | 同左 | 同左 |
+
+base+0 的 bit0（reg_isp_mlvds_sel，TX 介面）不在遮罩裡；TX、時序一律不碰。
+
+### 驗證
+
+- 真檔（不進版控）：EM02 88 份、E512 220 份、EM01 166 份（Flash＋EEPROM）全部正確認型號；NB／LUT／PDF／MCU 片段全部拒絕。EM02 有 24 份解出來恰好等於原廠預設 (32) HSD BOE+GBG/RRB+LR（逐值吻合原廠表）。
+- 頁面（自有 headless Chrome）：匯入 EM02 真檔、假 I2C 裝置改一格 ⇒ 只寫 0x0487、值正確；勾 Hand Mode ⇒ 只改 0x0481 bit7。0 個 JS 錯誤。
+
+### 未確認
+
+- 索引 30／31 在原廠對照表沒有定義；index 名稱依 `E512_V512_data_mapping_diagram` 推得。
+- V512 的 code 表頭與 EM02 相同，匯入會被認成 EM02（V512 不在這次範圍，rt7 位置未逐一核對）。
+- 實機 I2C 寫入尚未在真的 TCON 上跑過（只有假裝置）。
+
+## 首頁 (app) v1.93.0 — 2026-10-06 ｜ MINOR
+
+首頁新增第 9 張卡片「Data Mapping」→ `datamap.html`（版號徽章讀 `TOOL_VERSIONS.datamap`），`home.dmTitle`／`home.dmDesc` 三語。
+
+判定依據：`docs/VERSIONING.md` §2 案例 12（新增獨立新分頁 ⇒ 首頁 `app` 進 MINOR）。既有八張卡片與入口位置不變。
+
 ## 面板訊號模擬與取樣 (wfg) v4.54.0 — 2026-10-06 ｜ MINOR ｜ ⚠ 輸出變更
 
 **匯入 MNT code 時依 TX 輸出介面自動選「定頻／變頻應用」：EM02、E512 → 變頻；EM01 讀 code 內 System→TX 的 TX type，mini-LVDS → 變頻、iSP → 定頻，讀不到或不一致 → 不動並標「未確認」。自動選完可手動改，手動選擇不會被其他操作蓋掉，只有再次匯入才重新判斷；匯出 script 不寫 TX 設定。**
