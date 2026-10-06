@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /* ═══════════════════════════════════════════════════════════════════════════
-   check_datamap.js — Data Mapping 分頁（datamap.html）核心的機械檢查（v1.1.0）
+   check_datamap.js — Data Mapping 分頁（datamap.html）核心的機械檢查（v1.2.0：加 ③b 下拉選單、r2..b3 keep）
    ───────────────────────────────────────────────────────────────────────────
    測 common/datamap-core.js（頁面與這支共用同一份程式）。客戶 code 不可進版控 ⇒ 預設用合成語料。
      ① MNT（EM01／EM02／E512）.bin 定位與解碼（v1.0.0 的檢查，換成新狀態格式）
@@ -159,6 +159,110 @@ function st(key, o) { const s = DM.emptyState(key); Object.assign(s, o); return 
   ok(DM.cks(K, st(K, { hand: 0 })) === null, 'Hand 關 ⇒ CKS 不顯示');
 }
 
+/* ── ③b v1.2.0 下拉選單 ── */
+sec('③b 下拉選單（v1.2.0）');
+{
+  const K = 'E503', names = o => o.map(x => x.name).join(',');
+  const d = st(K, { hand: 1, panel: 2, rd: 1 }), sg = st(K, { hand: 1, panel: 1, rd: 0 });
+  ok(names(DM.cellOptions(K, d, 0, 0)) === Object.keys(DM.GN1).join(',') && names(DM.cellOptions(K, d, 1, 0)) === Object.keys(DM.GN2).join(','),
+     'Dual：Line 1-1 選項 ＝ GN1、Line 1-2 選項 ＝ GN2（順序同 PY 字典，X 在最後）');
+  ok(DM.cellOptions(K, d, 1, 0).slice(-1)[0].name === 'X' && DM.cellOptions(K, d, 1, 0).slice(-1)[0].value === 31, 'X ＝ 31');
+  ok(names(DM.cellOptions(K, sg, 0, 0)) === Object.keys(DM.GN1).join(',') && DM.cellOptions(K, sg, 1, 0).length === 0, 'Single：Line 1-1 GN1、Line 1-2（複本）沒有選項');
+  ok(DM.cellOptions(K, st(K, { hand: 0, panel: 2, rd: 1 }), 0, 0).length === 0 && DM.cellOptions(K, st(K, { hand: 1, panel: 3, rd: 2 }), 0, 0).length === 0, 'Hand 關／Tri ⇒ 沒有選項');
+  ok(names(DM.cellOptions('DAZ6111', st('DAZ6111', { hand: 1, panel: 2 }), 0, 0)) === Object.keys(DM.D6111).join(',') &&
+     names(DM.cellOptions('DAZ7353', st('DAZ7353', { hand: 1, panel: 2 }), 3, 5)) === Object.keys(DM.D7353).join(','), 'DAZ6111／DAZ7353 用自己的表');
+  const p1 = DM.pickCell(K, d, 1, 2, 'R5');
+  ok(p1 && p1.state.c8 === 0 && p1.state.deEn === 1 && p1.state.deSel === 0xE, 'Dual Line 1-2 選 R5 ⇒ GN2[R5]＝0，連動欄位同 editCell');
+  ok(DM.pickCell(K, d, 0, 2, 'R5') === null && DM.pickCell(K, sg, 1, 0, 'R1') === null, '選項外的名稱、複本格 ⇒ 不改');
+  const p2 = DM.pickCell(K, sg, 0, 3, 'B-1'), e2 = DM.editCell(K, sg, 0, 3, 'B-1');
+  ok(same(p2, e2) && p2.state.c3 === 17 && p2.state.c9 === 17, 'Single 選 B-1 ＝ editCell（type0、type1 都寫 17）');
+  let eq = 0, tot = 0;
+  for (const k of ['E503', 'E501A', 'DAZ6138', 'DAZ6111', 'DAZ7353', 'EM02']) for (const base of [d, sg]) {
+    const s0 = Object.assign(DM.emptyState(k), { hand: 1, panel: base.panel, rd: base.rd });
+    for (let r = 0; r < 4; r++) for (let c = 0; c < 6; c++) for (const o of DM.cellOptions(k, s0, r, c)) {
+      if (!(o.name in DM.inputDict(k))) continue; tot++;
+      if (same(DM.pickCell(k, s0, r, c, o.name), DM.editCell(k, s0, r, c, o.name))) eq++;
+    }
+  }
+  ok(tot > 500 && eq === tot, '可打字的名稱：pickCell 與 editCell（PY 打字路徑）結果全同（' + eq + '/' + tot + '）');
+  ok(DM.allSameOptions(K, d).join(',') === Object.keys(DM.GN2).join(',') && DM.allSameOptions(K, sg).join(',') === Object.keys(DM.GN1).join(',') &&
+     DM.allSameOptions('DAZ6111', st('DAZ6111', { hand: 1 })).indexOf('R-2') < 0, 'All Same Pixel 選項：Dual GN2、Single GN1、DAZ6111 不含 R-2');
+}
+
+/* ── ③c v1.2.0 MNT 第二組 r2..b3（Bruce 10/7：只填第一組，自動複製到第二組）與 V512 ── */
+sec('③c MNT r2..b3 與 V512（v1.2.0）');
+{
+  const K = 'EM02', z = DM.emptyState(K);
+  for (let k = 0; k < 24; k++) z['c' + k] = (k * 5 + 1) % 18;
+  ok(DM.xInfo(K, z).state === 'zero' && DM.xInfo('E503', st('E503', {})).state === 'none', '第二組 24 格全 0 ⇒ ZERO；非 MNT ⇒ none');
+  const mi = DM.syncX(K, z);
+  ok(DM.xInfo(K, mi).state === 'copy' && mi.x0 === z.c0 && mi.x23 === z.c23, '與主組逐格相同且主組不全 0 ⇒ COPY');
+  ok(DM.fieldById(K, 'x5').parts[0][0] === 0x0480 + 0x5E + 5 * 4 + 0 && DM.fieldById(K, 'c5').parts[0][0] === 0x0480 + 0x03 + 5 * 4 + 0, 'x5（b3_0，rt7+0x72）對應 c5（b1_0，rt7+0x17）：同一個 (type, 通道) 位置');
+  const df = DM.cloneState(mi); df.x7 = (df.x7 + 1) % 18;
+  const di = DM.xInfo(K, df);
+  ok(di.state === 'other' && same(di.diff, [7]), '有一格不同 ⇒ OTHER，列出不同的格');
+  /* Bruce 10/7 定案：只填第一組，第一組一改 ⇒ 第二組自動＝第一組；沒改第一組 ⇒ 不碰第二組 */
+  const H1 = o => Object.assign(DM.cloneState(o), { hand: 1, panel: 2, rd: 1 });
+  const xAddr = m => Array.from({ length: 24 }, (_, k) => DM.fieldById(m, 'x' + k).parts[0][0]);
+  const hasX = (m, txt) => xAddr(m).some(a => txt.indexOf('write -m ' + DM.hex(a, 4)) >= 0);
+  /* #9b56c775 規則（Dispatch 10/7）：Auto／短循環（有改／沒改）／長循環 HSD 8-pixel、4line4pixel／LTPS MUX3／預設樣式 */
+  const MS = (m, o) => Object.assign(DM.emptyState(m), df, o);                 // df：第二組與第一組不同（OTHER）
+  const xs = s => Array.from({ length: 24 }, (_, k) => s['x' + k]);
+  for (const m of DM.MNT_KEYS) {
+    /* Auto（force_sel_en＝0）：ignored，改第一組也不動第二組，script 沒有 r2..b3 */
+    const a0 = MS(m, { hand: 0, panel: 2, subPanel: 0 }), ra = DM.secondSetRule(m, a0);
+    const ae = DM.firstEdit(m, a0, Object.assign(DM.cloneState(a0), { c0: 9 }));
+    ok(ra.mode === 'ignored' && ra.cycle === 'auto' && !ae.touched && same(xs(ae.state), xs(a0)) && !hasX(m, DM.buildScript(m, ae.state, { comments: false, second: ae.touched }).text),
+       m + ' Auto（force_sel_en=0）⇒ ignored：改第一組第二組不動，script 沒有 r2..b3');
+    /* 短循環（HSD type1）：沒改第一組 ⇒ 保留；改了 ⇒ 第二組＝第一組，script 24 行都寫第一組的值 */
+    const s0 = MS(m, { hand: 1, panel: 2, subPanel: 0, rd: 1 }), rs = DM.secondSetRule(m, s0);
+    ok(rs.mode === 'copy' && rs.cycle === 'short' && DM.secondPolicy(m, s0) === 'mirror' && /panel_mode=2 HSD, sub_panel_mode=0 type1/.test(rs.basis), m + ' HSD type1 ⇒ 短循環 copy（依據：' + rs.basis + '）');
+    const n0 = DM.firstEdit(m, s0, Object.assign(DM.cloneState(s0), { ltpsZz: 1 }));
+    ok(!n0.touched && same(xs(n0.state), xs(s0)) && !hasX(m, DM.buildScript(m, n0.state, { comments: false, second: n0.touched }).text), m + ' 短循環、沒改第一組 ⇒ 第二組保留原值，script 沒有 r2..b3');
+    const n1 = DM.firstEdit(m, s0, DM.pickCell(m, s0, 0, 0, 'G-1').state), t1 = DM.buildScript(m, n1.state, { comments: false, second: n1.touched }).text;
+    ok(n1.touched && DM.xInfo(m, n1.state).state === 'copy' && xAddr(m).every((a, k) => new RegExp('write -m ' + DM.hex(a, 4) + ' ' + DM.hex(n1.state['c' + k], 2) + ' 1F').test(t1)),
+       m + ' 短循環、改第一組 G-1 ⇒ r2..b3＝第一組，script 24 行 r2..b3 都寫第一組的值');
+    ok(DM.secondSetRule(m, MS(m, { hand: 1, panel: 0 })).mode === 'copy' && DM.secondSetRule(m, MS(m, { hand: 1, panel: 1, subPanel: 6 })).mode === 'copy' &&
+       DM.secondSetRule(m, MS(m, { hand: 1, panel: 3, subPanel: 1 })).mode === 'copy', m + ' 1D1G、Zigzag type7、LTPS MUX2 ⇒ 短循環（照 Dispatch 條件）');
+    /* 長循環 HSD 8-pixel：開放 24 格，改第一組不動第二組 */
+    const h8 = MS(m, { hand: 1, panel: 2, subPanel: 4, rd: 1 }), r8 = DM.secondSetRule(m, h8);
+    ok(r8.mode === 'free' && r8.cycle === 'long' && r8.meaning === 'pix58' && [0, 1, 2, 3].every(r => DM.secondEditable(m, h8, r)), m + ' HSD sub4 8-pixel ⇒ 長循環，24 格可填（pixel 5~8）');
+    ok(DM.secondSetRule(m, MS(m, { hand: 1, panel: 2, subPanel: 5 })).meaning === 'row34', m + ' HSD sub5 4line,4pixel ⇒ 長循環（第 3~4 列）');
+    const p8 = DM.pickSecond(m, h8, 3, 5, 0);
+    ok(p8 && p8.state.x23 === 0 && p8.state.c23 === h8.c23 && DM.pickSecond(m, h8, 0, 0, 30) === null && DM.pickSecond(m, h8, 0, 0, 31).state.x0 === 31, m + ' 8-pixel：b3_3 選 0（有效值 R3，不是空）、30 拒絕、X＝31');
+    const f8 = DM.firstEdit(m, h8, DM.pickCell(m, h8, 0, 0, 'R1').state);
+    ok(!f8.touched && same(xs(f8.state), xs(h8)), m + ' 8-pixel：改第一組不動第二組（使用者自己填）');
+    ok(DM.secondOptions().length === 31 && DM.secondOptions()[0].value === 0 && DM.secondOptions()[0].name === 'R3' && DM.secondOptions()[30].value === 31, '第二組選項 0~29＋X(31)，0＝R3');
+    /* LTPS MUX3：只開 _0／_2；填任何一格 ⇒ _1／_3 寫 0 */
+    const mx = MS(m, { hand: 1, panel: 3, subPanel: 2, rd: 2 }), rm = DM.secondSetRule(m, mx);
+    ok(rm.mode === 'mux3' && rm.cycle === 'long' && DM.secondEditable(m, mx, 0) && DM.secondEditable(m, mx, 2) && !DM.secondEditable(m, mx, 1) && !DM.secondEditable(m, mx, 3),
+       m + ' LTPS MUX3 zigzag type1 ⇒ 長循環，只開 _0／_2');
+    const pm = DM.pickSecond(m, mx, 2, 1, 26);
+    ok(pm && pm.state.x13 === 26 && [6, 7, 8, 9, 10, 11, 18, 19, 20, 21, 22, 23].every(k => pm.state['x' + k] === 0) && DM.pickSecond(m, mx, 1, 0, 5) === null, m + ' MUX3：g2_2＝26，_1／_3 全部寫 0；_1 不能填');
+  }
+  /* 預設樣式：兩組照原廠表，寫語意位址（不照抄 RegSet 的 off-by-one） */
+  const P = n => DM.PRESETS.findIndex(p => p.name.indexOf('(' + n + ')') === 0);
+  const v29 = DM.applyPreset(K, z, P(29)), tx29 = DM.buildScript(K, v29, { comments: false, second: true }).text, rb = DM.MODELS[K].rt7;
+  ok(v29.c0 === 16 && v29.x0 === 16 && v29.x1 === 6 && v29.subPanel === 4 && DM.secondSetRule(K, v29).mode === 'free', 'EM02 套 (29) ⇒ r0_0＝16、r2_0＝16、b2_0＝6（原廠索引 k＝通道×4＋type），8-pixel 長循環');
+  ok(new RegExp('write -m ' + DM.hex(rb + 0x03, 4) + ' 10 1F').test(tx29) && new RegExp('write -m ' + DM.hex(rb + 0x5E, 4) + ' 10 1F').test(tx29) &&
+     tx29.indexOf('write -m ' + DM.hex(rb + 0x1B, 4)) < 0 && tx29.indexOf('write -m ' + DM.hex(rb + 0x76, 4)) < 0,
+     'EM02 (29) script：r0_0 寫 0x' + DM.hex(rb + 0x03, 4) + '、r2_0 寫 0x' + DM.hex(rb + 0x5E, 4) + '；原廠 bug 會寫的 0x' + DM.hex(rb + 0x1B, 4) + '／0x' + DM.hex(rb + 0x76, 4) + ' 不寫');
+  const v32 = DM.applyPreset(K, mi, P(32));
+  ok(v32.c0 === 10 && DM.xInfo(K, v32).state === 'zero' && DM.secondSetRule(K, v32).mode === 'copy', 'EM02 套 (32) ⇒ 第一組照表、第二組照表寫全 0（HSD type1 短循環）');
+  const v18 = DM.applyPreset(K, z, P(18));
+  ok(v18.x0 === 26 && v18.x12 === 31 && [6, 18].every(k => v18['x' + k] === 0) && DM.secondSetRule(K, v18).mode === 'mux3', 'EM02 套 (18) Tri ⇒ 第二組照表（r2_0＝26、r2_2＝31、_1／_3＝0），MUX3');
+  ok(DM.applyPreset(K, mi, P(32), 'copy').x0 === mi.x0, "applyPreset 'copy'（日後切換用）：不寫原廠表的第二組");
+  ok(DM.matchPreset(K, v29) === P(29) && DM.matchPreset(K, v18) === P(18), 'matchPreset 連第二組一起比對');
+  ok(DM.syncSecondSet(K, df, 'zero').x0 === 0 && DM.syncSecondSet(K, df, 'preserve') === df && DM.syncSecondSet('E503', st('E503', { c0: 3 }), 'mirror').c0 === 3, "syncSecondSet：zero／preserve；非 MNT 不動");
+  /* V512：EM02 規則下 [7:5]≠0 */
+  const b = new Uint8Array(0x1000);
+  ok(DM.v512Suspects('EM02', a => b[a]).length === 0, '全 5 bit 內 ⇒ 不是 V512');
+  b[0x0483] = 0x3F; b[0x0480 + 0x60] = 0x80;
+  ok(same(DM.v512Suspects('EM02', a => b[a]), [0x0483, 0x04E0]) && DM.v512Suspects('E512', a => b[a]).length === 0, 'EM02：0x0483＝3F、0x04E0＝80 ⇒ 可能 V512；E512 不套這條');
+  const em = synthMnt('EM02'), rr = DM.parseCode(em, null, 'x.bin');
+  ok(rr.ok && Array.isArray(rr.v512) && rr.v512.length > 0, 'parseCode 回報 v512 可疑位址（合成檔的 byte 有 [7:5]）');
+}
+
 /* ── ④ 匯出 → 套回 ── */
 sec('④ 匯出 → 套回原檔');
 for (const mk of ['EM02', 'E512', 'EM01', 'EM01F']) {
@@ -203,6 +307,29 @@ sec('⑤ I2C 假裝置');
     const changedBits = writes.reduce((a, w) => a | ((w[1][0] ^ before[w[0]]) & ~d.find(x => x.reg === w[0]).mask), 0);
     ok(changedBits === 0, model + ' 遮罩外位元保留');
     ok(same((await DM.readState(io, model)).state, s1), model + ' 寫完讀回 ＝ 目標狀態');
+  }
+
+  /* v1.2.0：I2C 即時寫入的第二組 r2..b3（頁面 commit 的流程：firstEdit → diffRegs → writeRegs） */
+  for (const model of DM.MNT_KEYS) {
+    const mem = new Uint8Array(0x10000); for (let i = 0; i < mem.length; i++) mem[i] = (i * 7 + 3) & 0x1F;
+    const b = DM.MODELS[model].rt7; mem[b] = (2 << 1) | (0 << 5); mem[b + 1] = 0x80;   // HSD type1、force_sel_en＝1 ⇒ 短循環
+    const writes = [], io = { read: async (a, n) => Array.from(mem.slice(a, a + n)), write: async (a, bytes) => { writes.push(a); for (let k = 0; k < bytes.length; k++) mem[a + k] = bytes[k]; } };
+    const xa = Array.from({ length: 24 }, (_, k) => DM.fieldById(model, 'x' + k).parts[0][0]);
+    const s0 = (await DM.readState(io, model)).state, xBefore = xa.map(a => mem[a]);
+    ok(DM.secondSetRule(model, s0).mode === 'copy', model + ' I2C 讀回 ⇒ 短循環');
+    const h = DM.firstEdit(model, s0, Object.assign(DM.cloneState(s0), { rd: 1 }));
+    await DM.writeRegs(io, DM.diffRegs(model, s0, h.state), () => {});
+    ok(!h.touched && writes.every(a => xa.indexOf(a) < 0) && same(xa.map(a => mem[a]), xBefore), model + ' I2C 短循環：沒動第一組 ⇒ 沒有寫 r2..b3');
+    const e = DM.pickCell(model, h.state, 0, 3, 'B-2'), f = DM.firstEdit(model, h.state, e.state);
+    writes.length = 0;
+    const res = await DM.writeRegs(io, DM.diffRegs(model, h.state, f.state), () => {});
+    const back = (await DM.readState(io, model)).state;
+    ok(res.ok && f.touched && Array.from({ length: 24 }, (_, k) => back['x' + k] === back['c' + k]).every(Boolean) && writes.some(a => xa.indexOf(a) >= 0),
+       model + ' I2C 短循環：改第一組 ⇒ r2..b3 一起寫入＝第一組（讀回逐格相同）');
+    /* Auto：改第一組不寫 r2..b3 */
+    const a0 = Object.assign(DM.cloneState(back), { hand: 0 }), af = DM.firstEdit(model, a0, DM.cloneState(Object.assign(DM.cloneState(a0), { c1: (a0.c1 + 1) % 18 })));
+    writes.length = 0; await DM.writeRegs(io, DM.diffRegs(model, a0, af.state), () => {});
+    ok(!af.touched && writes.every(a => xa.indexOf(a) < 0), model + ' I2C Auto：改第一組不寫 r2..b3');
   }
 
   /* ── ⑥ xlsx ── */
@@ -274,6 +401,27 @@ sec('⑤ I2C 假裝置');
       const raw = new Uint8Array(fs.readFileSync(f)), r = DM.parseCode(raw, null, path.basename(f));
       const k = r.ok ? r.model + '/' + DM.gateOf(r.model, r.state) : 'REJECT:' + r.reason;
       cnt[k] = (cnt[k] || 0) + 1;
+      if (r.ok && DM.MODELS[r.model].kind === 'mnt') {
+        /* v1.2.0：r2..b3 分類與 V512 可疑統計；匯出 → 套回只動 Data Mapping 位元 */
+        const xi = DM.xInfo(r.model, r.state).state, xk = 'r2b3:' + r.model + '/' + r.medium + '/' + xi + (r.v512.length ? '/V512?' : '');
+        cnt[xk] = (cnt[xk] || 0) + 1;
+        const bytes = DM.loadCodeBytes(path.basename(f), raw), img = Uint8Array.from(bytes);
+        const allow = {}; for (const e of DM.regsOf(r.model)) allow[r.fileOf(e.reg)] = e.mask;
+        const xFile = Array.from({ length: 24 }, (_, k) => r.fileOf(DM.fieldById(r.model, 'x' + k).parts[0][0]));
+        const run = (st, second) => {
+          const im = Uint8Array.from(bytes);
+          DM.applyScript(DM.buildScript(r.model, st, { second }).text, { get: reg => im[r.fileOf(reg)], set: (reg, v) => { im[r.fileOf(reg)] = v; } });
+          let bad = 0; for (let i = 0; i < im.length; i++) if (im[i] !== bytes[i] && (!(i in allow) || ((im[i] ^ bytes[i]) & ~allow[i] & 0xFF))) bad++;
+          return { im, bad, back: DM.parseCode(im, r.model, path.basename(f)).state };
+        };
+        /* 沒動第一組（只開 Hand Mode）⇒ r2..b3 的 byte 一個都不變 */
+        const h0 = DM.firstEdit(r.model, r.state, Object.assign(DM.cloneState(r.state), { hand: 1 }), 'mirror'), u0 = run(h0.state, h0.touched);
+        ok(!h0.touched && u0.bad === 0 && xFile.every(o => u0.im[o] === bytes[o]), path.basename(f) + '：沒動第一組 ⇒ 匯出套回後 r2..b3（讀入 ' + xi + '）原 byte 不變');
+        /* 改第一組 ⇒ r2..b3＝第一組 */
+        const h1 = Object.assign(DM.cloneState(r.state), { hand: 1, panel: 2, rd: 1 }), f1 = DM.firstEdit(r.model, h1, DM.pickCell(r.model, h1, 0, 0, (h1.c0 | 0) === 17 ? 'R1' : 'B-1').state, 'mirror'), u1 = run(f1.state, f1.touched);
+        ok(f1.touched && u1.bad === 0 && same(u1.back, f1.state) && DM.xInfo(r.model, u1.back).state === 'copy',
+           path.basename(f) + '：改第一組 ⇒ 匯出套回只動 DM 位元，r2..b3（讀入 ' + xi + '）＝第一組');
+      }
       if (!r.ok || !pyDir || DM.MODELS[r.model].kind !== 'nb') continue;
       const py = r.py, H2 = path.join(__dirname, 'datamap_pyui_harness.py');
       const out = JSON.parse(cp.execFileSync('/usr/bin/python3', [H2, pyDir, py, f]).toString());

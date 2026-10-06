@@ -1,8 +1,16 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   datamap-core.js — Data Mapping 共用核心（v1.1.0，2026-10-07）
+   datamap-core.js — Data Mapping 共用核心（v1.2.0，2026-10-07）
    ───────────────────────────────────────────────────────────────────────────
    給 datamap.html 與 tools/check_datamap.js 共用：瀏覽器下 window.TCONDataMap，node 下 module.exports。
    不碰 DOM、不碰 WebSocket；I2C 只透過呼叫端傳進來的 io（io.read(addr,len)、io.write(addr,bytes)）。
+
+   ── v1.2.0（Bruce 2026-10-07：格子「改成下拉式選單…只能選擇這幾個選項（還包含 X）」）─────────
+   ・cellOptions／pickCell／allSameOptions：下拉選單的選項與選取（見各函式說明）；editCell（打字路徑，
+     與 PY 逐字相同）保留不動，自測與 --pyui 對拍仍用它。
+   ・MNT 第二組 r2..b3（rt7+0x5E～0x75，Python UI 沒有此組）：依 #9b56c775 報告，以 EM02 為準（Bruce 10/7）。
+     secondSetRule 判循環（Auto／短循環／長循環），syncSecondSet(policy)／firstEdit 決定改第一組時第二組怎麼寫，
+     長循環開放 pickSecond；exportRegs 只在第二組被改寫過才含它。出處見 xInfo 上方。
+   ・v512Suspects：用 EM02 規則解析時 Data Mapping byte 的 [7:5]≠0 ⇒ 可能是 V512，頁面只讀不寫。
 
    ── v1.1.0 依據（Bruce 2026-10-07：「呈現的應該要跟 Python UI 一模一樣」）────────────────
    Python UI ＝ ~/TCON/TCON_UI/Raydium_RomCodeProcessUI/SourceCode_V5.0.4/RomCodeProcessUI.py（下稱 PY）
@@ -40,7 +48,7 @@
       h0002[0] force_de_en、h0003-h001A reg_force_sel_{r0,g0,b0,r1,g1,b1}_{0..3}[4:0]、h005E-h0075 {r2..b3}_{0..3}、
       rt8_tcon_1 0x0504[7:6] rd_mode。Bruce 2026-10-07：register 名稱與 8100X model 共用 ⇒
       FORCE_SEL_R0_t（8100X model RM8100x_for_FAE_20240925_20250311.model:8588 起，0x323+t）＝ reg_force_sel_r0_t。
-      ⇒ PY 表格的 Data 1~6 ＝ r0 g0 b0 r1 g1 b1、Line 1-1~2-2 ＝ _0~_3；r2..b3 PY 沒有，放「網頁附加」。
+      ⇒ PY 表格的 Data 1~6 ＝ r0 g0 b0 r1 g1 b1、Line 1-1~2-2 ＝ _0~_3；r2..b3 PY 沒有 ⇒ v1.2.0 起見上 xInfo／syncX。
       .bin 定位（sys 區 bank 起點表）見 v1.0.0 說明，未改：E512 0x43/0x45、EM02 0x31/0x33、EM01 0x46/0x48、EM01 Flash 平坦。
    ═══════════════════════════════════════════════════════════════════════════ */
 (function (root) {
@@ -190,6 +198,7 @@
         var t2 = Math.floor(k2 / 6), d2 = k2 % 6;
         f.push({ id: 'c' + k2, parts: [P(b + 0x03 + d2 * 4 + t2, 4, 0)], name: 'force_sel_' + CH_NAMES[d2] + '_' + t2 });
       }
+      /* r2..b3：Python UI 沒有這一組；v1.2.0 起依 xInfo／syncX 處理（見該處） */
       for (var k3 = 0; k3 < 24; k3++) {
         var t3 = Math.floor(k3 / 6), d3 = k3 % 6;
         f.push({ id: 'x' + k3, parts: [P(b + 0x5E + d3 * 4 + t3, 4, 0)], name: 'force_sel_' + CH_NAMES[6 + d3] + '_' + t3 });
@@ -246,6 +255,110 @@
     var list = [];
     fieldsOf(key).forEach(function (f) { if (!ids || ids.indexOf(f.id) >= 0) list = list.concat(splitField(f, s[f.id] | 0)); });
     return mergeRegs(list);
+  }
+  /* ── MNT 第二組 r2..b3（x0..x23，rt7+0x5E～0x75，每格 [4:0]；Python UI 沒有此組）── v1.2.0
+     依據 #9b56c775 報告 EM02_第二組DataMapping規則_報告_20261007.md（Dispatch 抽查原廠 RApp_TX.cpp:10934／10939）；
+     Bruce 10/7「以 EM02 的為優先設計」。EM01／E512 位址、編碼、sub 選單與 EM02 相同，同一套條件（rt7 base 依 MODELS）。
+     ・x_k 與 c_k 同一個 (type, 通道) 位置：x(type×6＋ch) ↔ c(type×6＋ch)；type＝_0~_3、ch＝r g b（第二組 r2 g2 b2 r3 g3 b3）。
+     ・index 0 是有效值（GN1 名稱 R3），不是「空」；關閉輸出一律 31（X）。兩組同一套編碼、限制 ≤29（TX.cpp:9341-9366）。
+     ・循環判定（rt7 沒有專屬 bit，由 force_sel_en＋panel_mode＋sub_panel_mode 決定；標籤照 EM02 原廠 UI）：
+       force_sel_en＝0（Auto）⇒ 'ignored'：硬體兩組都不讀，第二組隱藏、不寫。
+       HSD sub4「8-pixel」⇒ 'free'：第二組＝pixel 5~8（HSD_8pixel.png；xlsx 第 3、5 列）。
+       HSD sub5「4line,4pixel」⇒ 'free'：第二組＝第 3~4 列（G5~G8）（HSD_4pixel.png）。
+       LTPS MUX3（sub 0/2/4/6）⇒ 'mux3'：_0／_2 是第 3 個 mux 時槽，_1／_3 不使用、寫 0（xlsx 第 22-28 列；TX.h:552-555）。
+       其他（短循環）⇒ 'copy'：第二組隱藏；使用者改第一組時第二組＝第一組（硬體不讀時無害、會讀時 xlsx 原廠設定就是複本），
+       沒改第一組就保留原值（EM02 那 41 支全 0 的真檔維持原樣）。
+       （報告的 secondSetRule 另把 Zigzag type7/8 與 nml_4line_4pix_en 列為 free；Dispatch 10/7 條件只列上面三種長循環，照 Dispatch。）
+     xInfo.state：'none'（非 MNT）｜'copy'（sub＝main 且 main 不全 0）｜'zero'（sub 全 0）｜'other'。 */
+  function xInfo(key, s) {
+    if (MODELS[key].kind !== 'mnt') return { state: 'none', diff: [], list: [], mainZero: true };
+    var nz = false, mz = true, diff = [], list = [];
+    for (var k = 0; k < 24; k++) {
+      var xv = s['x' + k] | 0, cv = s['c' + k] | 0;
+      if (xv) nz = true;
+      if (cv) mz = false;
+      if (xv !== cv) diff.push(k);
+      list.push({ k: k, name: fieldById(key, 'x' + k).name, val: xv, main: cv });
+    }
+    return { state: !nz ? 'zero' : (!diff.length && !mz ? 'copy' : 'other'), diff: diff, list: list, mainZero: mz };
+  }
+  /* 第二組 ＝ 主組複本 */
+  function syncX(key, s) {
+    if (MODELS[key].kind !== 'mnt') return s;
+    var ns = cloneState(s); for (var k = 0; k < 24; k++) ns['x' + k] = ns['c' + k] | 0;
+    return ns;
+  }
+  /* 循環判定：{ mode:'none'|'ignored'|'copy'|'free'|'mux3', cycle:'auto'|'short'|'long', meaning, pm, sub, fse, basis } */
+  function secondSetRule(key, s) {
+    if (MODELS[key].kind !== 'mnt') return { mode: 'none', cycle: '', meaning: '' };
+    var pm = s.panel | 0, sub = s.subPanel | 0, fse = s.hand ? 1 : 0;
+    var r = { pm: pm, sub: sub, fse: fse, basis: 'force_sel_en=' + fse + (fse ? ' (Manual)' : ' (Auto)') + ', panel_mode=' + pm + ' ' + PANEL_MODES[pm] +
+              ', sub_panel_mode=' + sub + ' ' + ((SUB_PANEL[pm] || [])[sub] || '?') };
+    if (!fse) { r.mode = 'ignored'; r.cycle = 'auto'; r.meaning = ''; }
+    else if (pm === 2 && sub === 4) { r.mode = 'free'; r.cycle = 'long'; r.meaning = 'pix58'; }
+    else if (pm === 2 && sub === 5) { r.mode = 'free'; r.cycle = 'long'; r.meaning = 'row34'; }
+    else if (pm === 3 && (sub & 1) === 0) { r.mode = 'mux3'; r.cycle = 'long'; r.meaning = 'mux3'; }
+    else { r.mode = 'copy'; r.cycle = 'short'; r.meaning = ''; }
+    return r;
+  }
+  /* 第二組寫入策略：'mirror'（＝第一組）｜'zero'（全 0）｜'preserve'（保留原值）。syncSecondSet(policy) 是唯一的寫法實作；
+     policy 由 secondPolicy 依循環判定決定（copy ⇒ mirror，其他 ⇒ preserve），呼叫端也可以明確指定。 */
+  function secondPolicy(key, s) { return secondSetRule(key, s).mode === 'copy' ? 'mirror' : 'preserve'; }
+  function syncSecondSet(key, s, policy) {
+    policy = policy || secondPolicy(key, s);
+    if (MODELS[key].kind !== 'mnt' || policy === 'preserve') return s;
+    if (policy === 'mirror') return syncX(key, s);
+    if (policy === 'zero') { var ns = cloneState(s); for (var k = 0; k < 24; k++) ns['x' + k] = 0; return ns; }
+    throw new Error('unknown second-set policy: ' + policy);
+  }
+  function xChanged(a, b) { for (var k = 0; k < 24; k++) if ((a['x' + k] | 0) !== (b['x' + k] | 0)) return true; return false; }
+  /* 第一組（c0..c23）有改動 ⇒ 第二組依 policy（預設依循環判定）寫；touched＝第二組的值有沒有因此改變
+     （頁面記住後匯出／Write to TCON 才含第二組，見 exportRegs）。第一組沒動 ⇒ 第二組不動。 */
+  function firstEdit(key, old, ns, policy) {
+    if (MODELS[key].kind !== 'mnt') return { state: ns, touched: false };
+    var ch = false;
+    for (var k = 0; k < 24; k++) if ((old['c' + k] | 0) !== (ns['c' + k] | 0)) { ch = true; break; }
+    if (!ch) return { state: ns, touched: false };
+    var out = syncSecondSet(key, ns, policy || secondPolicy(key, ns));
+    return { state: out, touched: xChanged(ns, out) };
+  }
+  /* 長循環時第二組的下拉：0~29 ＋ X(31)。名稱表未確認（報告 §6-4），顯示「數字＋GN1 名稱」（0＝R3…17＝B-1），18~29 只有數字。 */
+  function secondOptions() {
+    var out = [];
+    for (var v = 0; v <= 29; v++) out.push({ value: v, name: inv(GN1, v) || '' });
+    out.push({ value: 31, name: 'X' });
+    return out;
+  }
+  /* 第二組某格可不可以填：free ⇒ 24 格；mux3 ⇒ 只有 _0／_2（row 0、2） */
+  function secondEditable(key, s, row) {
+    var m = secondSetRule(key, s).mode;
+    return m === 'free' || (m === 'mux3' && (row === 0 || row === 2));
+  }
+  /* 填第二組某格（row＝type _0~_3、col＝r2 g2 b2 r3 g3 b3）。mux3 時 _1／_3 一律寫 0。 */
+  function pickSecond(key, s, row, col, value) {
+    var v = +value;
+    if (!secondEditable(key, s, row) || !(v === 31 || (v >= 0 && v <= 29) && v === Math.floor(v))) return null;
+    var ns = cloneState(s); ns['x' + (row * 6 + col)] = v;
+    if (secondSetRule(key, s).mode === 'mux3') for (var c = 0; c < 6; c++) { ns['x' + (6 + c)] = 0; ns['x' + (18 + c)] = 0; }
+    return { state: ns, text: String(v) };
+  }
+  function isSecond(f) { return /^x\d+$/.test(f.id); }
+  /* 匯出／Write to TCON 的暫存器清單：second＝false（第二組沒被改寫過）⇒ 不含第二組 r2..b3 的位址 */
+  function exportRegs(key, s, second) {
+    var ids = fieldsOf(key).filter(function (f) { return second || !isSecond(f); }).map(function (f) { return f.id; });
+    return encodeFields(key, s, ids);
+  }
+  /* EM02 規則解析時，Data Mapping 的 byte 若 [7:5]≠0（值超過 5 bit）⇒ 可能是 V512（同一顆 IC 不同用法），
+     頁面只讀不寫。回傳可疑的位址清單（getByte(reg) 取原始 byte）。 */
+  function v512Suspects(key, getByte) {
+    if (key !== 'EM02') return [];
+    var out = [];
+    fieldsOf(key).forEach(function (f) {
+      if (!/^[cx]\d+$/.test(f.id)) return;
+      var a = f.parts[0][0], b = getByte(a);
+      if (b != null && (b & 0xE0)) out.push(a);
+    });
+    return out;
   }
   function encode(key, s) { return encodeFields(key, s, null); }
   function changedIds(key, a, b) {
@@ -353,6 +466,37 @@
     var ns = applyNames(key, s, names);
     return ns ? { state: ns, text: t } : null;
   }
+  /* ── v1.2.0 下拉選單（Bruce 10/7「改成下拉式選單，也就是只能選擇這幾個選項（還包含 X）」）──────
+     某一格可選的名稱，順序＝PY 字典順序（:2831 GN1、:2836 GN2、:2841 D6111、:2846 D7353），X 在最後。
+     e50x：Single 與 Dual 的 Line 1-1／2-1 用 GN1，Dual 的 Line 1-2／2-2 用 GN2（PY 寫這兩列一律查 GN2，
+     :29738；All Same Pixel 也能把 R5／R6 寫進這兩列，:29925）。不能改的格回傳 []。 */
+  function namesOf(dict) { return Object.keys(dict); }
+  function cellOptions(key, s, row, col) {
+    var v = cellView(key, s, row, col);
+    if (!v.editable) return [];
+    var d = rowDict(key, row, gateOf(key, s));
+    return namesOf(d).map(function (n) { return { name: n, value: d[n] }; });
+  }
+  /* 下拉選某個名稱。與 editCell 的差別只有一處：Dual 的 Line 1-2／2-2 接受 GN2 名稱（R5／R6…），
+     其餘（含 Single 鏡射、連動欄位）完全走 editCell。 */
+  function pickCell(key, s, row, col, name) {
+    var t = normText(name), g = gateOf(key, s);
+    if (semOf(key) === 'e50x' && g === 'dual' && (row & 1) && (t in GN2) && !(t in GN1)) {
+      if (!cellView(key, s, row, col).editable) return null;
+      var ns = cloneState(s); ns['c' + (row * 6 + col)] = GN2[t];
+      return { state: pyNormalize(key, ns), text: t };
+    }
+    var opts = cellOptions(key, s, row, col).map(function (o) { return o.name; });
+    if (opts.indexOf(t) < 0) return null;
+    return editCell(key, s, row, col, t);
+  }
+  /* All Same Pixel 下拉：只列會生效的名稱（PY 先用 GN2 驗證，再依各列字典查，查不到 ⇒ X）。
+     e50x Dual ⇒ GN2（R5／R6 只會寫到 Line 1-2／2-2，其他列變 X）；e50x Single ⇒ GN1；DAZ ⇒ 自己的表。 */
+  function allSameOptions(key, s) {
+    var se = semOf(key), g = gateOf(key, s);
+    if (se === 'e50x') return g === 'dual' ? namesOf(GN2) : (g === 'single' ? namesOf(GN1) : []);
+    return namesOf(inputDict(key)).filter(function (n) { return n in GN2; });
+  }
   /* Gate Type 下拉（PY get_object_to_dm_info :29849） */
   function setGate(key, s, item) {
     var gi = GATE_ITEMS.indexOf(item); if (gi <= 0) return null;
@@ -458,17 +602,25 @@
     for (var k = 0; k < v.length; k++) if (v[k] !== 'x') set[mntSelId(k)] = +v[k];
     return { name: p[0], set: set };
   });
-  function applyPreset(key, s, idx) {
+  /* 套預設樣式（Dispatch 10/7 依 #9b56c775 定案）：兩組都照原廠表 RApp_TX.h:530-567 寫入，'x' 不寫，(23)(28)(32) 第二組寫 0。
+     🔴 寫到「語意位址」：原廠索引 k（0..47）＝通道×4＋type（mntSelId）⇒ r0_0 → rt7+0x03、r2_0 → rt7+0x5E。
+        原廠 RApp_TX_RT7_DataMapping_RegSet 用 u8reg_force_sel[i-10]／[i-34]（TX.cpp:10934、10939），但 r0_0 的 index 是 11
+        （TX.h:57）⇒ 整組錯開 1 byte（r0_0、r2_0 沒寫到；b1_3 寫進 0x1B、b3_3 寫進 0x76）。網頁不照抄這個 bug（CHANGELOG 有註明）。
+     second＝'copy'（只供測試／日後切換）：不寫原廠表的第二組。 */
+  var PRESET_SECOND = 'vendor';
+  function applyPreset(key, s, idx, second) {
     var p = PRESETS[idx]; if (!p || MODELS[key].kind !== 'mnt') return s;
-    var out = cloneState(s);
-    Object.keys(p.set).forEach(function (id) { var fd = fieldById(key, id); if (fd) out[id] = p.set[id] & ((1 << fd.bits) - 1); });
+    var out = cloneState(s), mode = second || PRESET_SECOND;
+    Object.keys(p.set).forEach(function (id) { var fd = fieldById(key, id); if (fd && (mode === 'vendor' || !isSecond(fd))) out[id] = p.set[id] & ((1 << fd.bits) - 1); });
     return out;
   }
+  /* 這個預設樣式有沒有原廠表的第二組值（有 48 格清單的才有） */
+  function presetHasSecond(idx) { var p = PRESETS[idx]; return !!p && Object.keys(p.set).some(function (id) { return /^x\d+$/.test(id); }); }
   function matchPreset(key, s) {
     if (MODELS[key].kind !== 'mnt') return -1;
     for (var j = 0; j < PRESETS.length; j++) {
       var ok = true, set = PRESETS[j].set;
-      for (var id in set) { var fd = fieldById(key, id); if (!fd) continue; if (((s[id] | 0) & ((1 << fd.bits) - 1)) !== (set[id] & ((1 << fd.bits) - 1))) { ok = false; break; } }
+      for (var id in set) { var fd = fieldById(key, id); if (!fd || (PRESET_SECOND !== 'vendor' && isSecond(fd))) continue; if (((s[id] | 0) & ((1 << fd.bits) - 1)) !== (set[id] & ((1 << fd.bits) - 1))) { ok = false; break; } }
       if (ok) return j;
     }
     return -1;
@@ -553,8 +705,9 @@
   }
   function cksOf(bytes) { var c = 0; for (var i = 0; i < bytes.length; i++) c += bytes[i]; return c >>> 0; }
   function parseWith(key, bytes, fileOf, medium) {
-    var st = decode(key, function (reg) { var o = fileOf(reg); return (o >= 0 && o < bytes.length) ? bytes[o] : 0; });
-    return { ok: true, model: key, medium: medium, state: st, fileOf: fileOf, cks: cksOf(bytes) };
+    var gb = function (reg) { var o = fileOf(reg); return (o >= 0 && o < bytes.length) ? bytes[o] : 0; };
+    var st = decode(key, gb);
+    return { ok: true, model: key, medium: medium, state: st, fileOf: fileOf, cks: cksOf(bytes), v512: v512Suspects(key, gb) };
   }
   /* 匯入。name ＝ 檔名（決定解析方式與 PY 型號）；pick ＝ 頁面目前選的型號。
      規則：MNT 依檔案內容（只接受恰好一個命中）；PY 型號依檔名（同 PY），檔名看不出來才用 pick。 */
@@ -584,7 +737,7 @@
   /* MNT：TCON 工具 Script 格式（write -m AAAA VV MM，ASCII；格式照 wfg.html wfgEm02BuildScript） */
   function buildScript(key, s, opt) {
     opt = opt || {};
-    var lines = [], regs = encode(key, s);
+    var lines = [], regs = exportRegs(key, s, opt.second !== false);   // opt.second＝false：第一組沒動過 ⇒ 不寫 r2..b3
     if (opt.comments !== false) {
       lines.push('// DataMap ' + asciiOnly(opt.version || '') + ' - exported ' + key + ' Data Mapping settings');
       lines.push('// Load this file from the Script page of the TCON tool.');
@@ -786,7 +939,9 @@
     gateOf: gateOf, gateText: gateText, cellView: cellView, editCell: editCell, applyNames: applyNames, allSame: allSame,
     setGate: setGate, setHand: setHand, pyNormalize: pyNormalize, pyNames: pyNames, cks: cks, preLabels: preLabels,
     inputDict: inputDict, colorOfName: colorOfName, codeAddrs: codeAddrs, byteOf: byteOf, regNote: regNote, fieldsAt: fieldsAt,
-    applyPreset: applyPreset, matchPreset: matchPreset,
+    applyPreset: applyPreset, matchPreset: matchPreset, PRESET_SECOND: PRESET_SECOND, presetHasSecond: presetHasSecond,
+    cellOptions: cellOptions, pickCell: pickCell, allSameOptions: allSameOptions, xInfo: xInfo, syncX: syncX, syncSecondSet: syncSecondSet, secondSetRule: secondSetRule, secondPolicy: secondPolicy, firstEdit: firstEdit, exportRegs: exportRegs,
+    secondOptions: secondOptions, secondEditable: secondEditable, pickSecond: pickSecond, xChanged: xChanged, v512Suspects: v512Suspects,
     loadCodeBytes: loadCodeBytes, modelFromName: modelFromName, locate: locate, parseCode: parseCode, nbFileOf: nbFileOf, cksOf: cksOf,
     buildScript: buildScript, applyScript: applyScript, pyScriptRows: pyScriptRows, applyPyScriptRows: applyPyScriptRows,
     excelName: excelName, excelRows: excelRows, excelToNames: excelToNames, readXlsxRows: readXlsxRows,
