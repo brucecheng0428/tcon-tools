@@ -2,6 +2,36 @@
 
 ---
 
+## I2C 讀寫測試 (i2c) v1.32.0 — 2026-10-06 ｜ MINOR
+
+判定依據：VERSIONING.md §1「操作流程調整＋輸入方式擴充」—— 整頁改成五步引導、長度欄可直接打十進位；所有既有功能與 id 都在，送出的 I2C 序列不變（兩支自測的序列段原文通過）。輸出檔內容與檔名格式不變 ⇒ 判 MINOR，不標 `⚠ 輸出變更`。Dispatch 指定 v1.31.0 → v1.32.0。
+
+### 起因
+
+Bruce 2026-10-06：「長度旁邊加上的十進位，除了原本有 KB 顯示的，也再多一個（例如再多一個逗號），然後是 Byte 顯示的…另外，長度也可以直接輸入 10 進位來表示，也就是不要加 0x，就是 10 進位。再來，I2C 讀寫測試這個頁面的精簡化，也仿照 DG 網頁的 TCON 自檢。風格沿用跟那個是一樣的，使用者越知道自己該怎麼做越好。」Dispatch 派工 233094460939034624。
+
+### 改了什麼
+
+- **A. 長度與 Flash 位址：顯示 KB＋Byte、可直接打十進位**
+  - 顯示：1 KB 以上「4,096 KB, 4,194,304 Byte」、不到 1 KB 只寫「512 Byte」（`i2ctSfDec`）。套用在 Flash 起始位址／長度／寫入位址的換算行、確認窗範圍、紀錄窗與操作紀錄的開始／進度／完成／未完成摘要、讀完的橫幅。進度列（一直在更新、版面窄）維持只寫 KB（`i2ctSfKb`）。`i2c.sfUnitByte` 改成 Byte（英文 bytes）。
+  - 輸入（`i2ctParseLen`）：`0x` 開頭 ⇒ 十六進位；只有數字（可帶千分位逗號，例如貼上畫面上的 4,096）⇒ 十進位；其他（1A、100h、#256、256d、-1、1.5、只有 0x）⇒ 看不懂，欄位標紅、小字寫規則，不猜。十進位輸入時小字補上 0x 值：「= 0x001000（4 KB, 4,096 Byte）」；0x 輸入補 KB／Byte。
+  - **改了輸入規則的欄位（逐一）**：`sf-rd-start`（Flash 讀出起始位址）、`sf-rd-len`（Flash 讀出長度）、`sf-wr-start`（Flash 寫入位址）——原本走 `i2ctParseAddr`（沒有 0x 預設十六進位），現在不加 0x 是十進位；`in-len`（一般讀寫「總 byte 數」）——原本就預設十進位，但也吃 1A／100h／#／d 後綴，現在收斂成同一套兩種寫法（`data-radix="len"`，combo 下拉比對也走它）。
+  - **沒動的欄位**：slave 三格、offset 寬度、起始 offset、跳頁格、寫入資料、時脈、目標段間距（仍是原本的 `i2ctParseAddr`／`i2ctParseNum`）。測試釘住 slave 打 50＝0x50、offset 打 10＝0x10。
+- **B. 步驟式版面（仿 dg-selftest「TCON 自檢」）**：整頁照使用順序分成 ① 連線 I2C 治具 → ② 認出 T-CON → ③ 選功能 → ④ 設定並執行 → ⑤ 結果與紀錄。每步一個 2px 外框、行首 ○／✔／✕、旁邊一行狀態與「為什麼還不能做」（--warn 色）；目前該做的那一步標題換成 --accent；頁首一行「下一步：…」（`i2ctStepsRender`，只讀既有狀態，掛在 `i2ctSyncButtons` 尾端、`i2ctCkRender`、切語言）。做完的 ①② 縮成一行「✓ …」，點一下展開（共用 `common/done-step.js`／`done-step.css`，與 DG 兩頁同一份檔）。
+  - 搬動（id 全部不變）：Check T-CON 一列從連線卡拆到 ②；I2C 時脈與「一次只給一個分頁用」收進 ① 的「進階設定與說明」（原生 details，預設收起）；「裝置類型」select 搬到 ③ 並隱藏，改由三顆分段鈕（一般暫存器讀寫／EEPROM／外部 Flash）驅動同一個 select、同一個 change 事件；讀寫參數與外部 Flash 面板在 ④；Dump、差異、操作紀錄在 ⑤。debug 區兩張卡位置不變。
+  - 組名與 Flash 小節標題拿掉 ①～⑤（編號留給五個步驟）；外部 Flash 模式改成整個 Slave 組收起（原本只收 grplab，裝置類型搬走後組會變空框）。窄螢幕（≤760px）Flash 讀出／寫入兩欄改單欄、位址卡兩欄、分段鈕撐滿。
+  - 沿用清單（dgself → i2c）：`.dst-box`→`.stp`、`.dst-step-tick`→`.stp-tick`（✔ #6ee7b7）、`.dst-step.cur`→`.stp.cur`、`.dst-step-why`→`.stp-why`、`.dst-say-info`→`#stp-next`、`.dst-hw-more`→`.stp-more`、`.dst-sw-seg`→`.mseg`；`common/done-step.*` 直接共用。i2c 頁仍不載 common.css（同名 class 衝突，見檔頭），所以樣式是照數值重寫，顏色變數值相同、沒有新色票。
+- `common/i18n.js`：新增步驟、下一步、功能說明、長度規則字串（三語）；組名／Flash 小節去編號；`i2c.sfUnitNote`、`i2c.sfErrNum` 補上「不加 0x 是十進位」。`i2c.html`、`index.html` 的 `?v=` 改 `20261006i2c1320`。
+- `i2c-guide*.html`：連線段加五步說明、總 byte 數與 Flash 讀出補輸入規則與新格式、Flash 小節去編號（說明頁不算版號）。
+
+### 證據
+
+- `node tools/i2c_spiflash_selftest.js`：336 項全過（原 297）。v1.31.0 的 7 項換算與 4 項紀錄／摘要斷言改成新格式（同一行為）；新增：十進位 4096／4194304／4,096／512／1023／1024 邊界、0x／0X、起始位址與寫入位址十進位、9 種非法輸入標紅、parseLen 12 例、十進位起點 4096 實際讀 0x1000 起 4 KB 且 log 用新格式；步驟：分段鈕三種切換與面板、舊掛勾改 select 鈕跟著、① ✔ 與縮成一行／點開／收回、沒選型號的提示、三語、無漏翻 key。
+- `node tools/i2c_tool_selftest.js`：見 commit 訊息。§64「group card 標籤」從 v1.26.0 起一直少列 EEPROM 組（v1.31.0 commit 記為既有失敗），這版改成新標籤並補上 EEPROM；新增五步標題順序與每一步裡該有的控制項；總 byte 數：2048→「= 0x0800（2 KB, 2,048 Byte）」、0x100＝256、100＝100、7 種非法標紅、262144 合法、262145／0 標紅。
+- 截圖：`outputs/i2c_v1320_shots/`（headless Chrome、自有 profile、假 bridge）。**未上機**。
+
+---
+
 ## I2C 讀寫測試 (i2c) v1.31.0 — 2026-10-06 ｜ MINOR
 
 判定依據：VERSIONING.md §1「操作流程調整＋新增能力」—— 外部 Flash 的型號多了自動帶入、讀出內容多了 Dump 檢視、多了紀錄窗；原本手選型號、讀 ID、寫入、整顆抹除的操作都還在，送出的 I2C 序列不變（既有逐筆測試原文通過）。「讀出並另存」拆成「讀出」＋ Dump 的「另存新檔」，存出來的 bin 內容與檔名格式不變（型號_[Demura_]Flash_0x起點_0x長度_CKS_xxxxxx），只是多按一次另存 ⇒ 不是「過去結果要重新確認」，判 MINOR，不標 `⚠ 輸出變更`。
