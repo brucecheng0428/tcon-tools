@@ -708,6 +708,8 @@ function en01Header(maps, flags) {
     CHECK(!vis($('in-slave')) && !vis($('in-awid')) && !vis($('in-len')) && !vis($('in-data')) && !vis($('btn-read')), 'slave／offset／byte 數／寫入資料／一般讀寫鈕都收起來');
     EQ($('in-devtype').value, 'sf', '選單停在外部 Flash（EEPROM 模式沒有把它改回一般）');
     CHECK($('sf-detect').disabled && $('sf-read').disabled && $('sf-write').disabled, '沒選型號前：讀 ID／讀出／寫入都停用');
+    G('畫面：v1.33.0 讀取長度預設 0x40000（Bruce 2026-10-06）');
+    EQ([$('sf-rd-len').value, $('sf-rd-len-dec').textContent], ['0x040000', '（256 KB, 262,144 Byte）'], '頁面載入：長度 0x040000（256 KB, 262,144 Byte）');
 
     G('畫面：E501B 位址自動帶入並鎖定（7-bit）');
     SFU.setModel('E501B');
@@ -729,6 +731,8 @@ function en01Header(maps, flags) {
     await SFU.detect();
     EQ(since(n0).map(asLine)[since(n0).length - 2], Rd(0x7D, 2, 0x0246, 3), '畫面送出的 JEDEC 讀取 7D:0246（7-bit、2-byte offset）');
     CHECK(/EF 40 16/.test($('sf-id').textContent) && /4 MB/.test($('sf-id').textContent), '顯示 JEDEC 與容量：' + $('sf-id').textContent);
+    EQ([$('sf-rd-start').value, $('sf-rd-len').value], ['0x000000', '0x040000'], 'v1.33.0：4 MB Flash 讀 ID 後長度帶預設 0x040000（不再帶整顆 0x400000）');
+    CHECK(!$('sf-rd-all').disabled, 'v1.33.0：「讀整顆」照舊可勾（整顆另由它讀）');
     CHECK(!$('sf-read').disabled && $('sf-write').disabled, '讀出開了；沒選檔前寫入仍停用');
     $('sf-rd-start').value = '0x001000'; $('sf-rd-len').value = '0x2000';
     n0 = sent.length;
@@ -819,7 +823,9 @@ function en01Header(maps, flags) {
     CHECK(!vis($('sf-eraseall')), 'EM01 沒有「整顆抹除」鈕');
 
     G('畫面：EN01 讀取、寫入、整顆抹除（v1.30.0）');
+    $('sf-rd-len').value = '0x2000';
     SFU.setModel('EN01');
+    EQ($('sf-rd-len').value, '0x040000', 'v1.33.0：換型號 ⇒ 長度回預設 0x040000');
     EQ(Array.from($('sf-slaves').querySelectorAll('b')).map(b => b.textContent), ['0x3E', '0x64'], 'EN01：0x3E／0x64');
     CHECK(/待上機確認/.test($('sf-modelnote').textContent) && /現行序列/.test($('sf-modelnote').textContent), '畫面標「依原廠現行序列，待上機確認」');
     CHECK(/待上機確認/.test($('sf-wrnote').textContent) && /Lock/.test($('sf-wrnote').textContent), '寫入說明標「待上機確認」並寫明 Unlock／Lock');
@@ -1130,6 +1136,61 @@ function en01Header(maps, flags) {
       CHECK(/I2C clock 400 kHz/.test(info()) && /Connected/.test(lt()), '已連線資訊切英文：' + info());
       win.applyLang('zh-TW'); await sleep(10);
       EQ((card.textContent.match(/i2c\.conn[A-Za-z]*/g) || []), [], '① 沒有沒翻到的 key'); }
+
+    G('畫面：v1.33.0 Check T-CON 手選 EN01 ⇒ 讀 3E:207E 顯示 A1／A2／Unknown');
+    { const reads207E = n => sent.slice(n).filter(m => m.type === 'read' && m.slave === 0x3E);
+      const writes = n => sent.slice(n).filter(m => m.type === 'rawwrite').map(asLine);
+      const pickEn01 = async (icVer) => {
+        dev = fakeEN01({ icVer }); nackSlaves = [0x7C, 0x7D];          /* A 段讀不到、0xFF00 讀到 00 00 00 ⇒ 認不出來 */
+        await A.checkTcon(); nackSlaves = [];
+        const n = sent.length;
+        await A.ckPick('EN01'); await sleep(5);
+        return n; };
+      /* 反面先做：E501 板 Check T-CON、E501／EM01 手選 ⇒ 一筆 0x3E 都不讀 */
+      dev = fakeE501(false); let n0 = sent.length;
+      await A.checkTcon();
+      EQ([A.ckResult().name, reads207E(n0).length], ['E501B2', 0], 'E501 板按 Check T-CON ⇒ 沒有讀 0x3E（不對 E501 多探測）');
+      dev = fakeEN01({ icVer: 0 }); nackSlaves = [0x7C, 0x7D]; await A.checkTcon(); nackSlaves = [];
+      CHECK(A.ckResult().unknown && Array.from($('tcon-pick').options).some(o => o.value === 'EN01'), '認不出來 ⇒ 下拉有 EN01 可選');
+      n0 = sent.length; await A.ckPick('E501B1'); await sleep(5);
+      n0 = sent.length; await A.ckPick('EM01A1'); await sleep(5);
+      EQ(reads207E(n0).length, 0, '手選 E501B1／EM01A1 ⇒ 沒有讀 0x3E');
+      /* 0 ⇒ A1 */
+      n0 = await pickEn01(0);
+      EQ(reads207E(n0).map(asLine), [Rd(0x3E, 2, 0x207E, 1)], 'A1：只讀一次 3E / 2-byte / 0x207E / 1 byte（RCI:1397–1416）');
+      EQ(writes(n0), [], 'A1：讀得到就沒有任何寫入');
+      EQ([A.ckResult().name, A.ckResult().en01Ver && A.ckResult().en01Ver.txt], ['EN01', 'A1'], 'bit3:0 = 0 ⇒ A1');
+      CHECK(/^EN01\s+\(RM81008\) · A1$/.test($('tcon-name').textContent), '② 型號旁顯示 A1：' + $('tcon-name').textContent);
+      CHECK(/T-CON：EN01 · A1/.test($('conn-info').textContent), '① 連線區 T-CON 欄位顯示 A1：' + $('conn-info').textContent);
+      EQ($('tcon-pick').value, 'EN01', '讀完重畫後下拉仍停在 EN01');
+      EQ($('sf-model').value, 'EN01', '外部 Flash 型號跟著帶入 EN01');
+      CHECK(/EN01 IC 版本：A1（3E:207E = 0x00）/.test(logText()), 'log 記原始值：0x00');
+      /* 1 ⇒ A2；高 nibble 不看 */
+      n0 = await pickEn01(0x31);
+      EQ(A.ckResult().en01Ver.txt, 'A2', '0x31（bit3:0 = 1）⇒ A2（只看 bit3:0）');
+      CHECK(/EN01\s+\(RM81008\) · A2/.test($('tcon-name').textContent) && /T-CON：EN01 · A2/.test($('conn-info').textContent), '兩處都顯示 A2');
+      /* 其他 ⇒ Unknown */
+      n0 = await pickEn01(0x02);
+      EQ(A.ckResult().en01Ver.txt, 'Unknown', '2 ⇒ Unknown（RCI:1414）');
+      CHECK(/· Unknown/.test($('tcon-name').textContent) && /T-CON：EN01 · Unknown/.test($('conn-info').textContent), '兩處都顯示 Unknown');
+      /* 0xFF ⇒ 補 7E:AB←CD 再讀一次，仍 0xFF ⇒ Unknown */
+      n0 = await pickEn01(0xFF);
+      EQ(writes(n0), [W(0x7E, 1, 0xAB, [0xCD])], '讀到 0xFF ⇒ 只補一筆 EN01 M-Bus→C-Bus 7E:AB←CD（不下 E503 的 3E:0059）');
+      EQ(reads207E(n0).length, 2, '補完重讀一次（共兩次）');
+      EQ(A.ckResult().en01Ver.txt, 'Unknown', '仍 0xFF ⇒ Unknown');
+      /* 讀不到 ⇒ 「版本讀不到」 */
+      dev = fakeEN01({ icVer: 0 }); nackSlaves = [0x7C, 0x7D]; await A.checkTcon();
+      nackSlaves = [0x7C, 0x7D, 0x3E]; n0 = sent.length; await A.ckPick('EN01'); await sleep(5); nackSlaves = [];
+      CHECK(A.ckResult().en01Ver && A.ckResult().en01Ver.fail && /EN01\s+\(RM81008\) · 版本讀不到/.test($('tcon-name').textContent), '0x3E 沒回應 ⇒ 顯示「版本讀不到」：' + $('tcon-name').textContent);
+      win.applyLang('en'); await sleep(10);
+      CHECK(/version unreadable/.test($('tcon-name').textContent), '切英文：' + $('tcon-name').textContent);
+      win.applyLang('zh-TW'); await sleep(10);
+      /* 改選別顆 ⇒ 版本拿掉 */
+      await A.ckPick('E501A'); await sleep(5);
+      CHECK(!A.ckResult().en01Ver && !/·/.test($('tcon-name').textContent), '改選 E501A ⇒ 不留 EN01 版本：' + $('tcon-name').textContent);
+      /* 重按 Check T-CON ⇒ 結果重來 */
+      n0 = await pickEn01(1); dev = fakeE501(false); await A.checkTcon();
+      CHECK(!A.ckResult().en01Ver && A.ckResult().name === 'E501B2', '重按 Check T-CON ⇒ 版本跟著舊結果清掉'); }
 
     G('畫面：切回一般模式，原本的讀寫照舊');
     SFU.setMode(false);

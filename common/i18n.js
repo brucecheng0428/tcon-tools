@@ -2884,6 +2884,10 @@ var I18N = {
   'i2c.logCkStart':     { 'zh-TW': '── Check T-CON ──', 'en': '── Check T-CON ──', 'zh-CN': '── Check T-CON ──' },
   'i2c.logCkDone':      { 'zh-TW': '✔ Check T-CON：{name}', 'en': '✔ Check T-CON: {name}', 'zh-CN': '✔ Check T-CON：{name}' },
   'i2c.logCkPick':      { 'zh-TW': '型號改為手動選定：{name}', 'en': 'Model set manually: {name}', 'zh-CN': '型号改为手动选定：{name}' },
+  /* v1.33.0：EN01 IC 版本（3E:207E bit3:0，RomCodeInfo.cs:1397–1416） */
+  'i2c.logCkEn01Ver':   { 'zh-TW': '✔ EN01 IC 版本：{v}（3E:207E = 0x{raw}）', 'en': '✔ EN01 IC version: {v} (3E:207E = 0x{raw})', 'zh-CN': '✔ EN01 IC 版本：{v}（3E:207E = 0x{raw}）' },
+  'i2c.logCkEn01VerFail': { 'zh-TW': 'EN01 IC 版本讀不到（3E:207E 沒有回應）', 'en': 'EN01 IC version not readable (no reply from 3E:207E)', 'zh-CN': 'EN01 IC 版本读不到（3E:207E 没有响应）' },
+  'i2c.ckEn01VerFail':  { 'zh-TW': '版本讀不到', 'en': 'version unreadable', 'zh-CN': '版本读不到' },
   'i2c.bnCkFail':       { 'zh-TW': 'Check T-CON 沒有完成（{why}）', 'en': 'Check T-CON did not complete ({why})', 'zh-CN': 'Check T-CON 没有完成（{why}）' },
   'i2c.logCkFail':      { 'zh-TW': '✕ Check T-CON 沒有完成：{why}', 'en': '✕ Check T-CON did not complete: {why}', 'zh-CN': '✕ Check T-CON 没有完成：{why}' },
   'i2c.logCkMbus':      { 'zh-TW': 'E503 ⇒ M-Bus 導通 C-Bus：0x7E:0xAB ← CD、0x3E:0x0059 ← 1E', 'en': 'E503 ⇒ opening C-Bus from M-Bus: 0x7E:0xAB ← CD, 0x3E:0x0059 ← 1E', 'zh-CN': 'E503 ⇒ M-Bus 导通 C-Bus：0x7E:0xAB ← CD、0x3E:0x0059 ← 1E' },
