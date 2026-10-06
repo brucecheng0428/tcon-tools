@@ -1517,8 +1517,34 @@ function baseScript(f) {
       CHECK(doc.getElementById(id).textContent.indexOf(note) >= 0,
         '🔴 ' + id + ' 有那一行小字「' + note + '」：' + doc.getElementById(id).textContent);
     });
-    CHECK(doc.getElementById('lenhint').textContent.indexOf('十進位') >= 0,
-      '🔴 ④ 標明是十進位（唯一例外）：' + doc.getElementById('lenhint').textContent);
+    /* v1.32.0：總 byte 數的小字從「十進位」換成換算結果，規則（不加 0x＝十進位）放在 title 與看不懂時的紅字。
+       同一個行為（讓人看得出這一格是十進位）改驗：十進位輸入 ⇒ 補上 0x 值；0x 輸入 ⇒ 補上 KB／Byte。 */
+    setv('in-len', '2048');
+    CHECK(/^= 0x0800（2 KB, 2,048 Byte）/.test(doc.getElementById('lenhint').textContent),
+      '🔴 總 byte 數打 2048（十進位）⇒ 小字補上 0x0800 與 KB／Byte：' + doc.getElementById('lenhint').textContent);
+    CHECK(/十進位/.test(doc.getElementById('in-len').title), '🔴 規則寫在 title：' + doc.getElementById('in-len').title);
+    setv('in-len', '0x100');
+    CHECK(/^（256 Byte）/.test(doc.getElementById('lenhint').textContent), '0x100 ⇒ 小字補上 256 Byte：' + doc.getElementById('lenhint').textContent);
+    EQ(A.readInputs ? A.readInputs().len : null, 256, '🔴 0x100 ⇒ 讀 256 byte');
+    setv('in-len', '100');
+    EQ(A.readInputs ? A.readInputs().len : null, 100, '🔴 100（沒有 0x）⇒ 十進位 100，不是 0x100');
+    ['100h', '1A', '#256', '256d', '-1', '1.5', '0x'].forEach(j => {
+      setv('in-len', j);
+      CHECK(doc.getElementById('in-len').classList.contains('bad') && /看不懂/.test(doc.getElementById('lenhint').textContent),
+        '🔴 總 byte 數「' + j + '」⇒ 看不懂、標紅：' + doc.getElementById('lenhint').textContent);
+    });
+    setv('in-len', '262144');
+    CHECK(!doc.getElementById('in-len').classList.contains('bad'), '邊界 262144（上限）合法');
+    setv('in-len', '262145');
+    CHECK(doc.getElementById('in-len').classList.contains('bad'), '邊界 262145 超過上限 ⇒ 標紅');
+    setv('in-len', '0');
+    CHECK(doc.getElementById('in-len').classList.contains('bad'), '邊界 0 ⇒ 標紅');
+    /* 🔴 位址類欄位不受影響：slave／offset 不加 0x 仍是十六進位 */
+    setv('in-slave', '50');
+    EQ(A.readInputs ? A.readInputs().slave : null, 0x50, '🔴 slave 打 50 仍是 0x50（不受長度規則影響）');
+    setv('in-off', '10');
+    EQ(A.readInputs ? A.readInputs().off : null, 0x10, '🔴 offset 打 10 仍是 0x10');
+    setv('in-slave', '0x68'); setv('in-off', '0x0000'); setv('in-len', '256');
     CHECK(doc.getElementById('xhair') === null
        || /十進位加 d/.test(doc.getElementById('xhair').getAttribute('title') || ''),
       '頁內定位格的規則寫在 title');
@@ -4533,7 +4559,16 @@ function baseScript(f) {
        ⇒ 期望值從三個變四個。**這不是放寬**：它問的還是「有哪幾個 group、標籤是什麼」，
        而且比前一版多釘住一個 —— 下一行再釘「in-len 真的在那個 group 裡面」。 */
     EQ(Array.from(doc.querySelectorAll('.grp > .grplab')).map(x => x.textContent),
-       ['① Slave 位址', '② Offset', '③ 總 byte 數', '④ 對裝置'], '四個 group card 的標籤');
+       ['Slave 位址', 'EEPROM', 'Offset', '總 byte 數', '對裝置'], 'group card 的標籤（v1.26.0 起多了 EEPROM 組；v1.32.0 拿掉 ①～④，編號留給外面的五個步驟）');
+    /* v1.32.0：步驟式版面 —— 五個步驟外框都在、順序是 ①→⑤，原本的控制項各自落在對的那一步 */
+    EQ(Array.from(doc.querySelectorAll('.stp .stp-t')).map(x => x.textContent),
+       ['① 連線 I2C 治具', '② 認出 T-CON', '③ 選功能', '④ 設定並執行', '⑤ 結果與紀錄'], '🔴 五個步驟的標題與順序');
+    const inStep = (id, sid) => !!doc.getElementById(id) && doc.getElementById(id).closest('.stp') === doc.getElementById(sid);
+    CHECK(inStep('btn-link', 'card-conn') && inStep('in-clk', 'card-conn') && inStep('dl', 'card-conn'), '🔴 ① 有連線開關、時脈（收在進階）、下載鈕');
+    CHECK(inStep('btn-checktcon', 'stp-ck') && inStep('tcon-name', 'stp-ck') && inStep('tcon-pick', 'stp-ck'), '🔴 ② 有 Check T-CON、型號、手選下拉');
+    CHECK(inStep('in-devtype', 'stp-mode') && doc.querySelectorAll('#mode-seg .mseg-b').length === 3, '🔴 ③ 有三顆功能分段鈕與原本的裝置類型');
+    CHECK(['in-slave', 'in-awid', 'in-off', 'in-len', 'in-data', 'btn-load', 'btn-read', 'btn-write', 'rd-slot', 'ab-sel', 'wr-twr', 'sf-panel'].every(id => inStep(id, 'stp-run')), '🔴 ④ 有全部讀寫參數、讀取／寫入、外部 Flash 面板');
+    CHECK(['dumpcard', 'btn-snap', 'btn-save', 'sav-fmt', 'btn-clear', 'diffcard', 'log', 'btn-copylog', 'timeline'].every(id => inStep(id, 'stp-res')), '🔴 ⑤ 有 Dump（快照／另存／清空）、差異、耗時、操作紀錄');
     CHECK(!!doc.getElementById('in-len').closest('.grp'),
           '🔴 總 byte 數欄位真的被 group card 框住了');
     CHECK(doc.getElementById('in-len').closest('.grp')
