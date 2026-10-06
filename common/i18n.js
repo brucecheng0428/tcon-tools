@@ -123,6 +123,8 @@ var I18N = {
   //    依據見 tools/i2c-bridge/i2c_bridge_proto.h §dgh_awid_ok）。
   'home.i2cTitle':      { 'zh-TW': 'I2C 讀寫測試', 'en': 'I2C Read/Write Test', 'zh-CN': 'I2C 读写测试' },
   'home.i2cDesc':       { 'zh-TW': '任意 slave／offset 寬度 0–4 byte 讀寫，16×16 register dump', 'en': 'Any slave, offset width 0–4 bytes, 16×16 register dump', 'zh-CN': '任意 slave／offset 宽度 0–4 byte 读写，16×16 register dump' },
+  'home.dmTitle':       { 'zh-TW': 'Data Mapping', 'en': 'Data Mapping', 'zh-CN': 'Data Mapping' },
+  'home.dmDesc':        { 'zh-TW': 'MNT T-CON（EM01／EM02／E512）Data Mapping：I2C 即時調整、匯入 code、匯出 script', 'en': 'MNT T-CON (EM01/EM02/E512) Data Mapping: live I2C tuning, code import, script export', 'zh-CN': 'MNT T-CON（EM01／EM02／E512）Data Mapping：I2C 实时调整、导入 code、导出 script' },
 
   'pat.title':          { 'zh-TW': 'Pattern Generator 畫面產生器', 'en': 'Pattern Generator', 'zh-CN': 'Pattern Generator 画面产生器' },
   'pat.subtitle':       { 'zh-TW': 'Sub-pixel 編輯 · 全畫面 1:1 平鋪', 'en': 'Sub-pixel editing · Full-screen 1:1 tiling', 'zh-CN': 'Sub-pixel 编辑 · 全画面 1:1 平铺' },
