@@ -30,7 +30,7 @@
           出來」。那個前提**早就不成立**：bridge 的靜態檔服務拒絕子資料夾、而且自 v1.7.0
           起預設關閉 —— 詳細依據與行號寫在 body 末端那兩個 <script> 的上面。）
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="common/version.js?v=20261006i2c1290"></script>
+<script src="common/version.js?v=20261006i2c1300"></script>
 <style>
   * { box-sizing: border-box; }
   :root{
@@ -1121,7 +1121,9 @@
               <span id="sf-fname" class="sfnote mono"></span></div><span class="hint">&nbsp;</span></div>
             <label class="f" style="width:120px;"><span data-i18n="i2c.sfLblWrStart">寫到 Flash 位址</span><input type="text" id="sf-wr-start" class="mono" value="0x000000" spellcheck="false"><span class="hint">&nbsp;</span></label>
           </div>
-          <div class="row"><button class="wr" id="sf-write" disabled data-i18n="i2c.sfBtnWrite">寫入…</button></div>
+          <div class="row"><button class="wr" id="sf-write" disabled data-i18n="i2c.sfBtnWrite">寫入…</button>
+            <!-- v1.30.0：EN01 的 Erase All（原廠 Debug 頁同名鈕，DM:96–116）；只有型號有 eraseAll 才出現 -->
+            <button class="wr" id="sf-eraseall" disabled style="display:none" data-i18n="i2c.sfBtnEraseAll">整顆抹除…</button></div>
           <div class="sfnote" id="sf-wrnote"></div>
         </div>
       </div>
@@ -1465,10 +1467,10 @@
 <!-- v1.29.0：寫入外部 Flash 前的確認視窗（不可逆操作前的確認，只問一次）。 -->
 <div id="sf-confirm" class="modal" style="display:none">
   <div class="modalbox" style="max-width:640px">
-    <h3 data-i18n="i2c.sfCfTitle">確認寫入外部 Flash</h3>
+    <h3 id="sf-cf-title" data-i18n="i2c.sfCfTitle">確認寫入外部 Flash</h3>
     <table id="sf-cf-tbl"></table>
     <div id="sf-cf-warn" class="sfwarn" style="font-size:15px;color:#fbbf24;margin-bottom:8px"></div>
-    <div class="sfnote" style="font-size:14px;color:var(--sub)" data-i18n="i2c.sfCfNote">寫完原廠流程不會讓 TCON 重新載入；寫完請重新上電，TCON 才會用新的 code。</div>
+    <div id="sf-cf-note" class="sfnote" style="font-size:14px;color:var(--sub)" data-i18n="i2c.sfCfNote">寫完原廠流程不會讓 TCON 重新載入；寫完請重新上電，TCON 才會用新的 code。</div>
     <div class="row" style="justify-content:flex-end;margin-top:12px">
       <button id="sf-cf-no" data-i18n="i2c.btnCancel">取消</button>
       <button id="sf-cf-yes" class="wr" data-i18n="i2c.sfCfOk">確定寫入</button>
@@ -1527,9 +1529,9 @@
      🔴 **CSS 沒有跟著載**（見 style 區塊頂端的說明）：common.css 有 `.card`／`.row`／
         無範圍的 `label{}` 等等，與本頁同名而語意完全不同，載進來會整頁走樣。
         頁首那四條宣告是逐字抄過來的，來源行號寫在各自上面。 -->
-<script src="common/i18n.js?v=20261006i2c1290"></script>
-<script src="common/common.js?v=20261006i2c1290"></script>
-<script src="common/i2c-spiflash.js?v=20261006i2c1290"></script>
+<script src="common/i18n.js?v=20261006i2c1300"></script>
+<script src="common/common.js?v=20261006i2c1300"></script>
+<script src="common/i2c-spiflash.js?v=20261006i2c1300"></script>
 
 <script>
 'use strict';
@@ -8453,7 +8455,8 @@ function i2ctSfRender(){
   }).join('') : '';
   $('sf-modelnote').textContent = (p && p.legacySeq) ? i2ctSfT('i2c.sfEn01Note') : '';
   $('sf-detect').textContent = i2ctSfT(p && !p.jedec ? 'i2c.sfBtnDetectEn01' : 'i2c.sfBtnDetect');
-  $('sf-wrnote').textContent = p ? i2ctSfT(p.canWrite ? (p.id === 'E501A' ? 'i2c.sfWrNoteA' : (p.id === 'EM01' ? 'i2c.sfWrNoteEm' : 'i2c.sfWrNoteB')) : 'i2c.sfWrOffEn01') : '';
+  $('sf-wrnote').textContent = p ? i2ctSfT({ E501A: 'i2c.sfWrNoteA', EM01: 'i2c.sfWrNoteEm', EN01: 'i2c.sfWrNoteEn01' }[p.id] || 'i2c.sfWrNoteB') : '';
+  $('sf-eraseall').style.display = (p && p.eraseAll) ? '' : 'none';   /* v1.30.0：只有 EN01 有 */
   i2ctSfRenderDet();
   i2ctSfSync();
 }
@@ -8494,7 +8497,7 @@ function i2ctSfSync(){
   var cw = !!(p && p.canWrite);
   $('sf-pick').disabled = !cw || i2ctSfRunning; $('sf-wr-start').disabled = !cw || i2ctSfRunning;
   $('sf-write').disabled = !idle || !ok || !cw || !i2ctSfFile;
-  $('sf-write').title = (p && !p.canWrite) ? i2ctSfT('i2c.sfWrOffEn01') : '';
+  $('sf-eraseall').disabled = !idle || !ok || !(p && p.eraseAll);
   $('sf-abort').disabled = !i2ctSfRunning;
 }
 function i2ctSfModelChanged(){
@@ -8591,7 +8594,12 @@ function i2ctSfSetFile(name, bytes, startHint){
 }
 /* 寫入：寫前資訊（EM01 原廠會再讀一次 ID 與保護狀態）→ 確認窗（只問一次）→ 逐 4 KB 抹除／寫入／讀回 → 收尾 */
 var i2ctSfCfResolve = null;
-function i2ctSfAsk(rows, warn){
+/* v1.30.0：同一個確認窗也給「整顆抹除」用（erase＝true）。標題／按鈕／底註改 data-i18n，切語言時跟著換。 */
+function i2ctSfAsk(rows, warn, erase){
+  [['sf-cf-title', erase ? 'i2c.sfCfTitleErase' : 'i2c.sfCfTitle'], ['sf-cf-yes', erase ? 'i2c.sfCfOkErase' : 'i2c.sfCfOk'],
+   ['sf-cf-note', erase ? 'i2c.sfCfNoteErase' : 'i2c.sfCfNote']].forEach(function (x) {
+    $(x[0]).setAttribute('data-i18n', x[1]); $(x[0]).textContent = i2ctSfT(x[1]);
+  });
   $('sf-cf-tbl').innerHTML = rows.map(function (r) { return '<tr><th>' + i2ctEsc(r[0]) + '</th><td class="mono">' + i2ctEsc(r[1]) + '</td></tr>'; }).join('');
   $('sf-cf-warn').textContent = warn || '';
   $('sf-confirm').style.display = '';
@@ -8602,8 +8610,10 @@ async function i2ctSfWrite(){
   var p = i2ctSfProfile(); if (!p || !p.canWrite || !i2ctSfFile || !i2ctSfDet || !i2ctSfDet.ok) return;
   var pw = I2CSF.prepWrite(p, i2ctSfFile.bytes);
   if (pw.err) { var m0 = i2ctSfT(pw.err.k, pw.err.v); i2ctLog('✕ ' + m0, 'e'); i2ctSfToast(m0, true); return; }
-  var rg = i2ctSfRange('sf-wr-start', pw.data.length);
+  /* EN01（padPage）不補到 4 KB：範圍檢查用往上取整的 sector 數，確認窗照實際 byte 數列。 */
+  var rg = i2ctSfRange('sf-wr-start', Math.ceil(pw.data.length / I2CSF.SECTOR) * I2CSF.SECTOR);
   if (rg.err) { i2ctLog('✕ ' + rg.err, 'e'); i2ctSfToast(rg.err, true); return; }
+  if (p.padPage) rg.len = pw.data.length;
   var pad = i2ctSfDet.pad || i2ctSfPad(), pre = null;
   i2ctSfBegin();
   try { if (p.writePre) pre = await p.writePre(i2ctSfIo(), { pad: pad }); }
@@ -8614,11 +8624,15 @@ async function i2ctSfWrite(){
     [i2ctSfT('i2c.sfCfTcon'), p.id + '（' + p.chip + '）' + (p.hasPad ? ' · ' + i2ctSfT(pad === 2 ? 'i2c.sfPadDemura' : 'i2c.sfPadMain') : '')],
     [i2ctSfT('i2c.sfCfSlave'), p.slaves.map(function (s) { return '0x' + i2ctHex(s[1]); }).join(' / ')],
     [i2ctSfT('i2c.sfCfFlash'), i2ctSfDetText(p, det)],
-    [i2ctSfT('i2c.sfCfRange'), '0x' + i2ctHex(rg.start, 6) + ' – 0x' + i2ctHex(rg.start + rg.len - 1, 6) + i2ctParen(i2ctSfSize(rg.len) + ' · ' + (rg.len / I2CSF.SECTOR) + ' × 4 KB')],
+    [i2ctSfT('i2c.sfCfRange'), '0x' + i2ctHex(rg.start, 6) + ' – 0x' + i2ctHex(rg.start + rg.len - 1, 6) + i2ctParen(i2ctSfSize(rg.len) + ' · ' + Math.ceil(rg.len / I2CSF.SECTOR) + ' × 4 KB')],
     [i2ctSfT('i2c.sfCfFile'), i2ctSfFile.name + ' · ' + i2ctSfFile.bytes.length + ' byte · CKS 0x' + i2ctHex(i2ctSfFile.cks & 0xFFFFFF, 6)
-       + (pw.data.length !== i2ctSfFile.bytes.length ? i2ctParen(i2ctSfT('i2c.sfCfPadded', { n: pw.data.length })) : '')]
+       + (pw.data.length !== i2ctSfFile.bytes.length ? i2ctParen(i2ctSfT('i2c.sfCfPadded', { n: pw.data.length })) : '')
+       + (pw.pagePad ? i2ctParen(i2ctSfT('i2c.sfCfPagePad')) : '')]
   ];
+  /* v1.30.0 EN01：寫入前送不送 0039←C0 由檔案 header 判斷（RCI:1389–1390；I2CSF.en01IsA1，header 在 Flash 位址 0） */
+  if (p.id === 'EN01') rows.push([i2ctSfT('i2c.sfCfLayout'), i2ctSfT(rg.start === 0 && I2CSF.en01IsA1(pw.data) ? 'i2c.sfCfA1' : 'i2c.sfCfNotA1')]);
   var warn = [];
+  if (p.id === 'EN01') warn.push(i2ctSfT('i2c.sfCfWarnEn01'));
   if (pre && pre.flash && !pre.flash.known) warn.push(i2ctSfT('i2c.sfCfWarnUnknown'));
   if (pre && pre.wp === I2CSF.WP.HW) warn.push(i2ctSfT('i2c.sfCfWarnHw'));
   if (pre && pre.flash && pre.flash.blank) warn.push(i2ctSfT('i2c.sfNoFlash'));
@@ -8637,6 +8651,30 @@ async function i2ctSfWrite(){
   var done = i2ctSfT('i2c.sfWriteOk', { t: i2ctSecs(i2ctNow() - t0) });
   i2ctLog('[Flash] ' + done, 'o'); i2ctSfToast(done, false);
 }
+/* v1.30.0：整顆抹除（EN01，序列在 I2CSF.PROFILES.EN01.eraseAll）。確認窗只問一次；中止＝停止輪詢。 */
+async function i2ctSfEraseAll(){
+  var p = i2ctSfProfile(); if (!p || !p.eraseAll || !i2ctSfDet || !i2ctSfDet.ok) return;
+  var rows = [
+    [i2ctSfT('i2c.sfCfTcon'), p.id + '（' + p.chip + '）'],
+    [i2ctSfT('i2c.sfCfSlave'), p.slaves.map(function (s) { return '0x' + i2ctHex(s[1]); }).join(' / ')],
+    [i2ctSfT('i2c.sfCfFlash'), i2ctSfDetText(p, i2ctSfDet)],
+    [i2ctSfT('i2c.sfCfAction'), i2ctSfT('i2c.sfCfEraseAllVal')]
+  ];
+  if (!(await i2ctSfAsk(rows, i2ctSfT('i2c.sfCfWarnEraseAll'), true))) { i2ctLog('[Flash] ' + i2ctSfT('i2c.sfLogEraseAllCancel'), 'n'); return; }
+  i2ctSfBegin();
+  i2ctLog('[Flash] ' + i2ctSfT('i2c.sfLogEraseAllStart', { m: p.id }), 'w');
+  $('sf-runbox').style.display = ''; $('sf-prog').firstElementChild.style.width = '0%';
+  $('sf-progtxt').style.color = ''; $('sf-progtxt').textContent = i2ctSfT('i2c.sfEraseAllRun');
+  var res = null, err = null, t0 = i2ctNow();
+  try { res = await p.eraseAll(i2ctSfIo(), i2ctSfCtx('i2c.sfOpEraseAll')); }
+  catch (e) { err = e; }
+  i2ctSfEnd();
+  if (err) { var m = i2ctSfErr(err); i2ctLog('✕ ' + m, 'e'); i2ctSfToast(m, true); return; }
+  if (!res.ok) { var ma = i2ctSfT('i2c.sfLogEn01EraseAllAbort'); i2ctSfToast(ma, true); return; }
+  $('sf-prog').firstElementChild.style.width = '100%';
+  var done = i2ctSfT('i2c.sfEraseAllOk', { t: i2ctSecs(i2ctNow() - t0) });
+  i2ctLog('[Flash] ' + done, 'o'); i2ctSfToast(done, false);
+}
 function i2ctSfInit(){
   if (!$('sf-panel')) return;
   $('sf-model').addEventListener('change', i2ctSfModelChanged);
@@ -8648,6 +8686,7 @@ function i2ctSfInit(){
   $('sf-pick').addEventListener('click', function () { $('sf-file').value = ''; $('sf-file').click(); });
   $('sf-file').addEventListener('change', function () { i2ctSfOnFile(this.files && this.files[0]); });
   $('sf-write').addEventListener('click', i2ctSfWrite);
+  $('sf-eraseall').addEventListener('click', i2ctSfEraseAll);
   $('sf-abort').addEventListener('click', function () { i2ctSfAbort = true; i2ctLog('[Flash] ' + i2ctSfT('i2c.sfLogAbortReq'), 'w'); });
   $('sf-cf-no').addEventListener('click', function () { i2ctSfAnswer(false); });
   $('sf-cf-yes').addEventListener('click', function () { i2ctSfAnswer(true); });
@@ -8659,7 +8698,7 @@ window.__i2ctSf = {
   setModel: function (m) { $('sf-model').value = m; i2ctSfModelChanged(); },
   setFile: function (name, bytes, hint) { i2ctSfSetFile(name, Array.prototype.slice.call(bytes), hint); },
   state: function () { return { mode: i2ctSfMode, det: i2ctSfDet, running: i2ctSfRunning, file: i2ctSfFile, confirmOpen: !!i2ctSfCfResolve }; },
-  detect: i2ctSfDetect, read: i2ctSfRead, write: i2ctSfWrite, answer: i2ctSfAnswer, auto: i2ctSfAuto,
+  detect: i2ctSfDetect, read: i2ctSfRead, write: i2ctSfWrite, eraseAll: i2ctSfEraseAll, answer: i2ctSfAnswer, auto: i2ctSfAuto,
   abort: function () { i2ctSfAbort = true; },
   lastDownload: null
 };

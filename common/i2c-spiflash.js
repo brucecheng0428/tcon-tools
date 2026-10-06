@@ -2,6 +2,7 @@
    i2c-spiflash.js — 經 TCON 讀寫外部 SPI Flash（i2c.html「外部 Flash（經 TCON）」模式）
    ───────────────────────────────────────────────────────────────────────────
    i2c v1.29.0（2026-10-06）。依據：outputs/I2C_外部SPIFlash_原廠查證與規劃_20261006.md。
+   i2c v1.30.0（2026-10-06）：EN01 寫入／Erase All（outputs/EN01_flash_write_seq_20261006.md）。
    Bruce 10/6：「不是 TCON 內部的 Flash…是去抓 TCON 外部 Flash 的 code，只是需要透過 TCON」
               「Slave Address 一定要設對」。
 
@@ -507,63 +508,281 @@
     }
   };
 
-  /* ═══ EN01（RM81008）— 只開放讀取 ═════════════════════════════════════════
-     slave：0x3E（2-byte offset，暫存器 0x0098–0x00A1；IC 版本 0x207E）、0x64（1-byte，資料埠 reg 0x00）。
-     🔴 寫入暫不開放：實作時 FLASH_Unlock／Lock 等指令值還查不到；同日（10/6）已從共用庫查到現行寫入／抹除序列
-        （outputs/EN01_flash_write_seq_20261006.md），Bruce 同意這一版先只開讀取、寫入另外派工補上。
-     🔴 讀取：每頁序列與共用庫現行版相同（009A＝位址高位元組，CL:600–605；ENP:98–153，
-        見 outputs/EN01_flash_write_seq_20261006.md §3.7、§5），結尾加現行版的 0098←00。
-        與現行版唯一不同：`0039←C0` 現行版只在 A1 排列時送，這裡沿用舊版（RCIo:1063）每次都送，
-        因為讀取前沒有檔案可判斷排列 ⇒ 畫面標「待上機確認」。寫入／抹除／Erase All 另案實作。 */
+  /* ═══ EN01（RM81008）— 依原廠共用庫現行版 ═════════════════════════════════
+     slave：0x3E（2-byte offset，SPI master 控制 0x0098–0x00A4、狀態 0x230B、Check Write Value 0x0001、IC 版本 0x207E）、
+            0x64（1-byte，資料埠 reg 0x00，一次 256 B）、0x7C（1-byte，Unlock／Lock 前置、保護狀態 0xD0）。
+     規格：outputs/EN01_flash_write_seq_20261006.md（每筆附出處）。i2c v1.30.0（2026-10-06）起開放寫入、Erase All。
+     原廠來源代號（現行版；WPF_RomCodeProcessUI 主 repo acdb7f9、DLL_Raydium_CommonLibrary 子模組 d80a850）：
+       ENP = DLL_Raydium_CommonLibrary/Raydium.Channel.Core/Flash/En01FlashProgrammer.cs
+       ICD = DLL_Raydium_CommonLibrary/Raydium.Core/Models/ICDefine.cs（GetRM81008）
+       I2CB= DLL_Raydium_CommonLibrary/Raydium.Channel.Core/Channels/I2cChannelModuleBase.cs
+       AVM = Wpf.RomCodeProcessUI/AppViewModel.cs；RCI = Wpf.RomCodeProcessUI/Models/RomCodeInfo.cs
+       FM／DM = Wpf.RomCodeProcessUI/Modules/FlashModule.cs／DebugModule.cs
+       ENH = DLL_Raydium_CommonLibrary/Raydium.Core/Models/DynamicHeader/EN01/EN01HeaderDefine.cs；ENHF = 同目錄 EN01HeaderDefineFLASH.cs
+     🔴 讀取的 `0039←C0`：現行版只在「已載入檔案的 header 是 A1 排列」時送（RCI:1389–1390、1431–1440），
+        讀取前沒有檔案可判斷 ⇒ 讀取維持 v1.29.0 的做法：沿用舊版（RCIo:1063）每次都送。理由：舊版是
+        長期實際使用的序列（A1、A2 都送過），這筆只是開 SPI 時脈；現行版拿掉它的根據是側錄比對，不是錯誤報告。
+        畫面標「待上機確認」。寫入有檔案可判斷 ⇒ 照現行版（en01IsA1）。 */
+  var N = 0x3E, NP = 0x64, N7C = 0x7C;
+  function nw(io, reg, v) { return io.w(N, 2, reg, Array.isArray(v) ? v : [v]); }
+
+  /* ENH:214–233 IsA1：header（檔案前 4 KB）每 16 B 一筆、共 22 筆（ENH:43–79、144–148；長度要剛好 4096，ENH:26–39，
+     原廠 HeaderLength＝0x1000，ENH:204）。每筆的類型（ENHF:262–274）：byte8 bit0＝EDID、bit1＝MCU，其他看
+     MAP_ST_ADDR＝byte5<<8 | byte6（ENHF:30–34；AddrBitInfoExtension.cs:10–21 先列的 byte 是低位、後列的
+     Prepend 到高位）。Bank14_17（0x1400）排在 Bank18_19（0x1800）前面就是 A1；任一個找不到 ⇒ false（不猜）。 */
+  function en01IsA1(bytes) {
+    if (!bytes || bytes.length < SECTOR) return false;
+    var i14 = -1, i18 = -1;
+    for (var i = 0; i < 22; i++) {
+      var o = i * 16, f8 = bytes[o + 8] & 0xFF;
+      if (f8 & 0x01) continue;            /* EDID（ENHF:266） */
+      if (f8 & 0x02) continue;            /* MCU（ENHF:267） */
+      var map = ((bytes[o + 5] & 0xFF) << 8) | (bytes[o + 6] & 0xFF);
+      if (map === 0x1400 && i14 < 0) i14 = i;
+      if (map === 0x1800 && i18 < 0) i18 = i;
+    }
+    return i14 >= 0 && i18 >= 0 && i14 < i18;
+  }
+
+  var EN = {
+    /* ICD:755–828 FLASH_Unlock／ICD:680–753 FLASH_Lock。兩者只有區塊 1 的 00A4 不同（Unlock 00／Lock 9C）。
+       逐筆送、不讀回確認（I2CB:110–131）；每個區塊最後一筆之後的延遲照原廠 DelayTime（I2CB:124–127）。 */
+    lockSeq: async function (io, lock) {
+      await io.w(N7C, 1, 0x0F, [0x80]);                                  /* ICD:760／685 */
+      await io.w(N7C, 1, 0x08, [0xEE]);                                  /* :761／686 */
+      await io.w(N7C, 1, 0x09, [0xE0]);                                  /* :762／687 */
+      await io.w(N7C, 1, 0x08, [0xEF]);                                  /* :763／688 */
+      await io.w(N7C, 1, 0x09, [0x40]);                                  /* :764／689 */
+      await nw(io, 0x0098, 0xE5);                                        /* :766／691 */
+      await nw(io, 0x0098, 0x00);                                        /* :767／692 */
+      for (var r = 0x0099; r <= 0x00A1; r++) await nw(io, r, 0x00);      /* :768–776／693–701（逐筆 9 筆） */
+      var blocks = [[0x01, lock ? 0x9C : 0x00, lock ? 53 : 73],          /* :779–789／704–714 SR1 */
+                    [0x31, 0x00, lock ? 64 : 94],                        /* :792–802／717–727 SR2 */
+                    [0x11, 0x60, lock ? 69 : 84]];                       /* :805–815／730–740 SR3 */
+      for (var b = 0; b < 3; b++) {
+        await nw(io, 0x0098, 0xE5); await nw(io, 0x0099, 0x06);
+        await nw(io, 0x00A0, 0x00); await nw(io, 0x00A0, 0x01);
+        await nw(io, 0x0099, blocks[b][0]); await nw(io, 0x009F, 0x00);
+        await nw(io, 0x00A0, 0x00); await nw(io, 0x00A0, 0x20);
+        await nw(io, 0x00A4, blocks[b][1]);
+        await nw(io, 0x00A1, 0x00); await nw(io, 0x00A1, 0x08);
+        await io.sleep(blocks[b][2]);
+      }
+      for (var t = 0x0098; t <= 0x00A1; t++) await nw(io, t, 0x00);      /* :817–826／742–751（逐筆 10 筆） */
+    },
+    /* ENP:57–88 WaitFlashReadyAsync：`retries++ > maxRetries` 才逾時 ⇒ 最多 maxRetries+1 輪；
+       讀到 0x00 立刻結束，非 0 等 20 ms 再下一輪。aborted() 只給 Erase All 用（ENP:64 每輪檢查取消）。 */
+    waitReady: async function (io, maxRetries, aborted) {
+      var st = 0xFF, retries = 0;
+      while (st !== 0x00) {
+        if (aborted && aborted()) return false;
+        if (retries++ > maxRetries) throw SfError('i2c.sfErrEraseBusy', {});
+        await nw(io, 0x0099, 0x05);                                      /* ENP:72 RDSR */
+        await nw(io, 0x009E, 0x00);                                      /* :73 */
+        await nw(io, 0x00A0, 0x08);                                      /* :74 */
+        await nw(io, 0x00A0, 0x00);                                      /* :75 */
+        st = (await io.r(N, 2, 0x230B, 1))[0];                           /* :77 */
+        if (st !== 0x00) await io.sleep(20);                             /* :83–86 */
+      }
+      return true;
+    },
+    /* ENP:187–204 EraseSectorAsync（sector s 的位址 s×0x1000；pageAddr＝s<<4） */
+    eraseSector: async function (io, s) {
+      var pa = s << 4;
+      await nw(io, 0x0098, 0xE5);                                        /* ENP:192 */
+      await nw(io, 0x0099, 0x06);                                        /* :193 WREN */
+      await nw(io, 0x00A0, 0x01);                                        /* :194 */
+      await nw(io, 0x00A0, 0x00);                                        /* :195 */
+      await nw(io, 0x0099, 0x20);                                        /* :196 Sector Erase */
+      await nw(io, 0x009A, (pa >> 8) & 0xFF);                            /* :197 */
+      await nw(io, 0x009B, pa & 0xFF);                                   /* :198 */
+      await nw(io, 0x009C, 0x00);                                        /* :199 */
+      await nw(io, 0x00A0, 0x02);                                        /* :200 */
+      await nw(io, 0x00A0, 0x00);                                        /* :201 */
+      await EN.waitReady(io, 20);                                        /* :203（預設 maxRetries=20，:57） */
+    },
+    /* ENP:230–276 WriteAsync：每頁 256 B，不足補 0x00（:233–235）；page 是絕對頁號（:256–257、328）。
+       🔴 頁與頁之間原廠的 Task.Delay(1)（:272）是讓 UI 執行緒喘口氣，不是硬體等待 ⇒ 不送。 */
+    writeSector: async function (io, s, sd) {
+      for (var k = 0; k * PAGE < sd.length; k++) {
+        var page = s * 16 + k, chunk = sd.slice(k * PAGE, (k + 1) * PAGE);
+        while (chunk.length < PAGE) chunk.push(0x00);
+        await nw(io, 0x0099, zeros(9));                                  /* ENP:250（連寫 9 B） */
+        await nw(io, 0x0099, 0x06);                                      /* :251 WREN */
+        await nw(io, 0x00A0, 0x01);                                      /* :252 */
+        await nw(io, 0x00A0, 0x00);                                      /* :253 */
+        await nw(io, 0x00A1, 0x80);                                      /* :254 */
+        await nw(io, 0x0099, 0x02);                                      /* :255 Page Program */
+        await nw(io, 0x009A, (page >> 8) & 0xFF);                        /* :256 */
+        await nw(io, 0x009B, page & 0xFF);                               /* :257 */
+        await nw(io, 0x009C, 0x00);                                      /* :258 */
+        await nw(io, 0x009F, PAGE - 1);                                  /* :259 */
+        await nw(io, 0x00A0, 0x10);                                      /* :260 */
+        await nw(io, 0x00A0, 0x00);                                      /* :261 */
+        await io.w(NP, 1, 0x00, chunk);                                  /* :263–265 */
+      }
+      await nw(io, 0x0099, zeros(9));                                    /* :275 */
+    },
+    /* ENP:123–142 ReadAsync 的一頁。 */
+    readPage: async function (io, page, n) {
+      var hi = (page >> 8) & 0xFF, mid = page & 0xFF;
+      await nw(io, 0x009A, hi);                                          /* ENP:127 */
+      await nw(io, 0x009B, mid);                                         /* :128 */
+      await nw(io, 0x009C, 0x00);                                        /* :129 */
+      await nw(io, 0x0099, zeros(9));                                    /* :130 */
+      await nw(io, 0x00A1, 0x40);                                        /* :131 */
+      await nw(io, 0x0099, 0x03);                                        /* :132 Read */
+      await nw(io, 0x009A, hi);                                          /* :133 */
+      await nw(io, 0x009B, mid);                                         /* :134 */
+      await nw(io, 0x009C, 0x00);                                        /* :135 */
+      await nw(io, 0x009E, 0x10);                                        /* :136 */
+      await nw(io, 0x009F, 0x00);                                        /* :137 */
+      await nw(io, 0x00A0, 0x04);                                        /* :138 */
+      await nw(io, 0x00A0, 0x00);                                        /* :139 */
+      return await io.r(NP, 1, 0x00, n);                                 /* :141–142 */
+    },
+    /* ENP:366 讀回本 sector（實際長度）→ ENP:151 結尾 0099←00×9。驗證時不送 Initial（0098 仍是抹除時的 E5）。 */
+    readSector: async function (io, s, n) {
+      var out = [];
+      for (var k = 0; k * PAGE < n; k++) {
+        var d = await EN.readPage(io, s * 16 + k, Math.min(PAGE, n - k * PAGE));
+        for (var j = 0; j < d.length; j++) out.push(d[j] & 0xFF);
+      }
+      await nw(io, 0x0099, zeros(9));
+      return out;
+    },
+    /* AVM:1784–1803 三區保護狀態：ICD:633–665 Prereq1–3 ＋ ICD:667–674 讀 7C:D0 1 B。 */
+    protectZone: async function (io, z) {
+      if (z === 0) await nw(io, 0x0098, 0xE5);                           /* ICD:638 */
+      await nw(io, 0x0099, [0x05, 0x35, 0x15][z]);                        /* ICD:639／650／661 */
+      await nw(io, 0x00A0, 0x08);
+      await nw(io, 0x00A0, 0x00);
+      return (await io.r(N7C, 1, 0xD0, 1))[0];                            /* ICD:672 */
+    }
+  };
+
   var EN01 = {
-    id: 'EN01', chip: 'RM81008', jedec: false, canWrite: false, padZero: false, legacySeq: true,
-    /* 原廠連線後只讀 IC 版本 3E:0x207E bit3:0（0＝A1、1＝A2），只顯示、不擋操作（RCI:1373–1420）。
-       寫保護狀態（7C:0xD0）要先送共用庫裡的 ProtectStatusPrereq1–3 才有意義，值看不到 ⇒ 不讀。 */
+    id: 'EN01', chip: 'RM81008', jedec: false, canWrite: true, padZero: false, padPage: true, legacySeq: true, eraseAll: null,
+    /* 原廠連線後只讀 IC 版本 3E:0x207E bit3:0（0＝A1、1＝A2），只顯示、不擋操作（RCI:1397–1416）。 */
     detect: async function (io) {
-      var v = (await io.r(0x3E, 2, 0x207E, 1))[0];
+      var v = (await io.r(N, 2, 0x207E, 1))[0];
       var n = v & 0x0F;
       return { icVer: n, icVerTxt: n === 0 ? 'A1' : (n === 1 ? 'A2' : 'Unknown') };
     },
-    /* FLASH Initial（RCIo:1059–1067）→ 每 256 B 一頁（FMo:58–85）→ 結束清控制（FMo:88）。 */
+    /* 讀：`0039←C0`（見上方說明，沿用舊版 RCIo:1063）→ Initial（ICD:611–620）→ 每頁 ENP:123–142 →
+       ENP:151 0099←00×9 → FM:186／ENP:38–41 0098←00。 */
     read: async function (io, start, len, opts) {
       var cx = ctxOf(opts), out = [];
-      await io.w(0x3E, 2, 0x0039, [0xC0]);
-      await io.w(0x3E, 2, 0x0099, zeros(9));
-      await io.w(0x3E, 2, 0x0099, zeros(9));
-      await io.w(0x3E, 2, 0x0098, [0xE5]);
+      await nw(io, 0x0039, 0xC0);
+      await nw(io, 0x0099, zeros(9));
+      await nw(io, 0x0099, zeros(9));
+      await nw(io, 0x0098, 0xE5);
       try {
         for (var a = start; a < start + len; a += PAGE) {
           if ((a - start) % SECTOR === 0 && cx.aborted()) {
             cx.log('i2c.sfLogAbortAt', { a: hx(a, 6) }, 'w');
             return { ok: false, aborted: true, bytes: out, stopAt: a };
           }
-          var hi = (a >> 16) & 0xFF, mid = (a >> 8) & 0xFF;
-          var n = Math.min(PAGE, start + len - a);
-          await io.w(0x3E, 2, 0x009A, [hi]);
-          await io.w(0x3E, 2, 0x009B, [mid]);
-          await io.w(0x3E, 2, 0x009C, [0x00]);
-          await io.w(0x3E, 2, 0x0099, zeros(9));
-          await io.w(0x3E, 2, 0x00A1, [0x40]);
-          await io.w(0x3E, 2, 0x0099, [0x03]);
-          await io.w(0x3E, 2, 0x009A, [hi]);
-          await io.w(0x3E, 2, 0x009B, [mid]);
-          await io.w(0x3E, 2, 0x009C, [0x00]);
-          await io.w(0x3E, 2, 0x009E, [0x10]);
-          await io.w(0x3E, 2, 0x009F, [0x00]);
-          await io.w(0x3E, 2, 0x00A0, [0x04]);
-          await io.w(0x3E, 2, 0x00A0, [0x00]);
-          var d = await io.r(0x64, 1, 0x00, n);
+          var d = await EN.readPage(io, a >> 8, Math.min(PAGE, start + len - a));
           for (var k = 0; k < d.length; k++) out.push(d[k] & 0xFF);
           if ((out.length % SECTOR) === 0 || out.length === len) cx.progress(out.length, len);
         }
       } finally {
-        await io.w(0x3E, 2, 0x0099, zeros(9));
-        /* 現行版最後再清控制 0098←00（EN01 寫入規格 §5、ENP:38–41 ClearControlAsync；
-           outputs/EN01_flash_write_seq_20261006.md，2026-10-06 補查）。 */
-        await io.w(0x3E, 2, 0x0098, [0x00]);
+        await nw(io, 0x0099, zeros(9));
+        await nw(io, 0x0098, 0x00);
       }
       return { ok: true, bytes: out };
+    },
+    /* 寫：AVM:1749–1813（EN01 I2C 寫入分支）＋ ENP:299–398 EraseWriteVerifyAsync。
+         Unlock → [A1：0039←C0] → EraseInitial 00A1←00（RCI:1452–1476、ICD:622–629）→
+         每 sector：抹除＋輪詢 → 寫頁 → Check Write Value（3E:0001，只記錄，ENP:354–358、FM:137）→ 讀回比對；
+           不符整個 sector 重來，最多重試 3 次、每次先等 100 ms（DM:122–134 預設開啟、FM:107–111）；
+           仍不符 ⇒ 0098←00（ENP:389）、停止，後面 sector 不做（ENP:386–391）；全部 OK ⇒ 0098←00（ENP:396）。
+         收尾（AVM:1780–1808，成功／失敗／逾時／中止都做）：Lock → 三區保護狀態 → 0098←00。
+       🔴 與原廠不同（都寫在 CHANGELOG）：
+         · Unlock 原廠在 try 外（AVM:1764），原廠 WriteCmd 失敗不會丟例外；網頁的 I2C 失敗會丟 ⇒ Unlock 放進 try，
+           Unlock 送到一半失敗也會 Lock。正常流程送出的序列相同。
+         · 原廠不檢查單筆 I2C 回傳值（ENP:26–30）；網頁 bridge 回錯誤就中止、走收尾；收尾內的錯誤只記錄、繼續送完。
+         · 中止：原廠每頁都檢查取消（ENP:246），網頁做完目前這個 sector（含讀回比對）才停，與其他型號一致。
+         · 原廠一律從位址 0 寫整份（AVM:1642–1646）；網頁可指定 4 KB 對齊的起點，sector／page 號照位址換算（ENP:189、256）。
+         · A1 判斷只在起點 0 時看檔案 header（header 在 Flash 0 位址，ENH:202）。 */
+    write: async function (io, start, data, opts) {
+      var cx = ctxOf(opts), len = data.length, s0 = start / SECTOR, nSec = Math.ceil(len / SECTOR);
+      var isA1 = start === 0 && en01IsA1(data);
+      var fail = null, aborted = false, stopAt = start, done = 0, prot = [];
+      try {
+        cx.log('i2c.sfLogEn01Unlock', {}, 'n');
+        await EN.lockSeq(io, false);                                      /* AVM:1764 */
+        cx.log(isA1 ? 'i2c.sfLogEn01A1' : 'i2c.sfLogEn01NotA1', {}, 'n');
+        if (isA1) await nw(io, 0x0039, 0xC0);                             /* RCI:1459–1465、ICD:602–609 */
+        await nw(io, 0x00A1, 0x00);                                       /* RCI:1468–1472、ICD:622–629 */
+        for (var i = 0; i < nSec; i++) {
+          var s = s0 + i, sa = s * SECTOR, sd = data.slice(i * SECTOR, (i + 1) * SECTOR), ok = false, rb = null;
+          stopAt = sa;
+          if (i > 0 && cx.aborted()) { aborted = true; cx.log('i2c.sfLogAbortAt', { a: hx(sa, 6) }, 'w'); break; }
+          for (var att = 1; att <= 4; att++) {                            /* ENP:320、335（retryCount=3 ⇒ 共 4 次） */
+            if (att > 1) { cx.log('i2c.sfLogRetry', { a: hx(sa, 6), n: att - 1 }, 'w'); await io.sleep(100); }  /* ENP:339–346 */
+            cx.log('i2c.sfLogErase4', { a: hx(sa, 6) }, 'n');
+            await EN.eraseSector(io, s);                                  /* ENP:349 */
+            await EN.writeSector(io, s, sd);                              /* ENP:352 */
+            var cv = (await io.r(N, 2, 0x0001, 1))[0];                    /* ENP:354 */
+            cx.log('i2c.sfLogEn01Cv', { a: hx(sa, 6), v: hx(cv) }, 'n');
+            rb = await EN.readSector(io, s, sd.length);                   /* ENP:366 */
+            if (eq(rb, sd)) { ok = true; break; }                         /* ENP:369–381 */
+            cx.log('i2c.sfLogDiff', { a: hx(sa + firstDiff(rb, sd), 6) }, 'w');
+          }
+          if (!ok) {                                                      /* ENP:386–391、FM:140–147 */
+            var mis = [];
+            for (var q = 0; q < sd.length; q++) if ((rb[q] & 0xFF) !== (sd[q] & 0xFF)) mis.push(q);
+            cx.log('i2c.sfLogEn01Mis', { a: hx(sa, 6), b: hx(sa + sd.length - 1, 6), n: mis.length }, 'e');
+            for (var m = 0; m < Math.min(8, mis.length); m++)
+              cx.log('i2c.sfLogEn01MisAt', { a: hx(sa + mis[m], 6), w: hx(sd[mis[m]]), r: hx(rb[mis[m]]) }, 'e');
+            await nw(io, 0x0098, 0x00);                                   /* ENP:389 */
+            fail = SfError('i2c.sfErrVerify', { a: hx(sa, 6) });
+            break;
+          }
+          done += sd.length;
+          cx.log('i2c.sfLogSectorOk', { a: hx(sa, 6) }, 'o');
+          cx.progress(done, len);
+          stopAt = sa + SECTOR;
+        }
+        if (!fail && !aborted) await nw(io, 0x0098, 0x00);               /* ENP:396 */
+      } catch (e) { fail = e; }
+      /* AVM:1780–1808 finally */
+      try { cx.log('i2c.sfLogEn01Lock', {}, 'n'); await EN.lockSeq(io, true); }   /* AVM:1782 */
+      catch (e1) { cx.log('i2c.sfLogEn01LockFail', { e: String(e1 && e1.message || e1) }, 'e'); if (!fail) fail = e1; }
+      for (var z = 0; z < 3; z++) {
+        try { prot.push(await EN.protectZone(io, z)); }
+        catch (e2) { prot.push(null); }
+      }
+      var ph = prot.map(function (v) { return v == null ? '--' : hx(v); });
+      cx.log('i2c.sfLogEn01Prot', { a: ph[0], b: ph[1], c: ph[2] }, prot[0] === 0x9C ? 'n' : 'e');
+      if (prot[0] !== 0x9C) cx.log('i2c.sfLogEn01NotLocked', { v: ph[0] }, 'e');   /* 0x9C＝已鎖（ICD:712；規格 §3.8） */
+      try { await nw(io, 0x0098, 0x00); }                                 /* AVM:1808 */
+      catch (e3) { if (!fail) fail = e3; }
+      if (fail) throw Object.assign(fail, { stopAt: stopAt });
+      return aborted ? { ok: false, aborted: true, stopAt: stopAt, protect: prot } : { ok: true, protect: prot, a1: isA1 };
     }
+  };
+  /* Erase All：DM:96–116 → FM:64–77 → ENP:162–181 EraseAllAsync（照側錄，0099←C7，不設位址）。
+     🔴 原廠這顆鈕只送這 10 筆＋輪詢（maxRetries=400，DM:89–91），前後沒有 Unlock／Lock、也沒有 0098←00 ⇒ 照做。
+        Flash 有保護時可能抹不掉，畫面確認窗寫明；要確認就抹完讀一段看是不是全 FF。
+     中止：原廠每輪輪詢檢查取消（ENP:64）；網頁同樣停止輪詢（Flash 內部可能還在抹）。 */
+  EN01.eraseAll = async function (io, opts) {
+    var cx = ctxOf(opts);
+    await nw(io, 0x00A1, 0x00);                                           /* ENP:166 */
+    await nw(io, 0x0098, 0xE5);                                           /* :167 */
+    await nw(io, 0x0099, zeros(9));                                       /* :168 */
+    await nw(io, 0x0099, 0x06);                                           /* :169 WREN */
+    await nw(io, 0x00A0, 0x01);                                           /* :170 */
+    await nw(io, 0x00A0, 0x00);                                           /* :171 */
+    await nw(io, 0x0099, zeros(9));                                       /* :172 */
+    await nw(io, 0x0099, 0xC7);                                           /* :173 Chip Erase */
+    await nw(io, 0x00A0, 0x01);                                           /* :174 */
+    await nw(io, 0x00A0, 0x00);                                           /* :175 */
+    var fin = await EN.waitReady(io, 400, cx.aborted);                    /* :178；DM:89–91 */
+    if (!fin) { cx.log('i2c.sfLogEn01EraseAllAbort', {}, 'w'); return { ok: false, aborted: true }; }
+    return { ok: true };
   };
 
   /* 每個型號在畫面上要列的 slave（7-bit）。8-bit 只拿來顯示：寫＝<<1、讀＝<<1|1。 */
@@ -588,6 +807,8 @@
   /* 寫入資料：EM01 不足 4 KB 的尾巴補 0x00（EMF:1737 memset 0）；E501 原廠要求 4096 的倍數（PY:32819）。 */
   function prepWrite(profile, bytes) {
     var d = Array.prototype.slice.call(bytes);
+    /* EN01：不補到 4 KB；最後一頁不足 256 B 由 write 補 0x00（ENP:233–235），讀回只比實際長度（ENP:327、366）。 */
+    if (profile.padPage) return { data: d, pagePad: (d.length % PAGE) !== 0 };
     if (d.length % SECTOR) {
       if (!profile.padZero) return { err: { k: 'i2c.sfErrFileLen', v: { n: d.length } } };
       while (d.length % SECTOR) d.push(0x00);
@@ -596,7 +817,7 @@
   }
 
   var api = { PROFILES: PROFILES, WP: WP, SECTOR: SECTOR, PAGE: PAGE, jedecInfo: jedecInfo,
-              checkRange: checkRange, prepWrite: prepWrite, hx: hx, _E501: E501, _EM: EM };
+              checkRange: checkRange, prepWrite: prepWrite, hx: hx, en01IsA1: en01IsA1, _E501: E501, _EM: EM, _EN: EN };
   root.I2CSF = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);
