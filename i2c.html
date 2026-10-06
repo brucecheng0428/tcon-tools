@@ -30,7 +30,7 @@
           出來」。那個前提**早就不成立**：bridge 的靜態檔服務拒絕子資料夾、而且自 v1.7.0
           起預設關閉 —— 詳細依據與行號寫在 body 末端那兩個 <script> 的上面。）
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="common/version.js?v=20261006i2c1320"></script>
+<script src="common/version.js?v=20261006i2c1321"></script>
 <style>
   * { box-sizing: border-box; }
   :root{
@@ -719,6 +719,15 @@
   .stp-res > .card{margin-top:0;}
   .stp-res > .card + .card{margin-top:12px;}
   /* Flash 起點／長度的換算行比較長（「= 0x400000（4,096 KB, 4,194,304 Byte）」）⇒ 這三格的提示列可以折行，不裁掉 */
+  /* v1.32.1（Bruce 2026-10-06「I2C 的頁面在第一步連線 I2C 之處，應該是要 always 顯示才對」）：
+     ① 不再縮成一行；連線出錯（斷線／連不到／失敗）整框變紅、狀態字變紅，原因就是 #linktext 那一行。 */
+  #card-conn.err{border-color:#b91c1c;background:#2a0b0b;}
+  #card-conn.err #linktext{color:#fca5a5;}
+  #card-conn.done #linktext{color:var(--ok);}
+  .conn-info{font-size:13px;color:var(--sub);margin-top:6px;line-height:1.6;overflow-wrap:anywhere;}
+  .conn-info:empty{display:none;}
+  .conn-info b{color:var(--text);font-weight:600;}
+  .conn-info.err{color:#fecaca;}
   label.f.sflen{grid-template-rows:var(--labh) var(--fh) auto;}
   label.f.sflen .hint{white-space:normal;overflow:visible;line-height:1.4;min-height:var(--hinth);}
   @media (max-width:760px){
@@ -730,7 +739,7 @@
     label.f.sflen{width:100% !important;}
   }
 </style>
-<link rel="stylesheet" href="common/done-step.css?v=20261006i2c1320">
+<link rel="stylesheet" href="common/done-step.css?v=20261006i2c1321">
 </head>
 <body>
 
@@ -824,6 +833,8 @@
            這比我們任何斷言都有力。 -->
       <button id="btn-cmppath" class="dbgonly" disabled data-i18n="i2c.btnCmpPath">快慢路徑比對</button>
     </div>
+    <!-- v1.32.1：常駐的連線資訊一行（時脈、Check T-CON 認出的型號；出錯時寫該怎麼辦）。內容由 i2ctConnInfoRender() 寫。 -->
+    <div class="conn-info" id="conn-info" role="status" aria-live="polite"></div>
     <!-- 🔴 v1.2.0：這一行從「講通道為什麼是唯一的」縮成「對面是誰」。
          診斷資訊一個字沒少（版本／proto／包版本都還在，log 也還在），
          少掉的是解釋性的那一句 —— Bruce：說明文字越少越好。 -->
@@ -1639,10 +1650,10 @@
      🔴 **CSS 沒有跟著載**（見 style 區塊頂端的說明）：common.css 有 `.card`／`.row`／
         無範圍的 `label{}` 等等，與本頁同名而語意完全不同，載進來會整頁走樣。
         頁首那四條宣告是逐字抄過來的，來源行號寫在各自上面。 -->
-<script src="common/i18n.js?v=20261006i2c1320"></script>
-<script src="common/common.js?v=20261006i2c1320"></script>
-<script src="common/i2c-spiflash.js?v=20261006i2c1320"></script>
-<script src="common/done-step.js?v=20261006i2c1320"></script>
+<script src="common/i18n.js?v=20261006i2c1321"></script>
+<script src="common/common.js?v=20261006i2c1321"></script>
+<script src="common/i2c-spiflash.js?v=20261006i2c1321"></script>
+<script src="common/done-step.js?v=20261006i2c1321"></script>
 
 <script>
 'use strict';
@@ -3350,6 +3361,7 @@ function i2ctOnMessage(ev){
    切語言時 _onLangChange 會原封不動再呼叫一次，狀態字就跟著換語言。
    存字串的話，切語言之後「已連線（本頁持有 I2C）」會停在原來那一種語言。 */
 var i2ctLinkState = { on: false, txt: { k: 'i2c.stNotLinked' }, cls: '' };
+var i2ctOpenClockKHz = 0;          /* v1.32.1：最近一次成功 open 時送出的時脈（kHz）；0 ＝ 還沒開過 */
 function i2ctSetLink(on, txt, cls){
   i2ctLinkState = { on: on, txt: txt, cls: cls };
   i2ctLinked = on;
@@ -3481,7 +3493,8 @@ async function i2ctConnect(takeover){
       op = await i2ctSend({ type: 'open', page: I2CT_PAGE_VER, mode: i2ctMode, threephase: i2ctThreePhase ? 1 : 0, ckdelay: i2ctCkDelay, clockHz: i2ctClockHz(), takeover: takeover ? 1 : 0,
                             fastread: i2ctFastRead ? 1 : 0,
                             rawmpsse: i2ctRawMpsse ? 1 : 0 });
-      if (op.ok) { i2ctLog(i2ctT('i2c.logChannelOpen', { i: a, ch: op.channels }), 'o'); break; }
+      if (op.ok) { i2ctOpenClockKHz = i2ctClockKHz();   /* v1.32.1：① 常駐顯示「這一次連線用的時脈」（改設定要重連才生效） */
+                   i2ctLog(i2ctT('i2c.logChannelOpen', { i: a, ch: op.channels }), 'o'); break; }
       /* 🔴 被另一個頁面佔住是**可判別**的狀態，不是一般失敗：不要重試、不要
          靜默失敗，直接告訴使用者並把「接手」這個出口亮出來。 */
       if (op.busy) {
@@ -9087,7 +9100,8 @@ window.__i2ctSf = {
    🔴 這一段只「讀」既有狀態（i2ctLinked／i2ctCkResult／#in-devtype／i2ctSfDet／Dump 資料／最後一次結果），
       不改任何讀寫路徑。掛點：i2ctSyncButtons() 的最後一行（狀態一變幾乎都會經過它）、i2ctCkRender()、切語言。
    狀態：''（○ 未完成）／'done'（✔）／'err'（✕，原因寫在步驟列）。目前該做的那一步加 .cur（標題換 --accent）。
-   做完的 ①②（連上、認出型號）縮成一行「✓ …」（共用 common/done-step.js，與 DG 兩頁同一支），點一下展開回看。 */
+   做完的 ②（認出型號）縮成一行「✓ …」（共用 common/done-step.js，與 DG 兩頁同一支），點一下展開回看。
+   v1.32.1：① 連線不縮，一律完整顯示（狀態、版本、時脈、型號、開關），出錯整框變紅。 */
 var i2ctRunState = null;          /* ④ 最後一次執行的結果：{ ok } ；null ＝ 還沒執行過 */
 function i2ctNoteRun(ok){ i2ctRunState = { ok: !!ok }; }
 var I2CT_MODE_KEY = { gen: 'i2c.modeGen', ee: 'i2c.modeEe', sf: 'i2c.modeSf' };
@@ -9156,12 +9170,31 @@ function i2ctStepsRender(){
     b.disabled = !!i2ctSfRunning;
   });
   if ($('stp-mode-note')) $('stp-mode-note').textContent = T({ gen: 'i2c.modeGenNote', ee: 'i2c.modeEeNote', sf: 'i2c.modeSfNote' }[mode] || 'i2c.modeGenNote');
-  /* 做完的 ①② 縮成一行（忙碌中、或還有下拉要選時不縮） */
+  /* v1.32.1：① 一律完整顯示（Bruce 2026-10-06「應該是要 always 顯示才對，這樣才會很清楚說到底有沒有連線成功」），
+     不再交給 done-step 縮成一行；只有 ② 做完照舊縮（忙碌中、或還有下拉要選時不縮）。 */
+  i2ctConnInfoRender(ck, ckOk, st.link === 'err');
   if (window.TCONDoneStep) {
-    TCONDoneStep.set($('card-conn'), { key: 'i2c-link', done: i2ctLinked && !i2ctBusy, name: T('i2c.stpLink') + (txt.link ? ' — ' + txt.link : ''), onToggle: i2ctStepsRender });
     var pickOpen = shown('tcon-pick');
     TCONDoneStep.set($('stp-ck'), { key: 'i2c-ck', done: ckOk && !i2ctBusy && !pickOpen, name: T('i2c.stpCk') + (txt.ck ? ' — ' + txt.ck : ''), onToggle: i2ctStepsRender });
   }
+}
+/* v1.32.1：① 底下常駐的一行。
+   已連線 ⇒「I2C 時脈 N kHz」＋（② 有結果時）「T-CON：型號」；連線出錯 ⇒ 下一步該檢查什麼（紅字）；其他 ⇒ 空（不佔位）。
+   I2C Bridge 版本照舊在 #helperinfo（i2ctSetLink 寫）。治具晶片名稱／序號 bridge 的 open 回覆沒有帶，
+   要另外列舉裝置（chandiag 會碰治具）⇒ 這裡不顯示，免得為了顯示多一次治具存取。 */
+function i2ctConnInfoRender(ck, ckOk, err){
+  var el = $('conn-info'); if (!el) return;
+  var T = i2ctT, esc = function (s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
+  var parts = [];
+  if (i2ctLinked) {
+    var k = i2ctOpenClockKHz || i2ctClockKHz();
+    parts.push(T('i2c.connClock', { k: '<b>' + esc(i2ctGrp(k)) + '</b>' }));
+    if (ck) parts.push(T('i2c.connTcon', { name: '<b>' + esc(ckOk ? (ck.name || '?') : T('i2c.connTconBad')) + '</b>' }));
+  } else if (err) {
+    parts.push(esc(T('i2c.connErrHint')));
+  }
+  el.innerHTML = parts.join(' · ');
+  el.classList.toggle('err', !i2ctLinked && !!err);
 }
 function i2ctModeSegInit(){
   Array.prototype.forEach.call(document.querySelectorAll('#mode-seg .mseg-b'), function (b) {
