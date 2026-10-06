@@ -30,7 +30,7 @@
           出來」。那個前提**早就不成立**：bridge 的靜態檔服務拒絕子資料夾、而且自 v1.7.0
           起預設關閉 —— 詳細依據與行號寫在 body 末端那兩個 <script> 的上面。）
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="common/version.js?v=20261006i2c1330"></script>
+<script src="common/version.js?v=20261006i2c1331"></script>
 <style>
   * { box-sizing: border-box; }
   :root{
@@ -739,7 +739,7 @@
     label.f.sflen{width:100% !important;}
   }
 </style>
-<link rel="stylesheet" href="common/done-step.css?v=20261006i2c1330">
+<link rel="stylesheet" href="common/done-step.css?v=20261006i2c1331">
 </head>
 <body>
 
@@ -1192,7 +1192,7 @@
             <select id="sf-emslv" class="mono"></select>
             <span class="hint" id="sf-emslv-hint">&nbsp;</span>
           </label>
-          <div class="f"><span>&nbsp;</span><div class="fctl"><button id="sf-auto" data-i18n="i2c.sfBtnAuto" data-i18n-title="i2c.sfTipAuto" title="讀 0x7C:0x95／0x98 判斷 E501A／E501B">自動判斷</button></div><span class="hint">&nbsp;</span></div>
+          <div class="f"><span>&nbsp;</span><div class="fctl"><button id="sf-auto" data-i18n="i2c.sfBtnAuto" data-i18n-title="i2c.sfTipAuto" title="還沒做過 Check T-CON 就直接執行 ② Check T-CON；做過就沿用結果">自動判斷</button> <button id="sf-recheck" data-i18n="i2c.sfBtnRecheck" data-i18n-title="i2c.sfTipRecheck" title="重新執行 ② Check T-CON（換過板子時用）" style="display:none">重新判斷</button></div><span class="hint">&nbsp;</span></div>
           <span class="sfnote" id="sf-locknote" data-i18n="i2c.sfLockNote">🔒 位址依型號自動帶入（7-bit），不能手改</span>
         </div>
         <!-- v1.31.0（Bruce 2026-10-06）：型號跟著 Check T-CON 帶入；沒按過或認不出來才手選。這一行說明型號從哪裡來、與結果不符時警告。 -->
@@ -1650,10 +1650,10 @@
      🔴 **CSS 沒有跟著載**（見 style 區塊頂端的說明）：common.css 有 `.card`／`.row`／
         無範圍的 `label{}` 等等，與本頁同名而語意完全不同，載進來會整頁走樣。
         頁首那四條宣告是逐字抄過來的，來源行號寫在各自上面。 -->
-<script src="common/i18n.js?v=20261006i2c1330"></script>
-<script src="common/common.js?v=20261006i2c1330"></script>
-<script src="common/i2c-spiflash.js?v=20261006i2c1330"></script>
-<script src="common/done-step.js?v=20261006i2c1330"></script>
+<script src="common/i18n.js?v=20261006i2c1331"></script>
+<script src="common/common.js?v=20261006i2c1331"></script>
+<script src="common/i2c-spiflash.js?v=20261006i2c1331"></script>
+<script src="common/done-step.js?v=20261006i2c1331"></script>
 
 <script>
 'use strict';
@@ -8759,7 +8759,15 @@ function i2ctSfLogCopy(){
    兩段結果衝突（conflict）、認不出來（unknown）⇒ 不帶，交給使用者。 */
 var I2CT_SF_CK_MAP = { 'E501A': 'E501A', 'E501B1': 'E501B', 'E501B2': 'E501B', 'EM01A1': 'EM01', 'EN01': 'EN01' };
 /* v1.33.0（Bruce 2026-10-06「讀取 Flash 長度…請改成預設的是 0x40000」）：讀取長度預設 256 KB。 */
-var I2CT_SF_DEF_LEN = 0x40000;
+var I2CT_SF_DEF_LEN = 0x40000;    /* 還沒選型號時（頁面載入）的值 */
+/* v1.33.1：各型號的預設讀取長度集中在這張表（換型號、讀 ID 後都從這裡取，不要在別處寫死）。
+     E501A／E501B：0x40000 —— Bruce 2026-10-06「E501A 跟 B 預設的讀取長度也是這個 0x40000」
+                   （原廠 PY Flash 模式帶 131072＝0x20000，PY:31096–31098；依 Bruce 指定用 0x40000）
+     EM01：0x40000 —— 原廠 ISP 分頁切到 Flash 時 Edit_ISP_Length←"0x40000"（SDIMAIN.cpp:12076）；Bruce 同日指定相同
+     EN01：0x20000 —— 原廠 WPF 切到 FLASH 時 ROMParam.Length←131072（RomCodeInfo.cs:1230，WPF_RomCodeProcessUI@acdb7f9，
+                   AppHeaderView.xaml:103 的 Read Length 欄）。與其他三顆不同，照原廠值，待 Bruce 決定。 */
+var I2CT_SF_DEF_LEN_BY = { E501A: 0x40000, E501B: 0x40000, EM01: 0x40000, EN01: 0x20000 };
+function i2ctSfDefLen(p){ return (p && I2CT_SF_DEF_LEN_BY[p.id]) || I2CT_SF_DEF_LEN; }
 var i2ctSfSrc = '';               /* 目前型號怎麼來的：'ck' Check T-CON｜'auto' 自動判斷｜'manual' 手選｜'' 還沒選 */
 function i2ctSfCkModel(){
   var r = i2ctCkResult;
@@ -8823,8 +8831,8 @@ function i2ctSfRender(){
   $('sf-locknote').setAttribute('data-i18n', isEm ? 'i2c.sfLockNoteEm' : 'i2c.sfLockNote');
   $('sf-locknote').textContent = i2ctSfT(isEm ? 'i2c.sfLockNoteEm' : 'i2c.sfLockNote');
   i2ctSfDecHints();
-  /* 自動判斷只在「Check T-CON 沒給出型號」時出現（v1.31.0）；它也只分得出 E501A／E501B */
-  $('sf-auto').parentNode.parentNode.style.display = (!i2ctSfCkModel() && (!p || p.id === 'E501A' || p.id === 'E501B')) ? '' : 'none';
+  /* v1.33.1：自動判斷＝② Check T-CON（同一支 i2ctCheckTcon），每個型號都顯示；做過 Check T-CON 才出現「重新判斷」 */
+  $('sf-recheck').style.display = i2ctCkResult ? '' : 'none';
   i2ctSfRenderCk();
   $('sf-slaves').innerHTML = p ? i2ctSfSlaves(p).map(function (s) {
     return '<div>' + i2ctEsc(i2ctSfT('i2c.sfSlv_' + s[0])) + '<br><b>0x' + i2ctHex(s[1]) + '</b> '
@@ -8852,6 +8860,8 @@ function i2ctSfDetText(p, d){
   var f = d.r.flash, parts = ['JEDEC ' + f.id.replace(/(..)(..)(..)/, '$1 $2 $3')];
   parts.push(f.name || i2ctSfT('i2c.sfUnknownFlash'));
   if (f.size) parts.push(i2ctSfSize(f.size));
+  else if (!f.blank && (f.codeSize || f.tblSize))     /* v1.33.1：容量不確定 ⇒ 兩個數字都列、標未確定 */
+    parts.push(i2ctSfT('i2c.sfCapUnsureShort', { code: f.codeSize ? i2ctSfSize(f.codeSize) : '—', tbl: f.tblSize ? i2ctSfSize(f.tblSize) : '—' }));
   if (d.r.model) parts.push(d.r.model);
   if (d.r.ap) parts.push(d.r.ap);
   if (d.r.wp) parts.push(i2ctSfT('i2c.sfWp_' + d.r.wp));
@@ -8865,7 +8875,7 @@ function i2ctSfSync(){
   i2ctSfDecHints();               /* v1.31.0：程式改了起點／長度（讀 ID 帶容量、選檔帶起點）也要跟著換算 */
   var p = i2ctSfProfile(), idle = i2ctLinked && !i2ctBusy && !i2ctSfRunning, ok = !!(i2ctSfDet && i2ctSfDet.ok);
   $('sf-model').disabled = i2ctSfRunning; $('sf-pad').disabled = i2ctSfRunning;
-  $('sf-auto').disabled = !idle;
+  $('sf-auto').disabled = $('sf-recheck').disabled = !idle;
   $('sf-detect').disabled = !idle || !p;
   var cap = i2ctSfCap();
   $('sf-rd-all').disabled = !ok || !cap || i2ctSfRunning;
@@ -8881,9 +8891,9 @@ function i2ctSfSync(){
 }
 function i2ctSfModelChanged(){
   i2ctSfDet = null;
-  if ($('sf-rd-len')) { $('sf-rd-len').value = '0x' + i2ctHex(I2CT_SF_DEF_LEN, 6); $('sf-rd-start').value = '0x000000'; }   /* 換型號 ⇒ 容量要重新讀，長度回預設 */
-  if ($('sf-emslv')) $('sf-emslv').value = '68';   /* v1.31.0：換型號／Check T-CON 帶入 ⇒ EM01 主 slave 回預設 0x68（記憶體 0x58） */
   var p = i2ctSfProfile();
+  if ($('sf-rd-len')) { $('sf-rd-len').value = '0x' + i2ctHex(i2ctSfDefLen(p), 6); $('sf-rd-start').value = '0x000000'; }   /* 換型號 ⇒ 容量要重新讀，長度回該型號預設（v1.33.1 表） */
+  if ($('sf-emslv')) $('sf-emslv').value = '68';   /* v1.31.0：換型號／Check T-CON 帶入 ⇒ EM01 主 slave 回預設 0x68（記憶體 0x58） */
   if (p) i2ctSfLog(i2ctSfT('i2c.sfLogModel', { m: p.id, c: p.chip, s: i2ctSfSlaves(p).map(function (x) { return '0x' + i2ctHex(x[1]); }).join(' / ') }), 'n');
   i2ctSfRender();
 }
@@ -8896,17 +8906,27 @@ function i2ctSfModelPicked(){
 }
 function i2ctSfBegin(){ i2ctSfRunning = true; i2ctBusy = true; i2ctSfAbort = false; i2ctSyncButtons(); i2ctSfSync(); }
 function i2ctSfEnd(){ i2ctSfRunning = false; i2ctBusy = false; i2ctSyncButtons(); i2ctSfSync(); }
-/* 自動判斷：讀 7C:0x95／0x98（同 Check T-CON 的 E501 判斷；PY:33501–33521）。EM01／EN01 要手選。 */
-async function i2ctSfAuto(){
-  i2ctSfBegin();
-  try {
-    var io = i2ctSfIo();
-    var id = (await io.r(0x7C, 1, 0x95, 1))[0], t = (await io.r(0x7C, 1, 0x98, 1))[0];
-    var m = t === 0 ? '' : (id === 0x00 ? 'E501A' : ((id === 0x40 || id === 0x41) ? 'E501B' : ''));
-    i2ctSfLog(i2ctSfT(m ? 'i2c.sfLogAuto' : 'i2c.sfLogAutoNo', { a: i2ctHex(id), b: i2ctHex(t), m: m }), m ? 'o' : 'w');
-    if (m) { $('sf-model').value = m; i2ctSfSrc = 'auto'; i2ctSfModelChanged(); }
-  } catch (e) { i2ctSfLog('✕ ' + i2ctSfErr(e), 'e'); }
-  i2ctSfEnd();
+/* v1.33.1（Bruce 2026-10-06「我沒有先 check tcon，而直接按下 tcon 型號旁邊的「自動判斷」，為什麼它不會去做 check tcon 的動作？」）：
+   v1.33.0 以前的自動判斷只讀 0x7C:0x95／0x98（PY:33501–33521 那一段），只分得出 E501A／E501B，
+   不跑 Check T-CON 的第二段（0xFF00 IC ID），結果也不回寫 ②／①。
+   現在：自動判斷＝② 的 i2ctCheckTcon（同一支，不另寫判斷）。
+     · 還沒有 Check T-CON 結果（沒按過、或斷線後被清掉——i2ctSetLink 斷線即清，換板子要先斷線）⇒ 直接執行；
+     · 有結果但認不出／兩段衝突／對不到外部 Flash 型號 ⇒ 結果用不上，也重新執行；
+     · 有可用結果 ⇒ 沿用（型號照 Check T-CON 帶入），旁邊的「重新判斷」（force）一律重跑。
+   結果由 i2ctCheckTconRun 自己寫回 ②（i2ctCkRender）與 ① 的 T-CON 欄，型號由 i2ctSfOnCk 帶入。 */
+async function i2ctSfAuto(force){
+  if (i2ctBusy || i2ctSfRunning || !i2ctLinked) return;
+  var r = i2ctCkResult;
+  if (!force && r && i2ctSfCkModel()) {
+    i2ctSfLog(i2ctSfT('i2c.sfLogAutoReuse', { n: r.name }), 'o');
+    if ($('sf-model').value !== i2ctSfCkModel() || i2ctSfSrc !== 'ck') i2ctSfOnCk();
+    return;
+  }
+  i2ctSfLog(i2ctSfT(force ? 'i2c.sfLogAutoRecheck' : 'i2c.sfLogAutoRunCk'), 'n');
+  var res = null;
+  try { res = await i2ctCheckTcon(); } catch (e) { i2ctSfLog('✕ ' + i2ctSfErr(e), 'e'); }
+  if (!i2ctSfCkModel()) i2ctSfLog(i2ctSfT('i2c.sfLogAutoNoModel', { n: res ? res.name : '—' }), 'w');
+  i2ctSfRender();
 }
 async function i2ctSfDetect(){
   var p = i2ctSfProfile(); if (!p) return;
@@ -8917,11 +8937,29 @@ async function i2ctSfDetect(){
     var ok = p.jedec ? !(r.flash.blank || r.noFlash) : true;
     i2ctSfDet = { ok: ok, r: r, pad: i2ctSfPad() };
     i2ctSfLog(i2ctSfDetText(p, i2ctSfDet), ok ? 'o' : 'e');
-    if (ok && p.jedec && !r.flash.known) i2ctSfLog(i2ctSfT('i2c.sfLogUnknownId'), 'w');
-    /* v1.33.0：讀 ID 後長度帶預設 0x40000，不再帶整顆容量；容量比預設小就帶容量（範圍不能超出 Flash）。讀整顆另有勾選。 */
-    if (ok && i2ctSfCap()) $('sf-rd-len').value = '0x' + i2ctHex(Math.min(i2ctSfCap(), I2CT_SF_DEF_LEN), 6);
+    if (ok) i2ctSfApplyDetLen(p, r);
   } catch (e) { i2ctSfDet = { ok: false, err: i2ctSfErr(e) }; i2ctSfLog('✕ ' + i2ctSfDet.err, 'e'); }
   i2ctSfEnd(); i2ctSfRenderDet(); i2ctSfSync();
+}
+/* v1.33.1（Bruce 2026-10-06「為什麼我說 EM01 的 Flash 預設讀取的長度是 0x040000，可是你卻用成 0x010000？」
+   「當我讀 Flash ID 的時候，雖然內容是 4MB，但預設讀出的長度也是要符合 0x40000」）：
+   讀 ID 後長度一律帶該型號預設（I2CT_SF_DEF_LEN_BY）；只有容量「確定」（ID 在原廠表且表值＝容量碼，jedecInfo.sizeSure）
+   而且比預設小，才改帶容量並寫明原因。容量不確定 ⇒ 不縮小，log 警告。log 一律印 JEDEC 原始 3 byte 與推算的容量。
+   原廠 ISP Get 鈕不改讀取長度（SDIMAIN.cpp:1514–1546），網頁多的只有「確定比預設小才縮」這一條（範圍不超出 Flash）。 */
+function i2ctSfApplyDetLen(p, r){
+  var def = i2ctSfDefLen(p), len = def, f = p.jedec ? r.flash : null;
+  if (f) {
+    var j = r.jedec || [];
+    i2ctSfLog(i2ctSfT('i2c.sfLogIdRaw', {
+      id: j.map(function (b) { return i2ctHex(b); }).join(' '), c: i2ctHex(j[2] & 0xFF),
+      code: f.codeSize ? i2ctSfSize(f.codeSize) : '—',
+      tbl: f.tblSize ? i2ctSfSize(f.tblSize) : i2ctSfT('i2c.sfUnknownFlash') }), 'n');
+    if (f.sizeSure && f.size < def) len = f.size;
+    else if (!f.sizeSure) i2ctSfLog(i2ctSfT('i2c.sfLogCapUnsure', { why: i2ctSfT('i2c.sfCapWhy_' + (f.why || 'notInTable')), def: '0x' + i2ctHex(def, 6) }), 'w');
+  }
+  $('sf-rd-len').value = '0x' + i2ctHex(len, 6);
+  if (len < def) i2ctSfLog(i2ctSfT('i2c.sfLogLenCap', { len: '0x' + i2ctHex(len, 6), cap: i2ctSfSize(len), def: '0x' + i2ctHex(def, 6) }), 'w');
+  else i2ctSfLog(i2ctSfT('i2c.sfLogLenDef', { len: '0x' + i2ctHex(len, 6), m: p.id }), 'n');
 }
 function i2ctSfRange(startId, lenOrId){
   var st = i2ctParseLen($(startId).value);       /* v1.32.0：不加 0x ＝ 十進位 */
@@ -9131,7 +9169,8 @@ function i2ctSfInit(){
   $('sf-log-copy').addEventListener('click', i2ctSfLogCopy);
   $('sf-log-clear').addEventListener('click', function () { $('sf-log').innerHTML = ''; $('sf-stage').textContent = ''; });
   $('sf-pad').addEventListener('change', function () { i2ctSfDet = null; i2ctSfRenderDet(); i2ctSfSync(); });
-  $('sf-auto').addEventListener('click', i2ctSfAuto);
+  $('sf-auto').addEventListener('click', function () { i2ctSfAuto(false); });
+  $('sf-recheck').addEventListener('click', function () { i2ctSfAuto(true); });
   $('sf-detect').addEventListener('click', i2ctSfDetect);
   $('sf-rd-all').addEventListener('change', i2ctSfSync);
   $('sf-read').addEventListener('click', i2ctSfRead);
@@ -9150,7 +9189,7 @@ window.__i2ctSf = {
   setModel: function (m) { $('sf-model').value = m; i2ctSfModelPicked(); },   /* ＝使用者在下拉選 */
   setFile: function (name, bytes, hint) { i2ctSfSetFile(name, Array.prototype.slice.call(bytes), hint); },
   state: function () { return { mode: i2ctSfMode, det: i2ctSfDet, running: i2ctSfRunning, file: i2ctSfFile, confirmOpen: !!i2ctSfCfResolve, src: i2ctSfSrc, ckModel: i2ctSfCkModel() }; },
-  detect: i2ctSfDetect, read: i2ctSfRead, write: i2ctSfWrite, eraseAll: i2ctSfEraseAll, answer: i2ctSfAnswer, auto: i2ctSfAuto,
+  detect: i2ctSfDetect, read: i2ctSfRead, write: i2ctSfWrite, eraseAll: i2ctSfEraseAll, answer: i2ctSfAnswer, auto: function () { return i2ctSfAuto(false); }, recheck: function () { return i2ctSfAuto(true); },
   abort: function () { i2ctSfAbort = true; },
   logText: i2ctSfLogText, copyLog: i2ctSfLogCopy, lastCopy: null,
   /* v1.31.0：Dump 目前那一份、與「另存新檔」會產生的檔（不碰 DOM、不下載） */
