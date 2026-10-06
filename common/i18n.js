@@ -1352,6 +1352,27 @@ var I18N = {
     'zh-TW': '⚠ Frame Rate 已自動從 {from} Hz 降為 {to} Hz —— 這組解析度下 {m} 最高只跑得到 {to} Hz。要用別的值請自己改。',
     'en': '⚠ Frame Rate was automatically lowered from {from} Hz to {to} Hz - at this resolution {m} tops out at {to} Hz. Change it yourself if you want another value.',
     'zh-CN': '⚠ Frame Rate 已自动从 {from} Hz 降为 {to} Hz —— 这组分辨率下 {m} 最高只跑得到 {to} Hz。要用别的值请自己改。' },
+  /* v4.54.0：匯入 MNT code 時依 TX 輸出介面自動選定頻／變頻的說明（一行，掛在匯入卡片＋console）。 */
+  'wfg.codeAutoVarEm02': {
+    'zh-TW': '偵測到 EM02（mini-LVDS 輸出）⇒ 自動選「變頻應用」（可再手動更改）',
+    'en': 'EM02 detected (mini-LVDS output) ⇒ Variable Clock selected automatically (you can change it)',
+    'zh-CN': '侦测到 EM02（mini-LVDS 输出）⇒ 自动选「变频应用」（可再手动更改）' },
+  'wfg.codeAutoVarE512': {
+    'zh-TW': '偵測到 E512（mini-LVDS 輸出）⇒ 自動選「變頻應用」（可再手動更改）',
+    'en': 'E512 detected (mini-LVDS output) ⇒ Variable Clock selected automatically (you can change it)',
+    'zh-CN': '侦测到 E512（mini-LVDS 输出）⇒ 自动选「变频应用」（可再手动更改）' },
+  'wfg.codeAutoVarEm01': {
+    'zh-TW': '偵測到 EM01 TX＝mini-LVDS ⇒ 自動選「變頻應用」（可再手動更改）',
+    'en': 'EM01 with TX = mini-LVDS detected ⇒ Variable Clock selected automatically (you can change it)',
+    'zh-CN': '侦测到 EM01 TX＝mini-LVDS ⇒ 自动选「变频应用」（可再手动更改）' },
+  'wfg.codeAutoFixEm01': {
+    'zh-TW': '偵測到 EM01 TX＝iSP ⇒ 自動選「定頻應用」（可再手動更改）',
+    'en': 'EM01 with TX = iSP detected ⇒ Fixed Clock selected automatically (you can change it)',
+    'zh-CN': '侦测到 EM01 TX＝iSP ⇒ 自动选「定频应用」（可再手动更改）' },
+  'wfg.codeAutoClkEm01Unknown': {
+    'zh-TW': 'EM01 的 TX 輸出介面未確認（讀不到或兩個設定不一致）⇒ 定頻／變頻維持原本的選擇',
+    'en': 'EM01 TX output type not confirmed (unreadable or the two settings disagree) ⇒ Fixed / Variable Clock left as it was',
+    'zh-CN': 'EM01 的 TX 输出接口未确认（读不到或两个设定不一致）⇒ 定频／变频维持原本的选择' },
   'wfg.codeNbDclkWrote': {
     'zh-TW': '本次匯出**有寫回 TCON UI DCLK**（{m}）：{was} → {now} MHz\n\n寫進去的 register：\n・GBPLL_EN_SDM = 1\n・GBPLL_N_PRE = 8、GBPLL_N_PSDIV1 = 6、GBPLL_N_PSDIV2 = 9、N_PRETX = 1\n・GBPLL_P = {p}\n・GBPLL_INI_M = {i}\n・GBPLL_DELTA_M = {d}\n\n這一組是照原廠「AGBSFR 標準化」的寫入序列產生的。原廠標準化另外還會依 EDID 重寫 HBLANK／VBLANK／FR_DET_TH／VBP／PSR VTL —— 本工具沒有 EDID 那一整套輸入，**那些一律不寫**。',
     'en': 'This export DID write TCON UI DCLK back ({m}): {was} → {now} MHz\n\nRegisters written:\n・GBPLL_EN_SDM = 1\n・GBPLL_N_PRE = 8, GBPLL_N_PSDIV1 = 6, GBPLL_N_PSDIV2 = 9, N_PRETX = 1\n・GBPLL_P = {p}\n・GBPLL_INI_M = {i}\n・GBPLL_DELTA_M = {d}\n\nThis follows the official "AGBSFR standardize" write sequence. The official flow also rewrites HBLANK / VBLANK / FR_DET_TH / VBP / PSR VTL from the EDID - this tool has no EDID input, so those are NOT written.',

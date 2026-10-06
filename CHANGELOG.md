@@ -2,6 +2,51 @@
 
 ---
 
+## 面板訊號模擬與取樣 (wfg) v4.54.0 — 2026-10-06 ｜ MINOR ｜ ⚠ 輸出變更
+
+**匯入 MNT code 時依 TX 輸出介面自動選「定頻／變頻應用」：EM02、E512 → 變頻；EM01 讀 code 內 System→TX 的 TX type，mini-LVDS → 變頻、iSP → 定頻，讀不到或不一致 → 不動並標「未確認」。自動選完可手動改，手動選擇不會被其他操作蓋掉，只有再次匯入才重新判斷；匯出 script 不寫 TX 設定。**
+
+判定依據：`docs/VERSIONING.md` §1 判定表 ＋ R1～R4 逐項判、取最高者。
+
+| 規則 | 判定 | 說明 |
+|---|---|---|
+| R4「起始狀態／預設值改變」 | **MINOR** | 匯入後的定頻／變頻預設值改由 code 決定；radio、按鈕、流程都沒動 |
+| R1 `⚠ 輸出變更` | **要標** | 同一份 EM02／E512／EM01(mini-LVDS) code，從定頻狀態匯入後 TX DCLK 變成等於 RX DCLK（變頻語意），TCON HTOTAL、波形時間軸與舊版基線不同；EM01 iSP 從變頻狀態匯入則變成定頻。匯出的 script 內容不變（逐字比對過） |
+| R2「既有操作失效」 | **沒有** | 手動切換、換機種記憶（v4.7.0 `dclkModeUser`）照舊 |
+| R3 | 不另計 | 沒有新增按鈕 |
+| 🔴 實際採用 | **MINOR** | wfg v4.53.3 → v4.54.0 |
+
+### 起因
+
+Bruce 2026-10-06：「把 WFG 分頁，只要是遇到 EM02 匯入的 code，或者是 E512，使用的是 Mini-LVDS 輸出的，匯入 code 時都是自動要選擇到變頻應用（但也都可以再手動更改）。」
+同日補充：「EM01 因為有 iSP 跟 miniLVDS 兩種，所以變頻跟定頻都有，可以看看 EM01 的 Source code，在 system->tx 頁面，就有選擇是 mLVDS 還是 iSP 的地方……之後匯入 EM01 的 code 就可以用這個來判斷是要變頻還是定頻，一樣，手動更改也 ok，但手動更改完匯出的 script 不可以改到這個 Tx 的設定」。
+
+### 判斷依據（只看 code 內容與型號確認框，不看檔名）
+
+- **型號**：匯入前型號確認框選的 codec，且 code 必須通過該型號解析器的內容檢核（EM02 16 候選恰好一個、E512 `wfgE512Sane`、EM01 `wfgEm01Sane`）。
+- **EM02／E512＝晶片只有 mini-LVDS**：register bank 的分區表只有 `mini_tx`（E512 `e512_register_bank_final.xls`；EM02 `EM02A1_register_bank_svn213_final.xls` 另有 `mini_tx_2`），沒有 EM01 那幾個 iSP 分區（`tx_dtop_p2p`／`tx_sd_setting`／`tx_d2atop`）；E512 原廠工具 `VCL_TV_TCON_E512_Tool/App/TX/RApp_TX.cpp` `RApp_TX_Load()` 讀完直接 `eType = E_TX_TYPE_MINI;`。
+  - 曾考慮用 rt7 `reg_isp_mlvds_sel`（E512 regAddr 0x0480 bit0，EEPROM fileOff 0x035E）判 E512，**放棄**：E512 bank 這格 Init 0、無說明；實測 E512 真檔 190 份：bit0＝0 的 70 份全在 `TCON_UI/E512/04.EEPROM` 原廠 golden／IC test（含檔名 `..._8bit_mini.BIN`），其餘 120 份（含全部 RM80020 客戶檔）是 1 —— 這一格在 E512 上不代表輸出介面。
+- **EM01**：原廠工具 System→TX 的 `ComboBox_System_TX_Type_Sel`
+  - 寫入 `VCL_TV_TCON_EM01_Tool/App/TX/RApp_TX.cpp:4116-4124`：`(BK_TX_DTOP_P2P+0x00)`，值 `ItemIndex<<4`，遮罩 0x70
+  - 讀回 同檔 `:1292`、`:1302` `eType = (au8RegTemp[0] >> 4) & 0x07`；`BK_TX_DTOP_P2P = 0x0F00`（`App/RApp_Common.h:73`）；`E_TX_TYPE_MINI=0, E_TX_TYPE_ISP=1`（`App/TX/RApp_TX.h:7-9`）
+  - ⇒ **regAddr 0x0F00 bit[6:4]**（bank `tx_dtop_p2p` `reg_combo_tx_sel`）0＝mini-LVDS、1＝iSP；交叉核對 rt7 `reg_isp_mlvds_sel`（0x0400 bit0，EM01 bank 明文 0: isp／1: mini-lvds），兩者一致才採用。
+  - Flash 平坦映像 fileOff＝regAddr。**EEPROM 未確認**：0x0F00／0x0400 在 EM01 EEPROM 檔的位置沒有文件，一律 `unknown`（不動、標未確認）。
+
+### 改了什麼
+
+- `wfg.html`：`WFG_MNT_TX_MLVDS_ONLY`、`wfgEm01TxIf()`（EM01 解析結果多 `txIf/txType/txSel`，detail 多一段 TX）；`wfgCodeAutoClockMode()`／`wfgCodeApplyAutoClock()`；`wfgCodeApplyToWfg()` 一開始就決定型態（寫 `dclkMode` 與 `dclkModeUser`，語意同使用者按 radio：進變頻收起手動 TX、回定頻還原），後面 Frame Rate 自動下調、RX／TX 夾值照既有路徑。說明行掛在匯入卡片 `res.notice` ＋ `console.info('[wfg] …')`。
+- 匯出：MNT 三顆的 script 只寫 rt8_tcon_1～3（GPO／GATE／FLR／FRM_NO），**本來就不寫** 0x0F00、rt7、mini_tx；本版不改匯出程式，以自測逐位元組釘住。
+- `common/i18n.js`：`wfg.codeAutoVarEm02`／`codeAutoVarE512`／`codeAutoVarEm01`／`codeAutoFixEm01`／`codeAutoClkEm01Unknown`（三語）。
+- `common/version.js` wfg → v4.54.0；`wfg.html` version.js／i18n.js `?v=20261006wfg4540`；`index.html` version.js／i18n.js `?v=20261006i2c1340wfg4540`（其他引用 i18n.js 的頁面沒動既有 key、本次未改，不 bump）。
+- `wfg-guide*.html`：「定頻／變頻跟著機種走」補一段（說明頁不算版號）。
+- 新增自測 `tools/check_wfg_auto_var_clock.mjs`（headless Chrome，走匯入按鈕同一路徑）。
+
+### 證據
+
+- `node tools/check_wfg_auto_var_clock.mjs`（合成檔）：54/54。E512（rt7 bit0＝1／0）→ 變頻；EM01 mini-LVDS → 變頻、iSP（從變頻開始）→ 定頻、兩設定不一致 → 不動＋未確認；EM02 → 變頻；E503 → 不動；手動改後換機種來回／機種約束／改 Frame Rate／重新整理都保留，再匯入才重新判斷；手動切換前後匯出 script 逐字相同、不寫 TX 分區、EM01 Flash 套回映像 TX 分區（mini_tx／rt7／tx_d2atop／tx_dtop_p2p／tx_sd_setting）逐位元組不變。
+- 真檔（本機、不進版控）：`WFG_AUTOCLK_REAL=~/TCON/Model:…` 637 份候選 → E512 190、EM02 6、EM01 Flash 44（mini-LVDS 24、iSP 13、未確認 7〔type=0 sel=0：`RM80100_ORI_Code*`、`[Gen]V02_RTPM_*`〕），逐份走完整匯入結果全對；EM01 真檔 mini-LVDS（CSOT 165Hz）與 iSP（HKC）各一份做匯出逐位元組比對，TX 分區不變。
+- **未確認**：E512／EM02「只有 mini-LVDS」是依 register bank 分區表與原廠工具推得，沒有原廠文件明文；EM01 EEPROM 的 TX 欄位位置；EM01 type 與 rt7 不一致的 7 份檔實際是哪種輸出。**未上機**。
+
 ## I2C 讀寫測試 (i2c) v1.34.0 — 2026-10-06 ｜ MINOR
 
 **Check T-CON 依 SY 辨認表分出 E503 與 EN01（含 A1／A2）；只有確定是 E503 才寫 3E:0059←1E，認出 EN01 不寫。**
