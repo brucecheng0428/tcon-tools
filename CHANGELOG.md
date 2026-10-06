@@ -2,6 +2,38 @@
 
 ---
 
+## I2C 讀寫測試 (i2c) v1.29.0 — 2026-10-06 ｜ MINOR
+
+判定依據：VERSIONING.md §1「功能增減：新增獨立功能」—— 裝置類型多一個「外部 Flash（經 TCON）」，可經 TCON 讀寫外部 SPI Flash。選「一般」「EEPROM」時畫面與行為不變（既有自測 1408 項結果與改動前相同）⇒ MINOR，不標 `⚠ 輸出變更`。EN01 寫入停用不影響級別：E501A／E501B／EM01 的讀寫與 EN01 的讀取都是新增能力。
+
+### 起因
+Bruce 2026-10-06：「在 I2C 讀寫的地方，可以選擇要透過 I2C 讀寫 flash，但這個一定要搭配對應的 TCON…Slave Address 一定要設對」「不是 TCON 內部的 Flash…是去抓 TCON 外部 Flash 的 code，只是需要透過 TCON」「EM01 跟 EM02 的 UI 請使用 ISP 這個 Tab 裡面的方式」「EM02 沒有 flash，只有 eeprom；EM01 EN01 都要；E501 你不是有我的 python 版 source code?；上機驗證我這邊來，所以你要 Push」。依據：`outputs/I2C_外部SPIFlash_原廠查證與規劃_20261006.md`（第一階段查證）與 `staging/i2c-spiflash-proto.html`。
+
+### 改了什麼
+- `common/i2c-spiflash.js`（新）：四個型號的序列，每一段註明原廠出處行號。傳輸層由呼叫端注入（一筆 I2C 寫／讀＝bridge 一則 `rawwrite`／`read`，slave 7-bit 不左移），bridge 不用改。
+  - **E501B／E501A**（依 Bruce 的 Python 版 RomCodeProcessUI.py）：先讀 7C:95／98 確認型號，與畫面選的不同就擋；init（A 多 7C:08 兩筆與 3E 00AD／00B5）；確認 Flash＝RDID 9Fh（B 從 7D:0246、A 從 7C:D0）；讀＝B 每 4 KB 從 0x64 一次讀 4096、A 每 8 B 從 7C:D0；寫＝WREN → 抹除（≥64 KB 且起點 64 KB 對齊用 D8h，其餘 20h）→ RDSR 輪詢 → 每頁 WREN＋02h＋0x64 寫 256 B → 讀回比對（B 全 4 KB、A 頭尾各 256 B，照原廠）→ 不符重寫、第 3 次停；結束一律 `3E 00AD←00×9`（含出錯／中止）。
+  - **EM01**（依原廠 UI ISP 分頁）：主 code（CSPI，0xFF44←01）／Demura（SSPI，←02）；Get＝RDID＋型號 0xFFF1＋保護狀態；讀＝MCU OFF、word mode，每 4 KB 經 AHB 暫存區（0x58，4-byte offset）讀兩次相同才收，第 5 次失敗中止；寫＝寫前讀 ID／保護狀態 → 有保護先解除 → 每 4 KB 抹除、暫存區 4 KB、16 次 program、讀回比對，不符整段重來、第 5 次中止 → 寫完或中止都把軟體寫保護開回去。
+  - **EN01**：只開讀取＋讀 IC 版本 3E:207E。每頁序列與原廠共用庫現行版相同（009A＝位址高位元組），結尾 `0099←00×9`、`0098←00`；`0039←C0` 沿用舊版每次都送（現行版只在 A1 排列送，讀取前沒有檔案可判斷）。寫入暫時停用。
+- `i2c.html`：裝置類型多「外部 Flash（經 TCON）」；選了之後 slave／offset／byte 數／寫入資料那一列收起來，出現面板：① 型號（位址 7-bit 自動帶入、不能改，8-bit 只當說明；E501 可自動判斷；EM01 選 CSPI／Demura）② 確認 Flash（讀 ID 前讀寫都停用；讀不到 Flash 不開放）③ 讀出（4 KB 為單位或整顆，直接另存 `<型號>_Flash_<起點>_<長度>_CKS_xxxxxx.bin`）④ 寫入（選 .bin／.hex → 確認窗列型號、位址、Flash、範圍、檔名＋CKS → 進度條、log、中止＝做完目前 4 KB → 寫完提示重新上電）。
+- `common/i18n.js`：`i2c.devSf`、`i2c.sf*` 三語。`i2c-guide*.html`：第 7 節加「外部 Flash（經 TCON）」（說明頁不算版號）。
+- `tools/i2c_spiflash_selftest.js`（新）：假 I2C 後端逐筆比對原廠序列＋假裝置驗資料；後半用 jsdom 驅動真的 i2c.html。
+
+### 照原廠以外的處理（都寫在程式註解）
+- **PY 4 KB 抹除漏加起點**（PY:32896，「64 KB 倍數＋餘數」分支抹 `m*65536+j*4096`）：改成起點＋偏移，與寫入位址一致；測試釘住 0x10000 起 68 KB ⇒ 抹 D8@0x10000、20@0x20000。PY:32969 Data B 誤用 backup 陣列與網頁無關（網頁只有一份檔案）。
+- **JEDEC 容量**：PY 與 EM01 表裡 PUYA／GigaDevice（EM01 另有 Fudan）把 bit 數寫成 byte 數；容量一律用 ID 第三個 byte＝2^n byte，與兩表的 Winbond／MXIC／Boya 每一筆相符。名稱沿用 EM01 表（涵蓋 PY 全部）。
+- **EN01 寫入暫時停用**：實作時 Unlock／Lock 指令值還查不到。同日（10/6）共用庫的現行寫入／抹除序列已查到（`outputs/EN01_flash_write_seq_20261006.md`），Bruce 同意這一版先只開讀取、寫入另外派工補上。讀取已對照該規格的 §3.7、§5（結尾補 `0098←00`）；畫面標「待上機確認」。EN01 只讀 IC 版本，不讀保護狀態（要先送 Prereq 指令）。
+- **EM01 AHB 暫存區**：原廠一次寫 0x1000（EMT:987），bridge 一次最多 256 B ⇒ 拆 16 筆、位址遞增；內容相同且每個 sector 都讀回比對。
+- 只是網頁加的安全上限、不是新指令：EM01 `RAPP_SPI_TriggerReady`（原廠無上限輪詢）設 1000 次；E501 RDSR 逾時直接停（原廠會再寫一輪才停）；E501 型號不符就擋（原廠是自動換流程）。
+- 沒做的原廠步驟：PY Check Flash 鈕前的 `7E:AB←CD`（原廠註解「E503 適用」，讀寫流程也沒有）；EM01 每輪的 I2C 連線探測／自動重連（治具連線維護，不是 Flash 指令；I2C 出錯就中止並走收尾）。
+
+### 證據
+- `node tools/i2c_spiflash_selftest.js`：147 項全過（序列 87 項：E501B／E501A／EM01／EN01 的確認、讀、寫、抹除、讀回、重試、中止、出錯收尾逐筆比對，附原廠行號；畫面 60 項：位址鎖定、按鈕開關、確認窗取消／確定、型號不符、I2C 出錯、中止、EN01 寫入停用、三語、切回一般模式）。
+- `tools/i2c_tool_selftest.js`：1408 項中 1 項未過（§64 group 標籤多了 EEPROM），改動前的 HEAD 同樣這 1 項 ⇒ 既有行為沒變。`check_ui_jargon.js`、`check_i18n_descriptor_leak.js` 通過。
+- 截圖（自有 headless Chrome＋假連線工具）：一般模式的讀寫卡與改動前相同；外部 Flash 面板 E501B／EM01／EN01、確認窗、英文。
+- 🔴 **實機未驗**：全部序列只對過原廠原始碼與假裝置，沒有接過真的 TCON／Flash。上機由 Bruce 驗（10/6），建議先只讀、與原廠程式讀出的 bin 比對一致後再寫。速度未實測（E501A 每 8 B 一輪，64 KB 約 2.4 萬筆 I2C）。
+
+---
+
 ## 提交防線：擋「過期 index 誤刪／退版」三層 — 2026-10-05 ｜ 不進版
 
 **不論誰（Claude、Codex、其他 AI、人）在哪台機器提交，過期 .git/index 造成的誤刪與退回舊版都會被擋下或在 GitHub 上標紅。頁面與功能不變。**
