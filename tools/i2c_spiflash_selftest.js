@@ -656,12 +656,14 @@ function en01Header(maps, flags) {
       return fs.existsSync(f) ? '<script>\n' + fs.readFileSync(f, 'utf8') + '\n</script>' : '<script></script>';
     });
     const pageErrors = [];
-    let dev = null, sent = [], failWriteAt = 0;
+    let dev = null, sent = [], failWriteAt = 0, nackSlaves = [], downloads = [];
     const dom = new JSDOM(html, {
       url: 'http://127.0.0.1:8899/i2c.html', runScripts: 'dangerously', pretendToBeVisual: true,
       beforeParse(win) {
         win.addEventListener('error', e => pageErrors.push(String(e.message || e.error)));
         win.URL.createObjectURL = () => 'blob:x'; win.URL.revokeObjectURL = () => {};
+        /* v1.31.0：記下每一次「下載」（a[download].click），驗「讀出不自動存檔、另存新檔才存」 */
+        win.HTMLAnchorElement.prototype.click = function () { if (this.download) downloads.push(this.download); };
         class MockWS {
           constructor() { this.readyState = 0; setTimeout(() => { this.readyState = 1; this.onopen && this.onopen(); }, 0); }
           send(txt) {
@@ -669,6 +671,7 @@ function en01Header(maps, flags) {
             let r = { ok: true };
             if (m.type === 'ping') r = { helper: '1.17.0', proto: 6, ok: true };
             else if (m.type === 'open') r = { ok: true, channels: 1 };
+            else if (m.type === 'read' && nackSlaves.includes(m.slave)) r = { ok: false, err: 'nack', status: 4 };
             else if (m.type === 'read') r = { ok: true, data: dev ? dev.read(m.slave, m.awid, m.addr, m.len) : new Array(m.len).fill(0) };
             else if (m.type === 'rawwrite') {
               if (failWriteAt && sent.filter(x => x.type === 'rawwrite').length === failWriteAt) r = { ok: false, err: 'nack', status: 4 };
@@ -715,7 +718,12 @@ function en01Header(maps, flags) {
     EQ($('sf-slaves').querySelectorAll('input,select').length, 0, '位址卡沒有任何可編輯欄位');
     CHECK(!$('sf-detect').disabled && $('sf-read').disabled && $('sf-write').disabled, '選了型號：只開讀 ID');
 
-    G('畫面：E501B 讀 ID → 讀出 8 KB → 存 .bin');
+    G('畫面：v1.31.0 沒按過 Check T-CON ⇒ 手選');
+    CHECK(!SFU.state().ckModel && /還沒按 Check T-CON/.test($('sf-cknote').textContent) && /EN01 請手動選/.test($('sf-cknote').textContent),
+          '型號來源那一行：還沒按 Check T-CON、EN01 手選：' + $('sf-cknote').textContent);
+    EQ(SFU.state().src, 'manual', '這時的型號是手選');
+
+    G('畫面：E501B 讀 ID → 讀出 8 KB → 進 Dump → 另存新檔 .bin');
     dev = fakeE501(false); const src = pattern(0x40000, 21); dev.mem.set(src);
     let n0 = sent.length;
     await SFU.detect();
@@ -724,13 +732,18 @@ function en01Header(maps, flags) {
     CHECK(!$('sf-read').disabled && $('sf-write').disabled, '讀出開了；沒選檔前寫入仍停用');
     $('sf-rd-start').value = '0x001000'; $('sf-rd-len').value = '0x2000';
     n0 = sent.length;
+    const dl0 = downloads.length;
     await SFU.read();
     const lines = since(n0).map(asLine);
     EQ(lines.slice(3, 7), [W(0x3E, 2, 0xB6, [0x40]), W(0x3E, 2, 0xAD, [0xE5, 0x03, 0, 0x10, 0, 0, 0xF0, 0xFF, 0x04]), Rd(0x64, 1, 0, 4096), W(0x3E, 2, 0xB6, [0])], '經 WS 送出的第一個 4 KB 序列與原廠相同（4096 一次讀完、不分段）');
     EQ(lines[lines.length - 1], W(0x3E, 2, 0xAD, Z9), '最後送結束');
-    const dl = SFU.lastDownload;
-    CHECK(dl && Buffer.from(dl.bytes).equals(Buffer.from(src.slice(0x1000, 0x3000))), '另存的 bin＝Flash 內容');
-    CHECK(dl && /^E501B_Flash_0x001000_0x002000_CKS_[0-9A-F]{6}\.bin$/.test(dl.name), '檔名含位址、長度、CKS：' + (dl && dl.name));
+    EQ(downloads.length, dl0, 'v1.31.0：讀出不自動存檔');
+    const ds = SFU.dumpSet();
+    CHECK(ds && ds.sf && ds.base === 0x1000 && Buffer.from(ds.bytes).equals(Buffer.from(src.slice(0x1000, 0x3000))), 'v1.31.0：讀出的內容進 16×16 Dump（＝Flash 0x1000 起 8 KB）');
+    const dl = SFU.exportBuild('bin');
+    CHECK(dl && Buffer.from(dl.data).equals(Buffer.from(src.slice(0x1000, 0x3000))), 'Dump 另存新檔的 bin＝Flash 內容');
+    CHECK(dl && /^E501B_Flash_0x001000_0x002000_CKS_[0-9A-F]{6}\.bin$/.test(dl.name), '另存檔名保留型號、位址、長度、CKS：' + (dl && dl.name));
+    CHECK(/^\s*\S/.test($('readbanner').textContent) && /Dump/.test($('readbanner').textContent), 'Dump 上方說明內容來自外部 Flash：' + $('readbanner').textContent);
     $('sf-rd-start').value = '0x000800';
     n0 = sent.length; await SFU.read();
     EQ(since(n0).length, 0, '起點沒對齊 4 KB ⇒ 一筆都不送');
@@ -796,7 +809,7 @@ function en01Header(maps, flags) {
     $('sf-rd-all').checked = false; $('sf-rd-all').dispatchEvent(new win.Event('change'));
     $('sf-rd-start').value = '0'; $('sf-rd-len').value = '0x1000';
     await SFU.read();
-    CHECK(/^EM01_Demura_Flash_0x000000_0x001000_/.test(SFU.lastDownload.name), 'Demura 讀出的檔名標 Demura：' + SFU.lastDownload.name);
+    CHECK(/^EM01_Demura_Flash_0x000000_0x001000_/.test(SFU.exportBuild('bin').name), 'Demura 讀出的另存檔名標 Demura：' + SFU.exportBuild('bin').name);
     SFU.setFile('em.bin', [1, 2, 3]); $('sf-wr-start').value = '0x010000';
     p = SFU.write(); await until(() => SFU.state().confirmOpen);
     CHECK(/補 0x00 到 4096/.test($('sf-cf-tbl').textContent) && /Demura/.test($('sf-cf-tbl').textContent), '確認窗寫明補 0x00 與 Demura');
@@ -817,7 +830,7 @@ function en01Header(maps, flags) {
     CHECK(!$('sf-pick').disabled && !$('sf-eraseall').disabled, '讀到 IC 版本後：選檔、整顆抹除開了');
     $('sf-rd-start').value = '0'; $('sf-rd-len').value = '0x2000';
     await SFU.read();
-    CHECK(Buffer.from(SFU.lastDownload.bytes).equals(Buffer.from(dev.mem.slice(0, 0x2000))), 'EN01 讀出內容正確');
+    CHECK(Buffer.from(SFU.dumpSet().bytes).equals(Buffer.from(dev.mem.slice(0, 0x2000))), 'EN01 讀出內容正確（Dump）');
     const enData = en01Header([0x0000, 0x1400, 0x1800]).concat(pattern(0x80, 3));   /* A1 header＋0x80 ⇒ 0x1080 byte */
     SFU.setFile('en.bin', enData); $('sf-wr-start').value = '0x000000';
     CHECK(!$('sf-write').disabled, '選檔後寫入開了');
@@ -835,6 +848,11 @@ function en01Header(maps, flags) {
     EQ(lw.slice(-1), [N3(0x98, 0x00)], '最後一筆 0098←00（AVM:1808）');
     CHECK(Buffer.from(dev.mem.slice(0, enData.length)).equals(Buffer.from(enData)) && dev.sr[0x01] === 0x9C, '假 Flash＝檔案、結束後已鎖（SR1＝9C）');
     CHECK(/Zone1 0x9C/.test(logText()) && /重新上電/.test($('sf-progtxt').textContent), 'log 有 Lock 後保護狀態、提示重新上電');
+    { const t = SFU.logText();
+      CHECK(/Unlock（解除 Flash 保護）/.test(t) && /抹除 4 KB @0x000000/.test(t) && /寫入 0x000000–0x000FFF/.test(t) && /寫入 0x001000–0x00107F/.test(t)
+            && /Check Write Value/.test(t) && /0x001000 寫入並比對 OK/.test(t) && /Lock（鎖回 Flash 保護）/.test(t) && /Zone1 0x9C/.test(t)
+            && /完成：EN01 0x000000–0x00107F · 0x001080（4\.125 KB） · CKS 0x[0-9A-F]{6}/.test(t),
+            'v1.31.0 Flash 紀錄窗：解鎖 → 抹除 → 寫入範圍 → 比對 OK → 鎖回＋Zone1 → 完成摘要（byte、CKS）'); }
     G('畫面：EN01 整顆抹除 → 確認窗 → 取消／確定');
     dev.sr[0x01] = 0x00;                     /* 原廠 Erase All 不 Unlock；假裝置先解除保護才看得到抹除效果 */
     n0 = sent.length;
@@ -850,10 +868,168 @@ function en01Header(maps, flags) {
     CHECK(/確認寫入/.test($('sf-cf-title').textContent) && /確定寫入/.test($('sf-cf-yes').textContent), '之後再按寫入，確認窗換回寫入的字');
     SFU.answer(false); await p;
 
+    /* ════════ v1.31.0（Bruce 2026-10-06 上機回饋）════════ */
+    const ck = () => $('sf-cknote');
+    const slv = () => Array.from($('sf-slaves').querySelectorAll('b')).map(b => b.textContent);
+    G('畫面：v1.31.0 型號跟 Check T-CON —— 有結果');
+    SFU.setModel('EN01');                                   /* 先手選別的，看 Check T-CON 會不會蓋過去 */
+    dev = fakeE501(false);                                  /* 7C:98＝01、7C:95＝41 ⇒ E501B2 */
+    await A.checkTcon();
+    EQ(A.ckResult() && A.ckResult().name, 'E501B2', 'Check T-CON 認出 E501B2');
+    EQ($('sf-model').value, 'E501B', '型號自動帶入 E501B（蓋掉原本手選的 EN01）');
+    EQ(SFU.state().src, 'ck', '型號來源記成 Check T-CON');
+    EQ(slv(), ['0x3E', '0x7C', '0x64', '0x7D'], 'slave 位址一起帶入');
+    EQ($('sf-slaves').querySelectorAll('input,select').length, 0, '位址仍鎖定、沒有可編輯欄位');
+    CHECK(/依 Check T-CON 結果（E501B2）帶入/.test(ck().textContent) && /\bok\b/.test(ck().className), '畫面註明「依 Check T-CON 結果」（綠）：' + ck().textContent);
+    CHECK(!vis($('sf-auto')), '有 Check T-CON 結果 ⇒ 不顯示「自動判斷」');
+    CHECK(/Check T-CON 結果 E501B2 ⇒ 型號帶入 E501B/.test(SFU.logText()), 'Flash 紀錄寫明型號來源');
+    CHECK(SFU.state().det === null && !$('sf-detect').disabled, '帶入後要重新讀 ID（讀 ID 鈕可按）');
+
+    G('畫面：v1.31.0 型號跟 Check T-CON —— 手選和結果衝突');
+    SFU.setModel('E501A');
+    CHECK(/選的是 E501A，但 Check T-CON 結果是 E501B2（E501B）/.test(ck().textContent) && /\bbad\b/.test(ck().className), '手選與結果不同 ⇒ 紅字警告：' + ck().textContent);
+    { const reds = Array.from($('sf-log').querySelectorAll('span.e')).map(s => s.textContent);
+      CHECK(reds.some(t => /選的是 E501A/.test(t)), 'Flash 紀錄也有紅字警告'); }
+    EQ(SFU.state().src, 'manual', '型號來源記成手選');
+    SFU.setModel('E501B');
+    CHECK(/\bok\b/.test(ck().className), '選回 E501B ⇒ 警告消失');
+
+    G('畫面：v1.31.0 型號跟 Check T-CON —— 換板子再按');
+    dev = fakeE501(true);                                   /* 7C:95＝00 ⇒ E501A */
+    await A.checkTcon();
+    EQ($('sf-model').value, 'E501A', '換成 E501A 的板子再按 ⇒ 型號跟著換');
+    EQ(slv(), ['0x3E', '0x7C', '0x64'], '位址卡跟著換成 E501A 的三個');
+    await SFU.detect();
+    CHECK(!$('sf-read').disabled, 'E501A 讀 ID 後可讀出');
+
+    G('畫面：v1.31.0 型號跟 Check T-CON —— 沒有可用的結果');
+    dev = { read: (s, aw, a, n) => new Array(n).fill(0), write() {} };   /* 7C:98＝00、7D:007D＝00 ⇒ E503A1 T1 */
+    await A.checkTcon();
+    EQ(A.ckResult() && A.ckResult().name, 'E503A1 T1', 'Check T-CON 結果是 E503A1 T1');
+    EQ($('sf-model').value, '', '原本依結果帶入的型號清空（不留上一塊板子的型號）');
+    CHECK(/E503A1 T1 不是外部 Flash 支援的型號/.test(ck().textContent), '註明結果不支援、請手選：' + ck().textContent);
+    CHECK(vis($('sf-auto')) && $('sf-detect').disabled, '回到手選：自動判斷出現、讀 ID 停用');
+    SFU.setModel('EN01'); await A.checkTcon();
+    EQ($('sf-model').value, 'EN01', '手選的型號不會被不支援的結果清掉（EN01 Check T-CON 認不出，只能手選）');
+    dev = fakeEM01(); dev.reg[0xFF00] = 0x01; dev.reg[0xFF01] = 0xEF; dev.reg[0xFF02] = 0xA1;   /* ICID 01 EF A1 ＋ A 段 E503 ⇒ 兩段衝突 */
+    await A.checkTcon();
+    CHECK(A.ckResult() && A.ckResult().conflict && $('sf-model').value === 'EN01', '兩段結果衝突（E503／EM01A1）⇒ 不帶，維持手選');
+    nackSlaves = [0x7C, 0x7D];                              /* A 段讀不到 ⇒ 只剩 ICID */
+    await A.checkTcon(); nackSlaves = [];
+    EQ([A.ckResult() && A.ckResult().name, $('sf-model').value], ['EM01A1', 'EM01'], 'ICID 01 EF A1 ⇒ EM01A1 ⇒ 型號帶入 EM01');
+    EQ(slv(), ['0x68', '0x58'], 'EM01 位址帶入 0x68／0x58');
+    await A.ckPick('VM01S1');
+    EQ($('sf-model').value, '', 'Check T-CON 下拉改選 VM01S1（撞號的另一顆）⇒ 不再帶 EM01');
+    nackSlaves = [0x7C, 0x7D]; await A.checkTcon(); nackSlaves = [];
+    await A.disconnect(); await sleep(10);
+    EQ([A.ckResult(), $('sf-model').value], [null, ''], '斷線 ⇒ Check T-CON 結果與帶入的型號一起清掉');
+    await A.connect(); for (let i = 0; i < 200 && A.state().busy; i++) await sleep(10); await sleep(30);
+
+    G('畫面：v1.31.0 讀出 128 KB → Dump 分頁 → 另存新檔（hex／bin）→ 再讀一次比對');
+    dev = fakeE501(false); const big = pattern(0x40000, 77); dev.mem.set(big);
+    await A.checkTcon(); await SFU.detect();
+    $('sf-rd-start').value = '0x000000'; $('sf-rd-len').value = '0x20000';
+    const dlb = downloads.length;
+    await SFU.read();
+    EQ(downloads.length, dlb, '讀出不自動存檔');
+    { const d = SFU.dumpSet();
+      CHECK(d && d.sf && d.base === 0 && d.bytes.length === 0x20000 && Buffer.from(d.bytes).equals(Buffer.from(big.slice(0, 0x20000))), 'Dump＝Flash 0x000000 起 128 KB'); }
+    CHECK(/第 1 \/ 512 頁/.test($('pageinfo').textContent), 'Dump 分頁：128 KB ＝ 512 頁、只畫目前這頁：' + $('pageinfo').textContent);
+    CHECK(doc.querySelectorAll('#dump td').length < 600, '畫面上只畫一頁的格子（' + doc.querySelectorAll('#dump td').length + ' 個 td）');
+    A.jumpTo('0x1FF00');
+    CHECK(/第 512 \/ 512 頁/.test($('pageinfo').textContent), '跳到最後一頁（位址 0x1FF00）：' + $('pageinfo').textContent);
+    $('sav-fmt').value = 'hex'; $('btn-save').click();
+    CHECK(downloads.length === dlb + 1 && /^E501B_Flash_0x000000_0x020000_CKS_[0-9A-F]{6}\.hex$/.test(downloads[downloads.length - 1]), '按 Dump 的「另存新檔」才存，hex 檔名保留型號／範圍／CKS：' + downloads[downloads.length - 1]);
+    { const hx = SFU.exportBuild('hex').data;
+      CHECK(hx.startsWith(':10000000') && hx.includes(':020000040001'), 'hex 從 0 起、跨 64 KB 插 type 04'); }
+    { const b2 = SFU.exportBuild('bin'); const cks = H(big.slice(0, 0x20000).reduce((s, v) => s + v, 0) & 0xFFFFFF, 6);
+      CHECK(b2.name === 'E501B_Flash_0x000000_0x020000_CKS_' + cks + '.bin', 'bin 檔名 CKS＝內容總和低 24 位（手算 ' + cks + '）：' + b2.name); }
+    await SFU.read();
+    CHECK(A.srcA() && /外部 Flash E501B · 0x000000 起/.test(A.srcA()) && A.diffCount() === 0 && /外部 Flash E501B/.test(A.srcB() || ''), '同範圍再讀一次 ⇒ 進 B 跟 A 比對（0 處不同）：A=' + A.srcA() + ' B=' + A.srcB());
+    SFU.setMode(false);
+    $('btn-write').disabled = false; n0 = sent.length; $('btn-write').click(); await sleep(20);
+    EQ(since(n0).filter(m => m.type === 'rawwrite').length, 0, 'Flash 內容在 Dump 時，一般 I2C 寫入不會送出');
+    CHECK(/外部 Flash/.test($('readbanner').textContent), '畫面說明為什麼不能寫：' + $('readbanner').textContent);
+    SFU.setMode(true);
+
+    G('畫面：v1.31.0 Flash 紀錄窗（階段、百分比、紅字、完成摘要、清除、複製）');
+    CHECK(vis($('sf-log')) && vis($('sf-log-copy')) && vis($('sf-log-clear')), '外部 Flash 面板有紀錄窗、複製全部、清除');
+    $('sf-log-clear').click();
+    EQ(SFU.logText(), '', '清除 ⇒ 紀錄窗清空');
+    dev = fakeE501(false, { flipOnce: 1 }); await SFU.detect();
+    SFU.setFile('fw2.bin', pattern(0x2000, 51)); $('sf-wr-start').value = '0x004000';
+    p = SFU.write(); await until(() => SFU.state().confirmOpen); SFU.answer(true); await p;
+    { const t = SFU.logText();
+      CHECK(/讀 Flash ID/.test(t) && /抹除 4 KB @0x004000/.test(t) && /寫入 0x004000–0x004FFF/.test(t) && /讀回不符/.test(t) && /0x004000 重試第 1 次/.test(t)
+            && /0x004000 寫入並比對 OK/.test(t) && /0x005000 寫入並比對 OK/.test(t), '階段：讀 ID → 抹除 → 寫入範圍 → 讀回不符 → 重試 → 比對 OK');
+      CHECK(/完成：E501B 0x004000–0x005FFF · 0x002000（8 KB） · CKS 0x[0-9A-F]{6} · /.test(t), '完成摘要：範圍、byte 數、CKS、耗時');
+      const reds = Array.from($('sf-log').querySelectorAll('span.e')).map(s => s.textContent);
+      CHECK(reds.some(x => /讀回不符/.test(x)), '比對不符是紅字'); }
+    CHECK($('sf-prog').firstElementChild.style.width === '100%' && /重新上電/.test($('sf-progtxt').textContent), '進度條到 100%、狀態列換成完成提示：' + $('sf-progtxt').textContent);
+    dev = fakeE501(false); await SFU.detect();
+    failWriteAt = sent.filter(x => x.type === 'rawwrite').length + 40;
+    p = SFU.write(); await until(() => SFU.state().confirmOpen); SFU.answer(true); await p; failWriteAt = 0;
+    { const reds = Array.from($('sf-log').querySelectorAll('span.e')).map(s => s.textContent);
+      CHECK(reds.some(x => /✕ I2C W 失敗/.test(x)) && reds.some(x => /寫入未完成：已完成 0x[0-9A-F]{6}（[\d,.]+ (KB|byte)）/.test(x)), 'I2C 錯誤與未完成摘要是紅字：' + reds.slice(-2).join(' | ')); }
+    $('sf-rd-start').value = '0'; $('sf-rd-len').value = '0x4000';
+    await SFU.read();
+    CHECK(/已讀 0x001000（4 KB） · 25%/.test(SFU.logText()) && /已讀 0x004000（16 KB） · 100%/.test(SFU.logText()) && /完成：讀出 0x004000（16 KB） · CKS 0x/.test(SFU.logText()), '讀出：每 10% 記一行百分比、完成摘要');
+    SFU.copyLog();
+    CHECK(SFU.lastCopy === SFU.logText() && SFU.lastCopy.split('\n').length > 10, '複製全部＝紀錄窗全部內容（' + SFU.lastCopy.split('\n').length + ' 行）');
+    CHECK(/\[Flash\] 完成：讀出 0x004000（16 KB）/.test(logText()), '同一行也寫進頁面下方的操作紀錄');
+
+    G('畫面：v1.31.0 EM01 主 slave 0x68～0x6F，記憶體暫存區跟著＝主 − 0x10');
+    const emChange = v => { $('sf-emslv').value = v; $('sf-emslv').dispatchEvent(new win.Event('change')); };
+    SFU.setModel('EM01');
+    CHECK(vis($('sf-emslv')) && $('sf-emslv').value === '68', 'EM01 出現主 slave 選單，預設 0x68');
+    EQ(Array.from($('sf-emslv').options).map(o => o.value), ['68', '69', '6A', '6B', '6C', '6D', '6E', '6F'], '選項只有 0x68～0x6F');
+    EQ(slv(), ['0x68', '0x58'], '預設 0x68／0x58');
+    CHECK(/0x68～0x6F/.test($('sf-locknote').textContent) && /主 slave − 0x10/.test($('sf-locknote').textContent), 'EM01 的鎖定說明換成可選主 slave：' + $('sf-locknote').textContent);
+    emChange('69');
+    EQ(slv(), ['0x69', '0x59'], '改 0x69 ⇒ 記憶體暫存區自動 0x59');
+    CHECK(/記憶體暫存區 0x59/.test($('sf-emslv-hint').textContent) && /8-bit D2\/D3/.test($('sf-slaves').textContent), '提示與 8-bit 說明跟著換：' + $('sf-emslv-hint').textContent);
+    EQ($('sf-slaves').querySelectorAll('input,select').length, 0, '記憶體暫存區不能單獨改（位址卡仍沒有可編輯欄位）');
+    /* 假 EM01 掛在 0x69／0x59：只認這兩個位址，其他位址回 0（＝沒有裝置） */
+    const em69 = fakeEM01(); em69.mem.set(pattern(0x2000, 17));
+    const at = s => (s === 0x69 ? 0x68 : (s === 0x59 ? 0x58 : -1));
+    dev = { mem: em69.mem, write(s, aw, a, b) { if (at(s) >= 0) em69.write(at(s), aw, a, b); },
+            read(s, aw, a, n) { return at(s) >= 0 ? em69.read(at(s), aw, a, n) : new Array(n).fill(0); } };
+    $('sf-pad').value = '1'; $('sf-pad').dispatchEvent(new win.Event('change'));
+    await SFU.detect();
+    $('sf-rd-start').value = '0'; $('sf-rd-len').value = '0x1000';
+    n0 = sent.length; await SFU.read();
+    { const ms = since(n0); const ss = Array.from(new Set(ms.map(m => m.slave))).sort((a, b) => a - b);
+      EQ(ss, [0x59, 0x69], '讀出經 WS 只送到 0x69／0x59（不再送 0x68／0x58）');
+      CHECK(ms.every(m => (m.slave === 0x69 && m.awid === 2) || (m.slave === 0x59 && m.awid === 4)), 'offset 寬度不變：0x69 用 2 B、0x59 用 4 B'); }
+    CHECK(Buffer.from(SFU.dumpSet().bytes).equals(Buffer.from(dev.mem.slice(0, 0x1000))), '掛在 0x69／0x59 的假 EM01 讀出內容正確');
+    emChange('6F');
+    EQ(slv(), ['0x6F', '0x5F'], '0x6F ⇒ 0x5F');
+    CHECK(SFU.state().det === null, '換位址後 Flash ID 要重讀');
+    nackSlaves = [0x7C, 0x7D]; dev = fakeEM01(); dev.reg[0xFF00] = 0x01; dev.reg[0xFF01] = 0xEF; dev.reg[0xFF02] = 0xA1;
+    await A.checkTcon(); nackSlaves = [];
+    EQ([$('sf-model').value, $('sf-emslv').value], ['EM01', '68'], 'Check T-CON 帶入 EM01 ⇒ 位址回預設 0x68／0x58');
+    SFU.setModel('E501B');
+    CHECK(!vis($('sf-emslv')) && /不能手改/.test($('sf-locknote').textContent), 'E501B 沒有位址選單、維持鎖定');
+    SFU.setModel('EN01');
+    CHECK(!vis($('sf-emslv')), 'EN01 沒有位址選單、維持鎖定');
+
+    G('畫面：v1.31.0 起點／長度旁的十進位換算（≥1 KB 用 KB、不到 1 KB 用 byte）');
+    const decOf = (id, v) => { $(id).value = v; $(id).dispatchEvent(new win.Event('input')); return $(id + '-dec').textContent; };
+    EQ(decOf('sf-rd-len', '0x400000'), '（4,096 KB）', '0x400000 ⇒ 4,096 KB');
+    EQ(decOf('sf-rd-len', '0x1080'), '（4.125 KB）', '0x1080 ⇒ 4.125 KB（不是整數顯示小數）');
+    EQ(decOf('sf-rd-len', '0x200'), '（512 byte）', '0x200 ⇒ 512 byte');
+    EQ(decOf('sf-rd-start', '0x000000'), '（0 byte）', '起點 0 ⇒ 0 byte');
+    EQ(decOf('sf-rd-start', '0x010000'), '（64 KB）', '起點 0x010000 ⇒ 64 KB');
+    EQ(decOf('sf-wr-start', '0x1F000'), '（124 KB）', '寫入起點 0x1F000 ⇒ 124 KB');
+    EQ(decOf('sf-rd-len', '0x100001'), '（1,024.001 KB）', '0x100001 ⇒ 1,024.001 KB（手算 1048577/1024）');
+
     G('畫面：三語');
+    SFU.setModel('EN01');                                   /* v1.31.0 的組會換型號；EN01 說明那兩項要在 EN01 下驗 */
     win.applyLang('en'); await sleep(10);
     CHECK(/Control/.test($('sf-slaves').children[0].textContent), '切英文 ⇒ 位址卡換成英文');
     CHECK(/hardware check/.test($('sf-modelnote').textContent), 'EN01 說明換成英文');
+    CHECK(/EN01 is selected but Check T-CON found /.test($('sf-cknote').textContent) && /^Read$/.test($('sf-read').textContent) && /Copy all/.test($('sf-log-copy').textContent),
+          'v1.31.0 型號來源、讀出鈕、紀錄窗按鈕換成英文：' + $('sf-cknote').textContent);
     win.applyLang('zh-CN'); await sleep(10);
     CHECK(/控制/.test($('sf-slaves').children[0].textContent) && /待上机确认/.test($('sf-modelnote').textContent), '切簡體');
     win.applyLang('zh-TW'); await sleep(10);

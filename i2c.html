@@ -30,7 +30,7 @@
           出來」。那個前提**早就不成立**：bridge 的靜態檔服務拒絕子資料夾、而且自 v1.7.0
           起預設關閉 —— 詳細依據與行號寫在 body 末端那兩個 <script> 的上面。）
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="common/version.js?v=20261006i2c1300"></script>
+<script src="common/version.js?v=20261006i2c1310"></script>
 <style>
   * { box-sizing: border-box; }
   :root{
@@ -227,6 +227,12 @@
   #sf-panel .sfgrid2{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
   #sf-prog{height:8px;background:#0f172a;border-radius:5px;overflow:hidden;margin:6px 0 2px;}
   #sf-prog > i{display:block;height:100%;width:0;background:var(--accent);}
+  /* v1.31.0：Flash 紀錄窗，樣式沿用頁面下方 #log（同一組顏色類別 t／w／e／o／n），異常再加粗。 */
+  #sf-log{background:#080f1c;border:1px solid var(--border);border-radius:8px;padding:6px 10px;height:170px;overflow:auto;margin-top:6px;
+    font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11.5px;line-height:1.55;white-space:pre-wrap;word-break:break-all;}
+  #sf-log .t{color:#475569;}
+  #sf-log .w{color:#fdba74;} #sf-log .e{color:#f87171;font-weight:700;} #sf-log .o{color:#86efac;} #sf-log .n{color:#94a3b8;}
+  #sf-panel #sf-cknote.ok{color:#86efac;} #sf-panel #sf-cknote.bad{color:#f87171;font-weight:700;}
   #sf-cf-tbl{border-collapse:collapse;width:100%;font-size:15px;margin-bottom:10px;}
   #sf-cf-tbl th,#sf-cf-tbl td{border:1px solid #334155;padding:4px 8px;text-align:left;vertical-align:top;}
   #sf-cf-tbl th{color:var(--sub);white-space:nowrap;font-weight:600;}
@@ -1088,9 +1094,19 @@
             </select>
             <span class="hint">&nbsp;</span>
           </label>
+          <!-- v1.31.0（Bruce 2026-10-06）：EM01 主 slave 可選 0x68～0x6F，記憶體暫存區跟著＝主 slave − 0x10（0x58～0x5F），不能單獨改。
+               原廠 EM01 UI 兩格是各自獨立的 TEdit（SDIMAIN.dfm:719–743，預設 68／58；只有主 slave 有 00–FF 檢查，SDIMAIN.cpp:13568–13583），
+               沒有連動；連動是 Bruce 指定的作法。 -->
+          <label class="f" style="width:200px;display:none" id="sf-emslv-wrap">
+            <span data-i18n="i2c.sfLblEmSlave">主 slave（7-bit）</span>
+            <select id="sf-emslv" class="mono"></select>
+            <span class="hint" id="sf-emslv-hint">&nbsp;</span>
+          </label>
           <div class="f"><span>&nbsp;</span><div class="fctl"><button id="sf-auto" data-i18n="i2c.sfBtnAuto" data-i18n-title="i2c.sfTipAuto" title="讀 0x7C:0x95／0x98 判斷 E501A／E501B">自動判斷</button></div><span class="hint">&nbsp;</span></div>
-          <span class="sfnote" data-i18n="i2c.sfLockNote">🔒 位址依型號自動帶入（7-bit），不能手改</span>
+          <span class="sfnote" id="sf-locknote" data-i18n="i2c.sfLockNote">🔒 位址依型號自動帶入（7-bit），不能手改</span>
         </div>
+        <!-- v1.31.0（Bruce 2026-10-06）：型號跟著 Check T-CON 帶入；沒按過或認不出來才手選。這一行說明型號從哪裡來、與結果不符時警告。 -->
+        <div id="sf-cknote" class="sfnote" style="margin-top:6px"></div>
         <div class="sfslv" id="sf-slaves"></div>
         <div id="sf-modelnote" class="sfwarn" style="margin-top:6px"></div>
       </div>
@@ -1105,12 +1121,13 @@
         <div class="sfsec">
           <div class="sfh" data-i18n="i2c.sfHdRead">③ 讀出</div>
           <div class="row" style="align-items:flex-end;gap:8px 12px">
-            <label class="f" style="width:120px;"><span data-i18n="i2c.sfLblStart">起始位址</span><input type="text" id="sf-rd-start" class="mono" value="0x000000" spellcheck="false"><span class="hint">&nbsp;</span></label>
-            <label class="f" style="width:120px;"><span data-i18n="i2c.sfLblLen">長度（byte）</span><input type="text" id="sf-rd-len" class="mono" value="0x010000" spellcheck="false"><span class="hint">&nbsp;</span></label>
+            <label class="f" style="width:120px;"><span data-i18n="i2c.sfLblStart">起始位址</span><input type="text" id="sf-rd-start" class="mono" value="0x000000" spellcheck="false"><span class="hint mono" id="sf-rd-start-dec">&nbsp;</span></label>
+            <label class="f" style="width:120px;"><span data-i18n="i2c.sfLblLen">長度（byte）</span><input type="text" id="sf-rd-len" class="mono" value="0x010000" spellcheck="false"><span class="hint mono" id="sf-rd-len-dec">&nbsp;</span></label>
             <label class="sfnote" style="padding-bottom:18px"><input type="checkbox" id="sf-rd-all"> <span data-i18n="i2c.sfRdAll">整顆讀出</span></label>
           </div>
-          <div class="row"><button class="pri" id="sf-read" disabled data-i18n="i2c.sfBtnRead">讀出並另存 .bin</button></div>
-          <div class="sfnote" data-i18n="i2c.sfUnitNote">位址與長度以 4 KB（0x1000）為單位。</div>
+          <!-- v1.31.0：讀出與另存分開 —— 讀出的內容放進下方 16×16 Dump，存檔用 Dump 的「另存新檔」 -->
+          <div class="row"><button class="pri" id="sf-read" disabled data-i18n="i2c.sfBtnRead">讀出</button></div>
+          <div class="sfnote" data-i18n="i2c.sfUnitNote">位址與長度以 4 KB（0x1000）為單位。讀出的內容顯示在下方 16×16 Dump，存檔請用 Dump 的「另存新檔」。</div>
         </div>
         <div class="sfsec">
           <div class="sfh" data-i18n="i2c.sfHdWrite">④ 寫入</div>
@@ -1119,7 +1136,7 @@
               <input type="file" id="sf-file" accept=".bin,.hex,.ihx,.ihex,.rom" style="display:none">
               <button id="sf-pick" data-i18n="i2c.sfBtnPick">選檔</button>
               <span id="sf-fname" class="sfnote mono"></span></div><span class="hint">&nbsp;</span></div>
-            <label class="f" style="width:120px;"><span data-i18n="i2c.sfLblWrStart">寫到 Flash 位址</span><input type="text" id="sf-wr-start" class="mono" value="0x000000" spellcheck="false"><span class="hint">&nbsp;</span></label>
+            <label class="f" style="width:120px;"><span data-i18n="i2c.sfLblWrStart">寫到 Flash 位址</span><input type="text" id="sf-wr-start" class="mono" value="0x000000" spellcheck="false"><span class="hint mono" id="sf-wr-start-dec">&nbsp;</span></label>
           </div>
           <div class="row"><button class="wr" id="sf-write" disabled data-i18n="i2c.sfBtnWrite">寫入…</button>
             <!-- v1.30.0：EN01 的 Erase All（原廠 Debug 頁同名鈕，DM:96–116）；只有型號有 eraseAll 才出現 -->
@@ -1127,9 +1144,19 @@
           <div class="sfnote" id="sf-wrnote"></div>
         </div>
       </div>
-      <div class="sfsec" id="sf-runbox" style="display:none">
-        <div class="row" style="justify-content:space-between;align-items:center"><b id="sf-progtxt" class="mono"></b><button id="sf-abort" data-i18n="i2c.sfBtnAbort">中止（做完目前 4 KB 再停）</button></div>
+      <!-- v1.31.0（Bruce 2026-10-06「沒有像 EM01 那樣子，還有一個 log 視窗」）：Flash 專用紀錄窗。
+           上排＝目前狀態與百分比、下排＝逐步紀錄（異常紅字）；同一行也寫進頁面最下方的「操作紀錄」。 -->
+      <div class="sfsec" id="sf-runbox">
+        <div class="row" style="align-items:center;gap:8px">
+          <span class="sfh" style="margin:0" data-i18n="i2c.sfHdLog">⑤ 紀錄</span>
+          <b id="sf-progtxt" class="mono" style="flex:1;min-width:0"></b>
+          <button id="sf-abort" data-i18n="i2c.sfBtnAbort">中止（做完目前 4 KB 再停）</button>
+          <button id="sf-log-copy" data-i18n="i2c.sfBtnLogCopy">複製全部</button>
+          <button id="sf-log-clear" data-i18n="i2c.btnClearList">清除</button>
+        </div>
         <div id="sf-prog"><i></i></div>
+        <div id="sf-stage" class="sfnote mono"></div>
+        <div id="sf-log"></div>
       </div>
     </div>
   </div>
@@ -1529,9 +1556,9 @@
      🔴 **CSS 沒有跟著載**（見 style 區塊頂端的說明）：common.css 有 `.card`／`.row`／
         無範圍的 `label{}` 等等，與本頁同名而語意完全不同，載進來會整頁走樣。
         頁首那四條宣告是逐字抄過來的，來源行號寫在各自上面。 -->
-<script src="common/i18n.js?v=20261006i2c1300"></script>
-<script src="common/common.js?v=20261006i2c1300"></script>
-<script src="common/i2c-spiflash.js?v=20261006i2c1300"></script>
+<script src="common/i18n.js?v=20261006i2c1310"></script>
+<script src="common/common.js?v=20261006i2c1310"></script>
+<script src="common/i2c-spiflash.js?v=20261006i2c1310"></script>
 
 <script>
 'use strict';
@@ -1829,6 +1856,9 @@ function i2ctComparable(ref, cur){
   if (!ref || !cur) return false;
   if (ref.bytes.length !== cur.bytes.length) return false;
   if (ref.kind === 'file' || cur.kind === 'file') return true;      /* 只看長度 */
+  /* v1.31.0：外部 Flash 讀出（sf）只跟另一次外部 Flash 讀出比（同型號、同起點、同長度）；不跟一般 I2C 讀取比。 */
+  if (!!ref.sf !== !!cur.sf) return false;
+  if (ref.sf) return ref.sf.m === cur.sf.m && ref.base === cur.base;
   return ref.slave === cur.slave && ref.base === cur.base && ref.awid === cur.awid;
 }
 /* 逐 byte 比對。回傳差異索引（相對於 base）的 Int32Array —— 26 萬筆也只是 1MB。 */
@@ -1843,6 +1873,7 @@ function i2ctDiffSets(ref, cur){
 function i2ctSetLabel(d){
   if (!d) return i2ctT('i2c.setNone');
   if (d.kind === 'file') return i2ctT('i2c.setFile', { name: d.name, n: d.bytes.length });
+  if (d.sf) return i2ctT('i2c.setSf', { m: d.sf.label, a: i2ctHex(d.base, 6), n: d.bytes.length });   /* v1.31.0 */
   return i2ctT('i2c.setDev', { slave: i2ctHex(d.slave), n: d.bytes.length,
     off: (d.awid === 0 ? i2ctT('i2c.noAddr') : 'offset ' + i2ctAddrText(d.base, d.awid)) });
 }
@@ -2078,7 +2109,7 @@ function i2ctReadOnlyNow(){
 function i2ctSnapshotOf(d){
   if (!d) return null;
   return { kind: d.kind, slave: d.slave, awid: d.awid, base: d.base, name: d.name,
-           allFF: d.allFF, bytes: new Uint8Array(d.bytes) };   /* ⇦ 複本 */
+           allFF: d.allFF, sf: d.sf, bytes: new Uint8Array(d.bytes) };   /* ⇦ 複本（sf：v1.31.0 外部 Flash 讀出的型號資訊，唯讀） */
 }
 /* ═══ 🔴🔴 A／B 模型（v1.16.1 定案版，Bruce 2026-09-19）═════════════════════
    | 事件 | A | B | 來源 |
@@ -2608,6 +2639,9 @@ function i2ctExportName(set, ext){
   var ts = d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate())
          + '-' + pad(d.getHours()) + pad(d.getMinutes()) + pad(d.getSeconds());
   if (set.kind === 'file') return 'i2c_' + set.bytes.length + 'B_' + ts + '.' + ext;
+  /* v1.31.0：外部 Flash 讀出 ⇒ 沿用 v1.30.0 的檔名（型號、[Demura]、起點、長度、CKS）。
+     CKS 存檔當下重算：Dump 上改過值的話，檔名跟著內容走。 */
+  if (set.sf) return set.sf.prefix + '_CKS_' + i2ctHex((i2ctChecksum(set.bytes) || 0) & 0xFFFFFF, 6) + '.' + ext;
   return 'i2c_S' + i2ctHex(set.slave) + '_off' + i2ctHex(set.base, set.awid === 4 ? 8 : 4)
        + '_' + set.bytes.length + 'B_' + ts + '.' + ext;
 }
@@ -3237,7 +3271,7 @@ function i2ctSetLink(on, txt, cls){
   $('hv-proto').textContent = i2ctHelperProto || '—';
   /* 🔴 v1.25.0：斷線就把認出來的型號清掉。它是**這一條連線上那顆 IC** 的屬性
      —— 治具拔掉／換一塊板子之後還掛著上一顆的型號，比不顯示更糟。 */
-  if (!on && i2ctCkResult) { i2ctCkResult = null; i2ctCkRender(); }
+  if (!on && i2ctCkResult) { i2ctCkResult = null; i2ctCkRender(); i2ctSfOnCk(); }   /* v1.31.0：Flash 型號同理 */
   i2ctSyncButtons();
 }
 async function i2ctConnect(takeover){
@@ -4647,6 +4681,9 @@ function i2ctEepromAsk(needBytes, slave){
 }
 
 async function i2ctOnWrite(){
+  /* v1.31.0：Dump 顯示的是外部 Flash 讀出的內容 ⇒ 不能拿一般 I2C 寫入（會寫到上面填的 slave／offset，不是 Flash）。 */
+  var cs0 = i2ctCurSet();
+  if (cs0 && cs0.sf) { i2ctBanner('readbanner', 'err', i2ctT('i2c.errSfNoGenWrite')); i2ctLog('✕ ' + i2ctT('i2c.errSfNoGenWrite'), 'e'); return; }
   var v = i2ctReadInputs();
   if (v.errs.length) { i2ctBanner('readbanner', 'err', v.errs.join(i2ctListSep())); return; }
   /* 🔴 有選取 ⇒ **只寫選取的那些格子**（Bruce 2026-09-19 的連續選取，
@@ -5832,6 +5869,7 @@ async function i2ctCheckTconRun(){
     i2ctBusy = false; i2ctSyncButtons();
     i2ctBanner('topbanner', 'err', i2ctT('i2c.bnCkFail', { why: fatal }));
     i2ctLog(i2ctT('i2c.logCkFail', { why: fatal }), 'e');
+    i2ctSfOnCk();                 /* v1.31.0：沒有結果 ⇒ 外部 Flash 型號回到手選 */
     return null;
   }
 
@@ -5841,7 +5879,7 @@ async function i2ctCheckTconRun(){
   var r;
   if (rom && icid && rom.name !== icid.name) {
     i2ctCkLog('conflict : rom=' + rom.name + ' icid=' + icid.name);
-    r = { name: icid.name, ext: icid.ext, isE503: false,
+    r = { name: icid.name, ext: icid.ext, isE503: false, conflict: true,
           alts: [icid.name, rom.name].concat(rom.alts || []).concat(icid.alts || [])
                   .filter(function (v, i, a) { return a.indexOf(v) === i; }) };
   } else if (rom) {
@@ -5855,6 +5893,7 @@ async function i2ctCheckTconRun(){
   i2ctCkResult = r;
   i2ctCkRender();
   i2ctLog(i2ctT('i2c.logCkDone', { name: r.name }), 'o');
+  i2ctSfOnCk();                   /* v1.31.0：外部 Flash 型號跟著這次結果 */
 
   /* E503 特殊處理 —— 只有**確定是 E503** 才下（有寫入副作用，歧義未定時不做）。 */
   if (r.isE503) {
@@ -5886,6 +5925,7 @@ async function i2ctCkPick(){
   var el = $('tcon-name');
   if (el) { el.textContent = v; el.style.color = 'var(--ok)'; }
   i2ctLog(i2ctT('i2c.logCkPick', { name: v }), 'n');
+  i2ctSfOnCk();                   /* v1.31.0：在 Check T-CON 下拉選定 ⇒ 外部 Flash 型號跟著 */
   if (i2ctCkResult.isE503 && !wasE503 && i2ctLinked && !i2ctBusy) {
     i2ctBusy = true; i2ctSyncButtons();
     i2ctCkLog(i2ctT('i2c.logCkMbus'));
@@ -8389,16 +8429,62 @@ function i2ctCdCopy(){
       （分段會變成兩筆 I2C 交易，第二筆的位址相位是新的，資料埠會從頭再吐）。 */
 var i2ctSfMode = false, i2ctSfDet = null, i2ctSfFile = null, i2ctSfAbort = false, i2ctSfRunning = false;
 function i2ctSfProfile(){ var k = $('sf-model') ? $('sf-model').value : ''; return k ? I2CSF.PROFILES[k] : null; }
+/* ═══ v1.31.0：EM01 主 slave 可選（Bruce 2026-10-06「預設是 6858，然後可以讓使用者經由下拉式選單，再去改成自己要的
+   （可能是 68 到 6F），那當然連動的話就是 58 到 5F」）。
+   原廠 EM01 UI（VCL_TV_TCON_EM01_Tool @cb1c147）：Edit_Slave_Addr／Edit_MEM_Slave_Addr 是兩格各自獨立的 TEdit
+   （SDIMAIN.dfm:719–743，預設 68／58），主 slave 只有 OnExit 檢查 00–FF（SDIMAIN.cpp:13568–13583），記憶體那格沒有事件，
+   兩格沒有連動；RApp_Register.cpp:490–506 依 package 改位址的那段已註解掉（兩分支都是 68／58）。
+   原廠 DLL 依位址自動判斷 offset 寬度只認 68／69（2 B）、58／59（4 B）等（RApp_I2C.h:6–28、RApp_I2C.cpp:162–191）；
+   網頁的 offset 寬度由型號序列寫死（0x68 系 2 B、0x58 系 4 B），不靠位址判斷，所以 6A～6F／5A～5F 也送得出去。
+   做法：I2CSF 的 EM01 序列照舊用 0x68／0x58（common/i2c-spiflash.js 不動），傳輸層把這兩個位址換成選的值
+   （主＝選的、記憶體＝選的 − 0x10）。E501／EN01 原廠位址寫死，維持鎖定。 */
+function i2ctSfEmMain(){ var p = i2ctSfProfile(), e = $('sf-emslv'); return (p && p.id === 'EM01' && e && e.value) ? parseInt(e.value, 16) : 0x68; }
+function i2ctSfMap(slave){
+  var p = i2ctSfProfile(); if (!p || p.id !== 'EM01') return slave;
+  var m = i2ctSfEmMain();
+  return slave === 0x68 ? m : (slave === 0x58 ? m - 0x10 : slave);
+}
+/* 畫面上要列的 slave（EM01 依選的主 slave 換算） */
+function i2ctSfSlaves(p){ return p ? p.slaves.map(function (s) { return [s[0], i2ctSfMap(s[1]), s[2]]; }) : []; }
+/* v1.31.0（Bruce 2026-10-06「請幫忙括號註明十進位的 byte 數…用 KB 表示，如果小於 1KB 的話，再用 byte 數表示」）：
+   1 KB 以上用 KB（千分位；不是整數時顯示到小數，最多 3 位、去掉尾端 0），不到 1 KB 用 byte。 */
+function i2ctSfDec(n){
+  n = +n || 0;
+  var grp = function (s) { return s.replace(/\B(?=(\d{3})+(?!\d))/g, ','); };
+  if (n < 1024) return n + ' ' + i2ctT('i2c.sfUnitByte');
+  var k = n / 1024, ip = Math.floor(k), fr = Math.round((k - ip) * 1000);
+  if (fr === 1000) { ip++; fr = 0; }
+  return grp(String(ip)) + (fr ? ('.' + ('00' + fr).slice(-3)).replace(/0+$/, '') : '') + ' KB';
+}
+/* 0x400000（4,096 KB）這種寫法 */
+function i2ctSfHexDec(n, w){ return '0x' + i2ctHex(n, w || 6) + i2ctParen(i2ctSfDec(n)); }
+function i2ctSfDecHints(){
+  ['sf-rd-start', 'sf-rd-len', 'sf-wr-start'].forEach(function (id) {
+    var h = $(id + '-dec'); if (!h) return;
+    var v = i2ctParseAddr($(id).value);
+    h.textContent = (v === null || isNaN(v) || v < 0) ? ' ' : i2ctParen(i2ctSfDec(v)).trim();
+  });
+}
+function i2ctSfEmFill(){
+  var e = $('sf-emslv'); if (!e || e.options.length) return;
+  for (var a = 0x68; a <= 0x6F; a++) {
+    var o = document.createElement('option'); o.value = i2ctHex(a); o.textContent = '0x' + i2ctHex(a) + ' / 0x' + i2ctHex(a - 0x10);
+    e.appendChild(o);
+  }
+  e.value = '68';
+}
 function i2ctSfPad(){ return $('sf-pad') && $('sf-pad').value === '2' ? 2 : 1; }
 function i2ctSfT(key, vars){ return i2ctT(key, vars || {}); }
 function i2ctSfErr(e){ return (e && e.sfKey) ? i2ctSfT(e.sfKey, e.sfVars) : String(e && e.message || e); }
 function i2ctSfIo(){
   return {
     w: async function (slave, awid, addr, data) {
+      slave = i2ctSfMap(slave);                 /* v1.31.0：EM01 選的主 slave／記憶體 slave */
       var r = await i2ctSend({ type: 'rawwrite', slave: slave, addr: addr, data: data, awid: awid });
       if (!r.ok) throw new Error(i2ctT('i2c.sfErrIo', { op: 'W', s: i2ctHex(slave), a: i2ctHex(addr, awid * 2) }) + i2ctColon() + i2ctErrText(r.err));
     },
     r: async function (slave, awid, addr, len) {
+      slave = i2ctSfMap(slave);
       var r = await i2ctSend({ type: 'read', slave: slave, addr: addr, len: len, awid: awid });
       var d = (r && r.data) || [];
       if (!r.ok || d.length !== len)
@@ -8409,22 +8495,106 @@ function i2ctSfIo(){
     sleep: function (ms) { return new Promise(function (res) { setTimeout(res, ms); }); }
   };
 }
+/* ═══ v1.31.0：Flash 紀錄窗（Bruce 2026-10-06「沒有像 EM01 那樣子，還有一個 log 視窗去說明現在是到什麼階段，
+   然後讀寫是否有異常、是否完成」）。每一行同時寫進 #sf-log 與頁面最下方的 #log（加 [Flash] 前綴），
+   顏色類別與 #log 相同；異常（cls 'e'）紅字。#sf-stage 只放「目前這一步」。 */
+var I2CT_SF_LOG_MAX = 4000;       /* 紀錄窗最多留幾行（整顆寫入每 4 KB 約 3 行；頁面最下方的 #log 仍是全部） */
+function i2ctSfLog(msg, cls){
+  i2ctLog('[Flash] ' + msg, cls || 'n');
+  var el = $('sf-log'); if (!el) return;
+  var d = new Date(), p2 = function (x) { return ('0' + x).slice(-2); };
+  var line = document.createElement('div');
+  var t = document.createElement('span'); t.className = 't';
+  t.textContent = p2(d.getHours()) + ':' + p2(d.getMinutes()) + ':' + p2(d.getSeconds()) + '.' + ('00' + d.getMilliseconds()).slice(-3) + ' ';
+  var b = document.createElement('span'); b.className = cls || 'n'; b.textContent = msg;
+  line.appendChild(t); line.appendChild(b); el.appendChild(line);
+  while (el.childNodes.length > I2CT_SF_LOG_MAX) el.removeChild(el.firstChild);
+  el.scrollTop = el.scrollHeight;
+  if ($('sf-stage')) { $('sf-stage').textContent = msg; $('sf-stage').style.color = cls === 'e' ? '#f87171' : ''; }
+}
+/* 讀回不符也算異常（Bruce 要紅字的那一類），即使之後重試成功。 */
+var I2CT_SF_RED = { 'i2c.sfLogDiff': 1 };
 function i2ctSfCtx(label){
-  var t0 = i2ctNow();
-  return {
-    log: function (k, v, cls) { i2ctLog('[Flash] ' + i2ctSfT(k, v), cls || 'n'); },
-    progress: function (done, total) { i2ctSfShowProg(label, done, total, t0); },
+  var t0 = i2ctNow(), lastStep = -1, o;
+  return (o = {
+    done: 0,                      /* 最後一次回報的進度（失敗／中止摘要用） */
+    log: function (k, v, cls) { i2ctSfLog(i2ctSfT(k, v), I2CT_SF_RED[k] ? 'e' : (cls || 'n')); },
+    progress: function (done, total) {
+      o.done = done;
+      i2ctSfShowProg(label, done, total, t0);
+      /* 讀出沒有逐 sector 的步驟紀錄 ⇒ 每過 10% 記一行（寫入每個 sector 都有自己的紀錄） */
+      if (label === 'i2c.sfOpRead' && total) {
+        var step = Math.floor(done * 10 / total);
+        if (step !== lastStep && step > 0) { lastStep = step; i2ctSfLog(i2ctSfT('i2c.sfLogReadProg', { n: i2ctSfHexDec(done), p: Math.floor(done * 100 / total) }), 'n'); }
+      }
+    },
     aborted: function () { return i2ctSfAbort; }
-  };
+  });
 }
 function i2ctSfShowProg(label, done, total, t0){
   var box = $('sf-runbox'); if (!box) return;
-  box.style.display = '';
   var pct = total ? Math.floor(done / total * 100) : 0;
   $('sf-prog').firstElementChild.style.width = pct + '%';
   $('sf-progtxt').style.color = '';
-  $('sf-progtxt').textContent = i2ctSfT(label) + i2ctWSep() + done + ' / ' + total + ' byte' + i2ctParen(pct + '%')
+  $('sf-progtxt').textContent = i2ctSfT(label) + i2ctWSep() + pct + '%' + i2ctWSep() + i2ctSfDec(done) + ' / ' + i2ctSfDec(total)
     + (t0 ? i2ctWSep() + i2ctT('i2c.progElapsed', { t: i2ctSecs(i2ctNow() - t0) }) : '');
+}
+function i2ctSfLogText(){ var el = $('sf-log'); return el ? Array.prototype.map.call(el.childNodes, function (n) { return n.textContent; }).join('\n') : ''; }
+function i2ctSfLogCopy(){
+  var txt = i2ctSfLogText(), n = txt ? txt.split('\n').length : 0;
+  window.__i2ctSf.lastCopy = txt;
+  var ok = function () { i2ctFlash(i2ctSfT('i2c.sfLogCopied', { n: n })); };
+  var fb = function () {
+    var ta = document.createElement('textarea'); ta.value = txt; document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); ok(); } catch (e) { i2ctLog(i2ctT('i2c.logCopyFail', { msg: e.message }), 'e'); }
+    ta.remove();
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(ok, fb); else fb();
+}
+
+/* ═══ v1.31.0：型號跟著 Check T-CON（Bruce 2026-10-06「只要有 Check TCON，按了以後其實就已經知道接的是哪一顆
+   TCON，除非是沒有 Check TCON，才手動去選或是自動判斷」）。
+   Check T-CON 的名稱 → 外部 Flash 型號。只列 Check T-CON 真的會報出來的名稱（i2ctCkRomSeq／i2ctCkScanIcId）：
+     E501A／E501B1／E501B2：7C:0x98≠0 且 7C:0x95＝00／40／41（PY L33501–33521，i2ctCkRomSeq）
+     EM01A1：0xFF00 讀到 01 EF Ax（PQ Tool CheckICID，i2ctCkScanIcId；VM01S1 判別條件相同，選了 VM01S1 就不帶）
+   🔴 EN01（RM81008）Check T-CON 認不出來：原廠 RomCodeProcessUI 也是手選（HV:44–48），連線後只讀 3E:0x207E 看
+      A1／A2（RCI:1373–1420），那是版本、不是型號 ID ⇒ 沒有可照抄的型號判斷，維持手選，不自己發明判斷條件。
+   兩段結果衝突（conflict）、認不出來（unknown）⇒ 不帶，交給使用者。 */
+var I2CT_SF_CK_MAP = { 'E501A': 'E501A', 'E501B1': 'E501B', 'E501B2': 'E501B', 'EM01A1': 'EM01' };
+var i2ctSfSrc = '';               /* 目前型號怎麼來的：'ck' Check T-CON｜'auto' 自動判斷｜'manual' 手選｜'' 還沒選 */
+function i2ctSfCkModel(){
+  var r = i2ctCkResult;
+  if (!r || r.unknown || r.conflict) return '';
+  return I2CT_SF_CK_MAP[r.name] || '';
+}
+function i2ctSfOnCk(){
+  if (!$('sf-model')) return;
+  var r = i2ctCkResult, m = i2ctSfCkModel();
+  if (m) {
+    var changed = $('sf-model').value !== m || i2ctSfSrc !== 'ck';
+    $('sf-model').value = m; i2ctSfSrc = 'ck';
+    i2ctSfLog(i2ctSfT('i2c.sfLogCkSet', { n: r.name, m: m }), 'o');
+    /* 每次 Check T-CON 都重來：可能是換了一塊同型號的板子，前一次的 Flash ID 不能沿用 */
+    i2ctSfModelChanged(); void changed;
+    return;
+  }
+  if (r) i2ctSfLog(i2ctSfT('i2c.sfLogCkNoMap', { n: r.name }), 'w');
+  if (i2ctSfSrc === 'ck') {        /* 原本是依 Check T-CON 帶入，這次沒有可用的結果 ⇒ 清掉，不留上一塊板子的型號 */
+    $('sf-model').value = ''; i2ctSfSrc = '';
+    i2ctSfLog(i2ctSfT('i2c.sfLogCkClear'), 'w');
+    i2ctSfModelChanged();
+    return;
+  }
+  i2ctSfRender();
+}
+/* 型號來源那一行：依 Check T-CON（綠）／與 Check T-CON 不符（紅）／Check T-CON 認不出來／還沒按 */
+function i2ctSfRenderCk(){
+  var el = $('sf-cknote'); if (!el) return;
+  var r = i2ctCkResult, m = i2ctSfCkModel(), cur = $('sf-model').value;
+  el.className = 'sfnote';
+  if (m && cur === m) { el.className = 'sfnote ok'; el.textContent = i2ctSfT('i2c.sfCkFrom', { n: r.name }); return; }
+  if (m && cur !== m) { el.className = 'sfnote bad'; el.textContent = i2ctSfT('i2c.sfCkDiff', { m: cur || '—', n: r.name, cm: m }); return; }
+  el.textContent = r ? i2ctSfT('i2c.sfCkNoMap', { n: r.name }) : i2ctSfT('i2c.sfCkNone');
 }
 /* 裝置類型切到／切離「外部 Flash」：上面的 slave／offset／byte 數與寫入那一列收起來，面板打開。 */
 function i2ctSfSetMode(on){
@@ -8448,8 +8618,17 @@ function i2ctSfRender(){
   var p = i2ctSfProfile();
   if (!$('sf-panel')) return;
   $('sf-pad-wrap').style.display = (p && p.hasPad) ? '' : 'none';
-  $('sf-auto').parentNode.parentNode.style.display = (!p || p.id === 'E501A' || p.id === 'E501B') ? '' : 'none';
-  $('sf-slaves').innerHTML = p ? p.slaves.map(function (s) {
+  /* v1.31.0：EM01 才出現主 slave 選單；鎖定說明跟著換 */
+  var isEm = !!(p && p.id === 'EM01');
+  $('sf-emslv-wrap').style.display = isEm ? '' : 'none';
+  $('sf-emslv-hint').textContent = isEm ? i2ctSfT('i2c.sfEmSlvHint', { m: i2ctHex(i2ctSfEmMain() - 0x10) }) : ' ';
+  $('sf-locknote').setAttribute('data-i18n', isEm ? 'i2c.sfLockNoteEm' : 'i2c.sfLockNote');
+  $('sf-locknote').textContent = i2ctSfT(isEm ? 'i2c.sfLockNoteEm' : 'i2c.sfLockNote');
+  i2ctSfDecHints();
+  /* 自動判斷只在「Check T-CON 沒給出型號」時出現（v1.31.0）；它也只分得出 E501A／E501B */
+  $('sf-auto').parentNode.parentNode.style.display = (!i2ctSfCkModel() && (!p || p.id === 'E501A' || p.id === 'E501B')) ? '' : 'none';
+  i2ctSfRenderCk();
+  $('sf-slaves').innerHTML = p ? i2ctSfSlaves(p).map(function (s) {
     return '<div>' + i2ctEsc(i2ctSfT('i2c.sfSlv_' + s[0])) + '<br><b>0x' + i2ctHex(s[1]) + '</b> '
       + '<span>7-bit</span><br><span class="mono">' + i2ctEsc(i2ctSfT('i2c.sfSlv8', { w: i2ctHex(s[1] << 1), r: i2ctHex((s[1] << 1) | 1), n: s[2] })) + '</span></div>';
   }).join('') : '';
@@ -8485,6 +8664,7 @@ function i2ctSfSize(n){ return n >= 0x100000 ? (n / 0x100000) + ' MB' : (n / 102
 function i2ctSfCap(){ return (i2ctSfDet && i2ctSfDet.ok && i2ctSfDet.r.flash) ? i2ctSfDet.r.flash.size : 0; }
 function i2ctSfSync(){
   if (!$('sf-panel')) return;
+  i2ctSfDecHints();               /* v1.31.0：程式改了起點／長度（讀 ID 帶容量、選檔帶起點）也要跟著換算 */
   var p = i2ctSfProfile(), idle = i2ctLinked && !i2ctBusy && !i2ctSfRunning, ok = !!(i2ctSfDet && i2ctSfDet.ok);
   $('sf-model').disabled = i2ctSfRunning; $('sf-pad').disabled = i2ctSfRunning;
   $('sf-auto').disabled = !idle;
@@ -8503,9 +8683,17 @@ function i2ctSfSync(){
 function i2ctSfModelChanged(){
   i2ctSfDet = null;
   if ($('sf-rd-len')) { $('sf-rd-len').value = '0x010000'; $('sf-rd-start').value = '0x000000'; }   /* 換型號 ⇒ 容量要重新讀，長度回預設 */
+  if ($('sf-emslv')) $('sf-emslv').value = '68';   /* v1.31.0：換型號／Check T-CON 帶入 ⇒ EM01 主 slave 回預設 0x68（記憶體 0x58） */
   var p = i2ctSfProfile();
-  if (p) i2ctLog('[Flash] ' + i2ctSfT('i2c.sfLogModel', { m: p.id, c: p.chip, s: p.slaves.map(function (x) { return '0x' + i2ctHex(x[1]); }).join(' / ') }), 'n');
+  if (p) i2ctSfLog(i2ctSfT('i2c.sfLogModel', { m: p.id, c: p.chip, s: i2ctSfSlaves(p).map(function (x) { return '0x' + i2ctHex(x[1]); }).join(' / ') }), 'n');
   i2ctSfRender();
+}
+/* 使用者自己在下拉選（v1.31.0）：記成手選；跟 Check T-CON 結果不同就警告（紅字，畫面那一行也是紅的）。 */
+function i2ctSfModelPicked(){
+  i2ctSfSrc = $('sf-model').value ? 'manual' : '';
+  var m = i2ctSfCkModel(), cur = $('sf-model').value;
+  if (m && cur && cur !== m) i2ctSfLog(i2ctSfT('i2c.sfCkDiff', { m: cur, n: i2ctCkResult.name, cm: m }), 'e');
+  i2ctSfModelChanged();
 }
 function i2ctSfBegin(){ i2ctSfRunning = true; i2ctBusy = true; i2ctSfAbort = false; i2ctSyncButtons(); i2ctSfSync(); }
 function i2ctSfEnd(){ i2ctSfRunning = false; i2ctBusy = false; i2ctSyncButtons(); i2ctSfSync(); }
@@ -8516,22 +8704,23 @@ async function i2ctSfAuto(){
     var io = i2ctSfIo();
     var id = (await io.r(0x7C, 1, 0x95, 1))[0], t = (await io.r(0x7C, 1, 0x98, 1))[0];
     var m = t === 0 ? '' : (id === 0x00 ? 'E501A' : ((id === 0x40 || id === 0x41) ? 'E501B' : ''));
-    i2ctLog('[Flash] ' + i2ctSfT(m ? 'i2c.sfLogAuto' : 'i2c.sfLogAutoNo', { a: i2ctHex(id), b: i2ctHex(t), m: m }), m ? 'o' : 'w');
-    if (m) { $('sf-model').value = m; i2ctSfModelChanged(); }
-  } catch (e) { i2ctLog('✕ ' + i2ctSfErr(e), 'e'); }
+    i2ctSfLog(i2ctSfT(m ? 'i2c.sfLogAuto' : 'i2c.sfLogAutoNo', { a: i2ctHex(id), b: i2ctHex(t), m: m }), m ? 'o' : 'w');
+    if (m) { $('sf-model').value = m; i2ctSfSrc = 'auto'; i2ctSfModelChanged(); }
+  } catch (e) { i2ctSfLog('✕ ' + i2ctSfErr(e), 'e'); }
   i2ctSfEnd();
 }
 async function i2ctSfDetect(){
   var p = i2ctSfProfile(); if (!p) return;
   i2ctSfBegin();
+  i2ctSfLog(i2ctSfT(p.jedec ? 'i2c.sfLogDetStart' : 'i2c.sfLogDetStartEn01', { m: p.id }), 'n');
   try {
     var r = await p.detect(i2ctSfIo(), { pad: i2ctSfPad() });
     var ok = p.jedec ? !(r.flash.blank || r.noFlash) : true;
     i2ctSfDet = { ok: ok, r: r, pad: i2ctSfPad() };
-    i2ctLog('[Flash] ' + i2ctSfDetText(p, i2ctSfDet), ok ? 'o' : 'e');
-    if (ok && p.jedec && !r.flash.known) i2ctLog('[Flash] ' + i2ctSfT('i2c.sfLogUnknownId'), 'w');
+    i2ctSfLog(i2ctSfDetText(p, i2ctSfDet), ok ? 'o' : 'e');
+    if (ok && p.jedec && !r.flash.known) i2ctSfLog(i2ctSfT('i2c.sfLogUnknownId'), 'w');
     if (ok && i2ctSfCap()) $('sf-rd-len').value = '0x' + i2ctHex(i2ctSfCap(), 6);
-  } catch (e) { i2ctSfDet = { ok: false, err: i2ctSfErr(e) }; i2ctLog('✕ ' + i2ctSfDet.err, 'e'); }
+  } catch (e) { i2ctSfDet = { ok: false, err: i2ctSfErr(e) }; i2ctSfLog('✕ ' + i2ctSfDet.err, 'e'); }
   i2ctSfEnd(); i2ctSfRenderDet(); i2ctSfSync();
 }
 function i2ctSfRange(startId, lenOrId){
@@ -8541,35 +8730,73 @@ function i2ctSfRange(startId, lenOrId){
   var e = I2CSF.checkRange(st, len, i2ctSfCap());
   return e ? { err: i2ctSfT(e.k, e.v) } : { start: st, len: len };
 }
-function i2ctSfDownload(name, bytes){
-  window.__i2ctSf.lastDownload = { name: name, bytes: bytes };
-  var blob = new Blob([new Uint8Array(bytes)], { type: 'application/octet-stream' });
-  var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
-  document.body.appendChild(a); a.click();
-  setTimeout(function () { try { URL.revokeObjectURL(a.href); } catch (e) {} a.remove(); }, 1000);
-}
 function i2ctSfToast(msg, bad){
   var el = $('sf-progtxt'); if (!el) return;
-  $('sf-runbox').style.display = '';
-  el.textContent = msg; el.style.color = bad ? '#fca5a5' : '#86efac';
+  el.textContent = msg; el.style.color = bad ? '#f87171' : '#86efac';
+}
+/* v1.31.0（Bruce 2026-10-06「讀出：把讀出的內容用在下面 16x16 的 Dump 裡面；另存：在那邊的另存新檔就可以選擇」）：
+   讀出不再自動存檔，內容進 Dump，A／B 規則與一般讀取相同（「存到：自動／A／B」也照用，見 i2ctOnRead v1.27.0）。
+   資料集是 'dev'，base＝Flash 起點、awid 4（Dump 位址印 8 位）、sf 帶型號與檔名前綴；
+   Dump 本來就只畫目前這一頁 256 格（i2ctRenderTable），幾 MB 的整顆讀出也不會卡；跳頁用頁碼／位址格。 */
+function i2ctSfToDump(set, src){
+  if (i2ctEditing) i2ctCancelEdit();
+  var slot = i2ctReadSlot();
+  var keepB = (slot === 'A' && i2ctRef && i2ctBSrc && i2ctComparable(set, i2ctBSlot()));
+  if (keepB) {
+    i2ctPromoteToA(set, src, true);
+    i2ctDiffIdx = i2ctDiffSets(i2ctRef, i2ctBSlot());
+    i2ctShowA = true; i2ctPageIdx = 0;
+    i2ctLog(i2ctT('i2c.logSlotAKeepB', { n: i2ctDiffCount() }), 'n');
+    i2ctRenderPager(); i2ctRenderTable(); i2ctRenderDiff(); i2ctRenderRefLine(); i2ctSyncButtons();
+    return;
+  }
+  i2ctPrevBytes = null; i2ctPrevHas = null;
+  i2ctDev = set;
+  if (slot === 'A') i2ctPromoteToA(set, src);
+  else if (slot === 'B') { i2ctBSrc = src; i2ctShowA = false; i2ctDiffIdx = i2ctDiffSets(i2ctRef, i2ctDev); }
+  else i2ctIngest(set, src);
+  i2ctEnsureWrFail(i2ctDev);
+  if (i2ctDirty) i2ctDirty.fill(0);
+  if (i2ctWrFail) i2ctWrFail.fill(0);
+  if (i2ctWrOk) i2ctWrOk.fill(0);
+  if (i2ctFileBytes) { var gone = i2ctFileName; i2ctClearFile(); i2ctLog(i2ctT('i2c.logFileDropped', { name: gone }), 'n'); }
+  i2ctBanner('readbanner', '', '');
+  i2ctUseBKind('dev');             /* 內含跳回第 0 頁與整套重畫 */
 }
 async function i2ctSfRead(){
   var p = i2ctSfProfile(); if (!p || !i2ctSfDet || !i2ctSfDet.ok) return;
   var rg = $('sf-rd-all').checked ? { start: 0, len: i2ctSfCap() } : i2ctSfRange('sf-rd-start', 'sf-rd-len');
-  if (rg.err) { i2ctLog('✕ ' + rg.err, 'e'); i2ctSfToast(rg.err, true); return; }
+  if (rg.err) { i2ctSfLog('✕ ' + rg.err, 'e'); i2ctSfToast(rg.err, true); return; }
+  /* 讀出會換掉 Dump 上的內容 ⇒ 有未寫入的修改就問一次（與一般讀取同一支） */
+  var keepsB = (i2ctReadSlot() === 'A' && !!i2ctRef && !!i2ctBSrc);
+  if (!keepsB && !i2ctConfirmDiscardDirty(i2ctT('i2c.actReread'))) { i2ctLog(i2ctT('i2c.logCancelRead'), 'n'); return; }
+  var pad = i2ctSfDet.pad || i2ctSfPad();
   i2ctSfBegin();
-  i2ctLog('[Flash] ' + i2ctSfT('i2c.sfLogReadStart', { m: p.id, a: i2ctHex(rg.start, 6), n: '0x' + i2ctHex(rg.len, 6) }), 'n');
-  var res = null, err = null, t0 = i2ctNow();
-  try { res = await p.read(i2ctSfIo(), rg.start, rg.len, Object.assign(i2ctSfCtx('i2c.sfOpRead'), { pad: i2ctSfDet.pad || i2ctSfPad() })); }
+  i2ctSfShowProg('i2c.sfOpRead', 0, rg.len, 0);
+  i2ctSfLog(i2ctSfT('i2c.sfLogReadStart', { m: p.id, a: i2ctHex(rg.start, 6), n: i2ctSfHexDec(rg.len) }), 'n');
+  var res = null, err = null, t0 = i2ctNow(), cx = Object.assign(i2ctSfCtx('i2c.sfOpRead'), { pad: pad });
+  try { res = await p.read(i2ctSfIo(), rg.start, rg.len, cx); }
   catch (e) { err = e; }
   i2ctSfEnd();
-  if (err) { var m = i2ctSfErr(err); i2ctLog('✕ ' + m, 'e'); i2ctSfToast(m, true); return; }
-  if (!res.ok) { i2ctSfToast(i2ctSfT('i2c.sfAbortedRead', { a: i2ctHex(res.stopAt, 6) }), true); return; }
-  var cks = i2ctChecksum(res.bytes) & 0xFFFFFF;
-  var name = p.id + ((p.hasPad && i2ctSfDet.pad === 2) ? '_Demura' : '') + '_Flash_0x' + i2ctHex(rg.start, 6) + '_0x' + i2ctHex(rg.len, 6) + '_CKS_' + i2ctHex(cks, 6) + '.bin';
-  i2ctLog('[Flash] ' + i2ctSfT('i2c.sfLogReadDone', { n: res.bytes.length, c: i2ctHex(cks, 6), t: i2ctSecs(i2ctNow() - t0), f: name }), 'o');
-  i2ctSfDownload(name, res.bytes);
-  i2ctSfToast(i2ctSfT('i2c.sfReadOk', { f: name }), false);
+  var tt = i2ctSecs(i2ctNow() - t0);
+  if (err) {
+    var m = i2ctSfErr(err); i2ctSfLog('✕ ' + m, 'e');
+    i2ctSfLog(i2ctSfT('i2c.sfLogFailSum', { op: i2ctSfT('i2c.sfOpRead'), n: i2ctSfHexDec(cx.done), t: tt }), 'e');
+    i2ctSfToast(m, true); return;
+  }
+  if (!res.ok) {
+    i2ctSfLog(i2ctSfT('i2c.sfLogFailSum', { op: i2ctSfT('i2c.sfOpRead'), n: i2ctSfHexDec(res.bytes.length), t: tt }), 'w');
+    i2ctSfToast(i2ctSfT('i2c.sfAbortedRead', { a: i2ctHex(res.stopAt, 6) }), true); return;
+  }
+  var cks = (i2ctChecksum(res.bytes) || 0) & 0xFFFFFF;
+  var label = p.id + ((p.hasPad && pad === 2) ? ' Demura' : '');
+  var set = i2ctMakeSet('dev', i2ctSfSlaves(p)[0][1], 4, rg.start, new Uint8Array(res.bytes));
+  set.sf = { m: p.id, label: label,
+             prefix: p.id + ((p.hasPad && pad === 2) ? '_Demura' : '') + '_Flash_0x' + i2ctHex(rg.start, 6) + '_0x' + i2ctHex(rg.len, 6) };
+  i2ctSfToDump(set, { k: 'i2c.srcSfRead', v: { m: label, a: i2ctHex(rg.start, 6) } });
+  i2ctSfLog(i2ctSfT('i2c.sfLogReadDone', { n: i2ctSfHexDec(res.bytes.length), c: i2ctHex(cks, 6), t: tt }), 'o');
+  i2ctSfToast(i2ctSfT('i2c.sfReadOk', { n: i2ctSfHexDec(res.bytes.length), c: i2ctHex(cks, 6) }), false);
+  i2ctBanner('readbanner', 'ok', i2ctEsc(i2ctSfT('i2c.sfReadOkDump', { m: label, a: i2ctHex(rg.start, 6), b: i2ctHex(rg.start + rg.len - 1, 6), n: i2ctSfHexDec(res.bytes.length), p: i2ctPageCount() })));
 }
 function i2ctSfOnFile(f){
   if (!f) return;
@@ -8578,7 +8805,7 @@ function i2ctSfOnFile(f){
     var u8 = new Uint8Array(rd.result), name = f.name, bytes, startHint = null;
     if (/\.(hex|ihx|ihex)$/i.test(name)) {
       var hx = i2ctParseIntelHex(new TextDecoder().decode(u8).split(/\r?\n/));
-      if (hx.err) { i2ctLog('✕ ' + name + i2ctColon() + hx.err.reason, 'e'); return; }
+      if (hx.err) { i2ctSfLog('✕ ' + name + i2ctColon() + hx.err.reason, 'e'); return; }
       bytes = hx.bytes; startHint = hx.startAddr;
     } else bytes = Array.prototype.slice.call(u8);
     i2ctSfSetFile(name, bytes, startHint);
@@ -8589,7 +8816,7 @@ function i2ctSfSetFile(name, bytes, startHint){
   i2ctSfFile = { name: name, bytes: bytes, cks: i2ctChecksum(bytes) || 0 };
   if (startHint && startHint % I2CSF.SECTOR === 0) $('sf-wr-start').value = '0x' + i2ctHex(startHint, 6);
   $('sf-fname').textContent = name + ' · ' + bytes.length + ' byte · CKS 0x' + i2ctHex(i2ctSfFile.cks & 0xFFFFFF, 6);
-  i2ctLog('[Flash] ' + i2ctSfT('i2c.sfLogFile', { f: name, n: bytes.length, c: i2ctHex(i2ctSfFile.cks & 0xFFFFFF, 6) }), 'n');
+  i2ctSfLog(i2ctSfT('i2c.sfLogFile', { f: name, n: bytes.length, c: i2ctHex(i2ctSfFile.cks & 0xFFFFFF, 6) }), 'n');
   i2ctSfSync();
 }
 /* 寫入：寫前資訊（EM01 原廠會再讀一次 ID 與保護狀態）→ 確認窗（只問一次）→ 逐 4 KB 抹除／寫入／讀回 → 收尾 */
@@ -8609,22 +8836,23 @@ function i2ctSfAnswer(yes){ $('sf-confirm').style.display = 'none'; var f = i2ct
 async function i2ctSfWrite(){
   var p = i2ctSfProfile(); if (!p || !p.canWrite || !i2ctSfFile || !i2ctSfDet || !i2ctSfDet.ok) return;
   var pw = I2CSF.prepWrite(p, i2ctSfFile.bytes);
-  if (pw.err) { var m0 = i2ctSfT(pw.err.k, pw.err.v); i2ctLog('✕ ' + m0, 'e'); i2ctSfToast(m0, true); return; }
+  if (pw.err) { var m0 = i2ctSfT(pw.err.k, pw.err.v); i2ctSfLog('✕ ' + m0, 'e'); i2ctSfToast(m0, true); return; }
   /* EN01（padPage）不補到 4 KB：範圍檢查用往上取整的 sector 數，確認窗照實際 byte 數列。 */
   var rg = i2ctSfRange('sf-wr-start', Math.ceil(pw.data.length / I2CSF.SECTOR) * I2CSF.SECTOR);
-  if (rg.err) { i2ctLog('✕ ' + rg.err, 'e'); i2ctSfToast(rg.err, true); return; }
+  if (rg.err) { i2ctSfLog('✕ ' + rg.err, 'e'); i2ctSfToast(rg.err, true); return; }
   if (p.padPage) rg.len = pw.data.length;
   var pad = i2ctSfDet.pad || i2ctSfPad(), pre = null;
   i2ctSfBegin();
+  if (p.writePre) i2ctSfLog(i2ctSfT('i2c.sfLogWritePre'), 'n');
   try { if (p.writePre) pre = await p.writePre(i2ctSfIo(), { pad: pad }); }
-  catch (e) { i2ctSfEnd(); var me = i2ctSfErr(e); i2ctLog('✕ ' + me, 'e'); i2ctSfToast(me, true); return; }
+  catch (e) { i2ctSfEnd(); var me = i2ctSfErr(e); i2ctSfLog('✕ ' + me, 'e'); i2ctSfToast(me, true); return; }
   i2ctSfEnd();
   var det = pre ? { ok: true, r: pre } : i2ctSfDet;
   var rows = [
     [i2ctSfT('i2c.sfCfTcon'), p.id + '（' + p.chip + '）' + (p.hasPad ? ' · ' + i2ctSfT(pad === 2 ? 'i2c.sfPadDemura' : 'i2c.sfPadMain') : '')],
-    [i2ctSfT('i2c.sfCfSlave'), p.slaves.map(function (s) { return '0x' + i2ctHex(s[1]); }).join(' / ')],
+    [i2ctSfT('i2c.sfCfSlave'), i2ctSfSlaves(p).map(function (s) { return '0x' + i2ctHex(s[1]); }).join(' / ')],
     [i2ctSfT('i2c.sfCfFlash'), i2ctSfDetText(p, det)],
-    [i2ctSfT('i2c.sfCfRange'), '0x' + i2ctHex(rg.start, 6) + ' – 0x' + i2ctHex(rg.start + rg.len - 1, 6) + i2ctParen(i2ctSfSize(rg.len) + ' · ' + Math.ceil(rg.len / I2CSF.SECTOR) + ' × 4 KB')],
+    [i2ctSfT('i2c.sfCfRange'), '0x' + i2ctHex(rg.start, 6) + ' – 0x' + i2ctHex(rg.start + rg.len - 1, 6) + i2ctParen(i2ctSfDec(rg.len) + ' · ' + Math.ceil(rg.len / I2CSF.SECTOR) + ' × 4 KB')],
     [i2ctSfT('i2c.sfCfFile'), i2ctSfFile.name + ' · ' + i2ctSfFile.bytes.length + ' byte · CKS 0x' + i2ctHex(i2ctSfFile.cks & 0xFFFFFF, 6)
        + (pw.data.length !== i2ctSfFile.bytes.length ? i2ctParen(i2ctSfT('i2c.sfCfPadded', { n: pw.data.length })) : '')
        + (pw.pagePad ? i2ctParen(i2ctSfT('i2c.sfCfPagePad')) : '')]
@@ -8636,48 +8864,71 @@ async function i2ctSfWrite(){
   if (pre && pre.flash && !pre.flash.known) warn.push(i2ctSfT('i2c.sfCfWarnUnknown'));
   if (pre && pre.wp === I2CSF.WP.HW) warn.push(i2ctSfT('i2c.sfCfWarnHw'));
   if (pre && pre.flash && pre.flash.blank) warn.push(i2ctSfT('i2c.sfNoFlash'));
-  if (!(await i2ctSfAsk(rows, warn.join(' ')))) { i2ctLog('[Flash] ' + i2ctSfT('i2c.sfLogCancel'), 'n'); return; }
+  if (!(await i2ctSfAsk(rows, warn.join(' ')))) { i2ctSfLog(i2ctSfT('i2c.sfLogCancel'), 'n'); return; }
   i2ctSfBegin();
-  i2ctLog('[Flash] ' + i2ctSfT('i2c.sfLogWriteStart', { m: p.id, a: i2ctHex(rg.start, 6), n: '0x' + i2ctHex(rg.len, 6), f: i2ctSfFile.name }), 'w');
-  var res = null, err = null, t0 = i2ctNow();
-  try { res = await p.write(i2ctSfIo(), rg.start, pw.data, Object.assign(i2ctSfCtx('i2c.sfOpWrite'), { pad: pad, wp: pre ? pre.wp : undefined })); }
+  i2ctSfShowProg('i2c.sfOpWrite', 0, rg.len, 0);
+  i2ctSfLog(i2ctSfT('i2c.sfLogWriteStart', { m: p.id, a: i2ctHex(rg.start, 6), n: i2ctSfHexDec(rg.len), f: i2ctSfFile.name }), 'w');
+  var res = null, err = null, t0 = i2ctNow(), cx = Object.assign(i2ctSfCtx('i2c.sfOpWrite'), { pad: pad, wp: pre ? pre.wp : undefined });
+  try { res = await p.write(i2ctSfIo(), rg.start, pw.data, cx); }
   catch (e) { err = e; }
   i2ctSfEnd();
+  var tt = i2ctSecs(i2ctNow() - t0);
   if (err) {
     var m = i2ctSfErr(err) + (err.stopAt != null ? i2ctWSep() + i2ctSfT('i2c.sfStopAt', { a: i2ctHex(err.stopAt, 6) }) : '');
-    i2ctLog('✕ ' + m, 'e'); i2ctLog('[Flash] ' + i2ctSfT('i2c.sfLogEndSent'), 'n'); i2ctSfToast(m, true); return;
+    i2ctSfLog('✕ ' + m, 'e'); i2ctSfLog(i2ctSfT('i2c.sfLogEndSent'), 'n');
+    i2ctSfLog(i2ctSfT('i2c.sfLogFailSum', { op: i2ctSfT('i2c.sfOpWrite'), n: i2ctSfHexDec(cx.done), t: tt }), 'e');
+    i2ctSfToast(m, true); return;
   }
-  if (!res.ok) { var ma = i2ctSfT('i2c.sfAbortedWrite', { a: i2ctHex(res.stopAt, 6) }); i2ctLog('[Flash] ' + ma, 'w'); i2ctSfToast(ma, true); return; }
-  var done = i2ctSfT('i2c.sfWriteOk', { t: i2ctSecs(i2ctNow() - t0) });
-  i2ctLog('[Flash] ' + done, 'o'); i2ctSfToast(done, false);
+  if (!res.ok) {
+    var ma = i2ctSfT('i2c.sfAbortedWrite', { a: i2ctHex(res.stopAt, 6) }); i2ctSfLog(ma, 'w');
+    i2ctSfLog(i2ctSfT('i2c.sfLogFailSum', { op: i2ctSfT('i2c.sfOpWrite'), n: i2ctSfHexDec(cx.done), t: tt }), 'w');
+    i2ctSfToast(ma, true); return;
+  }
+  i2ctSfLog(i2ctSfT('i2c.sfLogWriteSum', { m: p.id, a: i2ctHex(rg.start, 6), b: i2ctHex(rg.start + rg.len - 1, 6), n: i2ctSfHexDec(pw.data.length),
+                                           c: i2ctHex((i2ctChecksum(pw.data) || 0) & 0xFFFFFF, 6), t: tt }), 'o');
+  var done = i2ctSfT('i2c.sfWriteOk', { t: tt });
+  i2ctSfLog(done, 'o'); i2ctSfToast(done, false);
 }
 /* v1.30.0：整顆抹除（EN01，序列在 I2CSF.PROFILES.EN01.eraseAll）。確認窗只問一次；中止＝停止輪詢。 */
 async function i2ctSfEraseAll(){
   var p = i2ctSfProfile(); if (!p || !p.eraseAll || !i2ctSfDet || !i2ctSfDet.ok) return;
   var rows = [
     [i2ctSfT('i2c.sfCfTcon'), p.id + '（' + p.chip + '）'],
-    [i2ctSfT('i2c.sfCfSlave'), p.slaves.map(function (s) { return '0x' + i2ctHex(s[1]); }).join(' / ')],
+    [i2ctSfT('i2c.sfCfSlave'), i2ctSfSlaves(p).map(function (s) { return '0x' + i2ctHex(s[1]); }).join(' / ')],
     [i2ctSfT('i2c.sfCfFlash'), i2ctSfDetText(p, i2ctSfDet)],
     [i2ctSfT('i2c.sfCfAction'), i2ctSfT('i2c.sfCfEraseAllVal')]
   ];
-  if (!(await i2ctSfAsk(rows, i2ctSfT('i2c.sfCfWarnEraseAll'), true))) { i2ctLog('[Flash] ' + i2ctSfT('i2c.sfLogEraseAllCancel'), 'n'); return; }
+  if (!(await i2ctSfAsk(rows, i2ctSfT('i2c.sfCfWarnEraseAll'), true))) { i2ctSfLog(i2ctSfT('i2c.sfLogEraseAllCancel'), 'n'); return; }
   i2ctSfBegin();
-  i2ctLog('[Flash] ' + i2ctSfT('i2c.sfLogEraseAllStart', { m: p.id }), 'w');
-  $('sf-runbox').style.display = ''; $('sf-prog').firstElementChild.style.width = '0%';
+  i2ctSfLog(i2ctSfT('i2c.sfLogEraseAllStart', { m: p.id }), 'w');
+  $('sf-prog').firstElementChild.style.width = '0%';
   $('sf-progtxt').style.color = ''; $('sf-progtxt').textContent = i2ctSfT('i2c.sfEraseAllRun');
   var res = null, err = null, t0 = i2ctNow();
   try { res = await p.eraseAll(i2ctSfIo(), i2ctSfCtx('i2c.sfOpEraseAll')); }
   catch (e) { err = e; }
   i2ctSfEnd();
-  if (err) { var m = i2ctSfErr(err); i2ctLog('✕ ' + m, 'e'); i2ctSfToast(m, true); return; }
-  if (!res.ok) { var ma = i2ctSfT('i2c.sfLogEn01EraseAllAbort'); i2ctSfToast(ma, true); return; }
+  var tt = i2ctSecs(i2ctNow() - t0);
+  if (err) {
+    var m = i2ctSfErr(err); i2ctSfLog('✕ ' + m, 'e');
+    i2ctSfLog(i2ctSfT('i2c.sfLogEraseAllFailSum', { t: tt }), 'e'); i2ctSfToast(m, true); return;
+  }
+  if (!res.ok) { var ma = i2ctSfT('i2c.sfLogEn01EraseAllAbort'); i2ctSfLog(i2ctSfT('i2c.sfLogEraseAllFailSum', { t: tt }), 'w'); i2ctSfToast(ma, true); return; }
   $('sf-prog').firstElementChild.style.width = '100%';
-  var done = i2ctSfT('i2c.sfEraseAllOk', { t: i2ctSecs(i2ctNow() - t0) });
-  i2ctLog('[Flash] ' + done, 'o'); i2ctSfToast(done, false);
+  var done = i2ctSfT('i2c.sfEraseAllOk', { t: tt });
+  i2ctSfLog(done, 'o'); i2ctSfToast(done, false);
 }
 function i2ctSfInit(){
   if (!$('sf-panel')) return;
-  $('sf-model').addEventListener('change', i2ctSfModelChanged);
+  $('sf-model').addEventListener('change', i2ctSfModelPicked);
+  i2ctSfEmFill();
+  $('sf-emslv').addEventListener('change', function () {
+    i2ctSfDet = null;              /* 換位址 ⇒ Flash ID 要重讀 */
+    i2ctSfLog(i2ctSfT('i2c.sfLogEmSlave', { a: i2ctHex(i2ctSfEmMain()), b: i2ctHex(i2ctSfEmMain() - 0x10) }), 'n');
+    i2ctSfRender();
+  });
+  ['sf-rd-start', 'sf-rd-len', 'sf-wr-start'].forEach(function (id) { $(id).addEventListener('input', i2ctSfDecHints); });
+  $('sf-log-copy').addEventListener('click', i2ctSfLogCopy);
+  $('sf-log-clear').addEventListener('click', function () { $('sf-log').innerHTML = ''; $('sf-stage').textContent = ''; });
   $('sf-pad').addEventListener('change', function () { i2ctSfDet = null; i2ctSfRenderDet(); i2ctSfSync(); });
   $('sf-auto').addEventListener('click', i2ctSfAuto);
   $('sf-detect').addEventListener('click', i2ctSfDetect);
@@ -8687,7 +8938,7 @@ function i2ctSfInit(){
   $('sf-file').addEventListener('change', function () { i2ctSfOnFile(this.files && this.files[0]); });
   $('sf-write').addEventListener('click', i2ctSfWrite);
   $('sf-eraseall').addEventListener('click', i2ctSfEraseAll);
-  $('sf-abort').addEventListener('click', function () { i2ctSfAbort = true; i2ctLog('[Flash] ' + i2ctSfT('i2c.sfLogAbortReq'), 'w'); });
+  $('sf-abort').addEventListener('click', function () { i2ctSfAbort = true; i2ctSfLog(i2ctSfT('i2c.sfLogAbortReq'), 'w'); });
   $('sf-cf-no').addEventListener('click', function () { i2ctSfAnswer(false); });
   $('sf-cf-yes').addEventListener('click', function () { i2ctSfAnswer(true); });
   i2ctSfRender();
@@ -8695,12 +8946,15 @@ function i2ctSfInit(){
 /* 測試掛勾（tools/i2c_spiflash_ui_selftest.js） */
 window.__i2ctSf = {
   setMode: function (on) { $('in-devtype').value = on ? 'sf' : 'gen'; $('in-devtype').dispatchEvent(new Event('change')); return i2ctSfMode; },
-  setModel: function (m) { $('sf-model').value = m; i2ctSfModelChanged(); },
+  setModel: function (m) { $('sf-model').value = m; i2ctSfModelPicked(); },   /* ＝使用者在下拉選 */
   setFile: function (name, bytes, hint) { i2ctSfSetFile(name, Array.prototype.slice.call(bytes), hint); },
-  state: function () { return { mode: i2ctSfMode, det: i2ctSfDet, running: i2ctSfRunning, file: i2ctSfFile, confirmOpen: !!i2ctSfCfResolve }; },
+  state: function () { return { mode: i2ctSfMode, det: i2ctSfDet, running: i2ctSfRunning, file: i2ctSfFile, confirmOpen: !!i2ctSfCfResolve, src: i2ctSfSrc, ckModel: i2ctSfCkModel() }; },
   detect: i2ctSfDetect, read: i2ctSfRead, write: i2ctSfWrite, eraseAll: i2ctSfEraseAll, answer: i2ctSfAnswer, auto: i2ctSfAuto,
   abort: function () { i2ctSfAbort = true; },
-  lastDownload: null
+  logText: i2ctSfLogText, copyLog: i2ctSfLogCopy, lastCopy: null,
+  /* v1.31.0：Dump 目前那一份、與「另存新檔」會產生的檔（不碰 DOM、不下載） */
+  dumpSet: function () { return i2ctCurSet(); },
+  exportBuild: function (fmt) { return i2ctExportBuild(i2ctCurSet(), fmt || 'bin'); }
 };
 
 /* ═══ 🔴 切語言 ⇒ 把「不是靜態文字」的那一半重畫 ═══════════════════════════
