@@ -83,6 +83,9 @@ function fakeE501(isA, o) {
     read(s, aw, a, n) {
       if (s === 0x7C && a === 0x95) return [isA ? 0x00 : (o.id95 !== undefined ? o.id95 : 0x41)];
       if (s === 0x7C && a === 0x98) return [o.v98 !== undefined ? o.v98 : 0x01];
+      /* v1.34.0 SY 辨認表（2026-10-06）：E501A 7D:001E[7:4]＝0；E501B 7D:007F＝00 B1／01 B2（與 7C:95 的 40／41 對應） */
+      if (s === 0x7D && a === 0x001E) return [0x00];
+      if (s === 0x7D && a === 0x007F) return [isA ? 0xFF : ((o.id95 !== undefined ? o.id95 : 0x41) & 0x01)];
       if (s === 0x7C && a === 0xD8) return [0x02];
       if (s === 0x7C && a === 0xBB) return [0x00, 0x00, 0x00];
       if (s === 0x7D && a === 0x0246) return (o.id || [0xEF, 0x40, 0x16]).slice();

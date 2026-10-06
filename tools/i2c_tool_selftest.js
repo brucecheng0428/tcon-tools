@@ -4913,7 +4913,8 @@ function baseScript(f) {
        🔴 這一條同時釘住「**認到 E503 才下 M-Bus 導通 C-Bus 的那兩筆**」。 */
     {
       const sent = await useHelper(ckScript({
-        '0x7C:1:0x95': [0x00], '0x7C:1:0x98': [0x00], '0x7D:2:0x7D': [0x03]
+        '0x7C:1:0x95': [0x00], '0x7C:1:0x98': [0x00], '0x7D:2:0x7D': [0x03],
+        '0x3E:2:0x207E': [0x00]   /* v1.34.0：207E 讀到有效值且不是 EN01 的 10／11 ⇒ 才算確定 E503 */
       }));
       await A.checkTcon(); await quiesce();
       EQ(A.ckResult().name, 'E503A2', '① 0x7D:0x007D = 0x03 ⇒ E503A2（RomCodeProcessUI L31707–31708）');
@@ -4987,6 +4988,106 @@ function baseScript(f) {
       EQ(A.ckResult().name, 'E503A1 T1', '⑧ 下拉選定 ⇒ 型號改成他選的那一個');
       EQ(W(sent), ['0x7E:1:0xAB←CD', '0x3E:2:0x59←1E'],
          '🔴 ⑧ 手動選到 E503 ⇒ 同樣補上 M-Bus 導通 C-Bus 兩筆');
+    }
+    await win.__i2ct.disconnect();
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
+  G('81. 🔴 v1.34.0：Check T-CON 依 SY 辨認表（2026-10-06「RE: EN01 I2C辨認方式」）');
+  {
+    function ckScript(map) {
+      return baseScript((m) => {
+        if (m.type !== 'read') return { ok: true };
+        const k = '0x' + m.slave.toString(16).toUpperCase() + ':' + m.awid + ':0x' + m.addr.toString(16).toUpperCase();
+        if (Object.prototype.hasOwnProperty.call(map, k)) {
+          const v = map[k];
+          return v === null ? { ok: false, err: 'NACK' } : { ok: true, data: v };
+        }
+        return { ok: true, data: new Array(m.len).fill(0xFF) };
+      });
+    }
+    const W = (sent) => SINCE(sent, 'rawwrite').map(m =>
+      '0x' + m.slave.toString(16).toUpperCase() + ':' + m.awid + ':0x' + m.addr.toString(16).toUpperCase()
+      + '←' + m.data.map(b => b.toString(16).toUpperCase()).join(''));
+    const R = (sent) => SINCE(sent, 'read').map(m =>
+      '0x' + m.slave.toString(16).toUpperCase() + ':' + m.awid + ':0x' + m.addr.toString(16).toUpperCase());
+    const NO59 = (sent) => !W(sent).some(s => s.indexOf('0x3E:2:0x59') === 0);
+    const E503LIKE = { '0x7C:1:0x95': [0x00], '0x7C:1:0x98': [0x00] };
+
+    /* E503 A1（三種 split）／A2／A3：207E 不是 EN01 ⇒ E503，且兩筆照下 */
+    for (const [cid, nm] of [[0x00, 'E503A1 T1'], [0x01, 'E503A1 T2'], [0x02, 'E503A1 T3'], [0x03, 'E503A2'], [0x04, 'E503A3']]) {
+      const sent = await useHelper(ckScript(Object.assign({}, E503LIKE, { '0x7D:2:0x7D': [cid], '0x3E:2:0x207E': [0x00] })));
+      await A.checkTcon(); await quiesce();
+      EQ(A.ckResult().name, nm, 'SY E503：7D:007D = 0x0' + cid + ' 且 207E 非 10/11 ⇒ ' + nm);
+      EQ(W(sent), ['0x7E:1:0xAB←CD', '0x3E:2:0x59←1E'], 'SY E503 ' + nm + ' ⇒ M-Bus 導通 C-Bus 兩筆');
+    }
+    /* EN01 A1／A2：7D:007D 和 E503 撞值也一樣，207E = 10／11 ⇒ EN01，🔴 不寫 3E:0059 */
+    for (const [cid, raw, ver] of [[0x00, 0x10, 'A1'], [0x03, 0x11, 'A2'], [0x04, 0x10, 'A1']]) {
+      const sent = await useHelper(ckScript(Object.assign({}, E503LIKE, { '0x7D:2:0x7D': [cid], '0x3E:2:0x207E': [raw] })));
+      await A.checkTcon(); await quiesce();
+      EQ(A.ckResult().name, 'EN01', 'SY EN01：7D:007D = 0x0' + cid + '、207E = 0x' + raw.toString(16) + ' ⇒ EN01');
+      EQ(A.ckResult().en01Ver && A.ckResult().en01Ver.txt, ver, 'SY EN01：207E = 0x' + raw.toString(16) + ' ⇒ ' + ver);
+      EQ(W(sent), [], '🔴 SY EN01 ' + ver + ' ⇒ 完全沒有寫入（不寫 3E:0059）');
+      CHECK(doc.getElementById('tcon-name').textContent.indexOf('EN01') >= 0 &&
+            doc.getElementById('tcon-name').textContent.indexOf(ver) >= 0, 'SY EN01：② 顯示 EN01 與 ' + ver);
+      EQ(doc.getElementById('sf-model').value, 'EN01', 'SY EN01：外部 Flash 型號跟著帶 EN01（自動判斷連動）');
+    }
+    /* 讀不到 207E ⇒ 補下 7E:AB←CD 再讀；仍讀不到 ⇒ 分不出 E503／EN01，不寫 3E:0059，可手選 */
+    {
+      const sent = await useHelper(ckScript(Object.assign({}, E503LIKE, { '0x7D:2:0x7D': [0x03], '0x3E:2:0x207E': null })));
+      await A.checkTcon(); await quiesce();
+      EQ(R(sent).filter(s => s === '0x3E:2:0x207E').length, 2, '207E 讀不到 ⇒ 重讀一次');
+      EQ(W(sent), ['0x7E:1:0xAB←CD'], '🔴 讀不到 207E ⇒ 只補 7E:AB←CD，不寫 3E:0059');
+      CHECK(A.ckResult().unknown === true, '讀不到 207E ⇒ 不當成確定');
+      EQ(A.ckResult().alts, ['E503A2', 'EN01'], '讀不到 207E ⇒ E503A2／EN01 兩個都列');
+      EQ(doc.getElementById('tcon-pick').style.display, '', '分不出 ⇒ 下拉出現');
+      await A.ckPick('EN01'); await quiesce();
+      CHECK(NO59(sent), '🔴 手選 EN01 ⇒ 仍然不寫 3E:0059');
+      EQ(doc.getElementById('sf-model').value, 'EN01', '手選 EN01 ⇒ 外部 Flash 型號帶 EN01');
+    }
+    {
+      const sent = await useHelper(ckScript(Object.assign({}, E503LIKE, { '0x7D:2:0x7D': [0x03], '0x3E:2:0x207E': [0xFF] })));
+      await A.checkTcon(); await quiesce();
+      CHECK(A.ckResult().unknown === true && NO59(sent), '207E 全 FF ⇒ 分不出、不寫 3E:0059');
+      await A.ckPick('E503A2'); await quiesce();
+      EQ(W(sent), ['0x7E:1:0xAB←CD', '0x7E:1:0xAB←CD', '0x3E:2:0x59←1E'], '分不出時手選 E503 ⇒ 才下 M-Bus 導通 C-Bus');
+    }
+    {
+      const sent = await useHelper(ckScript(Object.assign({}, E503LIKE, { '0x7D:2:0x7D': [0x01], '0x3E:2:0x207E': [0x12] })));
+      await A.checkTcon(); await quiesce();
+      CHECK(A.ckResult().unknown === true && NO59(sent), '207E = 0x12（高 nibble 像 EN01 但不在表內）⇒ 不猜、不寫 3E:0059');
+    }
+    /* E501：7C 判斷不動；SY 7D 只做佐證，一律不寫 */
+    {
+      const sent = await useHelper(ckScript({ '0x7C:1:0x95': [0x00], '0x7C:1:0x98': [0x01], '0x7D:2:0x1E': [0x05] }));
+      await A.checkTcon(); await quiesce();
+      EQ(A.ckResult().name, 'E501A', 'SY E501A：7D:001E[7:4] = 0 ⇒ 仍是 E501A（A3／A6 分不出）');
+      EQ(W(sent), [], 'SY E501A ⇒ 沒有寫入');
+      CHECK(R(sent).indexOf('0x3E:2:0x207E') < 0, 'E501 不碰 3E');
+      EQ(doc.getElementById('sf-model').value, 'E501A', 'E501A ⇒ 外部 Flash 型號照舊');
+    }
+    {
+      const sent = await useHelper(ckScript({ '0x7C:1:0x95': [0x41], '0x7C:1:0x98': [0x01], '0x7D:2:0x7F': [0x01] }));
+      await A.checkTcon(); await quiesce();
+      EQ(A.ckResult().name, 'E501B2', 'SY E501B2：7C:95 = 41 與 7D:007F = 01 一致 ⇒ E501B2');
+      EQ(W(sent), [], 'SY E501B2 ⇒ 沒有寫入');
+      EQ(doc.getElementById('sf-model').value, 'E501B', 'E501B2 ⇒ 外部 Flash 型號 E501B');
+    }
+    {
+      const sent = await useHelper(ckScript({ '0x7C:1:0x95': [0x40], '0x7C:1:0x98': [0x01], '0x7D:2:0x7F': [0x01] }));
+      await A.checkTcon(); await quiesce();
+      CHECK(A.ckResult().unknown === true, 'SY E501B：7C 說 B1、7D:007F 說 B2 ⇒ 不挑');
+      EQ(A.ckResult().alts, ['E501B1', 'E501B2'], 'SY E501B 不一致 ⇒ B1／B2 都列');
+      EQ(W(sent), [], 'SY E501B 不一致 ⇒ 沒有寫入');
+    }
+    /* EM01（B 段）不受影響 */
+    {
+      const sent = await useHelper(ckScript({
+        '0x7C:1:0x95': null, '0x7C:1:0x98': null, '0x7D:2:0x7D': null, '0x68:2:0xFF00': [0x01, 0xEF, 0xA1]
+      }));
+      await A.checkTcon(); await quiesce();
+      EQ(A.ckResult().name, 'EM01A1', 'EM01 判斷不受 SY 表影響');
+      EQ(W(sent), [], 'EM01 ⇒ 沒有寫入');
     }
     await win.__i2ct.disconnect();
   }

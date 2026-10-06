@@ -30,7 +30,7 @@
           出來」。那個前提**早就不成立**：bridge 的靜態檔服務拒絕子資料夾、而且自 v1.7.0
           起預設關閉 —— 詳細依據與行號寫在 body 末端那兩個 <script> 的上面。）
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="common/version.js?v=20261006i2c1331"></script>
+<script src="common/version.js?v=20261006i2c1340"></script>
 <style>
   * { box-sizing: border-box; }
   :root{
@@ -739,7 +739,7 @@
     label.f.sflen{width:100% !important;}
   }
 </style>
-<link rel="stylesheet" href="common/done-step.css?v=20261006i2c1331">
+<link rel="stylesheet" href="common/done-step.css?v=20261006i2c1340">
 </head>
 <body>
 
@@ -931,7 +931,7 @@
     <div class="row" id="tcon-row" style="align-items:center;">
       <button id="btn-checktcon" class="pri" disabled
               data-i18n-title="i2c.tipCheckTcon"
-              title="讀 0x7C 的 0x98/0x95 與 0x7D 的 0x007D 判斷 T-CON 型號；判到 E503 會自動下一次 M-Bus 導通 C-Bus">Check T-CON</button>
+              title="讀 0x7C 的 0x98/0x95、0x7D 的 0x007D 與 0x3E 的 0x207E（SY 辨認表）判斷 T-CON 型號；只有確定是 E503 才自動下 M-Bus 導通 C-Bus，EN01 不下">Check T-CON</button>
       <span id="tcon-name" class="mono" style="font-size:22px;font-weight:800;letter-spacing:.5px;color:var(--sub);">—</span>
       <select id="tcon-pick" class="mono" style="display:none;font-size:14px;padding:5px 8px;"
               data-i18n-aria="i2c.ariaTconPick" aria-label="手動選擇 T-CON 型號"></select>
@@ -1650,10 +1650,10 @@
      🔴 **CSS 沒有跟著載**（見 style 區塊頂端的說明）：common.css 有 `.card`／`.row`／
         無範圍的 `label{}` 等等，與本頁同名而語意完全不同，載進來會整頁走樣。
         頁首那四條宣告是逐字抄過來的，來源行號寫在各自上面。 -->
-<script src="common/i18n.js?v=20261006i2c1331"></script>
-<script src="common/common.js?v=20261006i2c1331"></script>
-<script src="common/i2c-spiflash.js?v=20261006i2c1331"></script>
-<script src="common/done-step.js?v=20261006i2c1331"></script>
+<script src="common/i18n.js?v=20261006i2c1340"></script>
+<script src="common/common.js?v=20261006i2c1340"></script>
+<script src="common/i2c-spiflash.js?v=20261006i2c1340"></script>
+<script src="common/done-step.js?v=20261006i2c1340"></script>
 
 <script>
 'use strict';
@@ -5796,7 +5796,7 @@ async function i2ctCkRomSeq(){
 
   if (rfl.bytes[0] !== 0x00) {                                            /* L33510 ⇒ E501 系列 */
     var e = I2CT_CK_E501_MAP[rid.bytes[0]];
-    if (e) return { name: e.name, ext: e.ext, alts: null, isE503: false, src: 'rom' };
+    if (e) return await i2ctCkSyE501Cross({ name: e.name, ext: e.ext, alts: null, isE503: false, src: 'rom' });
     /* 上游此時 tcon_id 不在 dict 裡 ⇒ `tcon_id = ''`（L33568–33570），什麼都不印。
        我們一樣不編造型號。 */
     i2ctCkLog('0x7C:0x98 != 0 but 0x95 = 0x' + i2ctHex(rid.bytes[0]) + ' is not in tcon_id_dict');
@@ -5808,7 +5808,8 @@ async function i2ctCkRomSeq(){
   if (!rv.ok || !rv.bytes.length) { i2ctCkLog('0x7D:0x007D read failed'); return null; }
   i2ctCkLog('0x7D:0x007D = ' + i2ctBytesText(rv.bytes));
   var v = I2CT_CK_E503_MAP[rv.bytes[0]];
-  if (v) return { name: v.name, ext: v.ext, alts: null, isE503: true, src: 'rom' };
+  /* v1.34.0：7D:007D 落在 E503 表裡 ⇒ 還不能說是 E503（EN01 在這裡讀到的值和 E503 撞），先讀 3E:207E 分 EN01（SY 表）。 */
+  if (v) return await i2ctCkSyE503OrEn01(v);
   /* L31711–31712 else ⇒ DAZZO Old TCON（DAZ613x） */
   return { name: I2CT_CK_DAZ13X.name, ext: I2CT_CK_DAZ13X.ext,
            alts: I2CT_CK_DAZ13X.alts.slice(), isE503: false, src: 'rom' };
@@ -5951,8 +5952,8 @@ function i2ctCkRender(){
 }
 
 /* 未知時下拉列出的**全部**支援型號（＝他點名的那九顆的可選形式）。
-   v1.33.0：加 EN01（RM81008）。EN01 Check T-CON 認不出來（原廠 AUX 判斷條件和 E503 逐字相同：
-   Tcon81008.cs:173–190 vs Tcon8100x.cs:96–113），只能在這裡手選；選定後才讀 3E:207E 分 A1／A2。 */
+   v1.33.0：加 EN01（RM81008）。原廠 AUX 判斷條件和 E503 逐字相同（Tcon81008.cs:173–190 vs Tcon8100x.cs:96–113）。
+   v1.34.0：改依 SY 辨認表自動分（3E:207E＝10／11 ⇒ EN01，見 i2ctCkSyE503OrEn01）；分不出時仍可在這裡手選。 */
 var I2CT_CK_ALL = ['EM01A1', 'EM02A1', 'E503A1 T1', 'E503A1 T2', 'E503A1 T3',
                    'E503A2', 'E503A3', 'E501A', 'E501B1', 'E501B2', 'E512A1', 'EN01',
                    'DAZ6111', 'DAZ6138', 'DAZ6139'];
@@ -5961,7 +5962,8 @@ var I2CT_CK_ALL = ['EM01A1', 'EM02A1', 'E503A1 T1', 'E503A1 T2', 'E503A1 T3',
    出處：DLL_Raydium_CommonLibrary ICDefine.cs:294（rm81008 IC_VERSION＝AddrBitInfo(0x207E, 3, 0)）；
          WPF RomCodeInfo.cs:1397–1416（slave 0x3E、2-byte offset、0x207E、1 byte，(data >> 0) & 0x0F：
          0＝A1（L1412）、1＝A2（L1413）、其他＝Unknown（L1414））。只顯示，不影響任何流程。
-   🔴 只在型號「已確定是 EN01」（Check T-CON 下拉手選 EN01）之後才讀；E501／EM01 等其他型號一律不碰 0x3E
+   （v1.34.0：Check T-CON 自動判斷也會在 7D:007D 落在 E503 表內時讀 207E，依 SY 表 10／11 分 EN01，見下方 i2ctCkSyE503OrEn01。）
+   🔴 i2ctCkEn01Ver 只在型號「已確定是 EN01」（Check T-CON 下拉手選 EN01）之後才讀；E501／EM01 等其他型號一律不碰 0x3E
       （207E 在別顆上的意義沒有定義，不能拿來當型號 ID）。
    🔴 讀不到或讀到 0xFF：下一次 EN01 的 M-Bus→C-Bus `7E:AB←CD`（ICDefine.cs:576–580，和 E503 的第一筆相同）再重讀一次；
       原廠 RCI:1397–1404 讀前沒下這筆，但一般暫存器讀取（RegisterModule.cs:36）會先下 ⇒ 先直接讀，失敗才補。
@@ -5993,6 +5995,83 @@ async function i2ctCkEn01Ver(){
   if (v == null) return { fail: true };
   var n = v & V.mask;
   return { raw: v, n: n, txt: i2ctCkEn01VerText(n) };
+}
+
+/* ═══ v1.34.0：SY 的 NB TCON 辨認表（SY Kuo 2026-10-06 16:29「RE: EN01 I2C辨認方式」；
+   16:35 補充「7D和3E的offset都是2 bytes」）。Bruce 2026-10-06：「把這些也加到 check T-CON 裡面」。
+   全表（逐字轉錄）：Obsidian assistant_kb/reference/TCON辨識表_SY_20261006.md
+     E501 A3/A6   7D_01Eh[7:4] = CHIP_VERSION[3:0]               = 4'b0     （E501A3, A6 無法從 reg 判別）
+     E501 B1/B2   7D_07Fh[7:0] = {3'b0, CHIP_ID[4:0]}            = 00 / 01
+     E503 A1/A2/A3 7D_07Dh[7:0] = {3'b0, CHIP_ID[4:0]}           = 00·01·02（A1 三種 split）/ 03 / 04
+     EN01 A1/A2   3E_207Eh[7:0] = {CHIP_VERSION_DGL, DFT_A2D_VERCODE} = 10 / 11
+   用法（信裡沒有寫判斷順序，以下是本頁的接法，**只用表裡的值**）：
+   ① E501 仍由 7C:98／7C:95 判（既有，不動）；SY 表的 7D 值只做**佐證**：
+      E501B 與 7D:007F 對不上 ⇒ 不挑，B1／B2 都列；讀不到／不在表內 ⇒ 只記 log，結果照 7C。
+   ② 7D:007D 在 E503 表內 ⇒ 再讀 3E:207E：
+      ＝0x10／0x11 ⇒ EN01 A1／A2（**不寫 3E:0059**）；
+      讀到別的有效值 ⇒ E503（才下 7E:AB←CD、3E:0059←1E）；
+      讀不到、0xFF、或高 nibble＝1 但不是 10／11 ⇒ 分不出 E503／EN01 ⇒ 列成可選、不寫 3E:0059。
+   🔴 未確認（信裡沒寫，Bruce／SY 待確認）：E503 在 3E:207E 讀到什麼；讀 3E 之前要不要先下 7E:AB←CD
+      （本頁：直接讀，讀不到／FF 才補下 7E:AB←CD 再讀 —— 這一筆 E503 與 EN01 原廠流程都會下，沿用 v1.33.0）。 */
+var I2CT_CK_SY_EN01  = { 0x10: 'A1', 0x11: 'A2' };
+var I2CT_CK_SY_E501B = { 0x00: 'E501B1', 0x01: 'E501B2' };
+var I2CT_CK_SY_E501A_VER = { slave: 0x7D, awid: 2, addr: 0x001E, len: 1 };
+var I2CT_CK_SY_E501B_ID  = { slave: 0x7D, awid: 2, addr: 0x007F, len: 1 };
+
+async function i2ctCkSyRead1(R){
+  var r = await i2ctDoRead(R.slave, R.awid, R.addr, R.len, true);
+  return (r.ok && r.bytes.length) ? r.bytes[0] : null;
+}
+/* ① E501：SY 表佐證（只讀）。任何意外都回原結果，不讓 E501 判斷壞掉。 */
+async function i2ctCkSyE501Cross(r){
+  try {
+    if (r.name === 'E501A') {
+      var a = await i2ctCkSyRead1(I2CT_CK_SY_E501A_VER);
+      if (a == null) { i2ctCkLog('SY table: 0x7D:0x001E read failed (keep E501A from 0x7C)'); return r; }
+      var cv = (a >> 4) & 0x0F;
+      i2ctCkLog('SY table: 0x7D:0x001E = 0x' + i2ctHex(a) + ', CHIP_VERSION[7:4] = ' + cv +
+        (cv === 0 ? ' => E501A3/A6 (cannot tell A3 from A6 by register)' : ' => not in SY table (E501A = 0), keep 0x7C result'));
+      return r;
+    }
+    if (r.name === 'E501B1' || r.name === 'E501B2') {
+      var b = await i2ctCkSyRead1(I2CT_CK_SY_E501B_ID);
+      if (b == null) { i2ctCkLog('SY table: 0x7D:0x007F read failed (keep ' + r.name + ' from 0x7C)'); return r; }
+      var sy = I2CT_CK_SY_E501B[b];
+      i2ctCkLog('SY table: 0x7D:0x007F = 0x' + i2ctHex(b) + ' => ' + (sy || 'not in SY table, keep 0x7C result'));
+      if (sy && sy !== r.name) {
+        i2ctCkLog('SY table vs 0x7C:0x95 disagree (' + sy + ' / ' + r.name + ') => list both');
+        return { name: r.name, ext: r.ext, alts: ['E501B1', 'E501B2'], isE503: false,
+                 unknown: true, ambiguous: true, src: 'rom' };
+      }
+    }
+  } catch (e) { i2ctCkLog('SY table cross-check skipped: ' + e.message); }
+  return r;
+}
+/* ② E503 還是 EN01：讀 3E:207E。只有「讀到有效值且不是 EN01 的形狀」才算確定 E503。 */
+async function i2ctCkSyE503OrEn01(v){
+  var V = I2CT_CK_EN01_VER;
+  var b = await i2ctCkSyRead1(V);
+  i2ctCkLog('SY table: 0x3E:0x207E = ' + (b == null ? 'read failed' : '0x' + i2ctHex(b)));
+  if (b == null || b === 0xFF) {
+    i2ctCkLog('SY table: M-Bus to C-Bus 0x7E:0xAB <- CD, retry 0x3E:0x207E');
+    var w = await i2ctDoWrite(0x7E, 1, 0xAB, [0xCD]);
+    if (!w.ok) i2ctCkLog('0x7E:0xAB write failed: ' + (w.err || ''));
+    b = await i2ctCkSyRead1(V);
+    i2ctCkLog('SY table: 0x3E:0x207E (retry) = ' + (b == null ? 'read failed' : '0x' + i2ctHex(b)));
+  }
+  if (b != null && I2CT_CK_SY_EN01[b]) {
+    i2ctCkLog('SY table: 0x3E:0x207E = 0x' + i2ctHex(b) + ' => EN01 ' + I2CT_CK_SY_EN01[b] + ' (no 0x3E:0x0059 write)');
+    return { name: 'EN01', ext: 'RM81008', alts: null, isE503: false, src: 'rom',
+             en01Ver: { raw: b, n: b & V.mask, txt: I2CT_CK_SY_EN01[b] } };
+  }
+  if (b == null || b === 0xFF || (b & 0xF0) === 0x10) {
+    i2ctCkLog('SY table: cannot tell E503 from EN01 (0x3E:0x207E ' + (b == null ? 'read failed' : '= 0x' + i2ctHex(b)) +
+              ') => no 0x3E:0x0059 write, pick manually');
+    return { name: v.name, ext: v.ext, alts: [v.name, 'EN01'], isE503: false,
+             unknown: true, ambiguous: true, src: 'rom' };
+  }
+  i2ctCkLog('SY table: 0x3E:0x207E = 0x' + i2ctHex(b) + ' is not EN01 (10/11) => ' + v.name);
+  return { name: v.name, ext: v.ext, alts: null, isE503: true, src: 'rom' };
 }
 
 async function i2ctCheckTcon(){
@@ -6040,6 +6119,7 @@ async function i2ctCheckTconRun(){
   i2ctCkResult = r;
   i2ctCkRender();
   i2ctLog(i2ctT('i2c.logCkDone', { name: r.name }), 'o');
+  if (r.en01Ver && !r.en01Ver.fail) i2ctLog(i2ctT('i2c.logCkEn01Ver', { v: r.en01Ver.txt, raw: i2ctHex(r.en01Ver.raw) }), 'o');   /* v1.34.0 */
   i2ctSfOnCk();                   /* v1.31.0：外部 Flash 型號跟著這次結果 */
 
   /* E503 特殊處理 —— 只有**確定是 E503** 才下（有寫入副作用，歧義未定時不做）。 */
@@ -8753,9 +8833,8 @@ function i2ctSfLogCopy(){
    Check T-CON 的名稱 → 外部 Flash 型號。只列 Check T-CON 真的會報出來的名稱（i2ctCkRomSeq／i2ctCkScanIcId）：
      E501A／E501B1／E501B2：7C:0x98≠0 且 7C:0x95＝00／40／41（PY L33501–33521，i2ctCkRomSeq）
      EM01A1：0xFF00 讀到 01 EF Ax（PQ Tool CheckICID，i2ctCkScanIcId；VM01S1 判別條件相同，選了 VM01S1 就不帶）
-   🔴 EN01（RM81008）Check T-CON 認不出來：原廠 RomCodeProcessUI 也是手選（HV:44–48），連線後只讀 3E:0x207E 看
-      A1／A2（RCI:1373–1420），那是版本、不是型號 ID ⇒ 沒有可照抄的型號判斷，維持手選，不自己發明判斷條件。
-      v1.33.0：Check T-CON 的下拉可手選 EN01（i2ctCkPick 再讀 207E 顯示 A1／A2）⇒ 選了就帶入 EN01。
+   EN01（RM81008）：v1.34.0 起依 SY 辨認表（2026-10-06「RE: EN01 I2C辨認方式」）3E:207E＝10／11 自動認出
+      （i2ctCkSyE503OrEn01）；分不出 E503／EN01 時仍可在下拉手選 EN01（i2ctCkPick 再讀 207E 顯示 A1／A2）。
    兩段結果衝突（conflict）、認不出來（unknown）⇒ 不帶，交給使用者。 */
 var I2CT_SF_CK_MAP = { 'E501A': 'E501A', 'E501B1': 'E501B', 'E501B2': 'E501B', 'EM01A1': 'EM01', 'EN01': 'EN01' };
 /* v1.33.0（Bruce 2026-10-06「讀取 Flash 長度…請改成預設的是 0x40000」）：讀取長度預設 256 KB。 */
