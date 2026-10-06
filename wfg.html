@@ -3687,8 +3687,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20261006wfg4533"></script>
-<script src="common/i18n.js?v=20260921wfg4531"></script>
+<script src="common/version.js?v=20261006wfg4540"></script>
+<script src="common/i18n.js?v=20261006wfg4540"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ═══════════ WFG — 面板訊號模擬與取樣 ═══════════
@@ -46749,6 +46749,48 @@ function wfgEm02BuildScript(opt) {
    實測 104 份樣本（3596／3696／3956／4096 四種大小）**全部用同一組 offset**。 */
 var WFG_E512_BASE1 = 0x03D7;   // fileOff：rt8_tcon_1 chunk 起點
 var WFG_E512_BASE2 = 0x04A5;   // fileOff：rt8_tcon_2 chunk 起點
+/* ══ v4.54.0：MNT 三顆的 TX 輸出介面（決定匯入時自動選定頻／變頻）════════════════
+   Bruce 2026-10-06：「只要是遇到 EM02 匯入的 code，或者是 E512，使用的是 Mini-LVDS 輸出的，
+   匯入 code 時都是自動要選擇到變頻應用（但也都可以再手動更改）。」
+   同日補充：「EM01 因為有 iSP 跟 miniLVDS 兩種，所以變頻跟定頻都有……之後匯入 EM01 的 code
+   就可以用這個來判斷是要變頻還是定頻。」
+
+   ── EM02／E512：晶片只有 Mini-LVDS 輸出 ────────────────────────────────────
+   證據是 register bank 的**分區清單**，不是某一格的值：
+     ・E512 `e512_register_bank_final.xls` bank_offset：TX 相關只有 `mini_tx`（0x0260）
+     ・EM02 `EM02A1_register_bank_svn213_final.xls` bank_offset：只有 `mini_tx`／`mini_tx_2`
+     ・對照 EM01 `(Golden_RD_Check_Final)em01_register_bank_svn2415.xlsx`：另有
+       `tx_dtop_p2p`（0x0F00）／`tx_sd_setting`／`tx_d2atop` —— iSP 等點對點介面在這幾區。
+     ・E512 原廠工具 `VCL_TV_TCON_E512_Tool/App/TX/RApp_TX.cpp` 的 `RApp_TX_Load()`
+       讀完後直接 `eType = E_TX_TYPE_MINI;`（讀暫存器判 TX type 那兩行是註解掉的）。
+   🔴 **不用 rt7 的 `reg_isp_mlvds_sel`（regAddr 0x0480 bit0）判 E512**：E512 bank 這一格
+      Init＝0、沒有說明；實測原廠 golden／IC test 檔有 70 份是 0（其中一份檔名就叫
+      `..._8bit_mini.BIN`），客戶 RM80020 檔全是 1 —— 在只有 mini_tx 的晶片上這一格不代表
+      輸出介面，拿它判會把真正的 Mini-LVDS code 判成「不是」。
+
+   ── EM01：讀 code 內的 TX type ─────────────────────────────────────────────
+   原廠工具 System → TX 頁的 `ComboBox_System_TX_Type_Sel`（mini_LVDS／iSP／USI-T…）：
+     ・寫入：`VCL_TV_TCON_EM01_Tool/App/TX/RApp_TX.cpp:4116-4124`
+       `RApp_TX_ComboBox_TX_Type_SelChange()` → `(BK_TX_DTOP_P2P+0x00)`，值 `ItemIndex<<4`，遮罩 0x70
+     ・讀回：同檔 `:1292` 讀 `BK_TX_DTOP_P2P+0x00`、`:1302` `eType = (au8RegTemp[0] >> 4) & 0x07`
+     ・`BK_TX_DTOP_P2P` ＝ 0x0F00（`App/RApp_Common.h:73`）；列舉 `App/TX/RApp_TX.h:7-16`
+       E_TX_TYPE_MINI＝0、E_TX_TYPE_ISP＝1
+     ⇒ **regAddr 0x0F00 bit[6:4]**（register bank `tx_dtop_p2p` h0000 [6:4] `reg_combo_tx_sel`）：
+        0 ＝ mini-LVDS、1 ＝ iSP。
+   交叉核對：rt7 `reg_isp_mlvds_sel`（regAddr 0x0400 bit0，EM01 bank 明文「0: isp / 1: mini-lvds」）。
+   兩者一致才採用；不一致、值不是 0／1、或讀不到 ⇒ `'unknown'`（維持原行為、卡片標「未確認」）。
+   Flash 是平坦映像（fileOff ＝ regAddr）；🔴 EEPROM 的 0x0F00／0x0400 在檔案裡的位置**沒有查到
+   文件**（WFG_EM01_LAYOUT 只記了 rt8_tcon_1～3）⇒ EEPROM 一律 `'unknown'`，不猜位置。 */
+var WFG_MNT_TX_MLVDS_ONLY = { em02: true, e512: true };
+var WFG_EM01_TX_TYPE_REG = 0x0F00;   // tx_dtop_p2p +0x00 [6:4] reg_combo_tx_sel
+var WFG_EM01_TX_SEL_REG  = 0x0400;   // rt7_data_proc +0x00 [0]  reg_isp_mlvds_sel
+function wfgEm01TxIf(buf, medium) {
+  if (medium !== 'flash' || !buf || buf.length <= WFG_EM01_TX_TYPE_REG) return { txIf: 'unknown', type: -1, sel: -1 };
+  var type = (buf[WFG_EM01_TX_TYPE_REG] >> 4) & 7, sel = buf[WFG_EM01_TX_SEL_REG] & 1;
+  var tx = (type === 0 && sel === 1) ? 'mlvds' : (type === 1 && sel === 0) ? 'isp' : 'unknown';
+  return { txIf: tx, type: type, sel: sel };
+}
+window.wfgEm01TxIf = wfgEm01TxIf;
 function wfgE512Frame(buf) {
   if (buf.length < 8) return null;
   return {
@@ -47585,6 +47627,10 @@ function wfgEm01ParseBin(rawBuf, fname, opt) {
   if (_flr >= 0) det += ' / FIRST LINE READ ' + _flr + ' (reg_st_line_rd @0x' + wfgEm02Hex(WFG_MNT_STLINERD_REG, 4) + ')';
   det += ' / FRM_NO ' + frmNo.f0 + '/' + frmNo.f1 + '/' + frmNo.f2;
   det += ' / EN ' + nEn + '/18';
+  /* v4.54.0：TX 輸出介面（決定匯入時自動選定頻／變頻）。用 `buf`（解碼後的映像），與其他欄位同一個座標系。 */
+  var _tx = wfgEm01TxIf(buf, img.medium);
+  det += ' / TX ' + (_tx.txIf === 'mlvds' ? 'mini-LVDS' : _tx.txIf === 'isp' ? 'iSP' : '未確認')
+       + ' (combo_tx_sel=' + _tx.type + ' @0x0F00[6:4], isp_mlvds_sel=' + _tx.sel + ' @0x0400[0])';
   /* ── v4.13.0：候選清單 ────────────────────────────────────────────────────
      `timingChoices` 給選擇框用。第一項固定是 **CURRENT**（實際輸出、也是預設），
      後面才是三模候選。**只有在呼叫端沒指定 gpoBase 時才回傳** ——
@@ -47657,6 +47703,7 @@ function wfgEm01ParseBin(rawBuf, fname, opt) {
            firstLineRead: (_flr >= 0) ? _flr : undefined,   /* v4.23.0 */
            modeSlots: modes.slots.length, gpoBase: gpoBase1, currentBase: L.base1,
            timingNote: timingNote,
+           txIf: _tx.txIf, txType: _tx.type, txSel: _tx.sel,   /* v4.54.0：見 wfgEm01TxIf() */
            timingChoices: (opt && isFinite(opt.gpoBase)) ? null : choices };
 }
 window.wfgEm01ParseBin = wfgEm01ParseBin;
@@ -49192,8 +49239,70 @@ window.WFG_NB_MODELS = WFG_NB_MODELS;
 window.WFG_NB_FIELDS = WFG_NB_FIELDS;
 
 /* ── 型號無關：把解析結果套進 WFG ───────────────────────────────────────── */
+/* ══ v4.54.0：匯入 code 時依 TX 輸出介面自動選「定頻／變頻應用」═══════════════════
+   Bruce 2026-10-06：「只要是遇到 EM02 匯入的 code，或者是 E512，使用的是 Mini-LVDS 輸出的，
+   匯入 code 時都是自動要選擇到變頻應用（但也都可以再手動更改）。」
+   同日補充：EM01 有 iSP 與 mini-LVDS 兩種 ⇒ 依 code 內 System→TX 的 TX type 判斷。
+
+   判斷依據（不看檔名，來源與證據見 `wfgEm01TxIf()` 上方）：
+     ・型號 ＝ 匯入前型號確認框選定的 codec（`wfgTconKey()`），而且這份 code 必須通過
+       **該型號解析器的內容檢核**才會走到這裡。
+     ・EM02／E512：晶片只有 mini-LVDS 輸出（`WFG_MNT_TX_MLVDS_ONLY`）⇒ 變頻。
+     ・EM01：`res.txIf`（code 內 0x0F00[6:4] ＋ 0x0400[0]）mlvds ⇒ 變頻；isp ⇒ 定頻；
+       unknown ⇒ **不動**型態，只在卡片／console 標「未確認」。
+     ・其他型號（NB 三顆…）⇒ null，流程與 v4.53.3 完全相同。
+
+   🔴 寫的是 `dclkModeUser`（＝「使用者的選擇」），等同幫使用者按了一次 radio：
+      之後使用者手動改，就跟平常手動改一樣被記住；換機種（NB 強制定頻再切回 MNT）
+      還原的也是那個手動值。**只有重新匯入 code 才會再判斷一次**，沒有其他入口呼叫這支。
+   🔴 型態只影響 WFG 畫面上的 DCLK 關係；MNT 匯出的 script 只寫 GPO／GATE／FLR／FRM_NO
+      （rt8_tcon_1～3），**不寫 TX type（0x0F00）也不寫 rt7（0x04xx）**，所以手動切換型態
+      不會改到 code 裡的 TX 設定（`tools/check_wfg_auto_var_clock.mjs` 逐位元組驗）。 */
+function wfgCodeAutoClockMode(key, res) {
+  if (!res || res.ok === false) return null;
+  if (WFG_MNT_TX_MLVDS_ONLY[key]) {
+    return { mode: 'var', why: key, msgKey: key === 'em02' ? 'wfg.codeAutoVarEm02' : 'wfg.codeAutoVarE512' };
+  }
+  if (key === 'em01') {
+    if (res.txIf === 'mlvds') return { mode: 'var', why: 'em01mlvds', msgKey: 'wfg.codeAutoVarEm01' };
+    if (res.txIf === 'isp')   return { mode: 'fixed', why: 'em01isp', msgKey: 'wfg.codeAutoFixEm01' };
+    return { mode: null, why: 'em01unknown', msgKey: 'wfg.codeAutoClkEm01Unknown' };
+  }
+  return null;
+}
+window.wfgCodeAutoClockMode = wfgCodeAutoClockMode;
+/* 切型態（與 `wfgOnDclkModeChange()` 同一套語意：進變頻前收起手動 TX 值、回定頻還原它），
+   並把說明掛到匯入卡片的 notice ＋ console。後續的 RX／clamp／UI 同步交給呼叫端既有那一串。
+   回傳 true ＝ 型態有被設定（含原本就是該型態）。 */
+function wfgCodeApplyAutoClock(ac, res) {
+  if (!ac) return false;
+  var msg = t(ac.msgKey);
+  res.notice = (res.notice ? res.notice + '\n' : '') + msg;
+  try { console.info('[wfg] ' + msg); } catch (e) {}
+  if (ac.mode === 'var') {
+    if (!wfgTconSpec().allowVarClock) return false;
+    if (wfgFrame.dclkMode !== 'var') wfgFrame.dclkFixed = wfgFrame.dclk;
+    wfgFrame.dclkModeUser = 'var';
+    wfgFrame.dclkMode = 'var';
+    return true;
+  }
+  if (ac.mode === 'fixed') {
+    if (wfgFrame.dclkMode === 'var') {
+      var back = parseFloat(wfgFrame.dclkFixed);
+      if (isFinite(back) && back > 0) wfgFrame.dclk = back;
+    }
+    wfgFrame.dclkModeUser = 'fixed';
+    wfgFrame.dclkMode = 'fixed';
+    return true;
+  }
+  return false;   // 未確認：型態不動
+}
 function wfgCodeApplyToWfg(res) {
   wfgInvalidateCache();
+  /* v4.54.0：最先決定型態 —— 等同「使用者匯入前就選了變頻」，下面的 Frame Rate 自動下調、
+     RX／TX 夾值、機種上下限全部照變頻的既有路徑跑，不另立分支。 */
+  var _autoClk = wfgCodeAutoClockMode(wfgTconKey(), res);
+  var _autoClkDone = _autoClk ? wfgCodeApplyAutoClock(_autoClk, res) : false;
   /* v4.13.0：匯出用的「來源」註解在**這一刻**才成立 —— 解析成功不等於套用
      （選擇框可以取消）。沒帶 `timingNote` 的型號一律清成空字串，
      所以 EM02／E512 的匯出內容不會沾到上一份 EM01 檔的註解。 */
@@ -49346,6 +49455,10 @@ function wfgCodeApplyToWfg(res) {
         wfgNbDclkImported = null;
       }
     }
+  }
+  /* v4.54.0：沒有 frame 的結果（目前 EM02／E512 一定有，防呆）不會走上面那一串同步。 */
+  if (_autoClkDone && !res.frame) {
+    wfgUpdateRxDclk(); wfgClampTconDclk(); wfgRecalcHtotal(); wfgUpdateTconHtotal(); wfgSyncDclkUi();
   }
   /* v4.2.0：FRM_NO 三個一起帶入（型號無關，只要解析器有給就套）。 */
   if (res.frmNo) {
