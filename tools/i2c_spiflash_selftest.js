@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /* ═══════════════════════════════════════════════════════════════════════════
-   i2c_spiflash_selftest.js — common/i2c-spiflash.js 的序列測試（i2c v1.29.0）
+   i2c_spiflash_selftest.js — common/i2c-spiflash.js 的序列測試（i2c v1.29.0；v1.30.0 加 EN01 寫入／Erase All）
    ───────────────────────────────────────────────────────────────────────────
    用假 I2C 後端錄下每一筆交易（寫／讀／等待），逐筆比對原廠原始碼的序列，
    每一段期望值旁邊寫原廠出處行號（代號見 common/i2c-spiflash.js 開頭）。
@@ -133,19 +133,53 @@ function fakeEM01(o) {
   };
 }
 
-/* ═══ 假 EN01（FMo 的 0x0098–0x00A1 語意）═════════════════════════════════════ */
-function fakeEN01() {
+/* ═══ 假 EN01（ENP／ICD 的 0x0098–0x00A4 語意，規格 outputs/EN01_flash_write_seq_20261006.md）══════
+   觸發都看「00A0 寫入的值＋當時 0099 的指令」：01＋06＝WREN、01＋C7＝整顆抹除、02＋20＝sector 抹除、
+   08＋05/35/15＝讀狀態、10＋02＝準備寫頁（下一筆 0x64 寫進 Flash）、04＋03＝讀頁。
+   Unlock／Lock：00A1←08 時把 00A4 寫進 0099 指定的 SR（01/31/11）。SR1 有 BP 位元（0x1C）時抹除無效
+   （模擬保護；Lock 值 0x9C 有 BP 位元）。o.sr1 預設 0x9C（出廠已鎖），所以不 Unlock 就寫不進去。 */
+function fakeEN01(o) {
+  o = o || {};
   const mem = new Uint8Array(0x40000); for (let i = 0; i < mem.length; i++) mem[i] = (i * 7 + (i >> 8)) & 0xFF;
   const r = {};
+  const sr = { 0x01: o.sr1 !== undefined ? o.sr1 : 0x9C, 0x31: 0x00, 0x11: 0x60 };
+  let busy = 0, pend = null, flip = o.flipProg || 0;
+  const stats = { erase: [], eraseAll: 0, prog: 0, wren: 0 };
+  const addr = () => ((r[0x9A] << 16) | (r[0x9B] << 8) | r[0x9C]) >>> 0;
+  const prot = () => (sr[0x01] & 0x1C) !== 0;
   return {
-    mem,
-    write(s, aw, a, b) { if (s === 0x3E) b.forEach((v, i) => { r[a + i] = v; }); },
+    mem, r, sr, stats,
+    write(s, aw, a, b) {
+      if (s === 0x3E) {
+        b.forEach((v, i) => { r[a + i] = v; });
+        const c = r[0x99];
+        if (a === 0xA0 && b[0] === 0x01 && c === 0x06) stats.wren++;
+        if (a === 0xA0 && b[0] === 0x01 && c === 0xC7) { stats.eraseAll++; if (!prot()) mem.fill(0xFF); busy = o.eraseAllBusy || 0; }
+        if (a === 0xA0 && b[0] === 0x02 && c === 0x20) { const st = addr() & ~0xFFF; stats.erase.push(H(st, 6)); if (!prot()) mem.fill(0xFF, st, st + 0x1000); busy = o.eraseBusy || 0; }
+        if (a === 0xA0 && b[0] === 0x10 && c === 0x02) pend = addr();
+        if (a === 0xA1 && b[0] === 0x08 && !o.ignoreLock && sr[c] !== undefined) sr[c] = r[0xA4];
+      }
+      if (s === 0x64 && pend !== null) {
+        let d = b; if (flip > 0) { d = b.slice(); d[5] ^= 0x01; flip--; }
+        d.forEach((v, i) => { mem[pend + i] &= v; }); pend = null; stats.prog++;
+      }
+    },
     read(s, aw, a, n) {
-      if (s === 0x3E && a === 0x207E) return [0x01];
-      if (s === 0x64) { const ad = (r[0x9A] << 16) | (r[0x9B] << 8) | r[0x9C]; return Array.from(mem.slice(ad, ad + n)); }
+      if (s === 0x3E && a === 0x207E) return [o.icVer !== undefined ? o.icVer : 0x01];
+      if (s === 0x3E && a === 0x230B) { if (busy > 0) { busy--; return [0x03]; } return [0x00]; }
+      if (s === 0x3E && a === 0x0001) return [0x01];
+      if (s === 0x7C && a === 0xD0) return [({ 0x05: sr[0x01], 0x35: sr[0x31], 0x15: sr[0x11] })[r[0x99]] || 0];
+      if (s === 0x64) { const ad = addr(); return Array.from(mem.slice(ad, ad + n)); }
       return new Array(n).fill(0);
     }
   };
+}
+/* EN01 header（ENHF:30–34、262–274）：每 16 B 一筆，MAP_ST_ADDR＝byte5<<8|byte6，byte8 bit0 EDID、bit1 MCU。 */
+function en01Header(maps, flags) {
+  const d = pattern(0x1000, 41);
+  for (let i = 0; i < 22; i++) { d[i * 16 + 5] = 0x77; d[i * 16 + 6] = 0x77; d[i * 16 + 8] = 0x00; }
+  maps.forEach((m, i) => { d[i * 16 + 5] = m >> 8; d[i * 16 + 6] = m & 0xFF; d[i * 16 + 8] = (flags && flags[i]) || 0; });
+  return d;
 }
 
 (async function main() {
@@ -371,14 +405,13 @@ function fakeEN01() {
   }
 
   /* ════════════════════════ EN01 ════════════════════════ */
-  G('EN01：IC 版本 3E:0x207E（RCI:1397–1416）；寫入停用');
+  G('EN01：IC 版本 3E:0x207E（RCI:1397–1416）；v1.30.0 開放寫入與 Erase All');
   {
     const rc = recorder(fakeEN01());
     const r = await P.EN01.detect(rc.io);
     EQ(rc.log, [Rd(0x3E, 2, 0x207E, 1)], '只讀 207E');
     EQ(r.icVerTxt, 'A2', '0x01 ⇒ A2');
-    EQ(P.EN01.canWrite, false, 'EN01 不開放寫入（Unlock／Lock 值在未分享的共用庫）');
-    CHECK(typeof P.EN01.write === 'undefined', 'EN01 沒有寫入函式');
+    EQ([P.EN01.canWrite, typeof P.EN01.write, typeof P.EN01.eraseAll], [true, 'function', 'function'], 'EN01 有寫入與 Erase All');
   }
   G('EN01 讀（RCIo:1059–1067、FMo:58–88；009A 當高位元組，CL:600–605）');
   {
@@ -403,6 +436,188 @@ function fakeEN01() {
     const r2 = await P.EN01.read(rc2.io, 0, 0x3000, { progress: () => n++, aborted: () => n >= 1 });
     CHECK(r2.aborted && r2.stopAt === 0x1000, '中止停在 0x1000');
     EQ(rc2.log.slice(-2), [W(0x3E, 2, 0x99, Z9), W(0x3E, 2, 0x98, [0x00])], '中止後送清控制');
+  }
+
+  /* ── EN01 寫入／抹除：期望序列照規格逐筆手寫（不呼叫被測程式的任何 helper），每段附原廠行號 ── */
+  const N3 = (reg, v) => W(0x3E, 2, reg, Array.isArray(v) ? v : [v]);
+  const enLock = lock => {                                                  /* ICD:755–828 Unlock／680–753 Lock */
+    let a = [W(0x7C, 1, 0x0F, [0x80]), W(0x7C, 1, 0x08, [0xEE]), W(0x7C, 1, 0x09, [0xE0]), W(0x7C, 1, 0x08, [0xEF]), W(0x7C, 1, 0x09, [0x40]),   /* ICD:760–764／685–689 */
+             N3(0x98, 0xE5), N3(0x98, 0x00)];                                                                                                      /* :766–767／691–692 */
+    for (let r = 0x99; r <= 0xA1; r++) a.push(N3(r, 0x00));                                                                                       /* :768–776／693–701 */
+    [[0x01, lock ? 0x9C : 0x00, lock ? 53 : 73], [0x31, 0x00, lock ? 64 : 94], [0x11, 0x60, lock ? 69 : 84]].forEach(b => {                      /* :779–815／704–740 */
+      a = a.concat([N3(0x98, 0xE5), N3(0x99, 0x06), N3(0xA0, 0x00), N3(0xA0, 0x01), N3(0x99, b[0]), N3(0x9F, 0x00), N3(0xA0, 0x00), N3(0xA0, 0x20),
+                    N3(0xA4, b[1]), N3(0xA1, 0x00), N3(0xA1, 0x08), S(b[2])]);
+    });
+    for (let r = 0x98; r <= 0xA1; r++) a.push(N3(r, 0x00));                                                                                       /* :817–826／742–751 */
+    return a;
+  };
+  const enPoll = nBusy => { let a = []; for (let i = 0; i <= nBusy; i++) {                                                                       /* ENP:57–88 */
+    a = a.concat([N3(0x99, 0x05), N3(0x9E, 0x00), N3(0xA0, 0x08), N3(0xA0, 0x00), Rd(0x3E, 2, 0x230B, 1)]); if (i < nBusy) a.push(S(20)); } return a; };
+  const enErase = (s, nBusy) => [N3(0x98, 0xE5), N3(0x99, 0x06), N3(0xA0, 0x01), N3(0xA0, 0x00), N3(0x99, 0x20),                               /* ENP:192–196 */
+    N3(0x9A, (s >> 4) & 0xFF), N3(0x9B, (s << 4) & 0xFF), N3(0x9C, 0x00), N3(0xA0, 0x02), N3(0xA0, 0x00)].concat(enPoll(nBusy || 0));          /* :197–203 */
+  const enWrite = (s, sd) => { let a = [];
+    for (let k = 0; k * 256 < sd.length; k++) { const pg = s * 16 + k, c = sd.slice(k * 256, k * 256 + 256); while (c.length < 256) c.push(0);   /* ENP:233–235 補 0x00 */
+      a = a.concat([N3(0x99, Z9), N3(0x99, 0x06), N3(0xA0, 0x01), N3(0xA0, 0x00), N3(0xA1, 0x80), N3(0x99, 0x02),                              /* ENP:250–255 */
+                    N3(0x9A, pg >> 8), N3(0x9B, pg & 0xFF), N3(0x9C, 0x00), N3(0x9F, 0xFF), N3(0xA0, 0x10), N3(0xA0, 0x00), W(0x64, 1, 0x00, c)]); }  /* :256–265 */
+    return a.concat([N3(0x99, Z9)]); };                                                                                                          /* :275 */
+  const enRead = (s, n) => { let a = [];
+    for (let k = 0; k * 256 < n; k++) { const pg = s * 16 + k;
+      a = a.concat([N3(0x9A, pg >> 8), N3(0x9B, pg & 0xFF), N3(0x9C, 0x00), N3(0x99, Z9), N3(0xA1, 0x40), N3(0x99, 0x03),                     /* ENP:127–132 */
+                    N3(0x9A, pg >> 8), N3(0x9B, pg & 0xFF), N3(0x9C, 0x00), N3(0x9E, 0x10), N3(0x9F, 0x00), N3(0xA0, 0x04), N3(0xA0, 0x00),       /* :133–139 */
+                    Rd(0x64, 1, 0x00, Math.min(256, n - k * 256))]); }                                                                            /* :141–142 */
+    return a.concat([N3(0x99, Z9)]); };                                                                                                          /* :151 */
+  const enSector = (s, sd, nBusy) => enErase(s, nBusy).concat(enWrite(s, sd), [Rd(0x3E, 2, 0x0001, 1)], enRead(s, sd.length));                /* ENP:349–366 */
+  const enTail = [].concat(enLock(true),                                                                                                         /* AVM:1782 */
+    [N3(0x98, 0xE5), N3(0x99, 0x05), N3(0xA0, 0x08), N3(0xA0, 0x00), Rd(0x7C, 1, 0xD0, 1),                                                        /* ICD:638–641、672 */
+     N3(0x99, 0x35), N3(0xA0, 0x08), N3(0xA0, 0x00), Rd(0x7C, 1, 0xD0, 1),                                                                        /* ICD:650–652 */
+     N3(0x99, 0x15), N3(0xA0, 0x08), N3(0xA0, 0x00), Rd(0x7C, 1, 0xD0, 1),                                                                        /* ICD:661–663 */
+     N3(0x98, 0x00)]);                                                                                                                           /* AVM:1808 */
+
+  G('EN01 寫 0x1780 byte（1 個整 sector＋最後一頁不足 256 B）：逐筆照規格（AVM:1749–1813、ENP:299–398）');
+  {
+    const dv = fakeEN01(), rc = recorder(dv), data = pattern(0x1780, 17), logs = [];
+    const res = await P.EN01.write(rc.io, 0, data, { log: (k, v, c) => logs.push([k, v, c]) });
+    EQ(rc.log, [].concat(enLock(false),                                            /* AVM:1764 Unlock */
+      [N3(0xA1, 0x00)],                                                            /* RCI:1468–1472 EraseInitial（非 A1 不送 0039） */
+      enSector(0, data.slice(0, 0x1000)), enSector(1, data.slice(0x1000)),         /* 每 sector：抹除→寫→CV→讀回 */
+      [N3(0x98, 0x00)],                                                            /* ENP:396 */
+      enTail), '序列逐筆相同（Unlock → 00A1←00 → 2×[抹除＋輪詢 → 寫頁 → 3E:0001 → 讀回] → 0098←00 → Lock → 3 區狀態 → 0098←00）');
+    CHECK(res.ok && Buffer.from(dv.mem.slice(0, 0x1780)).equals(Buffer.from(data)), '假 Flash 內容＝檔案');
+    CHECK(dv.mem.slice(0x1780, 0x1800).every(v => v === 0x00) && dv.mem.slice(0x1800, 0x2000).every(v => v === 0xFF), '最後一頁尾巴補 0x00（ENP:233–235），之後保持抹除後的 FF');
+    EQ(rc.log.filter(l => l === Rd(0x64, 1, 0, 128)).length, 1, '讀回最後一頁只讀實際 128 B（ENP:116、327）');
+    EQ([dv.sr[0x01], dv.sr[0x31], dv.sr[0x11]], [0x9C, 0x00, 0x60], '結束後 SR1＝9C（已鎖，ICD:712）');
+    EQ(res.protect, [0x9C, 0x00, 0x60], '回傳 3 區保護狀態');
+    CHECK(logs.some(l => l[0] === 'i2c.sfLogEn01Cv' && l[1].v === '01'), 'Check Write Value 只記 log（ENP:354–358、FM:137）');
+    CHECK(!logs.some(l => l[0] === 'i2c.sfLogEn01NotLocked'), 'Zone1＝9C ⇒ 沒有未鎖警告');
+    CHECK(!rc.log.some(l => l.startsWith('S 1 ') || l === S(1)), '不送原廠給 UI 喘氣的 Task.Delay(1)（ENP:272）');
+  }
+  G('EN01 沒 Unlock 就抹不掉（假裝置模擬 SR1 保護）⇒ 驗證 Unlock 真的在抹除前送出');
+  {
+    const dv = fakeEN01(), rc = recorder(dv);
+    await SF._EN.eraseSector(rc.io, 0);
+    CHECK(dv.mem[0] !== 0xFF, '保護中（SR1＝9C）直接抹除 ⇒ 沒抹掉');
+    await SF._EN.lockSeq(rc.io, false); await SF._EN.eraseSector(rc.io, 0);
+    CHECK(dv.sr[0x01] === 0x00 && dv.mem[0] === 0xFF, 'Unlock 後（SR1＝00）抹得掉');
+  }
+  G('EN01 A1 排列判斷（ENH:214–233、ENHF:262–274；RCI:1389–1390、1459–1465）');
+  {
+    EQ(SF.en01IsA1(en01Header([0x0000, 0x1400, 0x1800])), true, 'Bank14_17（1400）在 Bank18_19（1800）前 ⇒ A1');
+    EQ(SF.en01IsA1(en01Header([0x0000, 0x1800, 0x1400])), false, '1800 在前 ⇒ A2');
+    EQ(SF.en01IsA1(en01Header([0x0000, 0x1400])), false, '少一個 ⇒ false（不猜）');
+    EQ(SF.en01IsA1(en01Header([0x1400, 0x0000, 0x1800], [0x01])), false, '第 1 筆 EDID 位元＝1 ⇒ 不算 1400（EDID 優先，ENHF:266）');
+    EQ(SF.en01IsA1(en01Header([0x1400, 0x0000, 0x1800], [0x02])), false, '第 1 筆 MCU 位元＝1 ⇒ 不算 1400（ENHF:267）');
+    EQ(SF.en01IsA1(en01Header([0x0000, 0x1400, 0x1800]).slice(0, 0xFFF)), false, '不到 4096 B ⇒ false（ENH:35）');
+    const h = en01Header([0x0000, 0x1400, 0x1800]); h[16 + 5] = 0x00; h[16 + 6] = 0x14;
+    EQ(SF.en01IsA1(h), false, 'byte5/6 位元組順序反過來（0x0014）不算（MAP_ST_ADDR＝byte5<<8|byte6）');
+    const dv = fakeEN01(), rc = recorder(dv), data = en01Header([0x0000, 0x1400, 0x1800]);
+    const res = await P.EN01.write(rc.io, 0, data, {});
+    const u = enLock(false).length;
+    EQ(rc.log.slice(u, u + 2), [N3(0x39, 0xC0), N3(0xA1, 0x00)], 'A1 檔 ⇒ Unlock 之後先 0039←C0 再 00A1←00（AVM:1764→1768；RCI:1459–1472）');
+    CHECK(res.ok && res.a1 === true, '寫入成功、回報 A1');
+    const rc2 = recorder(fakeEN01());
+    await P.EN01.write(rc2.io, 0x1000, data, {});
+    CHECK(!rc2.log.includes(N3(0x39, 0xC0)), '起點不是 0（header 不在這段）⇒ 不送 0039');
+  }
+  G('EN01 讀回不符：整個 sector 重來（重新抹除），重試前等 100 ms（ENP:335–382、DM:122–134）');
+  {
+    const dv = fakeEN01({ flipProg: 1 }), rc = recorder(dv), data = pattern(0x1000, 19), logs = [];
+    CHECK((data[5] & 1) === 0, '前提：data[5] bit0＝0（翻成 1 就寫不進去）');
+    const res = await P.EN01.write(rc.io, 0, data, { log: k => logs.push(k) });
+    CHECK(res.ok, '第 2 次成功');
+    EQ(rc.log, [].concat(enLock(false), [N3(0xA1, 0x00)], enSector(0, data), [S(100)], enSector(0, data), [N3(0x98, 0x00)], enTail),
+       '序列：第 1 次 → 等 100 ms → 整個 sector 再一次（抹除→寫→CV→讀回）→ 收尾');
+    EQ(dv.stats.erase, ['000000', '000000'], '重試會重新抹除');
+    CHECK(logs.includes('i2c.sfLogRetry'), 'log 有重試');
+  }
+  G('EN01 重試 3 次仍不符：0098←00（ENP:389）→ 停，後面 sector 不做 → Lock 收尾');
+  {
+    const dv = fakeEN01({ flipProg: 9999 }), rc = recorder(dv), data = pattern(0x2000, 19), logs = [];
+    let err = null; try { await P.EN01.write(rc.io, 0, data, { log: (k, v) => logs.push([k, v]) }); } catch (e) { err = e; }
+    EQ(err && err.sfKey, 'i2c.sfErrVerify', '丟讀回比對錯誤');
+    EQ(err && err.stopAt, 0, 'stopAt＝0x000000');
+    const s0 = data.slice(0, 0x1000);
+    EQ(rc.log, [].concat(enLock(false), [N3(0xA1, 0x00)], enSector(0, s0), [S(100)], enSector(0, s0), [S(100)], enSector(0, s0), [S(100)], enSector(0, s0),
+       [N3(0x98, 0x00)], enTail), '序列：同一 sector 共 4 次（retryCount=3，ENP:320）→ 0098←00 → Lock → 3 區 → 0098←00；第 2 個 sector 沒動');
+    EQ(dv.stats.erase, ['000000', '000000', '000000', '000000'], '只抹 sector 0、4 次');
+    CHECK(logs.some(l => l[0] === 'i2c.sfLogEn01Mis' && l[1].a === '000000' && l[1].b === '000FFF' && l[1].n === 16) &&
+          logs.filter(l => l[0] === 'i2c.sfLogEn01MisAt').length === 8, 'log 列出 sector 起訖與差異筆數（16 頁各 1 byte），前 8 筆明細（FM:140–147）');
+  }
+  G('EN01 busy 輪詢：每 20 ms 一次，最多 21 次，逾時停並鎖回（ENP:57–88）');
+  {
+    const dv = fakeEN01({ eraseBusy: 3 }), rc = recorder(dv), data = pattern(0x1000, 2);
+    const res = await P.EN01.write(rc.io, 0, data, {});
+    CHECK(res.ok, '忙 3 次後完成');
+    EQ(rc.log, [].concat(enLock(false), [N3(0xA1, 0x00)], enSector(0, data, 3), [N3(0x98, 0x00)], enTail), '序列：輪詢 4 輪、中間 3 次 S 20');
+    const dv2 = fakeEN01({ eraseBusy: 99999 }), rc2 = recorder(dv2);
+    let err = null; try { await P.EN01.write(rc2.io, 0, data, {}); } catch (e) { err = e; }
+    EQ(err && err.sfKey, 'i2c.sfErrEraseBusy', '一直忙 ⇒ 逾時錯誤');
+    EQ(rc2.log.filter(l => l === Rd(0x3E, 2, 0x230B, 1)).length, 21, '讀 230B 21 次（maxRetries=20，`retries++ > 20`）');
+    EQ(rc2.log, [].concat(enLock(false), [N3(0xA1, 0x00)], enErase(0, 21).slice(0, -5), enTail),
+       '逾時後：不讀 CV、不送 ENP:396 的 0098←00（例外跳出），直接 Lock → 3 區 → 0098←00');
+  }
+  G('EN01 中止：做完目前 sector 才停，不送 ENP:396，照樣 Lock 收尾');
+  {
+    const dv = fakeEN01(), rc = recorder(dv), data = pattern(0x3000, 6);
+    let n = 0;
+    const res = await P.EN01.write(rc.io, 0, data, { progress: () => { n++; }, aborted: () => n >= 1 });
+    CHECK(res.aborted && res.stopAt === 0x1000, '停在 0x001000');
+    EQ(rc.log, [].concat(enLock(false), [N3(0xA1, 0x00)], enSector(0, data.slice(0, 0x1000)), enTail), '序列：第 1 個 sector → 直接 Lock 收尾');
+    EQ(dv.stats.erase, ['000000'], '只動了第 1 個 sector');
+  }
+  G('EN01 I2C 出錯：照樣送完 Lock、3 區狀態、0098←00（AVM:1780–1808）');
+  {
+    const u = enLock(false).length;
+    for (const at of [3, u + 30]) {
+      const rc = recorder(fakeEN01(), { failAt: at });
+      let err = null; try { await P.EN01.write(rc.io, 0, pattern(0x1000), {}); } catch (e) { err = e; }
+      CHECK(!!err && /NACK/.test(err.message), '第 ' + at + ' 筆出錯 ⇒ 錯誤往上丟');
+      EQ(rc.log.slice(at), enTail, '第 ' + at + ' 筆出錯 ⇒ 後面就是完整的 Lock → 3 區 → 0098←00' + (at === 3 ? '（Unlock 送到一半也會 Lock）' : ''));
+    }
+    const rc3 = recorder(fakeEN01(), { failAt: u + 4 + enSector(0, pattern(0x1000)).length + 1 + 5 });   /* Lock 送到一半出錯 */
+    let err3 = null; try { await P.EN01.write(rc3.io, 0, pattern(0x1000), {}); } catch (e) { err3 = e; }
+    CHECK(!!err3, 'Lock 送一半出錯 ⇒ 仍回報錯誤');
+    EQ(rc3.log[rc3.log.length - 1], N3(0x98, 0x00), '仍然送到最後的 0098←00');
+  }
+  G('EN01 Lock 後 Zone1 不是 9C ⇒ log 標紅警告（規格 §3.8 建議；原廠只顯示）');
+  {
+    const logs = [];
+    const res = await P.EN01.write(recorder(fakeEN01({ sr1: 0x00, ignoreLock: true })).io, 0, pattern(0x1000), { log: (k, v, c) => logs.push([k, c]) });
+    CHECK(res.ok, '寫入仍算成功（原廠不依保護狀態擋，AVM:1795–1802）');
+    CHECK(logs.some(l => l[0] === 'i2c.sfLogEn01NotLocked' && l[1] === 'e'), 'log 有紅字警告');
+  }
+  G('EN01 起點 0x20000：sector／page 號照位址換算（ENP:189–198、256–257）');
+  {
+    const dv = fakeEN01(), rc = recorder(dv), data = pattern(0x1000, 23);
+    const res = await P.EN01.write(rc.io, 0x20000, data, {});
+    const u = enLock(false).length + 1;
+    EQ(rc.log.slice(u, u + 10), enErase(0x20).slice(0, 10), '抹除 009A＝02、009B＝00');
+    CHECK(rc.log.includes(N3(0x9A, 0x02)) && rc.log.includes(N3(0x9B, 0x0F)), '寫頁 page 0x200–0x20F');
+    CHECK(res.ok && Buffer.from(dv.mem.slice(0x20000, 0x21000)).equals(Buffer.from(data)), '假 Flash 0x20000 起＝資料');
+  }
+  G('EN01 Erase All（DM:96–116 → FM:64–77 → ENP:162–181）');
+  {
+    const dv = fakeEN01({ sr1: 0x00, eraseAllBusy: 5 }), rc = recorder(dv);
+    const res = await P.EN01.eraseAll(rc.io, {});
+    EQ(rc.log, [N3(0xA1, 0x00), N3(0x98, 0xE5), N3(0x99, Z9), N3(0x99, 0x06), N3(0xA0, 0x01), N3(0xA0, 0x00),     /* ENP:166–171 */
+                N3(0x99, Z9), N3(0x99, 0xC7), N3(0xA0, 0x01), N3(0xA0, 0x00)].concat(enPoll(5)),                  /* :172–178 */
+       '序列逐筆相同（10 筆＋輪詢；前後沒有 Unlock／Lock／0098←00，照原廠）');
+    CHECK(res.ok && dv.mem.every(v => v === 0xFF), '整顆變 FF');
+    const dv2 = fakeEN01({ sr1: 0x00, eraseAllBusy: 99999 }), rc2 = recorder(dv2);
+    let err = null; try { await P.EN01.eraseAll(rc2.io, {}); } catch (e) { err = e; }
+    EQ(err && err.sfKey, 'i2c.sfErrEraseBusy', '一直忙 ⇒ 逾時');
+    EQ(rc2.log.filter(l => l === Rd(0x3E, 2, 0x230B, 1)).length, 401, '讀 230B 401 次（maxRetries=400，DM:89–91）');
+    const dv3 = fakeEN01({ sr1: 0x00, eraseAllBusy: 99999 }), rc3 = recorder(dv3); let k = 0;
+    const r3 = await P.EN01.eraseAll(rc3.io, { aborted: () => ++k > 3 });
+    CHECK(r3.aborted && rc3.log.filter(l => l === Rd(0x3E, 2, 0x230B, 1)).length === 3, '中止 ⇒ 停止輪詢（ENP:64）');
+    const dv4 = fakeEN01(), rc4 = recorder(dv4);
+    await P.EN01.eraseAll(rc4.io, {});
+    CHECK(dv4.stats.eraseAll === 1 && dv4.mem[0] !== 0xFF, '原廠 Erase All 不先 Unlock：SR1 保護中抹不掉（假裝置模擬；確認窗有寫）');
+  }
+  G('EN01 prepWrite：不補到 4 KB（最後一頁才補 0x00，ENP:233–235）');
+  {
+    const p = SF.prepWrite(P.EN01, [1, 2, 3]);
+    EQ([p.data.length, p.pagePad], [3, true], '3 byte ⇒ 不補、標 pagePad');
+    EQ(SF.prepWrite(P.EN01, new Array(512).fill(1)).pagePad, false, '512 byte ⇒ 不用補');
   }
 
   /* ════════════════════════ 共用 ════════════════════════ */
@@ -588,18 +803,52 @@ function fakeEN01() {
     SFU.answer(true); await p;
     EQ([dev.mem[0x10000], dev.mem[0x10002], dev.mem[0x10003], dev.mem[0x10FFF]], [1, 3, 0, 0], 'EM01 寫入：資料＋補 0x00');
 
-    G('畫面：EN01 只開讀取');
+    CHECK(!vis($('sf-eraseall')), 'EM01 沒有「整顆抹除」鈕');
+
+    G('畫面：EN01 讀取、寫入、整顆抹除（v1.30.0）');
     SFU.setModel('EN01');
     EQ(Array.from($('sf-slaves').querySelectorAll('b')).map(b => b.textContent), ['0x3E', '0x64'], 'EN01：0x3E／0x64');
-    CHECK(/待上機確認/.test($('sf-modelnote').textContent) && /寫入暫時停用/.test($('sf-modelnote').textContent), '畫面標「待上機確認」與寫入停用原因');
+    CHECK(/待上機確認/.test($('sf-modelnote').textContent) && /現行序列/.test($('sf-modelnote').textContent), '畫面標「依原廠現行序列，待上機確認」');
+    CHECK(/待上機確認/.test($('sf-wrnote').textContent) && /Lock/.test($('sf-wrnote').textContent), '寫入說明標「待上機確認」並寫明 Unlock／Lock');
     CHECK(!vis($('sf-auto')), 'EN01 不顯示自動判斷');
+    CHECK(vis($('sf-eraseall')) && $('sf-eraseall').disabled, 'EN01 出現「整顆抹除」鈕，讀 IC 版本前停用');
     dev = fakeEN01(); await SFU.detect();
     CHECK(/A2/.test($('sf-id').textContent), '顯示 IC 版本 A2');
-    SFU.setFile('en.bin', pattern(0x1000));
-    CHECK($('sf-write').disabled && $('sf-pick').disabled && /停用/.test($('sf-write').title), '寫入鈕、選檔鈕停用，滑鼠提示寫原因');
+    CHECK(!$('sf-pick').disabled && !$('sf-eraseall').disabled, '讀到 IC 版本後：選檔、整顆抹除開了');
     $('sf-rd-start').value = '0'; $('sf-rd-len').value = '0x2000';
     await SFU.read();
     CHECK(Buffer.from(SFU.lastDownload.bytes).equals(Buffer.from(dev.mem.slice(0, 0x2000))), 'EN01 讀出內容正確');
+    const enData = en01Header([0x0000, 0x1400, 0x1800]).concat(pattern(0x80, 3));   /* A1 header＋0x80 ⇒ 0x1080 byte */
+    SFU.setFile('en.bin', enData); $('sf-wr-start').value = '0x000000';
+    CHECK(!$('sf-write').disabled, '選檔後寫入開了');
+    n0 = sent.length;
+    p = SFU.write(); await until(() => SFU.state().confirmOpen);
+    const cfe = $('sf-cf-tbl').textContent;
+    CHECK(/EN01/.test(cfe) && /0x000000 – 0x00107F/.test(cfe) && /2 × 4 KB/.test(cfe) && /A1（寫入前送 0039←C0）/.test(cfe) && /補 0x00（讀回只比檔案長度）/.test(cfe),
+          '確認窗：範圍照實際長度、2 個 sector、A1、最後一頁補 0x00：' + cfe);
+    CHECK(/尚未上機確認/.test($('sf-cf-warn').textContent) && /確認寫入/.test($('sf-cf-title').textContent) && /確定寫入/.test($('sf-cf-yes').textContent), '確認窗警告「尚未上機確認」，標題／按鈕是寫入');
+    EQ(since(n0).filter(m => m.type === 'rawwrite').length, 0, '按確定之前沒有任何寫入');
+    SFU.answer(true); await p;
+    const lw = since(n0).map(asLine);
+    EQ(lw.slice(0, 5), [W(0x7C, 1, 0x0F, [0x80]), W(0x7C, 1, 0x08, [0xEE]), W(0x7C, 1, 0x09, [0xE0]), W(0x7C, 1, 0x08, [0xEF]), W(0x7C, 1, 0x09, [0x40])], '經 WS 送出的第一段是 Unlock 前置（ICD:760–764）');
+    CHECK(lw.includes(N3(0x39, 0xC0)), 'A1 檔 ⇒ 有送 0039←C0');
+    EQ(lw.slice(-1), [N3(0x98, 0x00)], '最後一筆 0098←00（AVM:1808）');
+    CHECK(Buffer.from(dev.mem.slice(0, enData.length)).equals(Buffer.from(enData)) && dev.sr[0x01] === 0x9C, '假 Flash＝檔案、結束後已鎖（SR1＝9C）');
+    CHECK(/Zone1 0x9C/.test(logText()) && /重新上電/.test($('sf-progtxt').textContent), 'log 有 Lock 後保護狀態、提示重新上電');
+    G('畫面：EN01 整顆抹除 → 確認窗 → 取消／確定');
+    dev.sr[0x01] = 0x00;                     /* 原廠 Erase All 不 Unlock；假裝置先解除保護才看得到抹除效果 */
+    n0 = sent.length;
+    p = SFU.eraseAll(); await until(() => SFU.state().confirmOpen);
+    CHECK(/抹除整顆/.test($('sf-cf-title').textContent) && /確定抹除/.test($('sf-cf-yes').textContent) && /C7h/.test($('sf-cf-tbl').textContent)
+          && /Unlock／Lock/.test($('sf-cf-warn').textContent) && /寫回 code/.test($('sf-cf-note').textContent), '確認窗換成抹除的標題、按鈕、動作與警告');
+    SFU.answer(false); await p;
+    EQ(since(n0).filter(m => m.type === 'rawwrite').length, 0, '取消 ⇒ 沒有任何寫入');
+    p = SFU.eraseAll(); await until(() => SFU.state().confirmOpen); SFU.answer(true); await p;
+    EQ(since(n0).map(asLine).slice(0, 10), [N3(0xA1, 0x00), N3(0x98, 0xE5), N3(0x99, Z9), N3(0x99, 0x06), N3(0xA0, 0x01), N3(0xA0, 0x00), N3(0x99, Z9), N3(0x99, 0xC7), N3(0xA0, 0x01), N3(0xA0, 0x00)], '經 WS 送出 ENP:166–175 的 10 筆');
+    CHECK(dev.mem.every(v => v === 0xFF) && /整顆抹除完成/.test($('sf-progtxt').textContent), '假 Flash 全 FF、畫面顯示完成');
+    p = SFU.write(); await until(() => SFU.state().confirmOpen);
+    CHECK(/確認寫入/.test($('sf-cf-title').textContent) && /確定寫入/.test($('sf-cf-yes').textContent), '之後再按寫入，確認窗換回寫入的字');
+    SFU.answer(false); await p;
 
     G('畫面：三語');
     win.applyLang('en'); await sleep(10);
