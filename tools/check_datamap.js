@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /* ═══════════════════════════════════════════════════════════════════════════
-   check_datamap.js — Data Mapping 分頁（datamap.html）核心的機械檢查（v1.2.0：加 ③b 下拉選單、r2..b3 keep）
+   check_datamap.js — Data Mapping 分頁（datamap.html）核心的機械檢查（v1.2.0：加 ③b 下拉選單、r2..b3 keep；v1.2.1：Zigzag type7/8 長循環）
    ───────────────────────────────────────────────────────────────────────────
    測 common/datamap-core.js（頁面與這支共用同一份程式）。客戶 code 不可進版控 ⇒ 預設用合成語料。
      ① MNT（EM01／EM02／E512）.bin 定位與解碼（v1.0.0 的檢查，換成新狀態格式）
@@ -222,8 +222,31 @@ sec('③c MNT r2..b3 與 V512（v1.2.0）');
     const n1 = DM.firstEdit(m, s0, DM.pickCell(m, s0, 0, 0, 'G-1').state), t1 = DM.buildScript(m, n1.state, { comments: false, second: n1.touched }).text;
     ok(n1.touched && DM.xInfo(m, n1.state).state === 'copy' && xAddr(m).every((a, k) => new RegExp('write -m ' + DM.hex(a, 4) + ' ' + DM.hex(n1.state['c' + k], 2) + ' 1F').test(t1)),
        m + ' 短循環、改第一組 G-1 ⇒ r2..b3＝第一組，script 24 行 r2..b3 都寫第一組的值');
-    ok(DM.secondSetRule(m, MS(m, { hand: 1, panel: 0 })).mode === 'copy' && DM.secondSetRule(m, MS(m, { hand: 1, panel: 1, subPanel: 6 })).mode === 'copy' &&
-       DM.secondSetRule(m, MS(m, { hand: 1, panel: 3, subPanel: 1 })).mode === 'copy', m + ' 1D1G、Zigzag type7、LTPS MUX2 ⇒ 短循環（照 Dispatch 條件）');
+    ok(DM.secondSetRule(m, MS(m, { hand: 1, panel: 0 })).mode === 'copy' && [0, 1, 2, 3, 4, 5].every(z => DM.secondSetRule(m, MS(m, { hand: 1, panel: 1, subPanel: z })).mode === 'copy') &&
+       DM.secondSetRule(m, MS(m, { hand: 1, panel: 3, subPanel: 1 })).mode === 'copy', m + ' 1D1G、Zigzag type1~6、LTPS MUX2 ⇒ 短循環');
+    /* v1.2.1 Zigzag type7／type8（Bruce 10/7「ok」）⇒ 長循環 line 5~8：24 格全開、沒有固定寫 0 的格子；改第一組不動第二組；
+       匯出 script 的第二組 24 行寫使用者填的值；Auto（force_sel_en=0）仍是 ignored */
+    for (const zs of [6, 7]) {
+      const zz = MS(m, { hand: 1, panel: 1, subPanel: zs, rd: 0 }), rz = DM.secondSetRule(m, zz), tn = 'type' + (zs + 1);
+      ok(rz.mode === 'free' && rz.cycle === 'long' && rz.meaning === 'line58' && DM.secondPolicy(m, zz) === 'preserve' &&
+         new RegExp('panel_mode=1 ZigZag, sub_panel_mode=' + zs + ' ' + tn).test(rz.basis) &&
+         [0, 1, 2, 3].every(r => DM.secondEditable(m, zz, r) && DM.secondMeaning(m, zz, r) === 'line' + (5 + r)),
+         m + ' Zigzag ' + tn + ' ⇒ 長循環，24 格可填，_0~_3＝line 5~8（依據：' + rz.basis + '）');
+      ok(DM.secondSetRule(m, MS(m, { hand: 0, panel: 1, subPanel: zs })).mode === 'ignored', m + ' Zigzag ' + tn + ' Auto ⇒ ignored（不讀第二組）');
+      const ze = DM.pickCell(m, zz, 0, 0, 'G-1'), zf = ze && DM.firstEdit(m, zz, ze.state);
+      ok(zf && !zf.touched && zf.state.c0 !== zz.c0 && same(xs(zf.state), xs(zz)), m + ' Zigzag ' + tn + '：改第一組不動第二組（使用者自己填）');
+      let st = zz; const want = [];
+      for (let k = 0; k < 24; k++) {
+        const v = k === 0 ? 0 : (k === 23 ? 31 : (k * 5 + zs) % 30);
+        const pk = DM.pickSecond(m, st, k / 6 | 0, k % 6, v); if (!pk) { st = null; break; }
+        st = pk.state; want.push(v);
+      }
+      const tz = st && DM.buildScript(m, st, { comments: false, second: true }).text;
+      ok(st && same(xs(st), want) && Array.from({ length: 24 }, (_, k) => st['c' + k] === zz['c' + k]).every(Boolean) &&
+         xAddr(m).every((a, k) => new RegExp('write -m ' + DM.hex(a, 4) + ' ' + DM.hex(want[k], 2) + ' 1F').test(tz)),
+         m + ' Zigzag ' + tn + '：24 格各填（含 0＝R3、X＝31）⇒ 匯出 script 第二組 24 行逐格＝填的值，第一組不變');
+      ok(DM.pickSecond(m, zz, 1, 2, 30) === null && DM.secondMeaning(m, MS(m, { hand: 1, panel: 1, subPanel: 5 }), 0) === 'unused', m + ' Zigzag ' + tn + '：30 拒絕；type6 不能填（unused）');
+    }
     /* 長循環 HSD 8-pixel：開放 24 格，改第一組不動第二組 */
     const h8 = MS(m, { hand: 1, panel: 2, subPanel: 4, rd: 1 }), r8 = DM.secondSetRule(m, h8);
     ok(r8.mode === 'free' && r8.cycle === 'long' && r8.meaning === 'pix58' && [0, 1, 2, 3].every(r => DM.secondEditable(m, h8, r)), m + ' HSD sub4 8-pixel ⇒ 長循環，24 格可填（pixel 5~8）');
@@ -326,6 +349,15 @@ sec('⑤ I2C 假裝置');
     const back = (await DM.readState(io, model)).state;
     ok(res.ok && f.touched && Array.from({ length: 24 }, (_, k) => back['x' + k] === back['c' + k]).every(Boolean) && writes.some(a => xa.indexOf(a) >= 0),
        model + ' I2C 短循環：改第一組 ⇒ r2..b3 一起寫入＝第一組（讀回逐格相同）');
+    /* v1.2.1 Zigzag type7（長循環）：I2C 讀回 ⇒ free；填第二組一格 ⇒ 只寫那一格的位址，讀回＝填的值 */
+    {
+      const m7 = new Uint8Array(mem); m7[b] = (1 << 1) | (6 << 5); m7[b + 1] = 0x80;
+      const w7 = [], io7 = { read: async (a, n) => Array.from(m7.slice(a, a + n)), write: async (a, bytes) => { w7.push(a); for (let k = 0; k < bytes.length; k++) m7[a + k] = bytes[k]; } };
+      const z0 = (await DM.readState(io7, model)).state, zp = DM.pickSecond(model, z0, 3, 0, (z0.x18 + 5) % 30);
+      const zr = zp && await DM.writeRegs(io7, DM.diffRegs(model, z0, zp.state), () => {}), zb = zr && (await DM.readState(io7, model)).state;
+      ok(DM.secondSetRule(model, z0).mode === 'free' && zr && zr.ok && same(w7, [xa[18]]) && zb.x18 === (z0.x18 + 5) % 30,
+         model + ' I2C Zigzag type7：填 r2_3 ⇒ 只寫 0x' + DM.hex(xa[18], 4) + '，讀回＝填的值');
+    }
     /* Auto：改第一組不寫 r2..b3 */
     const a0 = Object.assign(DM.cloneState(back), { hand: 0 }), af = DM.firstEdit(model, a0, DM.cloneState(Object.assign(DM.cloneState(a0), { c1: (a0.c1 + 1) % 18 })));
     writes.length = 0; await DM.writeRegs(io, DM.diffRegs(model, a0, af.state), () => {});

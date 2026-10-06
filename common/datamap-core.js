@@ -1,9 +1,12 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   datamap-core.js — Data Mapping 共用核心（v1.2.0，2026-10-07）
+   datamap-core.js — Data Mapping 共用核心（v1.2.1，2026-10-07）
    ───────────────────────────────────────────────────────────────────────────
    給 datamap.html 與 tools/check_datamap.js 共用：瀏覽器下 window.TCONDataMap，node 下 module.exports。
    不碰 DOM、不碰 WebSocket；I2C 只透過呼叫端傳進來的 io（io.read(addr,len)、io.write(addr,bytes)）。
 
+   ── v1.2.1（Bruce 10/7 回 Dispatch「要不要也把它改成長循環？」：「ok」）─────────
+   ・secondSetRule：Zigzag type7／type8（panel_mode=1、sub_panel_mode=6／7，LOD 8 line×1 pixel）改為長循環 'free'，
+     第二組＝line 5~8（_0~_3 依序 line 5、6、7、8）；24 格全開、沒有固定寫 0 的格子（#9b56c775 報告 §1、§2 第 7/8 筆、§5）。
    ── v1.2.0（Bruce 2026-10-07：格子「改成下拉式選單…只能選擇這幾個選項（還包含 X）」）─────────
    ・cellOptions／pickCell／allSameOptions：下拉選單的選項與選取（見各函式說明）；editCell（打字路徑，
      與 PY 逐字相同）保留不動，自測與 --pyui 對拍仍用它。
@@ -265,10 +268,12 @@
        force_sel_en＝0（Auto）⇒ 'ignored'：硬體兩組都不讀，第二組隱藏、不寫。
        HSD sub4「8-pixel」⇒ 'free'：第二組＝pixel 5~8（HSD_8pixel.png；xlsx 第 3、5 列）。
        HSD sub5「4line,4pixel」⇒ 'free'：第二組＝第 3~4 列（G5~G8）（HSD_4pixel.png）。
+       Zigzag type7／type8（sub 6／7，ZZ+LLLLRRRR／RRRRLLLL，LOD 8×1）⇒ 'free'：第二組＝line 5~8（ZigZag.png；xlsx 第 15、16 列兩組不同）。v1.2.1
        LTPS MUX3（sub 0/2/4/6）⇒ 'mux3'：_0／_2 是第 3 個 mux 時槽，_1／_3 不使用、寫 0（xlsx 第 22-28 列；TX.h:552-555）。
        其他（短循環）⇒ 'copy'：第二組隱藏；使用者改第一組時第二組＝第一組（硬體不讀時無害、會讀時 xlsx 原廠設定就是複本），
        沒改第一組就保留原值（EM02 那 41 支全 0 的真檔維持原樣）。
-       （報告的 secondSetRule 另把 Zigzag type7/8 與 nml_4line_4pix_en 列為 free；Dispatch 10/7 條件只列上面三種長循環，照 Dispatch。）
+       （報告另把 nml_4line_4pix_en 列為 free：577 支真檔全是 0、效果未確認，網頁不用它判循環。Zigzag type7/8 v1.2.0 照 Dispatch 歸短循環，
+        v1.2.1 依 Bruce 10/7「ok」改為長循環。）
      xInfo.state：'none'（非 MNT）｜'copy'（sub＝main 且 main 不全 0）｜'zero'（sub 全 0）｜'other'。 */
   function xInfo(key, s) {
     if (MODELS[key].kind !== 'mnt') return { state: 'none', diff: [], list: [], mainZero: true };
@@ -297,6 +302,7 @@
     if (!fse) { r.mode = 'ignored'; r.cycle = 'auto'; r.meaning = ''; }
     else if (pm === 2 && sub === 4) { r.mode = 'free'; r.cycle = 'long'; r.meaning = 'pix58'; }
     else if (pm === 2 && sub === 5) { r.mode = 'free'; r.cycle = 'long'; r.meaning = 'row34'; }
+    else if (pm === 1 && (sub === 6 || sub === 7)) { r.mode = 'free'; r.cycle = 'long'; r.meaning = 'line58'; }
     else if (pm === 3 && (sub & 1) === 0) { r.mode = 'mux3'; r.cycle = 'long'; r.meaning = 'mux3'; }
     else { r.mode = 'copy'; r.cycle = 'short'; r.meaning = ''; }
     return r;
@@ -328,6 +334,12 @@
     for (var v = 0; v <= 29; v++) out.push({ value: v, name: inv(GN1, v) || '' });
     out.push({ value: 31, name: 'X' });
     return out;
+  }
+  /* 第二組某格的實際意義代碼（頁面翻成文字）：line58 依列 ⇒ 'line5'~'line8'；其他長循環整組同一個意義；不能填 ⇒ 'unused' */
+  function secondMeaning(key, s, row) {
+    var R = secondSetRule(key, s);
+    if (!secondEditable(key, s, row)) return 'unused';
+    return R.meaning === 'line58' ? 'line' + (5 + row) : R.meaning;
   }
   /* 第二組某格可不可以填：free ⇒ 24 格；mux3 ⇒ 只有 _0／_2（row 0、2） */
   function secondEditable(key, s, row) {
@@ -940,7 +952,7 @@
     setGate: setGate, setHand: setHand, pyNormalize: pyNormalize, pyNames: pyNames, cks: cks, preLabels: preLabels,
     inputDict: inputDict, colorOfName: colorOfName, codeAddrs: codeAddrs, byteOf: byteOf, regNote: regNote, fieldsAt: fieldsAt,
     applyPreset: applyPreset, matchPreset: matchPreset, PRESET_SECOND: PRESET_SECOND, presetHasSecond: presetHasSecond,
-    cellOptions: cellOptions, pickCell: pickCell, allSameOptions: allSameOptions, xInfo: xInfo, syncX: syncX, syncSecondSet: syncSecondSet, secondSetRule: secondSetRule, secondPolicy: secondPolicy, firstEdit: firstEdit, exportRegs: exportRegs,
+    cellOptions: cellOptions, pickCell: pickCell, allSameOptions: allSameOptions, xInfo: xInfo, syncX: syncX, syncSecondSet: syncSecondSet, secondSetRule: secondSetRule, secondMeaning: secondMeaning, secondPolicy: secondPolicy, firstEdit: firstEdit, exportRegs: exportRegs,
     secondOptions: secondOptions, secondEditable: secondEditable, pickSecond: pickSecond, xChanged: xChanged, v512Suspects: v512Suspects,
     loadCodeBytes: loadCodeBytes, modelFromName: modelFromName, locate: locate, parseCode: parseCode, nbFileOf: nbFileOf, cksOf: cksOf,
     buildScript: buildScript, applyScript: applyScript, pyScriptRows: pyScriptRows, applyPyScriptRows: applyPyScriptRows,

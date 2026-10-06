@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Data Mapping — TCON FAE Toolbox</title>
-<link rel="stylesheet" href="common/common.css?v=20261007dm120">
-<link rel="stylesheet" href="common/site-ui.css?v=20261007dm120">
+<link rel="stylesheet" href="common/common.css?v=20261007dm121">
+<link rel="stylesheet" href="common/site-ui.css?v=20261007dm121">
 <!--
   Data Mapping 分頁 v1.2.0（Bruce 2026-10-07）
   ・Bruce 10/7：「我其實沒有要你把它做得跟原生 UI 一模一樣，你還是要兼顧到網頁的風格，現在這個有點太突兀了。
@@ -191,7 +191,7 @@
     </div>
 
     <!-- 第二組 r2..b3（只有 EM01／EM02／E512；Python UI 沒有此組）。依 #9b56c775 報告（Dispatch 10/7）：
-         一行循環判定（Auto／短循環／長循環＋依據）；長循環（HSD 8-pixel、4line,4pixel、LTPS MUX3）才開放 24 格下拉。
+         一行循環判定（Auto／短循環／長循環＋依據）；長循環（HSD 8-pixel、4line,4pixel、Zigzag type7/8〔v1.2.1〕、LTPS MUX3）才開放 24 格下拉。
          規則在 datamap-core.js secondSetRule／firstEdit／pickSecond／exportRegs -->
     <div class="stp-note hidden" id="dm-xline"></div>
     <div class="hidden" id="dm-xbox">
@@ -250,8 +250,8 @@
 </div>
 <div class="dm-toasts" id="dm-toasts" aria-live="polite"></div>
 
-<script src="common/version.js?v=20261007dm120"></script>
-<script src="common/i18n.js?v=20261007dm120"></script>
+<script src="common/version.js?v=20261007dm121"></script>
+<script src="common/i18n.js?v=20261007dm121"></script>
 <script>
 (function () {
   /* [zh-TW, en, zh-CN] */
@@ -312,6 +312,8 @@
     'dm.xMux3Note': ['MUX3 只用 _0／_2；_1／_3 不使用，一律寫 0。', 'MUX3 uses _0/_2 only; _1/_3 are unused and always written 0.', 'MUX3 只用 _0／_2；_1／_3 不使用，一律写 0。'],
     'dm.mPix58': ['pixel 5~8', 'pixel 5~8', 'pixel 5~8'],
     'dm.mRow34': ['第 3~4 列（G5~G8）', 'rows 3~4 (G5~G8)', '第 3~4 列（G5~G8）'],
+    'dm.mLine58': ['line 5~8（_0~_3 依序 line 5、6、7、8）', 'lines 5~8 (_0~_3 = line 5, 6, 7, 8)', 'line 5~8（_0~_3 依序 line 5、6、7、8）'],
+    'dm.mLineN': ['line {n}', 'line {n}', 'line {n}'],
     'dm.mMux3': ['第 3 個 mux 時槽', '3rd mux time slot', '第 3 个 mux 时槽'],
     'dm.mUnused': ['不使用（寫 0）', 'unused (written 0)', '不使用（写 0）'],
     'dm.xNamesNote': ['名稱表未確認：選項以數字為主，0~17 附 GN1 名稱（0＝R3），18~29 只有數字。', 'Name table unconfirmed: options are numbers, 0~17 with the GN1 name (0 = R3), 18~29 numbers only.', '名称表未确认：选项以数字为主，0~17 附 GN1 名称（0＝R3），18~29 只有数字。'],
@@ -366,9 +368,9 @@
 })();
 </script>
 <script src="common/common.js?v=20260523"></script>
-<script src="common/subpix-colors.js?v=20261007dm120"></script>
-<script src="common/xlsx.js?v=20261007dm120"></script>
-<script src="common/datamap-core.js?v=20261007dm120"></script>
+<script src="common/subpix-colors.js?v=20261007dm121"></script>
+<script src="common/xlsx.js?v=20261007dm121"></script>
+<script src="common/datamap-core.js?v=20261007dm121"></script>
 <script>
 (function () {
   'use strict';
@@ -553,7 +555,7 @@
     line.classList.toggle('hidden', !mnt);
     if (!mnt) { box.classList.add('hidden'); return; }
     var m = S.model, s = S.cur, R = DM.secondSetRule(m, s), long = R.mode === 'free' || R.mode === 'mux3';
-    var MEAN = { pix58: tt('dm.mPix58'), row34: tt('dm.mRow34'), mux3: tt('dm.mMux3') };
+    var MEAN = { pix58: tt('dm.mPix58'), row34: tt('dm.mRow34'), mux3: tt('dm.mMux3'), line58: tt('dm.mLine58') };
     line.textContent = R.mode === 'ignored' ? tt('dm.xAuto', { b: R.basis }) : (R.mode === 'copy' ? tt('dm.xShort', { b: R.basis }) :
       tt('dm.xLong', { m: MEAN[R.meaning], b: R.basis }) + (R.mode === 'mux3' ? '　' + tt('dm.xMux3Note') : '') + '　' + tt('dm.xNamesNote'));
     line.style.color = long ? 'var(--accent)' : '';
@@ -586,7 +588,7 @@
       if (S.savedImg && (S.img[xr] | 0) !== (S.savedImg[xr] | 0)) sel.classList.add('chg');
       var nm = known ? (opts.filter(function (o) { return o.value === v; })[0].name) : '';
       paintSel(sel, nm ? colorKeyOf(nm) : (known ? null : 'ns'));
-      var mean = DM.secondEditable(m, s, r2) ? MEAN[R.meaning] : tt('dm.mUnused');
+      var mc = DM.secondMeaning(m, s, r2), mean = mc === 'unused' ? tt('dm.mUnused') : (/^line\d$/.test(mc) ? tt('dm.mLineN', { n: mc.slice(4) }) : MEAN[mc]);
       $('dm-xm' + r2 + '-' + c2).textContent = mean;
       sel.title = CH[c2] + '_' + r2 + '（0x' + hex(xr, 4) + '）= ' + v + '：' + mean;
     }
