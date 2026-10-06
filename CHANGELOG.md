@@ -2,6 +2,54 @@
 
 ---
 
+## 面板訊號模擬與取樣 (wfg) v4.53.3 — 2026-10-06 ｜ PATCH
+
+**左側「系統設定」三項修正：① Hblank／Vblank（以及 Frame Rate）可以直接打字輸入，下限改在離開欄位或按 Enter 時才檢查；② H Total 移到 V Total 上面；③「TCON頻率設定」裡的 RX DCLK 改成系統端的綠色。**
+
+判定依據：`docs/VERSIONING.md` §1 判定表 ＋ R1～R4 逐項判、取最高者。
+
+| 規則 | 判定 | 說明 |
+|---|---|---|
+| §1「既有功能：修正為原本就該有的行為」／§2 案例 2「改一個 bug」 | **PATCH** | 打 400 會在按下 4 時被擋回原值，是 bug |
+| §2 案例 3「改 UI 版面、不動功能」 | **PATCH** | H／V 兩框上下對調、RX DCLK 換色，屬控制項位置小移與配色；所有欄位都還在同一張卡片 |
+| R1「修 bug 若輸出會變要標 `⚠ 輸出變更`」 | **不適用** | 合法值的計算、波形、匯出檔都沒變；只差在打字中間值不再被擋 |
+| R3「使用者能做的事有沒有多一件」 | **沒有** | 欄位、按鈕都沒增減 |
+| R4「起始狀態／預設值改變」 | **不適用** | 預設值與 preset 內容都沒動 |
+| 不是 MAJOR | — | 沒有控制項消失，操作方式照舊 |
+| 🔴 實際採用 | **PATCH** | wfg v4.53.2 → v4.53.3 |
+
+### 起因
+
+Bruce 2026-10-06：「目前 V blanking 和 H blanking 好像都有最小限制 10，但這樣如果直接手動輸入數值會根本輸不進去。例如我要輸入 400，當按下 4 的時候就已經被判定小於 10 而無法輸入。」「習慣上應該是先用 H total 再用 V total，請把 H total 跟 V total 的上下位置對調一下。」「TCON 頻率設定裡面有一個 RxDCLK，那個 RxDCLK 應該要用綠色來顯示，才會符合它是系統設定的規則。」Dispatch 派工 233099289216278528。
+
+### 根因（第 1 項）
+
+`#wfg-vblank`／`#wfg-hblank`／`#wfg-framerate` 掛 `oninput`，每打一個字就跑 `wfgBlockIfWorseLow()`；低於下限且比原值小就立刻 `wfgSyncBlankInputs()` 把輸入格還原。打 400 的第一個字「4」低於 10 ⇒ 欄位被改回原值，後面的「00」接在原值後面（修前實測：選取 45 後逐字打 4、0、0 ⇒ 欄位依序變成 45 → 450 → 4500）。Frame Rate 的兩道下限（`WFG_FPS_FLOOR`、變頻時的 `fpsMin`）是同一個問題：變頻下 fpsMin≈23.3 時想打 30，打「3」就被擋。
+
+### 改了什麼
+
+- **下限延後到離開欄位才收斂**（`wfg.html` `wfgLowIsLive()`、`_wfgLowPending`、文件層級 `change`／`focusout`／Enter 委派）：只有「游標停在這一格、且是打字事件」時，低於下限**不還原、不套用**，錯誤訊息照樣即時顯示在原本的 `#wfg-dclk-err`；按 Tab／點別處／Enter 時，若欄位仍低於下限就還原成已套用的值並保留訊息（文案沿用 `wfg.errBlankMinHard`／`errBlankMinSpec`／`errFpsAbsFloor`／`errFpsMin`，三語不用改）。做法沿用 v4.16.2 `wfgAckBlurSettle()` 的「打字中不擋、失焦收斂」既有模式。
+  - 套用範圍：Hblank、Vblank、Frame Rate。
+  - 檢查過、不需改的欄位：Hactive／Vactive 沒有下限（Bruce 2026-08-26「active 沒有上下限保護」）；各欄位的**上限**照舊即時擋（多打一位只會更大，中間值超過就代表最終值也超過）；TX DCLK 本來就是 `onchange`、TCON UI DCLK 本來就在 `change` 才檢查，沒有這個問題。
+  - 拉霸、匯入、Gate 切換等程式化呼叫不是打字事件，照舊當場判定。
+- **H Total 移到 V Total 上面**：只搬 DOM 順序，所有 `id`／handler／label／i18n key 不變；Tab 順序跟著變成 Hactive → Hblank → Vactive → Vblank → Frame Rate。blanking／total 矛盾提示 `#wfg-blank-warn` 移到下面那框（V Total）底部，仍在兩框之後。同卡片其他成對欄位（框內 active 在前、blank 在後）原本就一致，沒動。
+- **RX DCLK 綠色**：TCON頻率設定卡片的 RX DCLK 那一框加 class `wfg-sys-rx`，把它加進系統設定卡片既有的綠色規則選擇器（`#wfg-frame-card .wfg-la-group-label`、`.rxtx-result-val` 那兩條，色值 `#4ade80` 沿用、沒有新色碼）。框名裡的「(= Pixel Rate ÷ 2)」維持灰；TX DCLK／TCON UI DCLK 維持藍。
+- `common/version.js` wfg → v4.53.3；`wfg.html`、`index.html` 的 version.js `?v=` 改 `20261006wfg4533`。
+- `wfg-guide*.html`：示意圖 H Total 框移到上面、RX DCLK 改綠、欄位順序文字與色彩表同步（說明頁不算版號）。
+
+### 證據
+
+- 自有 headless Chrome（1600×1000、自有暫存 profile）以 CDP 送真實按鍵：**26 項全過**（修前同一腳本前 10 項全部失敗，重現 Bruce 回報）。
+  - Vblank、Hblank 各選取後逐字打 4、0、0：欄位 4 → 40 → 400，VTOTAL＝1080＋400＝1480、HTOTAL＝1920＋400＝2320，Tab 後仍 400、無錯誤訊息。
+  - 打到一半（4）：不還原，即時顯示「VBLANK 最低只能到 10。已保留原本的值。」
+  - 小於下限：Vblank 打 5 → Tab、Hblank 打 3 → Enter ⇒ 還原成 400 並顯示下限訊息；打 10（下限本身）⇒ 接受。
+  - 大於上限：Vblank 打 9999999 ⇒ 第 4 位（9999 > 上限 5126）被擋，真值停在 999、顯示 VTOTAL 上限訊息；離開後欄位＝真值。
+  - 非數字：打 e（number 欄位值為空）、清空 ⇒ 打字中不套用，Tab 後還原 400。
+  - Frame Rate：定頻逐字打 48 ⇒ 48；變頻（fpsMin≈23.3）逐字打 30 ⇒ 30；打 1 → Tab ⇒ 還原 30 並顯示 fpsMin 訊息。RX DCLK 拉霸（程式化路徑）照常、無例外。
+  - H Total 框 top 193px < V Total 框 332px；Tab 順序如上；`#wfg-blank-warn` 在 V Total 框內。
+  - RX DCLK 數值與框名 `rgb(74, 222, 128)`＝系統設定卡片框名同色；hint `rgb(100, 116, 139)`；TX DCLK `rgb(56, 189, 248)`。頁面無 JS 例外。
+- 其他：見 commit 訊息（verify-site、LA、DG）。**未上機**（純網頁 UI）。
+
 ## I2C 讀寫測試 (i2c) v1.32.0 — 2026-10-06 ｜ MINOR
 
 判定依據：VERSIONING.md §1「操作流程調整＋輸入方式擴充」—— 整頁改成五步引導、長度欄可直接打十進位；所有既有功能與 id 都在，送出的 I2C 序列不變（兩支自測的序列段原文通過）。輸出檔內容與檔名格式不變 ⇒ 判 MINOR，不標 `⚠ 輸出變更`。Dispatch 指定 v1.31.0 → v1.32.0。
