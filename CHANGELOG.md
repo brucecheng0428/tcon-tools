@@ -2,6 +2,63 @@
 
 ---
 
+## Data Mapping (datamap) v1.2.0 — 2026-10-07 ｜ MINOR
+
+**外觀改回站內風格（拿掉 v1.1.0 的淺灰 Windows 仿製區），內容與規則照 Python UI；每一格改成下拉選單；步驟式流程、未匯出提示、精簡 Code 表、訊息集中。** Python UI 的計算與輸出不變（自測與 --pyui 真檔對拍全過）。
+
+### 需求（Bruce 2026-10-07 原話）
+
+> 我其實沒有要你把它做得跟原生 UI 一模一樣，你還是要兼顧到網頁的風格，現在這個有點太突兀了。另外，在 Data Mapping 儲存格裡面，目前是用手動輸入的方式去輸入 R 級、G 級、B 級，我要你改成下拉式選單，也就是只能選擇這幾個選項（還包含 X，也就是關閉輸出），這樣就不會有填錯的問題。其他的你再想想看要怎麼優化吧。
+
+### 改了什麼
+
+- 版面：① 選 T-CON／匯入 code → ② 調 Data Mapping → ③ 寫入 TCON 或匯出 script，三張 `.stp` 步驟卡（同 i2c.html），深色主題、站內按鈕與表單元件；Python UI 的名詞（Hand Mode Enable、Gate Type、Glass、All Same Pixel、DM CKS、Write／Load from TCON）沿用。
+- 表格：Line 1-1～2-2 × Data 1～6（Python UI 的 Data 7／8 永遠空白，拿掉）。每格是下拉選單，選項＝Python UI 字典順序：GN1（Single 全部、Dual 的 Line 1-1／2-1）、GN2（Dual 的 Line 1-2／2-2，含 R5／R6）、DAZ6111／DAZ7353 用自己的表，X 在最後（X＝31；DAZ6111 是 15）。底色依 R／G／B／X（common/subpix-colors.js）。
+  - Dual 的 Line 1-2／2-2 可以選 R5／R6：Python UI 打字時只收 GN1 名稱，但這兩列寫入一律查 GN2（:29738），All Same Pixel 也會寫 R5／R6（:29925），所以 GN2 全部是 Python UI 會寫出的合法值。打字路徑 `editCell` 原封不動，自測仍用它比對。
+  - Single 的 Line 1-2／2-2：變暗、不能選，列名下方標「↳ 同 Line 1-1／2-1」。Hand Mode 關、Tri-Gate、PANEL／RD 組合不符時表格蓋一層說明。
+  - 非標準值：下拉第一項「非標準 0xNN」（唯一的特殊選項，保留原值）；選了標準值之後就消失。
+  - All Same Pixel 旁邊也改成下拉，只列會生效的名稱（Dual＝GN2、Single＝GN1、DAZ＝自己的表）。
+- Gate Type 下拉只列 Single／Dual／Tri：Python UI 的 'Non-Hand Mode' 選了也不動作（get_object_to_dm_info 直接略過），開關由 Hand Mode Enable 負責。
+- 未匯出／未寫入提示：只要有任何位址和「上次匯入／讀回／匯出／寫入」不同，頂端出現黏著的橘色提示列（含「匯出 script」、連線時「Write to TCON」按鈕），③ 也顯示件數；改過的格子紫框；離開頁面時瀏覽器會再問一次。I2C 改值立即寫入成功的位址算已寫入。
+- Data Mapping Code 表：預設收合，摘要寫「N 個位址，M 個有變動」；展開後預設只列有變動的位址，欄位「位址｜欄位｜改前 → 目前」，「目前」仍可直接改 hex（同 Python UI Data A）。
+- 訊息：動作結果、錯誤一律進 ③ 的記錄，重要的再用 toast（取代 alert）；狀態寫在各步驟的狀態列。
+- 手機：表格橫向捲動，觸控裝置每格 44px 高；Gate Type 與下拉不拆行。
+- MNT 第二組 r2..b3（rt7+0x5E～0x75，Python UI 沒有；只有 EM01／EM02／E512）：依 #9b56c775 報告（EM02_第二組DataMapping規則_報告_20261007.md）、Bruce 10/7「以 EM02 的為優先設計」。`secondSetRule` 判循環，畫面一行顯示判定結果與依據（force_sel_en、panel_mode、sub_panel_mode 及原廠選單名稱）：
+  - force_sel_en＝0（Auto）：硬體兩組都不讀 ⇒ 第二組隱藏、不寫。
+  - 短循環（不是下面三種）：第二組隱藏；使用者改第一組時第二組自動＝第一組（`syncSecondSet` policy 'mirror'），沒改第一組就保留原值，匯出 script 與 Write to TCON 都不出現 r2..b3。
+  - 長循環：HSD sub4「8-pixel」（第二組＝pixel 5~8）、HSD sub5「4line,4pixel」（第 3~4 列 G5~G8）、LTPS MUX3（sub 0/2/4/6，第 3 個 mux 時槽）⇒ 開放 24 格下拉（0~29＋X＝31，0 是有效值 R3），每格標實際意義；MUX3 只開 _0／_2，_1／_3 一律寫 0。改第一組不動第二組。
+  - 套用原廠預設樣式：兩組都照原廠表 RApp_TX.h:530-567 寫入（(23)(28)(32) 第二組全 0，(18)-(21)、(29)-(31) 獨立值）。⚠ **與原廠工具實際行為不同**：原廠 `RApp_TX_RT7_DataMapping_RegSet` 用 `u8reg_force_sel[i-10]`／`[i-34]`（TX.cpp:10934、10939），但 r0_0 的 index 是 11（TX.h:57），整組錯開 1 byte（r0_0、r2_0 沒寫到，b1_3 寫進 rt7+0x1B、b3_3 寫進 rt7+0x76）。網頁照語意位址寫（r0_0→rt7+0x03、r2_0→rt7+0x5E），不照抄這個 bug；自測確認 rt7+0x1B／0x76 不會被寫。
+  - 與報告的差異：報告的 `secondSetRule` 另把 Zigzag type7/8 與 reg_nml_4line_4pix_en 列為 free；Dispatch 10/7 的條件只列上面三種長循環，本版照 Dispatch，這兩種歸短循環（見已知限制）。
+- EM02 規則解析時 Data Mapping byte 的 [7:5]≠0 ⇒ 判定可能是 V512，只讀不寫（表格、匯出、寫入都鎖住），畫面提示。
+
+### 未改的（功能不退步）
+
+I2C 即時讀寫（含 M-Bus to C-Bus、E503 3E:0059 條件）、Check T-CON、匯入 code（.bin／.hex／.rom／.txt／.dat，依檔名或內容認型號）、匯出 script（PY 型號＝SCRIPT xlsx，MNT＝write -m）、Export／Import Excel、型號清單（DAZ6111／6138／6139／7353、E501A／B、E503、EM01／EM02／E512；EN01 暫不支援）、Hand Mode 連動欄位、DM CKS。
+
+### 證據
+
+- `node tools/check_datamap.js` ✓ 249／0（新增 ③b 下拉選單；③c 第二組：Auto、短循環有改／沒改、長循環 HSD 8-pixel／4line4pixel、MUX3、預設 (29)(32)(18) 與 off-by-one 位址不寫、V512；⑤ 第二組 I2C 寫入）。
+- `--real <67 份真檔：DAZ6111／6138／7353、E501A／B、E503（Single／Dual／Tri／組合不符／Hand 關）＋ EM01 EEPROM／Flash、EM02、E512、V512> --pyui <SourceCode_V5.0.4>` ✓ 400／0：Gate、24 格、DM CKS、改 24 格與改 Gate 後寫出的 3E byte 與 Python UI 逐 byte 相同；MNT 沒改第一組時 r2..b3 原 byte 不變、改第一組後匯出套回只動 Data Mapping 位元。
+- headless Chrome（自有暫存 profile）互動：匯入 Single／Dual／DAZ 真檔、下拉選項與順序、Single 複本列、非標準值、R5、未匯出提示與匯出後消失、手機每格 69×44px 可橫捲、V512 鎖定、假 I2C Bridge（E503）連線→Check T-CON→讀回→改值立即寫入；MNT 第二組：EM01 短循環沒改第一組 script 0 行 r2..b3、改後 24 行且＝第一組；EM02 套 (29) 顯示長循環 24 格、script 寫 0x0483／0x04DE、不寫 0x049B／0x04F6；套 (18) MUX3 只開 _0／_2、_1／_3＝0；Hand 關 ⇒ Auto 隱藏。console 無錯誤。
+- `tools/build/verify-site.mjs` 去註解前後一致。
+
+### 版號判定
+
+判定依據：`docs/VERSIONING.md` §1，取最高者 MINOR：新增能力（下拉選單、未匯出提示、Code 表只看變動、V512 只讀保護）；舊的匯入／匯出／I2C／Excel 操作都還在原步驟裡，輸出不變，不到 MAJOR。版面換掉但沒有移除功能。
+
+### 已知限制（#9b56c775 報告第 6 節「未確認」）
+
+1. HSD sub0-3 下硬體是否完全不讀第二組（需要 RTL 或實機寫入 pattern 確認）；本版短循環寫複本，硬體讀或不讀都安全。
+2. LTPS MUX2 的第二組（只有 xlsx 寫複本），本版歸短循環。
+3. reg_nml_4line_4pix_en（rt7+0x02[4]）的實際效果；網頁不提供，也不用它判循環（577 支真檔全是 0）。
+4. 長循環第二組的名稱表（原廠 rt7_data_mapping.xls 本機找不到）：下拉以數字為主，0~17 附 GN1 名稱、18~29 只有數字。
+5. EM02 是否真的移除了 first_2_line 覆寫組（Excel 與 WPF model 不一致）；EM01 的 first_2_line（rt7+0x1F[4]）網頁沒有處理。
+6. 原廠 RegSet 的 off-by-one 只在原始碼層級發現，沒有在實機或原廠工具上重現過。
+- 另：Zigzag type7/8（報告推定需要 line 5~8）本版照 Dispatch 條件歸短循環，Manual 模式下若實際需要獨立第二組，要再調整 `secondSetRule`。
+- 舊有：EM01 Flash 定位會把少數非 EM01 的 code（例如 NT71855、RM80100）誤認成 EM01（v1.0.0 起就有，這版沒改）。
+
+---
+
 ## Data Mapping (datamap) v1.1.0 — 2026-10-07 ｜ MINOR
 
 ⚠ 輸出變更：同一份 code 匯入後，表格顯示的名稱改用 Python UI 的 GN1／GN2 表（v1.0.0 的 T1~T5 名稱不再成立）；MNT 匯出的 write -m 行不變，只有行尾註解改成欄位名稱。

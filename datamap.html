@@ -4,72 +4,112 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Data Mapping — TCON FAE Toolbox</title>
-<link rel="stylesheet" href="common/common.css?v=20261007dm110">
-<link rel="stylesheet" href="common/site-ui.css?v=20261007dm110">
+<link rel="stylesheet" href="common/common.css?v=20261007dm120">
+<link rel="stylesheet" href="common/site-ui.css?v=20261007dm120">
 <!--
-  Data Mapping 分頁 v1.1.0（Bruce 2026-10-07）
-  ・主體（中間那一塊）＝ Python UI（RomCodeProcessUI SourceCode_V5.0.4）Others → Data Mapping 分頁，逐一照
-    BruceMainWindow.py:4441-4671 的元件、座標、字級，文字照 :6375-6397，表頭照 RomCodeProcessUI.py:3176-3199，
-    顏色照 RomCodeProcessUI.py:10482-10652（R／G／B 底色例外：改用 Pattern 分頁 4×4 的色碼，見 common/subpix-colors.js）。
-    規則全部在 common/datamap-core.js（出處逐條寫在那支的檔頭）。
-  ・外框（步驟卡、匯入／匯出按鈕、連線開關）＝ 站內標準元件 common/site-ui.css（出處見那支的檔頭）。
+  Data Mapping 分頁 v1.2.0（Bruce 2026-10-07）
+  ・Bruce 10/7：「我其實沒有要你把它做得跟原生 UI 一模一樣，你還是要兼顧到網頁的風格，現在這個有點太突兀了。
+    …Data Mapping 儲存格裡面…我要你改成下拉式選單，也就是只能選擇這幾個選項（還包含 X，也就是關閉輸出）」
+    ⇒ v1.1.0 的淺灰 Windows 仿製區整塊拿掉；外觀用站內深色主題、.stp 步驟卡（common/site-ui.css）、站內按鈕／表單元件。
+  ・內容與邏輯不變，全部在 common/datamap-core.js（Python UI RomCodeProcessUI V5.0.4 的規則，出處逐條寫在那支的檔頭）：
+    Gate Type、Line 1-1～2-2 × Data 1～6、Single 複本列、Hand Mode、Glass／Excel、All Same Pixel、X＝31、GN1／GN2、
+    Data Mapping Code、DM CKS。
+  ・步驟：① 選 T-CON／匯入 → ② 調 Data Mapping → ③ 寫入 TCON 或匯出 script（比照 i2c.html 的步驟式）。
+  ・訊息：狀態寫在各步驟的狀態列；動作結果與錯誤進 ③ 的記錄，重要的再用 toast 提示（不再用 alert）。
   ・I2C 走 I2C Bridge（ws://127.0.0.1:8899/ws；read／rawwrite／open／ping，與 i2c.html 相同）。
 -->
 <style>
-  :root { --sub: var(--text-sub); --warn: #fbbf24; }
-  .container { max-width: 1120px; }
+  :root { --sub: var(--text-sub); --warn: #fbbf24; --fh: 34px; }
+  .container { max-width: 1040px; }
+  .hidden { display: none !important; }
   .dm-row { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; }
-  .dm-row + .dm-row { margin-top: 8px; }
+  .dm-row + .dm-row { margin-top: 10px; }
   .dm-k { font-size: 13px; color: var(--sub); }
-  .dm-sel { background: #0b1424; color: var(--text); border: 1px solid var(--border); border-radius: 6px; height: 32px; padding: 0 8px; font-size: 13px; }
+  .dm-sep { width: 1px; align-self: stretch; background: var(--border); margin: 0 4px; }
+  .dm-sel, .dm-in { background: #0b1424; color: var(--text); border: 1px solid var(--border); border-radius: 6px; height: var(--fh); padding: 0 8px; font-size: 13.5px; box-sizing: border-box; }
+  .dm-sel:focus, .dm-in:focus { outline: none; border-color: var(--accent); }
+  .dm-sel:disabled, .dm-in:disabled { opacity: .5; }
   .sbtn { background: #334155; border: 1px solid #475569; border-radius: 6px; color: var(--text); padding: 0 14px; font-size: 13px; font-weight: 600;
-          cursor: pointer; min-height: 32px; display: inline-flex; align-items: center; justify-content: center; }
+          cursor: pointer; min-height: var(--fh); display: inline-flex; align-items: center; justify-content: center; gap: 6px; box-sizing: border-box; }
   .sbtn:hover { background: #3f4f66; }
   .sbtn:disabled { opacity: .45; cursor: not-allowed; }
-  .dm-chk { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text); text-transform: none; letter-spacing: 0; margin: 0; font-weight: 500; }
-  .dm-info { font-size: 13px; color: var(--sub); line-height: 1.6; margin-top: 8px; }
-  .dm-info.err { color: #fca5a5; }
-  .dm-src { font-size: 12px; color: var(--sub); word-break: break-all; }
-  .dm-tools { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; margin-bottom: 10px; }
-  .dm-ns { font-size: 12.5px; color: var(--warn); margin-top: 8px; line-height: 1.6; }
-  .dm-ns:empty { display: none; }
-  .dm-log { background: #020617; border: 1px solid #334155; border-radius: 8px; height: 200px; overflow-y: auto; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; padding: 6px 8px; white-space: pre-wrap; margin-top: 8px; }
-  .dm-log .w { color: #6ee7b7; } .dm-log .e { color: #fca5a5; } .dm-log .n { color: #cbd5e1; }
-  .hidden { display: none !important; }
+  .sbtn.pri { background: #0369a1; border-color: #0ea5e9; } .sbtn.pri:hover { background: #0284c7; }
+  .sbtn.wr { background: #9a3412; border-color: #f97316; } .sbtn.wr:hover { background: #c2410c; }
+  .sbtn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .dm-chk { display: inline-flex; align-items: center; gap: 6px; font-size: 13.5px; color: var(--text); margin: 0; font-weight: 500; text-transform: none; letter-spacing: 0; cursor: pointer; }
+  .dm-chk input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
+  .dm-sub { font-size: 12.5px; color: var(--sub); }
+  .dm-src { font-size: 12.5px; color: var(--sub); word-break: break-all; }
+  .dm-chip { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: 14px; border: 1px solid var(--border); font-size: 12.5px; color: var(--sub); background: #0b1424; }
+  .dm-chip b { color: var(--accent); font-family: ui-monospace, Menlo, Consolas, monospace; font-weight: 700; }
+  .dm-hand { padding: 0 12px; height: var(--fh); border: 1px solid var(--border); border-radius: 6px; background: #0b1424; }
+  .dm-hand.on { border-color: #0ea5e9; background: #082f49; }
+  .dm-push { margin-left: auto; }
 
-  /* ═══ Python UI 主體（Qt 預設淺色外觀；座標 ＝ BruceMainWindow.py setGeometry，單位 px）═══ */
-  .qt-wrap { overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; }
-  .qt-tab { position: relative; width: 1011px; height: 491px; background: #f0f0f0; color: #000; transform-origin: 0 0;
-            font: 13.3px "Microsoft JhengHei", "PingFang TC", Arial, sans-serif; border: 1px solid #c9c9c9; border-radius: 2px; }
-  .qt-tab * { box-sizing: border-box; }
-  .qt-abs { position: absolute; }
-  .qt-gb { position: absolute; border: 1px solid #c4c4c4; border-radius: 3px; }
-  .qt-gb > .qt-gt { position: absolute; left: 7px; top: -9px; padding: 0 3px; background: #f0f0f0; line-height: 16px; white-space: nowrap; display: flex; align-items: center; gap: 4px; }
-  .qt-gb > .qt-gt input { margin: 0; width: 13px; height: 13px; }
-  .qt-off .qt-in { color: #a0a0a0; }
-  .qt-off .qt-in input, .qt-off .qt-in button, .qt-off .qt-in select { pointer-events: none; }
-  .qt-lbl { position: absolute; display: flex; align-items: center; white-space: nowrap; }
-  .qt-lbl.r { justify-content: flex-end; }
-  .qt-lbl.c { justify-content: center; }
-  .qt-btn { position: absolute; background: #e1e1e1; border: 1px solid #adadad; border-radius: 0; color: #000; font: inherit; cursor: pointer; padding: 0; }
-  .qt-btn:hover:not(:disabled) { background: #e5f1fb; border-color: #0078d7; }
-  .qt-btn.green { background: rgb(130, 255, 130); }
-  .qt-btn:disabled, .qt-off .qt-in .qt-btn { color: #a0a0a0; }
-  .qt-edit { position: absolute; background: #fff; border: 1px solid #7a7a7a; font: inherit; color: #000; text-align: center; padding: 0 2px; }
-  .qt-off .qt-in .qt-edit { background: #f0f0f0; border-color: #cccccc; color: #a0a0a0; }
-  .qt-combo { position: absolute; background: #e1e1e1; border: 1px solid #adadad; font: 13.3px Arial, sans-serif; color: #000; padding: 0 4px; }
-  .qt-off .qt-in .qt-combo { color: #a0a0a0; }
-  .qt-tbl { position: absolute; background: #fff; border: 1px solid #828790; overflow: auto; }
-  .qt-tbl table { border-collapse: collapse; table-layout: fixed; font: 13.3px Arial, sans-serif; }
-  .qt-tbl th { background: rgb(130, 130, 130); color: #fff; font-weight: 400; border: 1px solid #b0b0b0; padding: 0 3px; white-space: nowrap; position: sticky; top: 0; z-index: 1; }
-  .qt-tbl tbody th { position: static; text-align: left; }
-  .qt-tbl td { border: 1px solid #d8d8d8; padding: 0; text-align: center; background: #fff; color: #000; }
-  .qt-tbl td input { width: 100%; height: 100%; border: 0; background: transparent; font: inherit; color: inherit; text-align: center; padding: 0; outline: none; }
-  .qt-tbl td input:focus { outline: 2px solid #0078d7; outline-offset: -2px; background: #fff; color: #000; }
-  .qt-tbl td.ns { box-shadow: inset 0 0 0 2px #d97706; }
-  .qt-tbl td.ns input::placeholder { color: #000; opacity: 1; font-size: 10.5px; font-weight: 700; }
-  .qt-tbl td.chg { background: rgb(200, 100, 150) !important; }
-  .qt-x { font-size: 26.6px; }
+  /* 警示框（V512 只讀、r2..b3 不同） */
+  .dm-alert { margin: 10px 0 0; padding: 8px 12px; border-radius: 8px; font-size: 13px; line-height: 1.6; border: 1px solid #92400e; background: #2a1a06; color: #fde68a; }
+  .dm-alert.err { border-color: #7f1d1d; background: #2a0b0b; color: #fecaca; }
+
+  /* Data Mapping 表（每格一個下拉選單；手機可橫向捲動） */
+  .dm-gridwrap { margin-top: 12px; overflow-x: auto; -webkit-overflow-scrolling: touch; border: 1px solid var(--border); border-radius: 8px; background: #0b1424; position: relative; }
+  table.dm-grid { border-collapse: separate; border-spacing: 4px; min-width: 560px; width: 100%; table-layout: fixed; }
+  .dm-grid th { font-size: 12.5px; font-weight: 600; color: var(--sub); text-align: center; padding: 4px 2px; }
+  .dm-grid thead th { color: var(--text); }
+  .dm-grid tbody th { text-align: left; width: 104px; padding-left: 6px; white-space: nowrap; color: var(--text); }
+  .dm-grid tbody th .dm-rs { display: block; font-size: 11px; font-weight: 500; color: var(--sub); margin-top: 1px; }
+  .dm-grid td { padding: 0; }
+  .dm-cell { width: 100%; height: 38px; border-radius: 6px; border: 1px solid rgba(255,255,255,.18); font: 700 14px ui-monospace, Menlo, Consolas, monospace;
+             text-align: center; text-align-last: center; padding: 0 4px; cursor: pointer; background: #1e293b; color: var(--text); box-sizing: border-box; }
+  .dm-cell:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .dm-cell:disabled { cursor: default; opacity: 1; }
+  .dm-cell.blank { background: #111a2c; color: #475569; border-style: dashed; }
+  .dm-cell.copy { opacity: .38; border-style: dashed; }
+  .dm-cell.ns { box-shadow: 0 0 0 2px #f59e0b; font-size: 11.5px; }
+  .dm-cell.chg { box-shadow: 0 0 0 2px #e879f9; }
+  .dm-cell.ns.chg { box-shadow: 0 0 0 2px #f59e0b, 0 0 0 4px #e879f9; }
+  tr.dm-copyrow th { opacity: .75; }
+  .dm-gridnote { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 16px; text-align: center;
+                 font-size: 14px; font-weight: 600; color: var(--text); background: rgba(11,20,36,.72); pointer-events: none; }
+  .dm-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; margin-top: 10px; font-size: 12.5px; color: var(--sub); }
+  .dm-legend .sw { display: inline-block; min-width: 18px; padding: 1px 6px; border-radius: 4px; font: 700 11.5px ui-monospace, Menlo, Consolas, monospace; text-align: center; }
+  .dm-legend .chgk { display: inline-block; width: 14px; height: 14px; border-radius: 3px; box-shadow: 0 0 0 2px #e879f9 inset; vertical-align: -2px; }
+  .dm-legend .nsk { display: inline-block; width: 14px; height: 14px; border-radius: 3px; box-shadow: 0 0 0 2px #f59e0b inset; vertical-align: -2px; }
+  .dm-tools2 { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; margin-top: 12px; }
+  .dm-grp { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; }
+  .dm-grp > .dm-k { margin-right: 2px; }
+
+  /* Data Mapping Code（只列有變動的位址：改前 → 目前） */
+  table.dm-code { border-collapse: collapse; width: 100%; margin-top: 8px; font-size: 12.5px; }
+  .dm-code th, .dm-code td { border-bottom: 1px solid #1f2b40; padding: 4px 6px; text-align: left; }
+  .dm-code th { color: var(--sub); font-weight: 600; }
+  .dm-code td.mono, .dm-code td .mono { font-family: ui-monospace, Menlo, Consolas, monospace; }
+  .dm-code tr.chg td { background: rgba(232,121,249,.08); }
+  .dm-code input { width: 64px; height: 28px; background: #0b1424; color: var(--text); border: 1px solid var(--border); border-radius: 5px; font: 13px ui-monospace, Menlo, Consolas, monospace; text-align: center; }
+  .dm-code .arrow { color: #e879f9; font-weight: 700; padding: 0 4px; }
+  .dm-cm { font-size: 10.5px; color: var(--sub); text-align: center; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #dm-xbox { margin-top: 8px; }
+  .dm-xgrid { display: grid; grid-template-columns: 90px repeat(6, minmax(52px, 1fr)); gap: 3px; margin-top: 8px; font: 12px ui-monospace, Menlo, Consolas, monospace; overflow-x: auto; }
+  .dm-xgrid div { padding: 3px 4px; border-radius: 4px; background: #0b1424; text-align: center; color: var(--text); }
+  .dm-xgrid div.h { background: transparent; color: var(--sub); }
+  .dm-xgrid div.d { box-shadow: 0 0 0 2px #f59e0b inset; }
+
+  /* ③ 未匯出提示 */
+  .dm-pend { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin-top: 10px; font-size: 13.5px; color: var(--sub); }
+  .dm-pend.dirty { color: #fde68a; font-weight: 600; }
+  .dm-dirtybar { position: sticky; top: 0; z-index: 30; display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin: 0 0 12px; padding: 8px 12px;
+                 border: 1px solid #b45309; border-radius: 8px; background: #2a1a06; color: #fde68a; font-size: 14px; font-weight: 600; box-shadow: 0 4px 14px rgba(0,0,0,.45); }
+  .dm-dirtybar .dot { width: 9px; height: 9px; border-radius: 50%; background: #f59e0b; box-shadow: 0 0 8px #f59e0b; }
+  .dm-dirtybar .sbtn { min-height: 30px; }
+
+  .dm-log { background: #020617; border: 1px solid #334155; border-radius: 8px; height: 180px; overflow-y: auto; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11.5px; padding: 6px 8px; white-space: pre-wrap; margin-top: 8px; }
+  .dm-log .w { color: #6ee7b7; } .dm-log .e { color: #fca5a5; } .dm-log .n { color: #cbd5e1; }
+  .dm-toasts { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 100; display: flex; flex-direction: column; gap: 8px; align-items: center; pointer-events: none; width: min(92vw, 560px); }
+  .dm-toast { pointer-events: auto; padding: 9px 14px; border-radius: 8px; font-size: 13.5px; line-height: 1.5; background: #0f2a1f; border: 1px solid #10b981; color: #d1fae5; box-shadow: 0 6px 20px rgba(0,0,0,.5); transition: opacity .3s; }
+  .dm-toast.e { background: #2a0b0b; border-color: #f87171; color: #fecaca; }
+  .dm-toast.n { background: #0b1d33; border-color: #38bdf8; color: #e0f2fe; }
+
+  @media (pointer: coarse) { .dm-cell { height: 44px; font-size: 15px; } .dm-sel, .dm-in, .sbtn { min-height: 40px; height: auto; } }
+  @media (max-width: 640px) { .dm-push { margin-left: 0; } .dm-grid tbody th { width: 76px; } table.dm-grid { min-width: 520px; } }
 </style>
 </head>
 <body>
@@ -78,7 +118,7 @@
 <div class="header subpage-header">
   <a href="index.html" class="back-btn" data-i18n="common.backToHome">← 返回首頁</a>
   <h1><svg width="20" height="16" viewBox="0 0 30 22" fill="none" style="display:inline-block;vertical-align:middle;margin-right:6px" aria-hidden="true"><rect x="1" y="2" width="12" height="18" rx="2" stroke="#f472b6" stroke-width="1.6"/><rect x="17" y="2" width="12" height="18" rx="2" stroke="#f472b6" stroke-width="1.6"/><path d="M13 7 L17 15 M13 15 L17 7" stroke="#f472b6" stroke-width="1.6" stroke-linecap="round"/></svg><span data-i18n="dm.title">Data Mapping</span> <span style="display:inline-block;background:#f472b6;color:#500724;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;" data-tool-version="datamap"></span></h1>
-  <p data-i18n="dm.subtitle">與 Python UI 的 Data Mapping 分頁相同：I2C 即時調整、匯入 code、匯出 script</p>
+  <p data-i18n="dm.subtitle">內容與規則同 Python UI 的 Data Mapping 分頁：I2C 即時調整、匯入 code、匯出 script</p>
   <div class="lang-switcher">
     <select id="lang-select" class="lang-select" aria-label="Language">
       <option value="zh-TW">繁體中文</option>
@@ -89,93 +129,82 @@
 </div>
 
 <div class="container">
+  <div id="dm-dirtybar" class="dm-dirtybar hidden" role="status">
+    <span class="dot"></span><span id="dm-dirtytext"></span>
+    <button class="sbtn pri" id="dm-bar-export" data-i18n="dm.exportScript">匯出 script</button>
+    <button class="sbtn wr hidden" id="dm-bar-write">Write to TCON</button>
+  </div>
   <div id="stp-next" class="stp-next" role="status"></div>
 
-  <!-- ① T-CON 與連線 -->
-  <div class="card stp" id="card-tcon">
-    <div class="stp-hd"><span class="stp-tick" id="tk-tcon">○</span><span class="stp-t" data-i18n="dm.stpTcon">① 選 T-CON（或連線後 Check T-CON 自動認）</span><span class="stp-st" id="st-tcon"></span></div>
+  <!-- ① 選 T-CON／匯入 -->
+  <div class="card stp" id="card-src">
+    <div class="stp-hd"><span class="stp-tick" id="tk-src">○</span><span class="stp-t" data-i18n="dm.stp1">① 選 T-CON／匯入 code</span><span class="stp-st" id="st-src"></span></div>
     <div class="dm-row">
       <span class="dm-k" data-i18n="dm.model">T-CON 型號</span>
       <select id="dm-model" class="dm-sel"></select>
-      <button id="dm-link" class="sbtn linkbtn" aria-pressed="false" data-i18n="dm.connect">連線</button>
+      <button class="sbtn pri" id="dm-import" data-i18n-title="dm.importTitle" title="匯入 code（.bin／.hex／.rom／.txt／.dat）"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v8"></path><path d="M4.5 7 8 10.5 11.5 7"></path><path d="M2 12.5V14h12v-1.5"></path></svg><span data-i18n="dm.importCode">匯入 code</span></button>
+      <span class="dm-src" id="dm-src-text"></span>
+      <input type="file" id="dm-file" accept=".bin,.BIN,.hex,.HEX,.rom,.ROM,.txt,.dat" class="hidden">
+      <input type="file" id="dm-xfile" accept=".xlsx" class="hidden">
+    </div>
+    <div class="dm-row">
+      <span class="dm-k" data-i18n="dm.orI2c">或直接連 TCON（I2C）</span>
+      <button id="dm-link" class="sbtn linkbtn" aria-pressed="false">連線</button>
       <button id="dm-check" class="sbtn" data-i18n="dm.check">Check T-CON</button>
       <span class="dm-k">Slave</span>
-      <select id="dm-slave" class="dm-sel" title="EM01／EM02／E512 用；DAZ／E501／E503 固定 0x3E">
+      <select id="dm-slave" class="dm-sel" data-i18n-title="dm.slaveTip" title="EM01／EM02／E512 用；DAZ／E501／E503 固定 0x3E">
         <option value="auto" data-i18n="dm.slaveAuto">自動</option>
         <option value="104">0x68</option><option value="105">0x69</option>
         <option value="96">0x60</option><option value="97">0x61</option>
       </select>
       <label class="dm-chk"><input type="checkbox" id="dm-live" checked> <span data-i18n="dm.live">改值立即寫入</span></label>
     </div>
-    <div class="dm-info" id="dm-ic"></div>
+    <div class="stp-note" id="dm-ic"></div>
   </div>
 
-  <!-- ② Data Mapping（主體照 Python UI） -->
+  <!-- ② 調 Data Mapping -->
   <div class="card stp" id="card-dm">
-    <div class="stp-hd"><span class="stp-tick" id="tk-dm">○</span><span class="stp-t" data-i18n="dm.stpDm">② Data Mapping</span><span class="stp-st" id="st-dm"></span></div>
-    <div class="dm-tools">
-      <!-- 匯入／匯出：沿用 wfg.html:2790-2791 的工具群組按鈕（同一組 SVG 與 class） -->
-      <div class="wfg-la-tool-group">
-        <span class="wfg-la-group-label" data-i18n="dm.grpFile">檔案</span>
-        <button id="dm-import" title="匯入 code（.bin／.hex／.rom／.txt／.dat）" data-i18n-title="dm.importTitle" aria-label="匯入"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v8"></path><path d="M4.5 7 8 10.5 11.5 7"></path><path d="M2 12.5V14h12v-1.5"></path></svg><span data-i18n="dm.importPlain">匯入</span></button>
-        <button id="dm-export" title="匯出 script" data-i18n-title="dm.exportTitle" aria-label="匯出"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 10V2"></path><path d="M4.5 5 8 1.5 11.5 5"></path><path d="M2 12.5V14h12v-1.5"></path></svg><span data-i18n="dm.exportPlain">匯出</span></button>
+    <div class="stp-hd"><span class="stp-tick" id="tk-dm">○</span><span class="stp-t" data-i18n="dm.stp2">② 調 Data Mapping</span><span class="stp-st" id="st-dm"></span></div>
+    <div class="dm-row">
+      <label class="dm-chk dm-hand" id="dm-handbox"><input type="checkbox" id="dm-hand"> <span>Hand Mode Enable</span></label>
+      <span class="dm-row" style="gap:8px;flex-wrap:nowrap"><span class="dm-k">Gate Type</span>
+      <select id="dm-gate" class="dm-sel"></select></span>
+      <span class="dm-chip dm-push" data-i18n-title="dm.cksTip" title="Python UI 的 DM CKS（Hand Mode 開才有）">DM CKS <b id="dm-cks">—</b></span>
+    </div>
+    <div class="dm-alert err hidden" id="dm-ro"></div>
+
+    <div class="dm-gridwrap"><table class="dm-grid" id="dm-grid"></table><div class="dm-gridnote hidden" id="dm-gridnote"></div></div>
+    <div class="dm-legend" id="dm-legend"></div>
+
+    <div class="dm-tools2">
+      <div class="dm-grp">
+        <span class="dm-k">All Same Pixel</span>
+        <select id="dm-samev" class="dm-sel"></select>
+        <button class="sbtn" id="dm-same" data-i18n="dm.applyAll">全部套用</button>
       </div>
-      <div class="dm-src"><span data-i18n="dm.source">來源</span>：<span id="dm-src-text"></span></div>
-      <input type="file" id="dm-file" accept=".bin,.BIN,.hex,.HEX,.rom,.ROM,.txt,.dat" class="hidden">
-      <input type="file" id="dm-xfile" accept=".xlsx" class="hidden">
+      <div class="dm-grp">
+        <span class="dm-k" data-i18n="dm.excel">Data Mapping Excel</span>
+        <input id="dm-glass" class="dm-in" style="width:130px" data-i18n-ph="dm.glassPh" placeholder="Glass（NOTE）">
+        <button class="sbtn" id="dm-expx" data-i18n="dm.expx">Export Excel</button>
+        <button class="sbtn" id="dm-impx" data-i18n="dm.impx">Import Excel</button>
+      </div>
     </div>
 
-    <div class="qt-wrap" id="qt-wrap"><div class="qt-tab" id="qt-tab">
-      <!-- groupBox_41 Hand Mode Enable（10,10,711,341） -->
-      <div class="qt-gb" id="gb41" style="left:10px;top:10px;width:711px;height:341px">
-        <div class="qt-gt"><input type="checkbox" id="q-hand"><span>Hand Mode Enable</span></div>
-        <div class="qt-in">
-          <div class="qt-lbl r" style="left:280px;top:20px;width:261px;height:21px">Gate Type：</div>
-          <select class="qt-combo" id="q-gate" style="left:550px;top:20px;width:151px;height:25px"></select>
-          <div class="qt-tbl" id="q-tbl30" style="left:10px;top:50px;width:691px;height:241px"></div>
-          <div class="qt-lbl r" style="left:10px;top:300px;width:71px;height:31px">Glass：</div>
-          <input class="qt-edit" id="q-glass" style="left:80px;top:300px;width:91px;height:31px" value="">
-          <button class="qt-btn" id="q-expx" style="left:170px;top:300px;width:121px;height:31px">Export Excel</button>
-          <button class="qt-btn" id="q-impx" style="left:290px;top:300px;width:121px;height:31px">Import Excel</button>
-          <button class="qt-btn" id="q-same" style="left:430px;top:300px;width:191px;height:31px">All Same Pixel</button>
-          <input class="qt-edit" id="q-samev" style="left:620px;top:300px;width:81px;height:31px" value="X">
-        </div>
-      </div>
-      <!-- groupBox_42 Data Mapping Code（730,10,271,471） -->
-      <div class="qt-gb" style="left:730px;top:10px;width:271px;height:471px">
-        <div class="qt-gt"><span>Data Mapping Code</span></div>
-        <div class="qt-tbl" id="q-tbl31" style="left:10px;top:50px;width:251px;height:411px"></div>
-      </div>
-      <!-- groupBox_45 表格可輸入之文字（10,360,411,121） -->
-      <div class="qt-gb" style="left:10px;top:360px;width:411px;height:121px">
-        <div class="qt-gt"><span>表格可輸入之文字</span></div>
-        <div class="qt-gb" style="left:10px;top:20px;width:120px;height:91px">
-          <div class="qt-gt"><span>前循環：</span></div>
-          <div class="qt-lbl c" id="q-l223" style="left:10px;top:30px;width:91px;height:21px">(R-2 / R-1)</div>
-          <div class="qt-lbl c" id="q-l224" style="left:10px;top:50px;width:91px;height:21px">(G-2 / G-1)</div>
-          <div class="qt-lbl c" id="q-l225" style="left:10px;top:70px;width:91px;height:21px">(B-2 / B-1)</div>
-        </div>
-        <div class="qt-gb" style="left:150px;top:20px;width:120px;height:91px">
-          <div class="qt-gt"><span>主循環：</span></div>
-          <div class="qt-lbl c" style="left:10px;top:30px;width:101px;height:21px">R1 ~ R4</div>
-          <div class="qt-lbl c" style="left:10px;top:50px;width:101px;height:21px">G1 ~ G4</div>
-          <div class="qt-lbl c" style="left:10px;top:70px;width:101px;height:21px">B1 ~ B4</div>
-        </div>
-        <div class="qt-gb" style="left:280px;top:20px;width:121px;height:91px">
-          <div class="qt-gt"><span>關閉輸出：</span></div>
-          <div class="qt-lbl c qt-x" style="left:10px;top:30px;width:101px;height:51px">X</div>
-        </div>
-      </div>
-      <!-- pushButton_71／72（440,370／410，271×31，綠底） -->
-      <button class="qt-btn green" id="q-write" style="left:440px;top:370px;width:271px;height:31px">Write to TCON(0x3E)</button>
-      <button class="qt-btn green" id="q-load" style="left:440px;top:410px;width:271px;height:31px">Load from TCON(0x3E)</button>
-      <!-- label_219（420,460,291,20） -->
-      <div class="qt-lbl r" id="q-cks" style="left:420px;top:460px;width:291px;height:20px;color:rgb(85,170,255);font-family:Arial,sans-serif">DM CKS :</div>
-    </div></div>
-    <div class="dm-ns" id="dm-ns"></div>
-    <div class="dm-info" id="dm-note"></div>
+    <!-- 第二組 r2..b3（只有 EM01／EM02／E512；Python UI 沒有此組）。依 #9b56c775 報告（Dispatch 10/7）：
+         一行循環判定（Auto／短循環／長循環＋依據）；長循環（HSD 8-pixel、4line,4pixel、LTPS MUX3）才開放 24 格下拉。
+         規則在 datamap-core.js secondSetRule／firstEdit／pickSecond／exportRegs -->
+    <div class="stp-note hidden" id="dm-xline"></div>
+    <div class="hidden" id="dm-xbox">
+      <div class="dm-gridwrap"><table class="dm-grid" id="dm-xgrid"></table></div>
+    </div>
 
-    <!-- 網頁附加：EM01／EM02／E512 原廠工具才有的欄位（Python UI 沒有） -->
+    <details class="stp-more" id="dm-codebox">
+      <summary><span id="dm-codesum">Data Mapping Code</span></summary>
+      <div class="dm-row" style="margin-top:8px"><label class="dm-chk"><input type="checkbox" id="dm-codeonly" checked> <span data-i18n="dm.codeOnly">只看有變動的位址</span></label><span class="dm-sub" data-i18n="dm.codeHint">「目前」那欄可以直接改 hex（同 Python UI 的 Data A）</span></div>
+      <table class="dm-code" id="dm-code"></table>
+    </details>
+
+    <!-- 網頁附加：EM01／EM02／E512 原廠工具欄位（Python UI 沒有） -->
     <details class="stp-more hidden" id="dm-mnt">
       <summary><span data-i18n="dm.mntSum">網頁附加：EM01／EM02／E512 原廠工具欄位（Python UI 沒有）</span></summary>
       <div class="dm-row" style="margin-top:10px">
@@ -187,18 +216,28 @@
       </div>
       <div class="dm-row">
         <label class="dm-chk"><input type="checkbox" id="f-deEn"> force_de_en</label>
-        <span class="dm-k">force_de_sel</span><input type="number" id="f-deSel" class="dm-sel" style="width:72px" min="0" max="63">
-        <span class="dm-k">read_rvs</span><input id="f-rvs" class="dm-sel" style="width:90px" placeholder="0x0000">
+        <span class="dm-k">force_de_sel</span><input type="number" id="f-deSel" class="dm-in" style="width:72px" min="0" max="63">
+        <span class="dm-k">read_rvs</span><input id="f-rvs" class="dm-in" style="width:90px" placeholder="0x0000">
       </div>
       <div class="dm-row">
         <span class="dm-k" data-i18n="dm.preset">原廠預設樣式</span><select id="dm-preset" class="dm-sel" style="max-width:100%"></select>
         <button class="sbtn" id="dm-preset-apply" data-i18n="dm.apply">套用</button><span class="dm-k" id="dm-preset-now"></span>
       </div>
-      <div class="dm-info" data-i18n="dm.xNote">r2 g2 b2 r3 g3 b3（h005E-h0075）：Python UI 沒有這一組，名稱未確認，只顯示原值（十進位）。</div>
-      <div class="dm-row" id="dm-xcells" style="margin-top:6px"></div>
+      <div class="dm-sub" data-i18n="dm.presetNote">套用時兩組（含第二組 r2..b3）都照原廠預設表寫入，寫到語意位址（不照抄原廠 RegSet 錯開 1 byte 的問題）。</div>
     </details>
+  </div>
 
-    <details class="stp-more" id="dm-logbox">
+  <!-- ③ 寫入 TCON 或匯出 -->
+  <div class="card stp" id="card-out">
+    <div class="stp-hd"><span class="stp-tick" id="tk-out">○</span><span class="stp-t" data-i18n="dm.stp3">③ 寫入 TCON 或匯出 script</span><span class="stp-st" id="st-out"></span></div>
+    <div class="dm-row">
+      <button class="sbtn pri" id="dm-export"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 10V2"></path><path d="M4.5 5 8 1.5 11.5 5"></path><path d="M2 12.5V14h12v-1.5"></path></svg><span data-i18n="dm.exportScript">匯出 script</span></button>
+      <span class="dm-sep"></span>
+      <button class="sbtn wr" id="dm-write">Write to TCON(0x3E)</button>
+      <button class="sbtn" id="dm-load">Load from TCON(0x3E)</button>
+    </div>
+    <div class="dm-pend" id="dm-pend"></div>
+    <details class="stp-more" id="dm-logbox" open>
       <summary><span data-i18n="dm.log">記錄</span></summary>
       <div class="dm-row" style="margin-top:8px"><button class="sbtn" id="dm-logclr" data-i18n="dm.clear">清除</button></div>
       <div class="dm-log" id="dm-log"></div>
@@ -209,45 +248,85 @@
     <a href="index.html" class="back-btn-footer" data-i18n="common.backToHome">← 返回首頁</a>
   </div>
 </div>
+<div class="dm-toasts" id="dm-toasts" aria-live="polite"></div>
 
-<script src="common/version.js?v=20261007dm110"></script>
-<script src="common/i18n.js?v=20261007dm110"></script>
+<script src="common/version.js?v=20261007dm120"></script>
+<script src="common/i18n.js?v=20261007dm120"></script>
 <script>
 (function () {
+  /* [zh-TW, en, zh-CN] */
   var D = {
     'dm.title': ['Data Mapping', 'Data Mapping', 'Data Mapping'],
-    'dm.subtitle': ['與 Python UI 的 Data Mapping 分頁相同：I2C 即時調整、匯入 code、匯出 script', 'Same as the Data Mapping tab of the Python UI: live I2C tuning, code import, script export', '与 Python UI 的 Data Mapping 分页相同：I2C 实时调整、导入 code、导出 script'],
-    'dm.stpTcon': ['① 選 T-CON（或連線後 Check T-CON 自動認）', '① Pick the T-CON (or connect and use Check T-CON)', '① 选 T-CON（或连接后 Check T-CON 自动识别）'],
-    'dm.stpDm': ['② Data Mapping', '② Data Mapping', '② Data Mapping'],
+    'dm.subtitle': ['內容與規則同 Python UI 的 Data Mapping 分頁：I2C 即時調整、匯入 code、匯出 script', 'Same content and rules as the Data Mapping tab of the Python UI: live I2C tuning, code import, script export', '内容与规则同 Python UI 的 Data Mapping 分页：I2C 实时调整、导入 code、导出 script'],
+    'dm.stp1': ['① 選 T-CON／匯入 code', '① Pick the T-CON / import a code', '① 选 T-CON／导入 code'],
+    'dm.stp2': ['② 調 Data Mapping', '② Tune the Data Mapping', '② 调 Data Mapping'],
+    'dm.stp3': ['③ 寫入 TCON 或匯出 script', '③ Write to the TCON or export a script', '③ 写入 TCON 或导出 script'],
     'dm.model': ['T-CON 型號', 'T-CON model', 'T-CON 型号'],
+    'dm.importCode': ['匯入 code', 'Import code', '导入 code'],
+    'dm.importTitle': ['匯入 code（.bin／.hex／.rom／.txt／.dat）', 'Import code (.bin/.hex/.rom/.txt/.dat)', '导入 code（.bin／.hex／.rom／.txt／.dat）'],
+    'dm.orI2c': ['或直接連 TCON（I2C）', 'or connect to the TCON (I2C)', '或直接连 TCON（I2C）'],
     'dm.connect': ['連線', 'Connect', '连接'],
     'dm.connected': ['已連線', 'Connected', '已连接'],
     'dm.check': ['Check T-CON', 'Check T-CON', 'Check T-CON'],
     'dm.slaveAuto': ['自動', 'Auto', '自动'],
+    'dm.slaveTip': ['EM01／EM02／E512 用；DAZ／E501／E503 固定 0x3E', 'For EM01/EM02/E512; DAZ/E501/E503 always use 0x3E', 'EM01／EM02／E512 用；DAZ／E501／E503 固定 0x3E'],
     'dm.live': ['改值立即寫入', 'Write on change', '改值立即写入'],
-    'dm.grpFile': ['檔案', 'File', '文件'],
-    'dm.importPlain': ['匯入', 'Import', '导入'],
-    'dm.exportPlain': ['匯出', 'Export', '导出'],
-    'dm.importTitle': ['匯入 code（.bin／.hex／.rom／.txt／.dat）', 'Import code (.bin/.hex/.rom/.txt/.dat)', '导入 code（.bin／.hex／.rom／.txt／.dat）'],
-    'dm.exportTitle': ['匯出 script', 'Export script', '导出 script'],
-    'dm.source': ['來源', 'Source', '来源'],
-    'dm.srcNone': ['尚未載入（目前是預設值 0）', 'Nothing loaded (all values 0)', '尚未加载（目前是默认值 0）'],
-    'dm.srcTcon': ['從 TCON 讀回（{m}，slave 0x{s}）', 'Read from TCON ({m}, slave 0x{s})', '从 TCON 读回（{m}，slave 0x{s}）'],
-    'dm.en01': ['EN01：Data Mapping 演算法不同，暫不支援', 'EN01: different Data Mapping algorithm, not supported yet', 'EN01：Data Mapping 算法不同，暂不支持'],
+    'dm.cksTip': ['Python UI 的 DM CKS（Hand Mode 開才有）', 'DM CKS as in the Python UI (Hand Mode on only)', 'Python UI 的 DM CKS（Hand Mode 开才有）'],
+    'dm.applyAll': ['全部套用', 'Apply to all', '全部套用'],
+    'dm.excel': ['Data Mapping Excel', 'Data Mapping Excel', 'Data Mapping Excel'],
+    'dm.glassPh': ['Glass（NOTE）', 'Glass (note)', 'Glass（NOTE）'],
+    'dm.expx': ['Export Excel', 'Export Excel', 'Export Excel'],
+    'dm.impx': ['Import Excel', 'Import Excel', 'Import Excel'],
+    'dm.exportScript': ['匯出 script', 'Export script', '导出 script'],
+    'dm.codeOnly': ['只看有變動的位址', 'Changed addresses only', '只看有变动的地址'],
+    'dm.codeHint': ['「目前」那欄可以直接改 hex（同 Python UI 的 Data A）', 'The "Now" column takes hex directly (Data A in the Python UI)', '「目前」那栏可以直接改 hex（同 Python UI 的 Data A）'],
+    'dm.codeSum': ['Data Mapping Code：{n} 個位址，{c} 個有變動', 'Data Mapping Code: {n} addresses, {c} changed', 'Data Mapping Code：{n} 个地址，{c} 个有变动'],
+    'dm.codeHead': ['位址|欄位|改前|目前', 'Address|Field|Before|Now', '地址|栏位|改前|目前'],
+    'dm.codeNone': ['沒有變動（取消勾選「只看有變動的位址」可看全部 {n} 個）', 'No changes (untick "Changed addresses only" to see all {n})', '没有变动（取消勾选「只看有变动的地址」可看全部 {n} 个）'],
     'dm.mntSum': ['網頁附加：EM01／EM02／E512 原廠工具欄位（Python UI 沒有）', 'Web extra: EM01/EM02/E512 vendor-tool fields (not in the Python UI)', '网页附加：EM01／EM02／E512 原厂工具栏位（Python UI 没有）'],
     'dm.preset': ['原廠預設樣式', 'Vendor preset', '原厂默认样式'],
     'dm.apply': ['套用', 'Apply', '套用'],
     'dm.presetPick': ['（選擇預設樣式）', '(choose a preset)', '（选择默认样式）'],
     'dm.presetNow': ['目前 ＝ {p}', 'Current = {p}', '目前 ＝ {p}'],
     'dm.presetNone': ['不符合任何預設樣式', 'No matching preset', '不符合任何默认样式'],
-    'dm.xNote': ['r2 g2 b2 r3 g3 b3（h005E-h0075）：Python UI 沒有這一組，名稱未確認，只顯示原值（十進位）。', 'r2 g2 b2 r3 g3 b3 (h005E-h0075): not in the Python UI; names unconfirmed, raw values (decimal) only.', 'r2 g2 b2 r3 g3 b3（h005E-h0075）：Python UI 没有这一组，名称未确认，只显示原值（十进制）。'],
     'dm.log': ['記錄', 'Log', '记录'],
     'dm.clear': ['清除', 'Clear', '清除'],
-    'dm.nextPick': ['先選 T-CON 型號，再「匯入」code；要直接調 TCON 就按「連線」。', 'Pick the T-CON model and Import a code, or Connect to tune the TCON directly.', '先选 T-CON 型号，再「导入」code；要直接调 TCON 就按「连接」。'],
-    'dm.nextHand': ['勾「Hand Mode Enable」後，在表格輸入 R1~R4、R-1／R-2（G、B 同）或 X。', 'Tick "Hand Mode Enable", then type R1~R4, R-1/R-2 (same for G, B) or X in the table.', '勾「Hand Mode Enable」后，在表格输入 R1~R4、R-1／R-2（G、B 同）或 X。'],
-    'dm.nextEdit': ['在表格直接輸入（Enter 確認）。調好後按「匯出」產生 script；I2C 連線中改值會立即寫入。', 'Type into the table (Enter to apply). Export when done; while connected, every change is written right away.', '在表格直接输入（Enter 确认）。调好后按「导出」产生 script；I2C 连接中改值会立即写入。'],
-    'dm.nextMismatch': ['PANEL_MODE＝{p}、RD_MODE＝{r} 不是 Python UI 的 Single／Dual／Tri 組合，表格不顯示；請在 Gate Type 重選。', 'PANEL_MODE={p}, RD_MODE={r} is not a Single/Dual/Tri combination of the Python UI, so the table is empty; pick a Gate Type again.', 'PANEL_MODE＝{p}、RD_MODE＝{r} 不是 Python UI 的 Single／Dual／Tri 组合，表格不显示；请在 Gate Type 重选。'],
-    'dm.ns': ['非標準值（保留原值，不會自動改掉；在那一格輸入新值才會改）：{l}', 'Non-standard values (kept as is; only typing a new value changes them): {l}', '非标准值（保留原值，不会自动改掉；在那一格输入新值才会改）：{l}'],
+    'dm.en01': ['EN01：Data Mapping 演算法不同，暫不支援', 'EN01: different Data Mapping algorithm, not supported yet', 'EN01：Data Mapping 算法不同，暂不支持'],
+    'dm.srcNone': ['尚未載入（目前是預設值 0）', 'Nothing loaded (all values 0)', '尚未加载（目前是默认值 0）'],
+    'dm.srcTcon': ['從 TCON 讀回（{m}，slave 0x{s}）', 'Read from TCON ({m}, slave 0x{s})', '从 TCON 读回（{m}，slave 0x{s}）'],
+    'dm.rowSame': ['↳ 同 {r}', '↳ same as {r}', '↳ 同 {r}'],
+    'dm.rowSameTip': ['Single-Gate：這一列是 {r} 的複本，不能改（同 Python UI）', 'Single-Gate: this row copies {r} and cannot be edited (as in the Python UI)', 'Single-Gate：这一列是 {r} 的副本，不能改（同 Python UI）'],
+    'dm.rowGn2': ['可選 R5／R6（GN2）', 'R5/R6 allowed (GN2)', '可选 R5／R6（GN2）'],
+    'dm.nsOpt': ['非標準 0x{v}', 'Non-standard 0x{v}', '非标准 0x{v}'],
+    'dm.gridOff': ['Hand Mode 關閉：TCON 用自動對應，表格不作用。勾「Hand Mode Enable」才能調。', 'Hand Mode is off: the TCON maps automatically and the table has no effect. Tick "Hand Mode Enable" to edit.', 'Hand Mode 关闭：TCON 用自动对应，表格不作用。勾「Hand Mode Enable」才能调。'],
+    'dm.gridTri': ['Tri-Gate：Python UI 不提供表格編輯。', 'Tri-Gate: the Python UI does not edit the table.', 'Tri-Gate：Python UI 不提供表格编辑。'],
+    'dm.gridMismatch': ['PANEL_MODE＝{p}、RD_MODE＝{r} 不是 Single／Dual／Tri 組合，表格不顯示；請在 Gate Type 重選。', 'PANEL_MODE={p}, RD_MODE={r} is not a Single/Dual/Tri combination, so the table is empty; pick a Gate Type again.', 'PANEL_MODE＝{p}、RD_MODE＝{r} 不是 Single／Dual／Tri 组合，表格不显示；请在 Gate Type 重选。'],
+    'dm.lgPre': ['前循環', 'Previous', '前循环'],
+    'dm.lgMain': ['主循環', 'Main', '主循环'],
+    'dm.lgX': ['關閉輸出', 'Output off', '关闭输出'],
+    'dm.lgChg': ['已改（還沒匯出／寫入）', 'Changed (not exported / written)', '已改（还没导出／写入）'],
+    'dm.lgNs': ['非標準值（保留原值）', 'Non-standard (kept)', '非标准值（保留原值）'],
+    'dm.xAuto': ['第二組（r2..b3）：Auto — force_sel_en＝0，硬體兩組都不讀；第二組隱藏、不寫入。依據：{b}', 'Second set (r2..b3): Auto — force_sel_en = 0, the hardware reads neither set; hidden and never written. Basis: {b}', '第二组（r2..b3）：Auto — force_sel_en＝0，硬件两组都不读；第二组隐藏、不写入。依据：{b}'],
+    'dm.xShort': ['第二組（r2..b3）：短循環 — 第二組自動＝第一組（短循環時硬體不使用／複本最安全）；沒改第一組就保留原值。依據：{b}', 'Second set (r2..b3): short cycle — automatically = first set (unused by the hardware in short cycles / a copy is safest); kept as is until the first set changes. Basis: {b}', '第二组（r2..b3）：短循环 — 第二组自动＝第一组（短循环时硬件不使用／副本最安全）；没改第一组就保留原值。依据：{b}'],
+    'dm.xLong': ['第二組（r2..b3）：長循環 — 第二組＝{m}，請在下表自己填（0~29、X＝31；0 是有效值）。依據：{b}', 'Second set (r2..b3): long cycle — second set = {m}; fill it in below (0~29, X = 31; 0 is a valid value). Basis: {b}', '第二组（r2..b3）：长循环 — 第二组＝{m}，请在下表自己填（0~29、X＝31；0 是有效值）。依据：{b}'],
+    'dm.xMux3Note': ['MUX3 只用 _0／_2；_1／_3 不使用，一律寫 0。', 'MUX3 uses _0/_2 only; _1/_3 are unused and always written 0.', 'MUX3 只用 _0／_2；_1／_3 不使用，一律写 0。'],
+    'dm.mPix58': ['pixel 5~8', 'pixel 5~8', 'pixel 5~8'],
+    'dm.mRow34': ['第 3~4 列（G5~G8）', 'rows 3~4 (G5~G8)', '第 3~4 列（G5~G8）'],
+    'dm.mMux3': ['第 3 個 mux 時槽', '3rd mux time slot', '第 3 个 mux 时槽'],
+    'dm.mUnused': ['不使用（寫 0）', 'unused (written 0)', '不使用（写 0）'],
+    'dm.xNamesNote': ['名稱表未確認：選項以數字為主，0~17 附 GN1 名稱（0＝R3），18~29 只有數字。', 'Name table unconfirmed: options are numbers, 0~17 with the GN1 name (0 = R3), 18~29 numbers only.', '名称表未确认：选项以数字为主，0~17 附 GN1 名称（0＝R3），18~29 只有数字。'],
+    'dm.presetNote': ['套用時兩組（含第二組 r2..b3）都照原廠預設表寫入，寫到語意位址（不照抄原廠 RegSet 錯開 1 byte 的問題）。', 'Applying writes both sets (including r2..b3) from the vendor table to their semantic addresses (without the vendor RegSet 1-byte shift).', '套用时两组（含第二组 r2..b3）都照原厂默认表写入，写到语义地址（不照抄原厂 RegSet 错开 1 byte 的问题）。'],
+    'dm.v512': ['⚠ 可能是 V512：用 EM02 規則讀到 Data Mapping 的值超過 5 bit（{a}）。只讀不寫：表格、匯出、寫入都已鎖住。', '⚠ Possibly a V512: Data Mapping values read with the EM02 rule exceed 5 bits ({a}). Read-only: table, export and write are locked.', '⚠ 可能是 V512：用 EM02 规则读到 Data Mapping 的值超过 5 bit（{a}）。只读不写：表格、导出、写入都已锁住。'],
+    'dm.nextPick': ['先選 T-CON 型號並「匯入 code」；要直接調 TCON 就按「連線」。', 'Pick the T-CON model and Import a code, or Connect to tune the TCON directly.', '先选 T-CON 型号并「导入 code」；要直接调 TCON 就按「连接」。'],
+    'dm.nextHand': ['勾「Hand Mode Enable」後，用每一格的下拉選單選 R／G／B 或 X。', 'Tick "Hand Mode Enable", then pick R/G/B or X from each cell\'s menu.', '勾「Hand Mode Enable」后，用每一格的下拉菜单选 R／G／B 或 X。'],
+    'dm.nextEdit': ['用每一格的下拉選單調整；調好到 ③ 匯出 script 或寫入 TCON。', 'Adjust with each cell\'s menu, then export a script or write to the TCON in ③.', '用每一格的下拉菜单调整；调好到 ③ 导出 script 或写入 TCON。'],
+    'dm.nextLive': ['用每一格的下拉選單調整；I2C 連線中，改值會立即寫入 TCON。', 'Adjust with each cell\'s menu; while connected, every change is written to the TCON right away.', '用每一格的下拉菜单调整；I2C 连接中，改值会立即写入 TCON。'],
+    'dm.nextTri': ['Tri-Gate：Python UI 不提供表格編輯；要調請把 Gate Type 改成 Single 或 Dual。', 'Tri-Gate: the Python UI does not edit the table; switch Gate Type to Single or Dual to edit.', 'Tri-Gate：Python UI 不提供表格编辑；要调请把 Gate Type 改成 Single 或 Dual。'],
+    'dm.dirtyBar': ['有 {n} 個位址的變更還沒匯出或寫入 TCON', '{n} changed addresses are not exported or written to the TCON yet', '有 {n} 个地址的变更还没导出或写入 TCON'],
+    'dm.pendClean': ['沒有未匯出／未寫入的變更。', 'No unexported / unwritten changes.', '没有未导出／未写入的变更。'],
+    'dm.pendLast': ['上次：{w}', 'Last: {w}', '上次：{w}'],
+    'dm.unload': ['還有變更沒有匯出或寫入，確定離開？', 'Some changes are not exported or written. Leave anyway?', '还有变更没有导出或写入，确定离开？'],
+    'dm.ns': ['非標準值（保留原值，選了標準值才會改）：{l}', 'Non-standard values (kept until you pick a standard value): {l}', '非标准值（保留原值，选了标准值才会改）：{l}'],
     'dm.impOk': ['已匯入 {f}：{m}（{how}）', 'Imported {f}: {m} ({how})', '已导入 {f}：{m}（{how}）'],
     'dm.howName': ['依檔名，同 Python UI', 'by file name, as the Python UI does', '依文件名，同 Python UI'],
     'dm.howPick': ['依選的型號', 'by the selected model', '依选的型号'],
@@ -271,38 +350,47 @@
     'dm.e503NoConfirm': ['E503 是手選的（未經 Check T-CON 確認）：只下 7E:AB←CD，不寫 3E:0059。', 'E503 was picked by hand (not confirmed by Check T-CON): only 7E:AB←CD is sent, 3E:0059 is not written.', 'E503 是手选的（未经 Check T-CON 确认）：只下 7E:AB←CD，不写 3E:0059。'],
     'dm.wrOk': ['已寫入 {n} 個 byte', '{n} bytes written', '已写入 {n} 个 byte'],
     'dm.wrFail': ['寫入失敗 {n} 個位址，已從 TCON 重新讀回', '{n} addresses failed; re-read from TCON', '写入失败 {n} 个地址，已从 TCON 重新读回'],
-    'dm.notLinked': ['I2C 未連線', 'I2C not connected', 'I2C 未连接'],
+    'dm.notLinked': ['I2C 未連線：先在 ① 按「連線」', 'I2C not connected: press Connect in ① first', 'I2C 未连接：先在 ① 按「连接」'],
     'dm.linkErr': ['連不上 I2C Bridge', 'Cannot reach I2C Bridge', '连不上 I2C Bridge'],
     'dm.oldBridge': ['I2C Bridge 不支援寫入指令，請到「I2C 讀寫測試」頁下載最新版。', 'This I2C Bridge does not support writes; get the latest one from the I2C page.', 'I2C Bridge 不支持写入指令，请到「I2C 读写测试」页下载最新版。'],
-    'dm.stModel': ['{m}', '{m}', '{m}'],
-    'dm.stGate': ['{g}', '{g}', '{g}']
+    'dm.readOk': ['已從 TCON 讀回 {m} Data Mapping', '{m} Data Mapping read from the TCON', '已从 TCON 读回 {m} Data Mapping'],
+    'dm.wroteAll': ['已寫入 TCON', 'Written to the TCON', '已写入 TCON'],
+    'dm.whatExport': ['匯出 {f}', 'exported {f}', '导出 {f}'],
+    'dm.whatWrite': ['寫入 TCON', 'written to the TCON', '写入 TCON'],
+    'dm.whatImport': ['匯入 {f}', 'imported {f}', '导入 {f}'],
+    'dm.whatRead': ['從 TCON 讀回', 'read from the TCON', '从 TCON 读回'],
+    'dm.roBlocked': ['只讀（可能是 V512），不能改、不能匯出或寫入。', 'Read-only (possibly a V512): no edit, export or write.', '只读（可能是 V512），不能改、不能导出或写入。']
   };
   var L = ['zh-TW', 'en', 'zh-CN'];
   Object.keys(D).forEach(function (k) { var o = {}; L.forEach(function (l, i) { o[l] = D[k][i]; }); I18N[k] = o; });
 })();
 </script>
 <script src="common/common.js?v=20260523"></script>
-<script src="common/subpix-colors.js?v=20261007dm110"></script>
-<script src="common/xlsx.js?v=20261007dm110"></script>
-<script src="common/datamap-core.js?v=20261007dm110"></script>
+<script src="common/subpix-colors.js?v=20261007dm120"></script>
+<script src="common/xlsx.js?v=20261007dm120"></script>
+<script src="common/datamap-core.js?v=20261007dm120"></script>
 <script>
 (function () {
   'use strict';
   var DM = window.TCONDataMap, SP = window.TCONSubpix;
   function $(id) { return document.getElementById(id); }
   function tt(k, v) { return t(k, v); }
+  function esc(s) { return escapeHtml(s); }
   var hex = DM.hex;
-  /* 格子底色：R／G／B ＝ Pattern 4×4 的 255 階（subpix-colors.js），X ＝ PY QColor(150,150,150)，
-     暗列 ＝ PY QColor(50,50,50)（RomCodeProcessUI.py:10598、10606） */
-  var CELL_RGB = { r: SP.rgbOf(0, 255), g: SP.rgbOf(1, 255), b: SP.rgbOf(2, 255), x: [150, 150, 150], ns: [150, 150, 150], dark: [50, 50, 50] };
+  var ROWS = ['Line 1-1', 'Line 1-2', 'Line 2-1', 'Line 2-2'];
+  /* 格子底色：R／G／B ＝ Pattern 4×4 的 255 階（subpix-colors.js），X／非標準 ＝ PY QColor(150,150,150)（RomCodeProcessUI.py:10598） */
+  var CELL_RGB = { r: SP.rgbOf(0, 255), g: SP.rgbOf(1, 255), b: SP.rgbOf(2, 255), x: [150, 150, 150], ns: [150, 150, 150] };
+  function rgbCss(c) { return 'rgb(' + c[0] + ',' + c[1] + ',' + c[2] + ')'; }
 
   var S = {
-    model: 'E503', cur: null, img: {}, baseImg: null, src: { kind: 'none' }, raw: null, rawName: '',
-    ws: null, seq: 0, pend: {}, linked: false, busy: false, slave: 0x68, e503ok: false, chain: Promise.resolve(), checked: null
+    model: 'E503', cur: null, img: {}, baseImg: null, savedImg: null, src: { kind: 'none' }, raw: null, rawName: '',
+    ws: null, seq: 0, pend: {}, linked: false, busy: false, slave: 0x68, e503ok: false, chain: Promise.resolve(), checked: null,
+    xTouched: false, ro: null, last: ''
   };
   S.cur = DM.emptyState(S.model);
   window.dmState = S;
 
+  /* ── 訊息：一律進 ③ 記錄；重要的再 toast ── */
   function log(kind, text) {
     var box = $('dm-log'); if (!box) return;
     var d = new Date(), p = function (n) { return (n < 10 ? '0' : '') + n; };
@@ -310,17 +398,43 @@
     line.textContent = p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds()) + '  ' + text;
     box.appendChild(line); box.scrollTop = box.scrollHeight;
   }
+  function toast(kind, text) {
+    log(kind === 'ok' ? 'w' : kind, text);
+    var box = $('dm-toasts'), el = document.createElement('div');
+    el.className = 'dm-toast ' + (kind === 'ok' ? '' : kind); el.textContent = text; box.appendChild(el);
+    while (box.children.length > 3) box.removeChild(box.firstChild);
+    setTimeout(function () { el.style.opacity = '0'; setTimeout(function () { el.remove(); }, 350); }, kind === 'e' ? 6000 : 3500);
+  }
+  window.dmToast = toast;
   function isNb() { return DM.MODELS[S.model].kind === 'nb'; }
+  function clone(o) { return JSON.parse(JSON.stringify(o)); }
 
-  /* ── 影像：Data Mapping 相關位址的 byte（目前／基準） ── */
+  /* ── 影像：Data Mapping 相關位址的 byte（目前／來源基準／上次匯出或寫入） ── */
   function imgAddrs() {
     var a = {};
     DM.fieldsOf(S.model).forEach(function (f) { f.parts.forEach(function (p) { a[p[0]] = 1; }); });
     DM.codeAddrs(S.model).forEach(function (x) { a[x] = 1; });
-    return Object.keys(a).map(Number);
+    return Object.keys(a).map(Number).sort(function (x, y) { return x - y; });
   }
   function syncImgFromState() {
     DM.encode(S.model, S.cur).forEach(function (e) { S.img[e.reg] = DM.maskedMerge(S.img[e.reg] | 0, e.val, e.mask); });
+  }
+  function dirtyRegs() {
+    if (!S.savedImg) return [];
+    return imgAddrs().filter(function (a) { return (S.img[a] | 0) !== (S.savedImg[a] | 0); });
+  }
+  function markSaved(what) { S.savedImg = clone(S.img); if (what) S.last = what; }
+  /* 讀進來之後：記下第二組 r2..b3 匯入時的狀態（只用來顯示）、第一組尚未修改；EM02 規則的 V512 判定 */
+  /* xTouched：第二組這次載入後有沒有被改寫過（沒有 ⇒ 匯出 script／Write to TCON 都不含 r2..b3） */
+  function resetX() { S.xTouched = false; }
+  function afterLoad(v512) {
+    S.ro = v512 && v512.length ? v512 : null;
+    resetX();
+    if (!isNb()) log('n', 'r2..b3: ' + DM.secondSetRule(S.model, S.cur).mode + ' (' + DM.secondSetRule(S.model, S.cur).basis + ')');
+    if (S.ro) toast('e', tt('dm.v512', { a: S.ro.slice(0, 4).map(function (a) { return '0x' + hex(a, 4) + '=' + hex(S.img[a] | 0, 2); }).join(', ') + (S.ro.length > 4 ? '…' : '') }));
+    var ns = [];
+    for (var r = 0; r < 4; r++) for (var c = 0; c < 6; c++) { var v = DM.cellView(S.model, S.cur, r, c); if (!v.blank && !v.std && v.src === r * 6 + c) ns.push(ROWS[r] + ' Data ' + (c + 1) + ' = ' + v.txt); }
+    if (ns.length) log('e', tt('dm.ns', { l: ns.join('、') }));
   }
 
   /* ── 畫面 ── */
@@ -329,116 +443,208 @@
     DM.MODEL_KEYS.forEach(function (k) { var o = document.createElement('option'); o.value = k; o.textContent = DM.MODELS[k].label; sel.appendChild(o); });
     var o2 = document.createElement('option'); o2.value = ''; o2.disabled = true; o2.textContent = tt('dm.en01'); sel.appendChild(o2);
   }
+  /* Gate Type：PY comboBox_49 的 Single／Dual／Tri（'Non-Hand Mode' 在 PY 選了也不動作，開關由 Hand Mode Enable 負責） */
   function buildGate() {
-    var sel = $('q-gate'); sel.innerHTML = '';
-    DM.GATE_ITEMS.forEach(function (g) { var o = document.createElement('option'); o.value = g; o.textContent = g; sel.appendChild(o); });
+    var sel = $('dm-gate'); sel.innerHTML = '';
+    DM.GATE_ITEMS.slice(1).forEach(function (g) { var o = document.createElement('option'); o.value = g; o.textContent = g; sel.appendChild(o); });
   }
-  function buildTbl30() {
-    var h = '<table style="width:' + (62 + 8 * 75) + 'px"><colgroup><col style="width:62px">';
-    for (var c = 0; c < 8; c++) h += '<col style="width:75px">';
+  function buildGrid() {
+    var h = '<colgroup><col class="dm-hc">';
+    for (var c = 0; c < 6; c++) h += '<col>';
     h += '</colgroup><thead><tr><th></th>';
-    for (var c2 = 1; c2 <= 8; c2++) h += '<th style="height:24px">Data ' + c2 + '</th>';
+    for (var c2 = 1; c2 <= 6; c2++) h += '<th>Data ' + c2 + '</th>';
     h += '</tr></thead><tbody>';
-    var R = ['Line 1-1', 'Line 1-2', 'Line 2-1', 'Line 2-2'];
     for (var r = 0; r < 4; r++) {
-      h += '<tr style="height:45px"><th>' + R[r] + '</th>';
-      for (var c3 = 0; c3 < 8; c3++) h += '<td id="q30-' + r + '-' + c3 + '"><input data-r="' + r + '" data-c="' + c3 + '" autocomplete="off" spellcheck="false"></td>';
+      h += '<tr id="dm-tr' + r + '"><th>' + ROWS[r] + '<span class="dm-rs" id="dm-rs' + r + '"></span></th>';
+      for (var c3 = 0; c3 < 6; c3++) h += '<td><select class="dm-cell" id="dm-c' + r + '-' + c3 + '" data-r="' + r + '" data-c="' + c3 + '" aria-label="' + ROWS[r] + ' Data ' + (c3 + 1) + '"></select></td>';
       h += '</tr>';
     }
-    $('q-tbl30').innerHTML = h + '</tbody></table>';
-    Array.prototype.forEach.call($('q-tbl30').querySelectorAll('input'), function (inp) {
-      inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); inp.blur(); } if (e.key === 'Escape') { inp.value = inp.dataset.v || ''; inp.blur(); } });
-      inp.addEventListener('focus', function () { inp.dataset.v = inp.value; });
-      inp.addEventListener('blur', function () { if (inp.value !== inp.dataset.v) onCellText(+inp.dataset.r, +inp.dataset.c, inp.value); });
+    $('dm-grid').innerHTML = h + '</tbody>';
+    Array.prototype.forEach.call($('dm-grid').querySelectorAll('select'), function (sel) {
+      sel.addEventListener('change', function () { onPick(+sel.dataset.r, +sel.dataset.c, sel.value); });
     });
   }
-  function buildTbl31() {
-    var addrs = DM.codeAddrs(S.model), n = Math.max(15, addrs.length);
-    var h = '<table style="width:' + (26 + 160) + 'px"><colgroup><col style="width:26px"><col style="width:80px"><col style="width:80px"></colgroup>' +
-            '<thead><tr><th></th><th style="height:24px">Data A</th><th>Data B</th></tr></thead><tbody>';
-    for (var i = 0; i < n; i++) h += '<tr style="height:25px"><th>' + i + '</th><td id="q31-' + i + '"><input data-i="' + i + '" autocomplete="off" spellcheck="false"></td><td></td></tr>';
-    $('q-tbl31').innerHTML = h + '</tbody></table>';
-    Array.prototype.forEach.call($('q-tbl31').querySelectorAll('input'), function (inp) {
+  function colorKeyOf(name) { return DM.colorOfName(name); }
+  function optEl(value, text, ckey) {
+    var o = document.createElement('option'); o.value = value; o.textContent = text;
+    if (ckey) { var c = CELL_RGB[ckey]; o.style.background = rgbCss(c); o.style.color = SP.textOn(c[0], c[1], c[2]); }
+    return o;
+  }
+  function paintSel(sel, ckey) {
+    if (!ckey) { sel.style.background = ''; sel.style.color = ''; return; }
+    var c = CELL_RGB[ckey]; sel.style.background = rgbCss(c); sel.style.color = SP.textOn(c[0], c[1], c[2]);
+  }
+  function cellRegs(idx) { return DM.fieldById(S.model, 'c' + idx).parts.map(function (p) { return p[0]; }); }
+  function cellChanged(idx) {
+    if (!S.savedImg) return false;
+    return cellRegs(idx).some(function (a) { return (S.img[a] | 0) !== (S.savedImg[a] | 0); });
+  }
+  function renderGrid() {
+    var m = S.model, s = S.cur, g = DM.gateOf(m, s), e50 = DM.MODELS[m].sem === 'e50x';
+    for (var r = 0; r < 4; r++) {
+      var copyRow = e50 && g === 'single' && (r & 1) === 1;
+      $('dm-tr' + r).className = copyRow ? 'dm-copyrow' : '';
+      $('dm-tr' + r).title = copyRow ? tt('dm.rowSameTip', { r: ROWS[r - 1] }) : '';
+      $('dm-rs' + r).textContent = copyRow ? tt('dm.rowSame', { r: ROWS[r - 1] }) : (e50 && g === 'dual' && (r & 1) ? tt('dm.rowGn2') : '');
+      for (var c = 0; c < 6; c++) {
+        var sel = $('dm-c' + r + '-' + c), v = DM.cellView(m, s, r, c), opts = S.ro ? [] : DM.cellOptions(m, s, r, c);
+        sel.innerHTML = '';
+        sel.className = 'dm-cell';
+        if (v.blank) { sel.appendChild(optEl('', '—')); sel.disabled = true; sel.classList.add('blank'); paintSel(sel, null); sel.title = ''; continue; }
+        var curKey = v.std ? colorKeyOf(v.txt) : 'ns';
+        if (!v.std) { sel.appendChild(optEl('__ns', tt('dm.nsOpt', { v: hex(v.raw, 2) }), 'ns')); sel.classList.add('ns'); }
+        if (opts.length) opts.forEach(function (o) { sel.appendChild(optEl(o.name, o.name, colorKeyOf(o.name))); });
+        else if (v.std) sel.appendChild(optEl(v.txt, v.txt, curKey));
+        sel.value = v.std ? v.txt : '__ns';
+        sel.disabled = !opts.length || S.busy;
+        if (!v.editable) sel.classList.add('copy');
+        if (cellChanged(v.src)) sel.classList.add('chg');
+        paintSel(sel, curKey);
+        sel.title = v.std ? v.txt + ' = ' + v.raw + '  (' + DM.fieldById(m, 'c' + v.src).name + ')' : tt('dm.nsOpt', { v: hex(v.raw, 2) });
+      }
+    }
+    var note = '';
+    if (g === 'off') note = tt('dm.gridOff');
+    else if (g === 'tri') note = tt('dm.gridTri');
+    else if (g === 'mismatch') note = tt('dm.gridMismatch', { p: s.panel, r: s.rd });
+    $('dm-gridnote').textContent = note; $('dm-gridnote').classList.toggle('hidden', !note);
+  }
+  function renderLegend() {
+    var lb = DM.preLabels(S.model), sw = function (n) { var c = CELL_RGB[colorKeyOf(n)]; return '<span class="sw" style="background:' + rgbCss(c) + ';color:' + SP.textOn(c[0], c[1], c[2]) + '">' + esc(n) + '</span>'; };
+    var pre = lb.map(function (x) { return x.replace(/[()\s]/g, ''); }).join(' ');
+    $('dm-legend').innerHTML =
+      '<span>' + esc(tt('dm.lgPre')) + ' ' + esc(pre) + '</span>' +
+      '<span>' + esc(tt('dm.lgMain')) + ' ' + sw('R1') + '~' + sw('R4') + ' ' + sw('G1') + '~' + sw('G4') + ' ' + sw('B1') + '~' + sw('B4') + '</span>' +
+      '<span>' + esc(tt('dm.lgX')) + ' ' + sw('X') + '（' + (DM.inputDict(S.model).X) + '）</span>' +
+      '<span><i class="chgk"></i> ' + esc(tt('dm.lgChg')) + '</span><span><i class="nsk"></i> ' + esc(tt('dm.lgNs')) + '</span>';
+  }
+  function renderSame() {
+    var sel = $('dm-samev'), keep = sel.value, names = S.ro ? [] : DM.allSameOptions(S.model, S.cur);
+    sel.innerHTML = '';
+    names.forEach(function (n) { sel.appendChild(optEl(n, n, colorKeyOf(n))); });
+    if (names.indexOf(keep) >= 0) sel.value = keep; else if (names.length) sel.value = names[names.length - 1];
+    paintSel(sel, names.length ? colorKeyOf(sel.value) : null);
+    var on = !!names.length && !S.busy;
+    sel.disabled = !on; $('dm-same').disabled = !on;
+  }
+  function renderCode() {
+    var m = S.model, addrs = DM.codeAddrs(m), only = $('dm-codeonly').checked, H = tt('dm.codeHead').split('|'), n = 0, rows = '';
+    addrs.forEach(function (a, i) {
+      var b = S.img[a] | 0, b0 = S.baseImg ? (S.baseImg[a] | 0) : b, chg = b !== b0;
+      if (chg) n++;
+      if (only && !chg) return;
+      rows += '<tr class="' + (chg ? 'chg' : '') + '"><td class="mono">0x' + hex(a, 3) + '</td><td>' + esc(DM.regNote(m, a)) + '</td>' +
+        '<td class="mono">' + hex(b0, 2) + (chg ? '<span class="arrow">→</span>' : '') + '</td>' +
+        '<td><input data-i="' + i + '" value="' + hex(b, 2) + '" maxlength="2" autocomplete="off" spellcheck="false"' + (S.ro ? ' disabled' : '') + '></td></tr>';
+    });
+    var t2 = $('dm-code');
+    t2.innerHTML = '<thead><tr><th>' + H[0] + '</th><th>' + H[1] + '</th><th>' + H[2] + '</th><th>' + H[3] + '</th></tr></thead><tbody>' +
+      (rows || '<tr><td colspan="4" class="dm-sub">' + esc(tt('dm.codeNone', { n: addrs.length })) + '</td></tr>') + '</tbody>';
+    $('dm-codesum').textContent = tt('dm.codeSum', { n: addrs.length, c: n });
+    Array.prototype.forEach.call(t2.querySelectorAll('input'), function (inp) {
       inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); inp.blur(); } });
       inp.addEventListener('focus', function () { inp.dataset.v = inp.value; });
       inp.addEventListener('blur', function () { if (inp.value !== inp.dataset.v) onCodeText(+inp.dataset.i, inp.value); });
     });
   }
-  function paintCell(td, inp, view) {
-    var key = view.dark && !view.blank ? 'dark' : (view.blank ? null : view.color);
-    td.classList.toggle('ns', !view.blank && !view.std);
-    if (!key) { td.style.background = ''; inp.style.color = '#000'; }
-    else {
-      var c = view.dark ? CELL_RGB.dark : CELL_RGB[key];
-      td.style.background = 'rgb(' + c[0] + ',' + c[1] + ',' + c[2] + ')';
-      inp.style.color = SP.textOn(c[0], c[1], c[2]);
+  function renderX() {
+    /* 只有 EM01／EM02／E512 有第二組。一行顯示循環判定與依據；長循環才顯示 24 格下拉（#9b56c775，Dispatch 10/7） */
+    var line = $('dm-xline'), box = $('dm-xbox'), mnt = !isNb();
+    line.classList.toggle('hidden', !mnt);
+    if (!mnt) { box.classList.add('hidden'); return; }
+    var m = S.model, s = S.cur, R = DM.secondSetRule(m, s), long = R.mode === 'free' || R.mode === 'mux3';
+    var MEAN = { pix58: tt('dm.mPix58'), row34: tt('dm.mRow34'), mux3: tt('dm.mMux3') };
+    line.textContent = R.mode === 'ignored' ? tt('dm.xAuto', { b: R.basis }) : (R.mode === 'copy' ? tt('dm.xShort', { b: R.basis }) :
+      tt('dm.xLong', { m: MEAN[R.meaning], b: R.basis }) + (R.mode === 'mux3' ? '　' + tt('dm.xMux3Note') : '') + '　' + tt('dm.xNamesNote'));
+    line.style.color = long ? 'var(--accent)' : '';
+    box.classList.toggle('hidden', !long);
+    if (!long) return;
+    var tb = $('dm-xgrid');
+    if (!tb.dataset.built) {
+      var h = '<thead><tr><th></th>';
+      ['r2', 'g2', 'b2', 'r3', 'g3', 'b3'].forEach(function (c) { h += '<th>' + c + '</th>'; });
+      h += '</tr></thead><tbody>';
+      for (var r = 0; r < 4; r++) {
+        h += '<tr><th>_' + r + '</th>';
+        for (var c = 0; c < 6; c++) h += '<td><select class="dm-cell" id="dm-x' + r + '-' + c + '" data-r="' + r + '" data-c="' + c + '"></select><div class="dm-cm" id="dm-xm' + r + '-' + c + '"></div></td>';
+        h += '</tr>';
+      }
+      tb.innerHTML = h + '</tbody>'; tb.dataset.built = '1';
+      Array.prototype.forEach.call(tb.querySelectorAll('select'), function (sel) { sel.addEventListener('change', function () { onPickSecond(+sel.dataset.r, +sel.dataset.c, sel.value); }); });
+    }
+    var opts = DM.secondOptions(), CH = ['r2', 'g2', 'b2', 'r3', 'g3', 'b3'];
+    for (var r2 = 0; r2 < 4; r2++) for (var c2 = 0; c2 < 6; c2++) {
+      var sel = $('dm-x' + r2 + '-' + c2), k = r2 * 6 + c2, v = s['x' + k] | 0, ed = DM.secondEditable(m, s, r2) && !S.ro && !S.busy;
+      sel.innerHTML = ''; sel.className = 'dm-cell';
+      var known = opts.some(function (o) { return o.value === v; });
+      if (!known) sel.appendChild(optEl('__ns', tt('dm.nsOpt', { v: hex(v, 2) }), 'ns'));
+      opts.forEach(function (o) { sel.appendChild(optEl(String(o.value), o.value === 31 ? 'X (31)' : o.value + (o.name ? ' · ' + o.name : ''), o.name ? colorKeyOf(o.name) : null)); });
+      sel.value = known ? String(v) : '__ns';
+      sel.disabled = !ed;
+      if (!DM.secondEditable(m, s, r2)) sel.classList.add('copy');
+      var xr = DM.fieldById(m, 'x' + k).parts[0][0];
+      if (S.savedImg && (S.img[xr] | 0) !== (S.savedImg[xr] | 0)) sel.classList.add('chg');
+      var nm = known ? (opts.filter(function (o) { return o.value === v; })[0].name) : '';
+      paintSel(sel, nm ? colorKeyOf(nm) : (known ? null : 'ns'));
+      var mean = DM.secondEditable(m, s, r2) ? MEAN[R.meaning] : tt('dm.mUnused');
+      $('dm-xm' + r2 + '-' + c2).textContent = mean;
+      sel.title = CH[c2] + '_' + r2 + '（0x' + hex(xr, 4) + '）= ' + v + '：' + mean;
     }
   }
   function render() {
-    var s = S.cur, m = S.model, g = DM.gateOf(m, s);
+    var s = S.cur, m = S.model, g = DM.gateOf(m, s), ro = !!S.ro;
     $('dm-model').value = m;
-    $('q-hand').checked = !!s.hand;
-    $('gb41').classList.toggle('qt-off', !s.hand);
-    $('q-gate').value = DM.gateText(m, s);
-    $('q-gate').disabled = !s.hand;
-    ['q-glass', 'q-samev'].forEach(function (id) { $(id).readOnly = !s.hand; });
-    ['q-expx', 'q-impx', 'q-same'].forEach(function (id) { $(id).disabled = !s.hand; });
-    var nsList = [], R = ['Line 1-1', 'Line 1-2', 'Line 2-1', 'Line 2-2'];
-    for (var r = 0; r < 4; r++) for (var c = 0; c < 8; c++) {
-      var td = $('q30-' + r + '-' + c), inp = td.firstChild, v = DM.cellView(m, s, r, c);
-      if (document.activeElement !== inp) inp.value = v.blank ? '' : (v.std ? v.txt : '');
-      if (!v.blank && !v.std) {
-        if (document.activeElement !== inp) inp.value = '';
-        inp.placeholder = '非標準值 ' + v.txt;
-        if (v.src === r * 6 + c) nsList.push(R[r] + ' Data ' + (c + 1) + ' = ' + v.txt);
-      } else inp.placeholder = '';
-      inp.title = v.blank ? '' : (v.std ? v.txt + ' = ' + v.raw : '非標準值 ' + v.txt + '（保留原值）');
-      inp.readOnly = !v.editable;
-      paintCell(td, inp, v);
-    }
-    $('dm-ns').textContent = nsList.length ? tt('dm.ns', { l: nsList.join('、') }) : '';
-    /* Data Mapping Code（Data A ＝ 目前；與基準不同的 byte 標 PY color_snapshot (200,100,150)） */
-    var addrs = DM.codeAddrs(m);
-    for (var i = 0; i < Math.max(15, addrs.length); i++) {
-      var td2 = $('q31-' + i); if (!td2) continue;
-      var inp2 = td2.firstChild;
-      if (i >= addrs.length) { inp2.value = ''; inp2.readOnly = true; td2.classList.remove('chg'); continue; }
-      var a = addrs[i], b = S.img[a] | 0;
-      if (document.activeElement !== inp2) inp2.value = hex(b, 2);
-      inp2.readOnly = false;
-      inp2.title = '0x' + hex(a, 3) + '  ' + DM.regNote(m, a);
-      td2.classList.toggle('chg', !!S.baseImg && (S.baseImg[a] | 0) !== b);
-    }
-    var lb = DM.preLabels(m);
-    $('q-l223').textContent = lb[0]; $('q-l224').textContent = lb[1]; $('q-l225').textContent = lb[2];
-    var ck = DM.cks(m, s);
-    $('q-cks').textContent = ck ? 'DM A CKS：' + ck : (S.src.kind === 'none' ? 'DM CKS :' : 'DM CKS：');
+    $('dm-hand').checked = !!s.hand; $('dm-hand').disabled = ro || S.busy;
+    $('dm-handbox').classList.toggle('on', !!s.hand);
+    $('dm-gate').value = DM.gateText(m, s);
+    $('dm-gate').disabled = !s.hand || ro || S.busy;
+    var ck = DM.cks(m, s); $('dm-cks').textContent = ck || '—';
+    $('dm-ro').classList.toggle('hidden', !ro);
+    if (ro) $('dm-ro').textContent = tt('dm.v512', { a: S.ro.slice(0, 4).map(function (a) { return '0x' + hex(a, 4); }).join(', ') + (S.ro.length > 4 ? '…' : '') });
+    $('dm-glass').disabled = !s.hand || ro;
+    $('dm-expx').disabled = !s.hand || ro; $('dm-impx').disabled = !s.hand || ro;
+    renderGrid(); renderLegend(); renderSame(); renderCode(); renderX(); renderMnt();
     var sl = isNb() ? '0x3E' : '0x' + hex(S.slave, 2);
-    $('q-write').textContent = 'Write to TCON(' + sl + ')';
-    $('q-load').textContent = 'Load from TCON(' + sl + ')';
-    $('q-write').disabled = $('q-load').disabled = S.busy;   // PY 這兩顆一直可按；沒連線時按下去只提示（PY:32557 印「未成功寫入」）
-    /* 說明列 */
-    var note = '';
-    if (g === 'mismatch') note = tt('dm.nextMismatch', { p: s.panel, r: s.rd });
-    $('dm-note').textContent = note;
-    $('dm-note').className = 'dm-info' + (note ? ' err' : '');
-    renderMnt();
+    $('dm-write').textContent = 'Write to TCON(' + sl + ')'; $('dm-bar-write').textContent = 'Write to TCON(' + sl + ')';
+    $('dm-load').textContent = 'Load from TCON(' + sl + ')';
+    $('dm-write').disabled = S.busy || ro; $('dm-load').disabled = S.busy;
+    $('dm-export').disabled = ro; $('dm-bar-export').disabled = ro;
+    $('dm-import').disabled = S.busy;
     renderLink();
     renderSteps();
-    fitQt();
   }
   function renderSteps() {
-    var s = S.cur, g = DM.gateOf(S.model, s);
-    $('card-tcon').className = 'card stp done';
-    $('tk-tcon').textContent = '✔';
-    $('st-tcon').textContent = DM.MODELS[S.model].label + (S.linked ? '  ·  I2C ' + tt('dm.connected') : '');
-    var loaded = S.src.kind !== 'none';
-    $('card-dm').className = 'card stp ' + (loaded ? 'done' : 'cur');
-    $('tk-dm').textContent = loaded ? '✔' : '○';
-    $('st-dm').textContent = DM.gateText(S.model, s) + (s.hand ? '' : '  ·  Hand Mode off');
-    var nx = $('stp-next');
-    nx.className = 'stp-next' + (g === 'mismatch' ? ' err' : '');
-    nx.textContent = !loaded ? tt('dm.nextPick') : (g === 'off' ? tt('dm.nextHand') : (g === 'mismatch' ? tt('dm.nextMismatch', { p: s.panel, r: s.rd }) : tt('dm.nextEdit')));
+    var s = S.cur, g = DM.gateOf(S.model, s), loaded = S.src.kind !== 'none', dn = dirtyRegs().length;
+    /* ① */
+    $('card-src').className = 'card stp ' + (loaded ? 'done' : 'cur');
+    $('tk-src').textContent = loaded ? '✔' : '○';
+    $('st-src').textContent = DM.MODELS[S.model].label + (S.linked ? '  ·  I2C ' + tt('dm.connected') : '');
+    /* ② */
+    var bad = !!S.ro || g === 'mismatch';
+    $('card-dm').className = 'card stp ' + (bad ? 'err' : (loaded ? 'cur' : ''));
+    $('tk-dm').textContent = bad ? '✕' : (loaded ? '✔' : '○');
+    $('st-dm').textContent = (s.hand ? DM.gateText(S.model, s) : 'Hand Mode off') + (DM.cks(S.model, s) ? '  ·  DM CKS ' + DM.cks(S.model, s) : '');
+    /* ③ */
+    var live = S.linked && $('dm-live').checked;
+    $('card-out').className = 'card stp ' + (dn ? 'cur' : (loaded && S.last ? 'done' : ''));
+    $('tk-out').textContent = (!dn && loaded && S.last) ? '✔' : '○';
+    $('st-out').textContent = S.last ? tt('dm.pendLast', { w: S.last }) : '';
+    var pend = $('dm-pend');
+    pend.className = 'dm-pend' + (dn ? ' dirty' : '');
+    pend.textContent = dn ? '● ' + tt('dm.dirtyBar', { n: dn }) : tt('dm.pendClean');
+    $('dm-dirtybar').classList.toggle('hidden', !dn);
+    $('dm-dirtytext').textContent = tt('dm.dirtyBar', { n: dn });
+    $('dm-bar-write').classList.toggle('hidden', !S.linked);
+    /* 下一步 */
+    var nx = $('stp-next'), txt, err = false;
+    if (!loaded) txt = tt('dm.nextPick');
+    else if (S.ro) { txt = tt('dm.roBlocked'); err = true; }
+    else if (g === 'off') txt = tt('dm.nextHand');
+    else if (g === 'mismatch') { txt = tt('dm.gridMismatch', { p: s.panel, r: s.rd }); err = true; }
+    else if (g === 'tri') txt = tt('dm.nextTri');
+    else if (dn) txt = '';   // 未匯出提示由上方黏著的橘色提示列負責，不重複
+    else txt = live ? tt('dm.nextLive') : tt('dm.nextEdit');
+    nx.className = 'stp-next' + (err ? ' err' : ''); nx.textContent = txt;
   }
   function renderMnt() {
     var mnt = !isNb(), box = $('dm-mnt');
@@ -454,9 +660,7 @@
     if (document.activeElement !== $('f-rvs')) $('f-rvs').value = '0x' + hex(((s.rvsH | 0) << 8) | (s.rvsL | 0), 4);
     var mp = DM.matchPreset(S.model, s);
     $('dm-preset-now').textContent = mp >= 0 ? tt('dm.presetNow', { p: DM.PRESETS[mp].name }) : tt('dm.presetNone');
-    var xc = $('dm-xcells'), h = '';
-    for (var k = 0; k < 24; k++) h += '<span class="dm-k" style="min-width:110px">' + DM.fieldById(S.model, 'x' + k).name + ' = ' + (s['x' + k] | 0) + '</span>';
-    xc.innerHTML = h;
+    Array.prototype.forEach.call(box.querySelectorAll('input,select,button'), function (el) { el.disabled = !!S.ro; });
   }
   function renderLink() {
     var b = $('dm-link');
@@ -469,31 +673,38 @@
     else if (S.src.kind === 'tcon') st.textContent = tt('dm.srcTcon', { m: DM.MODELS[S.src.model].label, s: hex(S.src.slave, 2) });
     else st.textContent = tt('dm.srcNone');
   }
-  /* 手機：主體依寬度等比縮小（最小 0.55，再小就橫向捲動） */
-  function fitQt() {
-    var w = $('qt-wrap').clientWidth, sc = Math.max(0.55, Math.min(1, w / 1013));
-    $('qt-tab').style.transform = sc < 1 ? 'scale(' + sc + ')' : '';
-    $('qt-wrap').style.height = Math.ceil(493 * sc) + 'px';
-  }
-  window.addEventListener('resize', fitQt);
 
-  /* ── 改值（全部經過 commit：更新影像、必要時立即寫入） ── */
-  function commit(ns, why) {
+  /* ── 改值（全部經過 commit：r2..b3 寫入策略、更新影像、必要時立即寫入） ──
+     r2..b3 怎麼跟主組走只由 DM.syncSecondSet(policy) 決定（預設 'preserve'＝保留原值；#63b79483 結論出來後只換 policy） */
+  function commit(ns, why, opt) {
+    if (S.ro) { toast('e', tt('dm.roBlocked')); render(); return; }
+    /* 第一組有改 ⇒ 第二組依循環判定寫（短循環＝第一組；Auto／長循環＝不動）；第二組值有變就記 xTouched */
+    if (!(opt && opt.noSync)) ns = DM.firstEdit(S.model, S.cur, ns).state;
+    if (!isNb() && DM.xChanged(S.cur, ns)) S.xTouched = true;
     var old = S.cur; S.cur = ns; syncImgFromState(); render();
     if (S.linked && $('dm-live').checked) {
       var regs = DM.diffRegs(S.model, old, ns);
-      if (regs.length) queueWrite(regs, why);
+      if (regs.length) queueWrite(regs, why, true);
     }
   }
-  function onCellText(r, c, txt) {
-    var res = DM.editCell(S.model, S.cur, r, c, txt);
+  function onPick(r, c, name) {
+    if (name === '__ns') return;
+    var res = DM.pickCell(S.model, S.cur, r, c, name);
     if (!res) { render(); return; }
-    log('n', 'Line ' + ['1-1', '1-2', '2-1', '2-2'][r] + ' Data ' + (c + 1) + ' ← ' + res.text);
-    commit(res.state, 'Line ' + (r + 1) + ' Data ' + (c + 1));
+    log('n', ROWS[r] + ' Data ' + (c + 1) + ' ← ' + res.text);
+    commit(res.state, ROWS[r] + ' Data ' + (c + 1));
+  }
+  /* 長循環時填第二組（MUX3 的 _1／_3 由 pickSecond 一律寫 0） */
+  function onPickSecond(r, c, value) {
+    if (value === '__ns') return;
+    var res = DM.pickSecond(S.model, S.cur, r, c, +value);
+    if (!res) { render(); return; }
+    log('n', 'r2..b3 ' + ['r2', 'g2', 'b2', 'r3', 'g3', 'b3'][c] + '_' + r + ' ← ' + res.text);
+    commit(res.state, 'r2..b3', { noSync: true });
   }
   function onCodeText(i, txt) {
     var addrs = DM.codeAddrs(S.model), a = addrs[i];
-    if (a === undefined) { render(); return; }
+    if (a === undefined || S.ro) { render(); return; }
     var v = parseInt(String(txt).trim() || '0', 16);        // PY:12433-12438：解析失敗 ⇒ 00
     if (!isFinite(v) || v < 0) v = 0;
     S.img[a] = v & 0xFF;
@@ -541,14 +752,19 @@
       else log('e', tt('dm.e503NoConfirm'));
     }
   }
-  function queueWrite(regs, why) {
+  /* live ＝ 改值立即寫入：寫成功的位址算「已寫入」（不再列為未匯出／未寫入） */
+  function queueWrite(regs, why, live) {
     S.chain = S.chain.then(async function () {
       log('n', '— ' + (why || 'write') + ': ' + regs.length + ' byte');
       await preamble();
       var res = await DM.writeRegs(io, regs, log);
-      if (res.ok) log('w', tt('dm.wrOk', { n: res.written }));
-      else { log('e', tt('dm.wrFail', { n: res.failed.length })); await readBack(true); }
-    }).catch(function (e) { log('e', String(e && e.message || e)); });
+      if (res.ok) {
+        log('w', tt('dm.wrOk', { n: res.written }));
+        if (live && S.savedImg) { regs.forEach(function (e) { S.savedImg[e.reg] = S.img[e.reg] | 0; if (S.baseImg) S.baseImg[e.reg] = S.img[e.reg] | 0; }); S.last = tt('dm.whatWrite'); }
+      } else { toast('e', tt('dm.wrFail', { n: res.failed.length })); await readBack(true); }
+      render();
+      return res;
+    }).catch(function (e) { toast('e', String(e && e.message || e)); });
     return S.chain;
   }
   async function readBack(quiet) {
@@ -557,9 +773,10 @@
     S.img = {}; imgAddrs().forEach(function (a) { S.img[a] = r.bytes[a] | 0; });
     var codeA = DM.codeAddrs(S.model), missing = codeA.filter(function (a) { return !(a in r.bytes); });
     for (var i = 0; i < missing.length; i++) S.img[missing[i]] = (await io.read(missing[i], 1))[0] | 0;
-    S.cur = r.state; S.baseImg = JSON.parse(JSON.stringify(S.img));
+    S.cur = r.state; S.baseImg = clone(S.img); markSaved(tt('dm.whatRead'));
     S.src = { kind: 'tcon', model: S.model, slave: isNb() ? 0x3E : S.slave };
-    if (!quiet) log('w', 'R ' + S.model + ' Data Mapping OK');
+    afterLoad(DM.v512Suspects(S.model, function (a) { return r.bytes[a]; }));
+    if (!quiet) toast('ok', tt('dm.readOk', { m: S.model }));
     render();
   }
   /* Check T-CON：i2c.html 的兩段（A：RomCodeProcessUI 的 7C／7D 讀法＋SY 表；B：0xFF00 IC ID）合在這裡 */
@@ -601,12 +818,12 @@
       var r = await checkTcon();
       if (r && r.key) {
         S.model = r.key; S.e503ok = !!r.e503; S.checked = r.key;
-        $('dm-ic').textContent = r.info; $('dm-ic').className = 'dm-info'; log('w', r.info);
-        S.cur = DM.emptyState(S.model); S.img = {}; buildTbl31();
+        $('dm-ic').textContent = r.info; log('w', r.info);
+        S.cur = DM.emptyState(S.model); S.img = {};
         await readBack(false);
-      } else if (r && r.en01) { $('dm-ic').textContent = r.info; $('dm-ic').className = 'dm-info err'; log('e', r.info); }
-      else { var m = tt('dm.icNone', { m: DM.MODELS[S.model].label }); $('dm-ic').textContent = m; $('dm-ic').className = 'dm-info err'; log('e', m); }
-    } catch (e) { log('e', String(e && e.message || e)); }
+      } else if (r && r.en01) { $('dm-ic').textContent = r.info; toast('e', r.info); }
+      else { var m = tt('dm.icNone', { m: DM.MODELS[S.model].label }); $('dm-ic').textContent = m; toast('e', m); }
+    } catch (e) { toast('e', String(e && e.message || e)); }
     finally { S.busy = false; render(); }
   }
   async function connect() {
@@ -615,7 +832,7 @@
     S.busy = true; render();
     log('n', 'connect ' + WS_URL);
     var ws;
-    try { ws = new WebSocket(WS_URL); } catch (e) { S.busy = false; log('e', tt('dm.linkErr')); render(); return; }
+    try { ws = new WebSocket(WS_URL); } catch (e) { S.busy = false; toast('e', tt('dm.linkErr')); render(); return; }
     S.ws = ws;
     ws.onmessage = function (ev) {
       var m; try { m = JSON.parse(ev.data); } catch (e) { return; }
@@ -623,7 +840,7 @@
     };
     ws.onclose = function () {
       for (var k in S.pend) { try { clearTimeout(S.pend[k].timer); S.pend[k].reject(new Error('closed')); } catch (e) {} }
-      S.pend = {}; if (S.linked) log('e', 'I2C Bridge closed');
+      S.pend = {}; if (S.linked) toast('e', 'I2C Bridge closed');
       S.linked = false; S.ws = null; render();
     };
     var opened = await new Promise(function (res) {
@@ -631,7 +848,7 @@
       ws.onopen = function () { if (!done) { done = true; clearTimeout(to); res(true); } };
       ws.onerror = function () { if (!done) { done = true; clearTimeout(to); res(false); } };
     });
-    if (!opened) { try { ws.close(); } catch (e) {} S.ws = null; S.busy = false; log('e', tt('dm.linkErr')); $('dm-ic').textContent = tt('dm.linkErr'); $('dm-ic').className = 'dm-info err'; render(); return; }
+    if (!opened) { try { ws.close(); } catch (e) {} S.ws = null; S.busy = false; toast('e', tt('dm.linkErr')); render(); return; }
     try {
       var pong = await send({ type: 'ping' });
       log('n', 'I2C Bridge ' + (pong.helper || '?') + ' proto ' + (pong.proto || '?'));
@@ -645,7 +862,7 @@
       if (!op || !op.ok) throw new Error('open failed');
       S.linked = true; log('w', 'channel open');
     } catch (e) {
-      log('e', String(e && e.message || e));
+      toast('e', String(e && e.message || e));
       try { send({ type: 'close' }).catch(function () {}); } catch (e2) {}
       try { ws.close(); } catch (e3) {}
       S.linked = false; S.ws = null;
@@ -668,17 +885,17 @@
   function useParsed(r, name, bytes) {
     S.model = r.model; S.cur = r.state; S.e503ok = false;
     S.img = {}; imgAddrs().forEach(function (a) { var o = r.fileOf(a); S.img[a] = (o >= 0 && o < bytes.length) ? bytes[o] : 0; });
-    S.baseImg = JSON.parse(JSON.stringify(S.img));
+    S.baseImg = clone(S.img); markSaved(tt('dm.whatImport', { f: name }));
     S.src = { kind: 'file', name: name, model: r.model, cks: r.cks };
-    buildTbl31();
+    afterLoad(r.v512);
   }
   function importBytes(raw, name) {
     var r = DM.parseCode(raw, S.model, name);
-    if (!r.ok) { var msg = tt('dm.impFail', { f: name, r: reasonText(r) }); log('e', msg); alert(msg); return false; }
+    if (!r.ok) { toast('e', tt('dm.impFail', { f: name, r: reasonText(r) })); return false; }
     S.raw = raw; S.rawName = name;
     useParsed(r, name, DM.loadCodeBytes(name, raw));
     var how = r.medium === 'rom' ? (r.byName ? tt('dm.howName') : tt('dm.howPick')) : tt('dm.howBin');
-    log('w', tt('dm.impOk', { f: name, m: DM.MODELS[r.model].label + (r.py ? ' / ' + r.py : ''), how: how }));
+    toast('ok', tt('dm.impOk', { f: name, m: DM.MODELS[r.model].label + (r.py ? ' / ' + r.py : ''), how: how }));
     if (S.linked) log('n', tt('dm.impLinked'));
     render();
     return true;
@@ -692,31 +909,46 @@
   }
   function stamp() { var d = new Date(), p = function (n) { return (n < 10 ? '0' : '') + n; }; return d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + '_' + p(d.getHours()) + p(d.getMinutes()); }
   function exportScript() {
+    if (S.ro) { toast('e', tt('dm.roBlocked')); return; }
     var m = DM.MODELS[S.model];
     if (m.kind === 'nb') {
       var rows = DM.pyScriptRows(S.model, S.cur);
       var fname = 'SCRIPT_DataMapping_' + m.py + '_' + stamp() + '.xlsx';
       download(fname, TCONXlsx.build([{ name: 'Sheet1', rows: rows }]), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-      log('w', tt('dm.expScript', { f: fname, n: rows.length - 1 }));
+      markSaved(tt('dm.whatExport', { f: fname }));
+      toast('ok', tt('dm.expScript', { f: fname, n: rows.length - 1 }));
+      render();
       return;
     }
     var out = DM.buildScript(S.model, S.cur, {
       version: (window.TOOL_VERSIONS && TOOL_VERSIONS.datamap) || '',
       source: S.src.kind === 'file' ? S.src.name : (S.src.kind === 'tcon' ? 'read from TCON over I2C' : ''),
-      cks: S.src.kind === 'file' ? S.src.cks : -1
+      cks: S.src.kind === 'file' ? S.src.cks : -1,
+      second: S.xTouched      // 第一組沒動過 ⇒ script 不含 r2..b3
     });
-    if (!out.ok) { alert(out.reason); return; }
+    if (!out.ok) { toast('e', out.reason); return; }
     var fn = 'DataMap_' + S.model + '_' + stamp() + '.script';
     download(fn, out.text, 'text/plain;charset=utf-8');
-    log('w', tt('dm.expScript', { f: fn, n: out.count }));
+    markSaved(tt('dm.whatExport', { f: fn }));
+    toast('ok', tt('dm.expScript', { f: fn, n: out.count }));
+    render();
+  }
+  function writeAll() {
+    if (S.ro) { toast('e', tt('dm.roBlocked')); return; }
+    if (!S.linked) { toast('e', tt('dm.notLinked')); return; }
+    /* 第一組沒動過 ⇒ 不寫 r2..b3（Bruce 10/7：不要只因為匯入就改寫第二組） */
+    queueWrite(DM.exportRegs(S.model, S.cur, S.xTouched), 'Write to TCON').then(function (res) {
+      if (res && res.ok) { S.baseImg = clone(S.img); markSaved(tt('dm.whatWrite')); toast('ok', tt('dm.wroteAll')); }
+      render();
+    });
   }
   function exportExcel() {
-    var glass = $('q-glass').value;
+    var glass = $('dm-glass').value;
     if (!S.cur.hand) return;
-    if (glass === '') { log('e', tt('dm.needGlass')); alert(tt('dm.needGlass')); return; }
+    if (glass === '') { toast('e', tt('dm.needGlass')); $('dm-glass').focus(); return; }
     var fname = DM.excelName(S.model, S.cur, glass);
     download(fname, TCONXlsx.build([{ name: 'Data Mapping', rows: DM.excelRows(S.model, S.cur) }]), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    log('w', fname);
+    toast('ok', fname);
   }
   async function inflateRaw(u8) {
     var ds = new DecompressionStream('deflate-raw');
@@ -729,9 +961,9 @@
       if (!r.ok) throw new Error(r.reason);
       var ns = DM.applyNames(S.model, S.cur, r.names);
       if (!ns) throw new Error('Gate');
-      log('w', tt('dm.xlsOk', { f: name }));
+      toast('ok', tt('dm.xlsOk', { f: name }));
       commit(ns, 'Import Excel');
-    } catch (e) { log('e', tt('dm.xlsFail', { r: e.message || e })); alert(tt('dm.xlsFail', { r: e.message || e })); }
+    } catch (e) { toast('e', tt('dm.xlsFail', { r: e.message || e })); }
   }
   window.dmImportExcel = importExcel;
 
@@ -743,9 +975,9 @@
       if (S.raw && S.src.kind === 'file') {
         var ext = (/\.[^.]+$/.exec(S.rawName) || ['.bin'])[0];
         var r = DM.parseCode(S.raw, k, 'x' + ext);
-        if (!r.ok) { log('e', reasonText(r)); this.value = S.model; return; }
+        if (!r.ok) { toast('e', reasonText(r)); this.value = S.model; return; }
         useParsed(r, S.rawName, DM.loadCodeBytes(S.rawName, S.raw));
-      } else { S.model = k; S.cur = DM.emptyState(k); S.img = {}; S.baseImg = null; S.src = { kind: 'none' }; buildTbl31(); }
+      } else { S.model = k; S.cur = DM.emptyState(k); S.img = {}; S.baseImg = null; S.savedImg = null; S.src = { kind: 'none' }; S.ro = null; S.last = ''; resetX(); }
       render();
     });
     $('dm-import').addEventListener('click', function () { $('dm-file').value = ''; $('dm-file').click(); });
@@ -754,26 +986,28 @@
       var rd = new FileReader(); rd.onload = function (e) { importBytes(new Uint8Array(e.target.result), f.name); }; rd.readAsArrayBuffer(f);
     });
     $('dm-export').addEventListener('click', exportScript);
+    $('dm-bar-export').addEventListener('click', exportScript);
     $('dm-link').addEventListener('click', connect);
     $('dm-check').addEventListener('click', doCheck);
     $('dm-live').addEventListener('change', render);
     $('dm-logclr').addEventListener('click', function () { $('dm-log').innerHTML = ''; });
-    $('q-hand').addEventListener('change', function () { commit(DM.setHand(S.model, S.cur, this.checked), 'Hand Mode Enable'); });
-    $('q-gate').addEventListener('change', function () { var ns = DM.setGate(S.model, S.cur, this.value); if (ns) commit(ns, 'Gate Type ' + this.value); else render(); });
-    $('q-same').addEventListener('click', function () {
-      var r = DM.allSame(S.model, S.cur, $('q-samev').value);
-      $('q-samev').value = r ? r.text : 'X';
-      if (r) commit(r.state, 'All Same Pixel ' + r.text);
+    $('dm-hand').addEventListener('change', function () { commit(DM.setHand(S.model, S.cur, this.checked), 'Hand Mode Enable'); });
+    $('dm-gate').addEventListener('change', function () { var ns = DM.setGate(S.model, S.cur, this.value); if (ns) { log('n', 'Gate Type ← ' + this.value); commit(ns, 'Gate Type ' + this.value); } else render(); });
+    $('dm-samev').addEventListener('change', function () { paintSel(this, colorKeyOf(this.value)); });
+    $('dm-same').addEventListener('click', function () {
+      var r = DM.allSame(S.model, S.cur, $('dm-samev').value);
+      if (r) { log('n', 'All Same Pixel ← ' + r.text); commit(r.state, 'All Same Pixel ' + r.text); }
     });
-    $('q-expx').addEventListener('click', exportExcel);
-    $('q-impx').addEventListener('click', function () { $('dm-xfile').value = ''; $('dm-xfile').click(); });
+    $('dm-codeonly').addEventListener('change', renderCode);
+    $('dm-expx').addEventListener('click', exportExcel);
+    $('dm-impx').addEventListener('click', function () { $('dm-xfile').value = ''; $('dm-xfile').click(); });
     $('dm-xfile').addEventListener('change', function () {
       var f = this.files && this.files[0]; if (!f) return;
       var rd = new FileReader(); rd.onload = function (e) { importExcel(new Uint8Array(e.target.result), f.name); }; rd.readAsArrayBuffer(f);
     });
-    function needLink() { if (S.linked) return false; log('e', tt('dm.notLinked')); alert(tt('dm.notLinked')); return true; }
-    $('q-write').addEventListener('click', function () { if (needLink()) return; queueWrite(DM.encode(S.model, S.cur), 'Write to TCON').then(function () { S.baseImg = JSON.parse(JSON.stringify(S.img)); render(); }); });
-    $('q-load').addEventListener('click', function () { if (needLink()) return; S.chain = S.chain.then(function () { return readBack(false); }).catch(function (e) { log('e', e.message || e); }); });
+    $('dm-write').addEventListener('click', writeAll);
+    $('dm-bar-write').addEventListener('click', writeAll);
+    $('dm-load').addEventListener('click', function () { if (!S.linked) { toast('e', tt('dm.notLinked')); return; } S.chain = S.chain.then(function () { return readBack(false); }).catch(function (e) { toast('e', e.message || e); }); });
     function setF(id, v) { var ns = DM.cloneState(S.cur); ns[id] = v; commit(ns, id); }
     $('f-subPanel').addEventListener('change', function () { setF('subPanel', +this.value); });
     $('f-ltpsZz').addEventListener('change', function () { setF('ltpsZz', +this.value); });
@@ -783,8 +1017,18 @@
     $('f-deEn').addEventListener('change', function () { setF('deEn', this.checked ? 1 : 0); });
     $('f-deSel').addEventListener('change', function () { var mx = +this.max || 63; setF('deSel', Math.max(0, Math.min(mx, parseInt(this.value, 10) || 0))); });
     $('f-rvs').addEventListener('change', function () { var v = parseInt(this.value, 16) & 0xFFFF; var ns = DM.cloneState(S.cur); ns.rvsL = v & 0xFF; ns.rvsH = v >> 8; commit(ns, 'read_rvs'); });
-    $('dm-preset-apply').addEventListener('click', function () { var i = $('dm-preset').value; if (i === '') return; commit(DM.applyPreset(S.model, S.cur, +i), 'preset ' + DM.PRESETS[+i].name); });
-    window.addEventListener('beforeunload', function () { try { if (S.ws) S.ws.close(); } catch (e) {} });
+    /* 原廠預設樣式（#9b56c775，Dispatch 10/7）：兩組都照原廠表 RApp_TX.h:530-567 寫入語意位址（datamap-core.js applyPreset；
+       不照抄原廠 RegSet 錯開 1 byte 的 bug）。第二組有變 ⇒ commit 記 xTouched，匯出／寫入含 r2..b3。 */
+    $('dm-preset-apply').addEventListener('click', function () {
+      var i = $('dm-preset').value; if (i === '') return;
+      var ns = DM.applyPreset(S.model, S.cur, +i), name = DM.PRESETS[+i].name;
+      /* 有原廠第二組值的樣式：兩組照表寫、不經 firstEdit；沒有的（48 格清單空白）照一般改值流程 */
+      commit(ns, 'preset ' + name, DM.presetHasSecond(+i) ? { noSync: true } : null);
+    });
+    window.addEventListener('beforeunload', function (e) {
+      try { if (S.ws) S.ws.close(); } catch (e2) {}
+      if (dirtyRegs().length) { e.preventDefault(); e.returnValue = tt('dm.unload'); return e.returnValue; }
+    });
   }
   function buildPresets() {
     var sel = $('dm-preset'); sel.innerHTML = '';
@@ -792,7 +1036,7 @@
     DM.PRESETS.forEach(function (p, i) { var o = document.createElement('option'); o.value = i; o.textContent = p.name; sel.appendChild(o); });
   }
   window._onLangChange = function () { buildModelSelect(); buildPresets(); render(); };
-  buildModelSelect(); buildGate(); buildTbl30(); buildTbl31(); buildPresets(); bind(); render();
+  buildModelSelect(); buildGate(); buildGrid(); buildPresets(); bind(); render();
 })();
 </script>
 </body>
