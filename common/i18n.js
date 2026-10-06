@@ -2388,6 +2388,11 @@ var I18N = {
   'i2c.modeGenNote':    { 'zh-TW': '任意 slave／offset 讀寫；讀到的內容放在 ⑤ 的 16×16 Dump。', 'en': 'Read/write any slave and offset; the data goes to the 16×16 Dump in ⑤.', 'zh-CN': '任意 slave／offset 读写；读到的内容放在 ⑤ 的 16×16 Dump。' },
   'i2c.modeEeNote':     { 'zh-TW': '選 EEPROM 型號，容量、位址寬度與 page 由型號帶出。', 'en': 'Pick the EEPROM model; capacity, address width and page size follow from it.', 'zh-CN': '选 EEPROM 型号，容量、地址宽度与 page 由型号带出。' },
   'i2c.modeSfNote':     { 'zh-TW': '經 TCON 讀寫外部 SPI Flash；型號跟著 ② 的結果帶入。', 'en': 'Read/write the external SPI Flash through the TCON; the model follows ②.', 'zh-CN': '经 TCON 读写外部 SPI Flash；型号跟着 ② 的结果带入。' },
+  /* v1.32.1：① 常駐的連線資訊一行（{k}／{name} 由頁面包成 <b>） */
+  'i2c.connClock':      { 'zh-TW': 'I2C 時脈 {k} kHz', 'en': 'I2C clock {k} kHz', 'zh-CN': 'I2C 时钟 {k} kHz' },
+  'i2c.connTcon':       { 'zh-TW': 'T-CON：{name}', 'en': 'T-CON: {name}', 'zh-CN': 'T-CON：{name}' },
+  'i2c.connTconBad':    { 'zh-TW': '認不出型號', 'en': 'not identified', 'zh-CN': '认不出型号' },
+  'i2c.connErrHint':    { 'zh-TW': '請確認 I2C Bridge 在執行、治具的 USB 已接好，再按「連線」。', 'en': 'Check that I2C Bridge is running and the adapter USB is plugged in, then press "Connect".', 'zh-CN': '请确认 I2C Bridge 在运行、工装的 USB 已接好，再按“连接”。' },
   'i2c.whyNoBridge':    { 'zh-TW': '連不到 I2C Bridge', 'en': 'I2C Bridge not reachable', 'zh-CN': '连不到 I2C Bridge' },
   'i2c.whyLna':         { 'zh-TW': '瀏覽器要你允許存取本機網路', 'en': 'The browser is asking to allow local network access', 'zh-CN': '浏览器要你允许访问本机网络' },
   'i2c.whyCkBad':       { 'zh-TW': '認不出型號，看下拉或操作紀錄', 'en': 'Model not identified — see the list or the log', 'zh-CN': '认不出型号，看下拉或操作记录' },

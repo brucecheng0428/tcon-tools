@@ -2,6 +2,38 @@
 
 ---
 
+## I2C 讀寫測試 (i2c) v1.32.1 — 2026-10-06 ｜ PATCH
+
+**① 連線 I2C 治具一律完整顯示（不再做完縮成一行）；連線出錯整框變紅並寫原因；① 底下常駐一行「I2C 時脈 N kHz · T-CON：型號」。**
+
+判定依據：`docs/VERSIONING.md` §1 判定表 ＋ R1～R4 逐項判、取最高者。
+
+| 規則 | 判定 | 說明 |
+|---|---|---|
+| §2 案例 3「改 UI 版面、不動功能」 | **PATCH** | 只改 ① 的顯示方式；開關、按鈕、欄位都還在，送出的 I2C／WebSocket 訊息不變 |
+| R1「輸出會變要標 `⚠ 輸出變更`」 | **不適用** | Dump、另存檔、log 內容都沒變 |
+| R3「使用者能做的事有沒有多一件」 | **沒有** | 多的是顯示（時脈、型號、紅框），沒有新操作 |
+| R4「起始狀態／預設值改變」 | **不適用** | 預設值沒動 |
+| 🔴 實際採用 | **PATCH** | i2c v1.32.0 → v1.32.1（Dispatch 指定同號） |
+
+### 起因
+
+Bruce 2026-10-06：「I2C 的頁面在第一步連線 I2C 之處，應該是要 always 顯示才對，這樣才會很清楚說到底有沒有連線成功。」Dispatch 派工 233111014254698496。v1.32.0 把做完的 ① 交給 `common/done-step.js` 縮成「✓ ① 連線 I2C 治具…」一行。
+
+### 改了什麼
+
+- `i2c.html` `i2ctStepsRender()`：不再對 `#card-conn` 呼叫 `TCONDoneStep.set()`（② 照舊縮）。
+- ① 出錯（`st.link === 'err'`：非預期斷線 `stDropped`、連不到 `stNoBridge`／`stNoWs`、`stConnFail`、需要下載 Bridge、瀏覽器擋本機網路）⇒ `#card-conn.err` 紅框紅底、`#linktext` 紅字（原因就是那一行既有狀態字）。使用者自己按中斷（`stDisconnected`）不是錯誤，不變紅。
+- 新增 `#conn-info`（`i2ctConnInfoRender()`）：已連線時「I2C 時脈 N kHz」（最近一次成功 open 送出的值 `i2ctOpenClockKHz`，改設定要重連才生效）＋ Check T-CON 有結果時「T-CON：型號／認不出型號」；出錯時紅字寫「請確認 I2C Bridge 在執行、治具的 USB 已接好，再按「連線」。」；其他狀態為空。I2C Bridge 版本照舊在 `#helperinfo`。
+- 治具晶片名稱／序號：bridge 的 `open` 回覆沒帶（只有 `channels`），要拿得另外列舉（chandiag 會碰治具）⇒ 這版不顯示。
+- i18n 三語新增 `i2c.connClock`／`connTcon`／`connTconBad`／`connErrHint`；`i2c-guide*.html` 同步改寫一句。
+- `common/version.js` i2c → v1.32.1；`i2c.html` 全部 `?v=` 與 `index.html` 的 version.js／i18n.js `?v=` 改 `20261006i2c1321`。
+
+### 證據
+
+- `tools/i2c_spiflash_selftest.js` 新增「① 連線狀態常駐」組（jsdom＋假 bridge）：連線成功（✔、版本、時脈、型號）、非預期斷線（紅框、原因、型號清掉、開關變灰、自動重連後紅框拿掉）、按中斷（不紅）、連不到 Bridge（紅框、紅字提示）、三語。原本「① 縮成一行／點開／收回」三項改成「① 已連線也完整顯示」。
+- 其他數字與截圖見 commit 訊息。**未上機**（純網頁顯示）。
+
 ## 面板訊號模擬與取樣 (wfg) v4.53.3 — 2026-10-06 ｜ PATCH
 
 **左側「系統設定」三項修正：① Hblank／Vblank（以及 Frame Rate）可以直接打字輸入，下限改在離開欄位或按 Enter 時才檢查；② H Total 移到 V Total 上面；③「TCON頻率設定」裡的 RX DCLK 改成系統端的綠色。**
