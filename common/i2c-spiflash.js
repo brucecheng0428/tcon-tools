@@ -236,6 +236,7 @@
             await E501.waitIdle(io);
             for (var sa = bk.at; sa < bk.at + bk.size; sa += SECTOR) {
               var off = sa - start, want = data.slice(off, off + SECTOR);
+              cx.log('i2c.sfLogWrite4', { a: hx(sa, 6), b: hx(sa + SECTOR - 1, 6) }, 'n');   /* v1.31.0：只記錄，不送 I2C */
               for (var tries = 0; ; ) {
                 for (var p = 0; p < 16; p++) {
                   await E501.wren(io);
@@ -458,7 +459,10 @@
       var state = (opts && opts.wp) || WP.UNKNOWN_IC, done = 0, base = start;
       var retry = 0, vErr = 0, fail = null, aborted = false;
       await EM.setPad(io, pad);                                                    /* EMT:909 */
-      if (state === WP.ENABLE || state === WP.HW) state = await EM.swWp(io, WP.DISABLE, state, cx);  /* EMT:911–915 */
+      if (state === WP.ENABLE || state === WP.HW) {
+        cx.log('i2c.sfLogWpOff', {}, 'n');                                         /* v1.31.0：只記錄 */
+        state = await EM.swWp(io, WP.DISABLE, state, cx);                          /* EMT:911–915 */
+      }
       try {
         await EM.mask(io, BK_SPI + 0x4D, 0x00, 0x04);                              /* EMT:918 */
         await io.r(R, 2, BK_MMU + 0x80, 1);                                        /* EMT:920 */
@@ -471,6 +475,7 @@
             if (++retry >= 5) { fail = SfError('i2c.sfErrErase', { a: hx(base, 6) }); break; }
             cx.log('i2c.sfLogRetry', { a: hx(base, 6), n: retry }, 'w'); continue;
           }
+          cx.log('i2c.sfLogWrite4', { a: hx(base, 6), b: hx(base + SECTOR - 1, 6) }, 'n');   /* v1.31.0：只記錄 */
           for (var c = 0; c < 16; c++) await io.w(M, 4, c * PAGE, want.slice(c * PAGE, (c + 1) * PAGE));   /* EMT:987 */
           await io.w(R, 2, BK_SPI + 0x26, [0x00, 0x01]);                           /* EMT:989–991 */
           var pok = true;
@@ -724,6 +729,7 @@
             if (att > 1) { cx.log('i2c.sfLogRetry', { a: hx(sa, 6), n: att - 1 }, 'w'); await io.sleep(100); }  /* ENP:339–346 */
             cx.log('i2c.sfLogErase4', { a: hx(sa, 6) }, 'n');
             await EN.eraseSector(io, s);                                  /* ENP:349 */
+            cx.log('i2c.sfLogWrite4', { a: hx(sa, 6), b: hx(sa + sd.length - 1, 6) }, 'n');   /* v1.31.0：只記錄 */
             await EN.writeSector(io, s, sd);                              /* ENP:352 */
             var cv = (await io.r(N, 2, 0x0001, 1))[0];                    /* ENP:354 */
             cx.log('i2c.sfLogEn01Cv', { a: hx(sa, 6), v: hx(cv) }, 'n');
