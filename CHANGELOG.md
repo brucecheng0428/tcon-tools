@@ -2,6 +2,38 @@
 
 ---
 
+## I2C 讀寫測試 (i2c) v1.33.0 — 2026-10-06 ｜ MINOR
+
+**外部 Flash 讀取長度預設改為 0x40000（256 KB）；Check T-CON 下拉可手選 EN01，選定後讀 3E:207E 顯示 A1／A2／Unknown。**
+
+判定依據：`docs/VERSIONING.md` §1 判定表 ＋ R1～R4 逐項判、取最高者。
+
+| 規則 | 判定 | 說明 |
+|---|---|---|
+| R3「使用者能做的事有沒有多一件」 | **MINOR** | Check T-CON 下拉多了 EN01，選定後顯示 IC 硬體版本 A1／A2 |
+| R4「起始狀態／預設值改變」 | **PATCH 級** | 讀取長度預設 0x010000 → 0x040000；讀 ID 後由整顆容量改帶 0x040000。要讀整顆仍有「整顆讀出」勾選 |
+| R1「輸出會變」 | **不適用** | 同樣的起點／長度讀出內容、檔名、log 格式不變 |
+| R2「既有操作失效」 | **沒有** | E501／EM01／E503 的 Check T-CON 流程與寫入不變 |
+| 🔴 實際採用 | **MINOR** | i2c v1.32.1 → v1.33.0（Dispatch 指定） |
+
+### 起因
+
+Bruce 2026-10-06：「I2C 頁面的讀取 Flash 長度，目前預設是 0x400000，請改成預設的是 0x40000」「看一下 EN01 的 source code，有沒有辦法可以認出 EN01 A1 或者是 A2 版本的 T-CON？」Dispatch 派工 233116871008837632，依方案檔 `outputs/CheckTCON_EN01_識別方案_20261006.md` 的「A 可直接做」。畫面上看到的 0x400000 是讀 ID 後帶入的 4 MB 整顆容量（`i2ctSfDetect`）。
+
+### 改了什麼
+
+- 讀取長度：新增 `I2CT_SF_DEF_LEN = 0x40000`；`#sf-rd-len` 初值、換型號重設（`i2ctSfModelChanged`）都改成 0x040000；讀 ID 後改帶 `min(容量, 0x40000)`（Flash 比 256 KB 小時帶容量，範圍不超出）。「整顆讀出」照舊讀整顆。
+- EN01 A1／A2：`I2CT_CK_ALL` 加 `EN01`；`i2ctCkPick` 選到 EN01 且已連線、沒在忙 ⇒ `i2ctCkEn01Ver()` 讀 `3E / 2-byte / 0x207E / 1 B`，`& 0x0F`：0＝A1、1＝A2、其他＝Unknown（ICDefine.cs:294、RomCodeInfo.cs:1397–1416）。讀不到或 0xFF ⇒ 下一次 EN01 的 `7E:AB←CD` 再重讀一次（方案 3c）；仍讀不到顯示「版本讀不到」。原始值寫 log。
+- 顯示：`i2ctCkDispName()` 統一 ② 大字（`EN01  (RM81008) · A2`）、② 收合那一行、① 連線區「T-CON：EN01 · A2」。改選別顆或重按 Check T-CON 版本清掉。切語言重畫 ②。
+- `I2CT_SF_CK_MAP` 加 `EN01`：在 Check T-CON 下拉選 EN01 ⇒ 外部 Flash 型號帶入 EN01。
+- 不碰：E501／EM01 不讀 0x3E；現有 Check T-CON 自動判斷（含判到 E503 就下 `3E:0059`）不動。方案 B 項（E503 改成歧義）待 Bruce 裁示，這版沒做。
+- i18n 三語新增 `i2c.logCkEn01Ver`／`logCkEn01VerFail`／`ckEn01VerFail`；`i2c-guide*.html` 三語補兩句；`common/version.js` i2c → v1.33.0；`i2c.html`、`index.html` 的 `?v=` 改 `20261006i2c1330`。
+
+### 證據
+
+- `tools/i2c_spiflash_selftest.js` 新增兩組：預設長度（載入、讀 4 MB Flash ID 後、換型號都是 0x040000，整顆讀出仍可勾）；EN01 手選（0→A1、0x31→A2、2→Unknown、0xFF→補 7E:AB←CD 重讀→Unknown、0x3E 無回應→版本讀不到＋英文；E501 板 Check T-CON／手選 E501B1、EM01A1 都沒有任何 0x3E 讀取；改選別顆、重按 Check T-CON 版本清掉）。
+- 其他數字與截圖見 commit 訊息。**未上機**：A1／A2 對照只在原廠程式碼中，RM81008 `.model` 檔沒有 207E 欄位，需 EN01 A1／A2 實板和原廠 WPF 工具 Memo 的 `IC Version` 對照。
+
 ## I2C 讀寫測試 (i2c) v1.32.1 — 2026-10-06 ｜ PATCH
 
 **① 連線 I2C 治具一律完整顯示（不再做完縮成一行）；連線出錯整框變紅並寫原因；① 底下常駐一行「I2C 時脈 N kHz · T-CON：型號」。**
