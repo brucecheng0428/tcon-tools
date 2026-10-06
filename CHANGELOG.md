@@ -2,6 +2,71 @@
 
 ---
 
+## Data Mapping (datamap) v1.1.0 — 2026-10-07 ｜ MINOR
+
+⚠ 輸出變更：同一份 code 匯入後，表格顯示的名稱改用 Python UI 的 GN1／GN2 表（v1.0.0 的 T1~T5 名稱不再成立）；MNT 匯出的 write -m 行不變，只有行尾註解改成欄位名稱。
+
+**主體改成與 Python UI 的 Data Mapping 分頁一模一樣，型號擴大到 Python UI 支援的全部（DAZ6111／DAZ6138／DAZ6139／DAZ7353／E501A／E501B／E503）＋EM01／EM02／E512。**
+同版：pattern v3.8.3（PATCH，色碼改由共用檔提供，外觀不變）、app v1.93.1（PATCH，首頁卡片說明文字）。
+
+### 需求（Bruce 2026-10-07 原話，節錄）
+> 你看我 Python UI 那邊對應的，頂多就只到例如 R1、R2、R3、R4…呈現的應該要跟 Python UI 一模一樣才對。
+> 我還要共用 E503…還有 E501A、E501B 之類的，還有 DAZ6111？DAZ6138等等
+> 我原本的 Python UI 應該有輸入 X，代表應該是設定成 31 吧？…我這邊完全沒有看到我 Python UI 的樣子，完全不一樣欸。
+> EN01 的 data mapping 好像是完全不一樣的演算法，所以 EN01 先不用做
+> 還要注意它有 Single Gate 跟 Dual Gate 兩種模式，這兩種模式又不一樣。
+> 那個 B 實在是太像紫色了…仿照那個 4×4 pixel 調整後的顏色來做。
+> 匯入跟匯出…WFG 或是 LA 的網頁裡面，都已經有標準的匯出匯入圖示…卡片…跟 T-CON 自檢頁面那一類的是類似的簡約風格。
+
+### v1.0.0 錯在哪
+- 索引 0~29 共 30 種、依「時槽 T1~T5」命名（G6、G7、G8、B4…），來源是 E512 diagram xlsx 的推廣；Python UI 只用兩張表：
+  GN1（RomCodeProcessUI.py:2831，R3 G3 B3 R4 G4 B4 R1 G1 B1 R2 G2 B2 R-2 G-2 B-2 R-1 G-1 B-1 ＝ 0~17、X ＝ 31）與
+  GN2（:2836，Dual-Gate 的 Line 1-2／2-2 才用，0~23 ＝ R5…B-1、X ＝ 31）。輸入一律用 GN1 驗證（:12518），所以能打的只有 R1~R4、R-1／R-2（G、B 同）與 X。
+- 版面是自創的分區（面板型態、DE phase、Port 反向、預設樣式、30 色圖例），不是 Python UI 的樣子；Single／Dual 規則沒做。
+
+### 改了什麼
+- `common/datamap-core.js` 重寫：Python UI 字典逐字轉出（行號在檔內）、Gate 判斷與 Single 鏡射／Dual GN2、輸入驗證（表外 ⇒ X）、
+  All Same Pixel（GN2 驗證）、改 Gate（PANEL_MODE／RD_MODE）、每次改動的連動欄位（FORCE_DE_EN＝Hand、FORCE_DE_SEL＝0xE、DAZ line type）、
+  DM CKS、PY 讀檔規則（.bin／.hex／.rom 文字）與檔名認型號、Export／Import Excel、PY SCRIPT xlsx 匯出。
+  🔴 與 PY 唯一刻意不同：讀到表外的值顯示「非標準值 0xNN」並保留原值（PY 會顯示 X、下一次改動寫成 31）。
+- `datamap.html` 重做：中間主體逐元件照 BruceMainWindow.py:4441-4671 座標／字級、:6375-6397 文字；外框改用站內標準元件（`common/site-ui.css`）。
+- 新增 `common/site-ui.css`：步驟卡 .stp（i2c.html:688-711）、工具群組按鈕 .wfg-la-tool-group（wfg.html:606-607、639-642）、連線開關（i2c.html:261-266）逐字搬來。wfg／i2c 這輪未改成引用（不在範圍）。
+- 新增 `common/subpix-colors.js`：R／G／B 底色單一來源；pattern.html pgCellColor 改呼叫它（輸出逐字相同，768 組比對過）。
+- I2C：DAZ／E501／E503 走 0x3E、2-byte offset（PY:32326-32700）；DAZ613x／E50x／E503 讀寫前下 7E:AB←CD，E503 只在 Check T-CON 確認後才下 3E:0059←1E。遮罩讀改寫，只寫有變的位元。
+- 匯出 script：PY 型號 ⇒ Python UI 自己的 SCRIPT Excel（SCRIPT 分頁可直接載入；表頭照 SCRIPT_SoftwareReset_20211025.xlsx）；MNT ⇒ 沿用 write -m。
+- EN01（RM81008）：下拉列為「Data Mapping 演算法不同，暫不支援」，Check T-CON 認到也不讀不寫。
+- `tools/check_datamap.js` 改寫（177 項）；新增 `tools/datamap_pyui_harness.py`：stub 掉 PyQt5，直接呼叫 Python UI 的 read_dm_info_from_code／set_dm_info_to_rgb_table／dm_checksum_update／get_object_to_dm_info／write_dm_info_to_code 對拍。
+
+### 證據
+- `node tools/check_datamap.js` ✓ 177／0。
+- `--real <40 份 DAZ／E501／E503 真檔＋3 份 MNT> --pyui <SourceCode_V5.0.4>` ✓ 241／0：每份 Gate、24 格、DM CKS 與 Python UI 相同；改 24 格（含表外名稱）與改 Gate 後寫出的 3E byte 與 Python UI 逐 byte 相同（Single、Dual、Tri、組合不符都有）。
+- 頁面互動（jsdom，不進版控）：匯入、輸入、改 Gate、All Same Pixel、Hand 關、匯出、Export Excel；假 I2C Bridge 模擬 E503／EM02：Check T-CON、M-Bus 導通、只寫有變的 byte。
+
+### 版號判定
+判定依據：`docs/VERSIONING.md` §1 判定表，取最高者 MINOR：多了 7 個型號、Excel 匯出入、PY SCRIPT 匯出（新能力）。版面雖整個換掉，但 v1.0.0 昨晚 23:37 才上線、Bruce 指出它沒照原需求（照 Python UI）做，屬於把 v1.0.0 修成原本該有的樣子，不另開 MAJOR；舊的匯入／匯出／I2C 操作都還在。
+⚠ 輸出變更：同一份 code 匯入後表格顯示的名稱不同（改用 PY 表）；MNT 匯出的 write -m 內容不變（欄位相同、只是註解文字改成欄位名稱）。
+
+### 未來待做
+- EN01（RM81008）Data Mapping：演算法不同（Bruce 10/7），本版不做。已知：Check T-CON 用 3E:207E＝10／11 認 EN01（SY 2026-10-06 表）；PY V5.0.4 的 Data Mapping 字典沒有 EN01。
+- wfg.html／i2c.html 改成引用 common/site-ui.css（目前是同值的兩份宣告）。
+- MNT 的 r2..b3（h005E-h0075）在 PY 沒有對應，名稱未確認，只在「網頁附加」顯示原值。
+
+---
+
+## Pattern Generator 畫面產生器 (pattern) v3.8.3 — 2026-10-07 ｜ PATCH
+
+**手動 4×4 編輯格的 R／G／B 底色改由 `common/subpix-colors.js` 提供（Data Mapping 分頁共用同一組色碼，Bruce 2026-10-07「仿照那個 4×4 pixel 調整後的顏色來做」）。外觀零改變。**
+判定依據：§1 判定表「內部實作：重構、行為零改變」⇒ PATCH。`pgCellColor(c, v)` 改成 `return TCONSubpix.css(c, v);`，輸出字串與原本三行逐字相同（tools/check_datamap.js ⑦ 比對 3 通道 × 256 階共 768 組全同）。
+
+---
+
+## 首頁 (app) v1.93.1 — 2026-10-07 ｜ PATCH
+
+**Data Mapping 卡片說明改成「Python UI 同款 Data Mapping（DAZ／E501／E503／EM01／EM02／E512）」。**
+判定依據：`docs/VERSIONING.md` §1 判定表「文案」⇒ PATCH。
+
+---
+
 ## Data Mapping (datamap) v1.0.0 — 2026-10-06 ｜ MINOR
 
 **全新第 9 個分頁 `datamap.html`：MNT T-CON（EM01／EM02／E512）的 Data Mapping，介面照 Python UI 的 Data Mapping 分頁。** 初版。

@@ -4,69 +4,72 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Data Mapping — TCON FAE Toolbox</title>
-<link rel="stylesheet" href="common/common.css?v=20261006dm100">
+<link rel="stylesheet" href="common/common.css?v=20261007dm110">
+<link rel="stylesheet" href="common/site-ui.css?v=20261007dm110">
 <!--
-  Data Mapping 分頁（v1.0.0，Bruce 2026-10-06）
-  ・介面照 Python UI（RomCodeProcessUI SourceCode_V5.0.4）的 Others → Data Mapping 分頁：
-      BruceMainWindow.py:6382-6397（Hand Mode Enable 群組、Gate Type、Data Mapping Code、表格可輸入之文字）
-      RomCodeProcessUI.py:3176-3199（表格：橫軸 Data、縱軸 Line 1-1／1-2／2-1／2-2）
-      RomCodeProcessUI.py:10547-10600（儲存格依 R／G／B／X 上色）
-      RomCodeProcessUI.py:28873-28903（改任何一格 ⇒ I2C 模式下立即寫入 TCON）
-  ・底層暫存器換成 MNT 三顆（EM01／EM02／E512）的 rt7 data mapping，出處都在 common/datamap-core.js 檔頭。
-  ・I2C 走 I2C Bridge（ws://127.0.0.1:8899/ws），協定與 i2c.html／dg-selftest.html 相同（read／rawwrite／open／ping）。
+  Data Mapping 分頁 v1.1.0（Bruce 2026-10-07）
+  ・主體（中間那一塊）＝ Python UI（RomCodeProcessUI SourceCode_V5.0.4）Others → Data Mapping 分頁，逐一照
+    BruceMainWindow.py:4441-4671 的元件、座標、字級，文字照 :6375-6397，表頭照 RomCodeProcessUI.py:3176-3199，
+    顏色照 RomCodeProcessUI.py:10482-10652（R／G／B 底色例外：改用 Pattern 分頁 4×4 的色碼，見 common/subpix-colors.js）。
+    規則全部在 common/datamap-core.js（出處逐條寫在那支的檔頭）。
+  ・外框（步驟卡、匯入／匯出按鈕、連線開關）＝ 站內標準元件 common/site-ui.css（出處見那支的檔頭）。
+  ・I2C 走 I2C Bridge（ws://127.0.0.1:8899/ws；read／rawwrite／open／ping，與 i2c.html 相同）。
 -->
 <style>
+  :root { --sub: var(--text-sub); --warn: #fbbf24; }
   .container { max-width: 1120px; }
-  .dm-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
-  .dm-row label { margin: 0; text-transform: none; letter-spacing: 0; font-size: 12px; }
-  .dm-sel, .dm-in { background: #0f172a; color: var(--text); border: 1.5px solid var(--border); border-radius: 7px; padding: 6px 8px; font-size: 13px; }
-  .dm-in { width: 64px; }
-  .dm-btn { background: #1e3a5f; color: var(--accent); border: 1.5px solid var(--accent); border-radius: 8px; padding: 7px 12px; font-size: 13px; font-weight: 600; cursor: pointer; }
-  .dm-btn:disabled { opacity: .4; cursor: default; }
-  .dm-btn.pri { background: var(--primary); color: #fff; border-color: var(--primary); }
-  .dm-btn.warn { background: #3b2a0a; color: var(--warn); border-color: var(--warn); }
-  .dm-pill { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; background: #334155; color: #cbd5e1; }
-  .dm-pill.on { background: #065f46; color: #a7f3d0; }
-  .dm-pill.busy { background: #78350f; color: #fde68a; }
-  .dm-pill.err { background: #7f1d1d; color: #fecaca; }
-  .dm-banner { border-radius: 8px; padding: 9px 12px; font-size: 13px; margin-bottom: 10px; line-height: 1.5; }
-  .dm-banner.live { background: #052e2b; border: 1px solid #10b981; color: #a7f3d0; }
-  .dm-banner.off { background: #1e293b; border: 1px solid #475569; color: #cbd5e1; }
-  .dm-src { font-size: 12px; color: var(--text-sub); word-break: break-all; }
-  .dm-grid { display: grid; grid-template-columns: 300px 1fr; gap: 12px; }
-  .dm-grid > div { min-width: 0; }
-  .dm-f .dm-sel, .dm-f .dm-in { min-width: 0; max-width: 100%; }
-  @media (max-width: 820px) { .dm-grid { grid-template-columns: 1fr; } }
-  .dm-group { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; }
-  .dm-group > .dm-gt { font-size: 12px; font-weight: 700; color: var(--accent); margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
-  .dm-f { display: grid; grid-template-columns: 112px 1fr; gap: 6px; align-items: center; margin-bottom: 6px; font-size: 12px; }
-  .dm-f > span { color: var(--text-sub); }
-  .dm-chk { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; }
-  .dm-chk label { display: inline-flex; align-items: center; gap: 4px; margin: 0; text-transform: none; letter-spacing: 0; font-weight: 500; color: var(--text); }
-  .dm-ports { display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px; font-size: 10px; }
-  .dm-ports label { display: flex; flex-direction: column; align-items: center; margin: 0; font-weight: 500; color: var(--text-sub); text-transform: none; }
-  .dm-tbl-wrap { overflow-x: auto; margin-bottom: 10px; }
-  table.dm-tbl { border-collapse: collapse; width: 100%; min-width: 380px; font-size: 12px; }
-  table.dm-tbl th { background: #1e3a5f; color: #e2e8f0; padding: 5px 4px; font-weight: 700; border: 1px solid #334155; }
-  table.dm-tbl td { border: 1px solid #334155; padding: 2px; text-align: center; }
-  table.dm-tbl tbody td:first-child { color: #e2e8f0; font-weight: 700; background: #1e3a5f; white-space: nowrap; padding: 4px 6px; }
-  .dm-cell { width: 100%; min-width: 52px; border: 0; border-radius: 4px; padding: 5px 2px; font-size: 12px; font-weight: 700; text-align: center; text-align-last: center; color: #0f172a; cursor: pointer; }
-  .dm-cell.c-r { background: rgb(255,150,150); }
-  .dm-cell.c-g { background: rgb(150,255,150); }
-  .dm-cell.c-b { background: rgb(150,150,255); }
-  .dm-cell.c-x { background: rgb(150,150,150); }
-  .dm-cell.chg { outline: 2px solid var(--warn); outline-offset: -2px; }
-  .dm-dim { opacity: .45; }
-  .dm-note { font-size: 11px; color: var(--text-sub); line-height: 1.5; }
-  .dm-legend { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 3px; font-size: 11px; }
-  .dm-legend span { border-radius: 4px; padding: 2px 4px; color: #0f172a; font-weight: 700; text-align: center; }
-  table.dm-code { border-collapse: collapse; width: 100%; font-size: 12px; font-family: ui-monospace, Menlo, Consolas, monospace; }
-  table.dm-code th, table.dm-code td { border: 1px solid #334155; padding: 3px 6px; text-align: left; }
-  table.dm-code th { background: #1e3a5f; }
-  table.dm-code tr.chg td { background: #3b2a0a; color: #fde68a; }
-  .dm-log { background: #020617; border: 1px solid #334155; border-radius: 8px; height: 200px; overflow-y: auto; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; padding: 6px 8px; white-space: pre-wrap; }
+  .dm-row { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; }
+  .dm-row + .dm-row { margin-top: 8px; }
+  .dm-k { font-size: 13px; color: var(--sub); }
+  .dm-sel { background: #0b1424; color: var(--text); border: 1px solid var(--border); border-radius: 6px; height: 32px; padding: 0 8px; font-size: 13px; }
+  .sbtn { background: #334155; border: 1px solid #475569; border-radius: 6px; color: var(--text); padding: 0 14px; font-size: 13px; font-weight: 600;
+          cursor: pointer; min-height: 32px; display: inline-flex; align-items: center; justify-content: center; }
+  .sbtn:hover { background: #3f4f66; }
+  .sbtn:disabled { opacity: .45; cursor: not-allowed; }
+  .dm-chk { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text); text-transform: none; letter-spacing: 0; margin: 0; font-weight: 500; }
+  .dm-info { font-size: 13px; color: var(--sub); line-height: 1.6; margin-top: 8px; }
+  .dm-info.err { color: #fca5a5; }
+  .dm-src { font-size: 12px; color: var(--sub); word-break: break-all; }
+  .dm-tools { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; margin-bottom: 10px; }
+  .dm-ns { font-size: 12.5px; color: var(--warn); margin-top: 8px; line-height: 1.6; }
+  .dm-ns:empty { display: none; }
+  .dm-log { background: #020617; border: 1px solid #334155; border-radius: 8px; height: 200px; overflow-y: auto; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; padding: 6px 8px; white-space: pre-wrap; margin-top: 8px; }
   .dm-log .w { color: #6ee7b7; } .dm-log .e { color: #fca5a5; } .dm-log .n { color: #cbd5e1; }
   .hidden { display: none !important; }
+
+  /* ═══ Python UI 主體（Qt 預設淺色外觀；座標 ＝ BruceMainWindow.py setGeometry，單位 px）═══ */
+  .qt-wrap { overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; }
+  .qt-tab { position: relative; width: 1011px; height: 491px; background: #f0f0f0; color: #000; transform-origin: 0 0;
+            font: 13.3px "Microsoft JhengHei", "PingFang TC", Arial, sans-serif; border: 1px solid #c9c9c9; border-radius: 2px; }
+  .qt-tab * { box-sizing: border-box; }
+  .qt-abs { position: absolute; }
+  .qt-gb { position: absolute; border: 1px solid #c4c4c4; border-radius: 3px; }
+  .qt-gb > .qt-gt { position: absolute; left: 7px; top: -9px; padding: 0 3px; background: #f0f0f0; line-height: 16px; white-space: nowrap; display: flex; align-items: center; gap: 4px; }
+  .qt-gb > .qt-gt input { margin: 0; width: 13px; height: 13px; }
+  .qt-off .qt-in { color: #a0a0a0; }
+  .qt-off .qt-in input, .qt-off .qt-in button, .qt-off .qt-in select { pointer-events: none; }
+  .qt-lbl { position: absolute; display: flex; align-items: center; white-space: nowrap; }
+  .qt-lbl.r { justify-content: flex-end; }
+  .qt-lbl.c { justify-content: center; }
+  .qt-btn { position: absolute; background: #e1e1e1; border: 1px solid #adadad; border-radius: 0; color: #000; font: inherit; cursor: pointer; padding: 0; }
+  .qt-btn:hover:not(:disabled) { background: #e5f1fb; border-color: #0078d7; }
+  .qt-btn.green { background: rgb(130, 255, 130); }
+  .qt-btn:disabled, .qt-off .qt-in .qt-btn { color: #a0a0a0; }
+  .qt-edit { position: absolute; background: #fff; border: 1px solid #7a7a7a; font: inherit; color: #000; text-align: center; padding: 0 2px; }
+  .qt-off .qt-in .qt-edit { background: #f0f0f0; border-color: #cccccc; color: #a0a0a0; }
+  .qt-combo { position: absolute; background: #e1e1e1; border: 1px solid #adadad; font: 13.3px Arial, sans-serif; color: #000; padding: 0 4px; }
+  .qt-off .qt-in .qt-combo { color: #a0a0a0; }
+  .qt-tbl { position: absolute; background: #fff; border: 1px solid #828790; overflow: auto; }
+  .qt-tbl table { border-collapse: collapse; table-layout: fixed; font: 13.3px Arial, sans-serif; }
+  .qt-tbl th { background: rgb(130, 130, 130); color: #fff; font-weight: 400; border: 1px solid #b0b0b0; padding: 0 3px; white-space: nowrap; position: sticky; top: 0; z-index: 1; }
+  .qt-tbl tbody th { position: static; text-align: left; }
+  .qt-tbl td { border: 1px solid #d8d8d8; padding: 0; text-align: center; background: #fff; color: #000; }
+  .qt-tbl td input { width: 100%; height: 100%; border: 0; background: transparent; font: inherit; color: inherit; text-align: center; padding: 0; outline: none; }
+  .qt-tbl td input:focus { outline: 2px solid #0078d7; outline-offset: -2px; background: #fff; color: #000; }
+  .qt-tbl td.ns { box-shadow: inset 0 0 0 2px #d97706; }
+  .qt-tbl td.ns input::placeholder { color: #000; opacity: 1; font-size: 10.5px; font-weight: 700; }
+  .qt-tbl td.chg { background: rgb(200, 100, 150) !important; }
+  .qt-x { font-size: 26.6px; }
 </style>
 </head>
 <body>
@@ -74,8 +77,8 @@
 
 <div class="header subpage-header">
   <a href="index.html" class="back-btn" data-i18n="common.backToHome">← 返回首頁</a>
-  <h1><svg width="20" height="16" viewBox="0 0 30 22" fill="none" style="display:inline-block;vertical-align:middle;margin-right:6px"><rect x="1" y="2" width="12" height="18" rx="2" stroke="#f472b6" stroke-width="1.6"/><rect x="17" y="2" width="12" height="18" rx="2" stroke="#f472b6" stroke-width="1.6"/><path d="M13 7 L17 15 M13 15 L17 7" stroke="#f472b6" stroke-width="1.6" stroke-linecap="round"/></svg><span data-i18n="dm.title">Data Mapping</span> <span style="display:inline-block;background:#f472b6;color:#500724;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;" data-tool-version="datamap"></span></h1>
-  <p data-i18n="dm.subtitle">MNT T-CON（EM01／EM02／E512）Data Mapping：I2C 即時調整、匯入 code、匯出 script</p>
+  <h1><svg width="20" height="16" viewBox="0 0 30 22" fill="none" style="display:inline-block;vertical-align:middle;margin-right:6px" aria-hidden="true"><rect x="1" y="2" width="12" height="18" rx="2" stroke="#f472b6" stroke-width="1.6"/><rect x="17" y="2" width="12" height="18" rx="2" stroke="#f472b6" stroke-width="1.6"/><path d="M13 7 L17 15 M13 15 L17 7" stroke="#f472b6" stroke-width="1.6" stroke-linecap="round"/></svg><span data-i18n="dm.title">Data Mapping</span> <span style="display:inline-block;background:#f472b6;color:#500724;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;" data-tool-version="datamap"></span></h1>
+  <p data-i18n="dm.subtitle">與 Python UI 的 Data Mapping 分頁相同：I2C 即時調整、匯入 code、匯出 script</p>
   <div class="lang-switcher">
     <select id="lang-select" class="lang-select" aria-label="Language">
       <option value="zh-TW">繁體中文</option>
@@ -86,117 +89,120 @@
 </div>
 
 <div class="container">
+  <div id="stp-next" class="stp-next" role="status"></div>
 
-  <!-- ① T-CON 與來源 -->
-  <div class="card">
-    <div class="card-header"><span class="icon">🧩</span><span data-i18n="dm.cardSrc">T-CON 與資料來源</span></div>
-    <div class="card-body">
-      <div id="dm-banner" class="dm-banner off"></div>
-      <div class="dm-row">
-        <label for="dm-model" data-i18n="dm.model">T-CON 型號</label>
-        <select id="dm-model" class="dm-sel">
-          <option value="EM01">EM01</option>
-          <option value="EM02" selected>EM02</option>
-          <option value="E512">E512</option>
-        </select>
-        <button class="dm-btn pri" id="dm-import" data-i18n="dm.import">📂 匯入 code</button>
-        <button class="dm-btn" id="dm-export" data-i18n="dm.export">⬇ 匯出 script</button>
-        <input type="file" id="dm-file" accept=".bin,.BIN" class="hidden">
+  <!-- ① T-CON 與連線 -->
+  <div class="card stp" id="card-tcon">
+    <div class="stp-hd"><span class="stp-tick" id="tk-tcon">○</span><span class="stp-t" data-i18n="dm.stpTcon">① 選 T-CON（或連線後 Check T-CON 自動認）</span><span class="stp-st" id="st-tcon"></span></div>
+    <div class="dm-row">
+      <span class="dm-k" data-i18n="dm.model">T-CON 型號</span>
+      <select id="dm-model" class="dm-sel"></select>
+      <button id="dm-link" class="sbtn linkbtn" aria-pressed="false" data-i18n="dm.connect">連線</button>
+      <button id="dm-check" class="sbtn" data-i18n="dm.check">Check T-CON</button>
+      <span class="dm-k">Slave</span>
+      <select id="dm-slave" class="dm-sel" title="EM01／EM02／E512 用；DAZ／E501／E503 固定 0x3E">
+        <option value="auto" data-i18n="dm.slaveAuto">自動</option>
+        <option value="104">0x68</option><option value="105">0x69</option>
+        <option value="96">0x60</option><option value="97">0x61</option>
+      </select>
+      <label class="dm-chk"><input type="checkbox" id="dm-live" checked> <span data-i18n="dm.live">改值立即寫入</span></label>
+    </div>
+    <div class="dm-info" id="dm-ic"></div>
+  </div>
+
+  <!-- ② Data Mapping（主體照 Python UI） -->
+  <div class="card stp" id="card-dm">
+    <div class="stp-hd"><span class="stp-tick" id="tk-dm">○</span><span class="stp-t" data-i18n="dm.stpDm">② Data Mapping</span><span class="stp-st" id="st-dm"></span></div>
+    <div class="dm-tools">
+      <!-- 匯入／匯出：沿用 wfg.html:2790-2791 的工具群組按鈕（同一組 SVG 與 class） -->
+      <div class="wfg-la-tool-group">
+        <span class="wfg-la-group-label" data-i18n="dm.grpFile">檔案</span>
+        <button id="dm-import" title="匯入 code（.bin／.hex／.rom／.txt／.dat）" data-i18n-title="dm.importTitle" aria-label="匯入"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v8"></path><path d="M4.5 7 8 10.5 11.5 7"></path><path d="M2 12.5V14h12v-1.5"></path></svg><span data-i18n="dm.importPlain">匯入</span></button>
+        <button id="dm-export" title="匯出 script" data-i18n-title="dm.exportTitle" aria-label="匯出"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 10V2"></path><path d="M4.5 5 8 1.5 11.5 5"></path><path d="M2 12.5V14h12v-1.5"></path></svg><span data-i18n="dm.exportPlain">匯出</span></button>
       </div>
       <div class="dm-src"><span data-i18n="dm.source">來源</span>：<span id="dm-src-text"></span></div>
+      <input type="file" id="dm-file" accept=".bin,.BIN,.hex,.HEX,.rom,.ROM,.txt,.dat" class="hidden">
+      <input type="file" id="dm-xfile" accept=".xlsx" class="hidden">
     </div>
-  </div>
 
-  <!-- ② I2C -->
-  <div class="card">
-    <div class="card-header"><span class="icon">🔌</span><span>I2C</span></div>
-    <div class="card-body">
-      <div class="dm-row">
-        <span id="dm-link" class="dm-pill"></span>
-        <button class="dm-btn pri" id="dm-connect" data-i18n="dm.connect">連線</button>
-        <button class="dm-btn" id="dm-disconnect" data-i18n="dm.disconnect">中斷</button>
-        <label for="dm-slave">Slave</label>
-        <select id="dm-slave" class="dm-sel">
-          <option value="auto" data-i18n="dm.slaveAuto">自動</option>
-          <option value="104">0x68</option><option value="105">0x69</option>
-          <option value="96">0x60</option><option value="97">0x61</option>
-        </select>
-      </div>
-      <div class="dm-row">
-        <button class="dm-btn" id="dm-readback" data-i18n="dm.readback">⟳ 從 TCON 讀回</button>
-        <button class="dm-btn warn" id="dm-writeall" data-i18n="dm.writeAll">⇪ 全部寫入 TCON</button>
-        <label class="dm-chk"><input type="checkbox" id="dm-live" checked> <span data-i18n="dm.live">改值立即寫入</span></label>
-      </div>
-      <div class="dm-note" id="dm-ic"></div>
-    </div>
-  </div>
-
-  <!-- ③ Data Mapping（Python UI 樣式） -->
-  <div class="card">
-    <div class="card-header"><span class="icon">🎨</span><span>Data Mapping</span><span id="dm-preset-now" style="margin-left:auto;font-weight:500;font-size:12px"></span></div>
-    <div class="card-body">
-      <div class="dm-grid">
-        <div>
-          <div class="dm-group">
-            <div class="dm-gt"><input type="checkbox" id="f-handMode"><label for="f-handMode" style="margin:0;color:inherit;text-transform:none;letter-spacing:0">Hand Mode Enable</label></div>
-            <div class="dm-note" data-i18n="dm.handNote">開啟後 TCON 依右邊表格的索引輸出（force_sel_en）；關閉時由 TCON 依 Panel／Sub panel 自動決定，表格不生效。</div>
-          </div>
-          <div class="dm-group">
-            <div class="dm-gt" data-i18n="dm.gPanel">面板型態</div>
-            <div class="dm-f"><span>Panel mode</span><select id="f-panelMode" class="dm-sel"></select></div>
-            <div class="dm-f"><span>Sub panel mode</span><select id="f-subPanel" class="dm-sel"></select></div>
-            <div class="dm-f"><span>Read mode</span><select id="f-rdMode" class="dm-sel"></select></div>
-            <div class="dm-f"><span>LTPS zigzag shift</span><select id="f-ltpsZz" class="dm-sel"><option>0</option><option>1</option><option>2</option><option>3</option></select></div>
-            <div class="dm-chk">
-              <label><input type="checkbox" id="f-mirror"> Mirror</label>
-              <label><input type="checkbox" id="f-chrb"> <span data-i18n="dm.chrb">R↔B 互換</span></label>
-              <label><input type="checkbox" id="f-chwb"> <span data-i18n="dm.chwb">RGB 反相</span></label>
-            </div>
-          </div>
-          <div class="dm-group">
-            <div class="dm-gt">DE phase</div>
-            <div class="dm-chk" style="margin-bottom:6px"><label><input type="checkbox" id="f-forceDeEn"> <span data-i18n="dm.forceDe">手動指定 DE phase</span></label></div>
-            <div class="dm-f"><span>DE phase</span><input type="number" id="f-forceDeSel" class="dm-in" min="0" max="63"></div>
-          </div>
-          <div class="dm-group">
-            <div class="dm-gt" data-i18n="dm.gRvs">Port 反向讀取（read_rvs）</div>
-            <div class="dm-ports" id="f-rvs"></div>
-          </div>
-          <div class="dm-group">
-            <div class="dm-gt" data-i18n="dm.gPreset">原廠預設樣式</div>
-            <div class="dm-row" style="margin:0"><select id="dm-preset" class="dm-sel" style="flex:1;min-width:0"></select><button class="dm-btn" id="dm-preset-apply" data-i18n="dm.apply">套用</button></div>
-          </div>
-        </div>
-        <div>
-          <div class="dm-row">
-            <label for="dm-slot" data-i18n="dm.slot">名稱依時槽</label>
-            <select id="dm-slot" class="dm-sel"><option value="auto" data-i18n="dm.auto">自動</option><option value="1">T1</option><option value="2">T2</option><option value="3">T3</option><option value="4">T4</option><option value="5">T5</option></select>
-            <span class="dm-note" id="dm-slot-now"></span>
-          </div>
-          <div id="dm-tables"></div>
-          <div class="dm-group">
-            <div class="dm-gt" data-i18n="dm.legend">表格可選的索引</div>
-            <div class="dm-legend" id="dm-legend"></div>
-            <div class="dm-note" style="margin-top:6px" data-i18n="dm.legendNote">索引 0～29 的意義依時槽而定（T1～T5 看 tooltip）；30、31 原廠對照表沒有定義（未確認）。原廠 UI 輸入上限 29。</div>
-          </div>
+    <div class="qt-wrap" id="qt-wrap"><div class="qt-tab" id="qt-tab">
+      <!-- groupBox_41 Hand Mode Enable（10,10,711,341） -->
+      <div class="qt-gb" id="gb41" style="left:10px;top:10px;width:711px;height:341px">
+        <div class="qt-gt"><input type="checkbox" id="q-hand"><span>Hand Mode Enable</span></div>
+        <div class="qt-in">
+          <div class="qt-lbl r" style="left:280px;top:20px;width:261px;height:21px">Gate Type：</div>
+          <select class="qt-combo" id="q-gate" style="left:550px;top:20px;width:151px;height:25px"></select>
+          <div class="qt-tbl" id="q-tbl30" style="left:10px;top:50px;width:691px;height:241px"></div>
+          <div class="qt-lbl r" style="left:10px;top:300px;width:71px;height:31px">Glass：</div>
+          <input class="qt-edit" id="q-glass" style="left:80px;top:300px;width:91px;height:31px" value="">
+          <button class="qt-btn" id="q-expx" style="left:170px;top:300px;width:121px;height:31px">Export Excel</button>
+          <button class="qt-btn" id="q-impx" style="left:290px;top:300px;width:121px;height:31px">Import Excel</button>
+          <button class="qt-btn" id="q-same" style="left:430px;top:300px;width:191px;height:31px">All Same Pixel</button>
+          <input class="qt-edit" id="q-samev" style="left:620px;top:300px;width:81px;height:31px" value="X">
         </div>
       </div>
-    </div>
-  </div>
+      <!-- groupBox_42 Data Mapping Code（730,10,271,471） -->
+      <div class="qt-gb" style="left:730px;top:10px;width:271px;height:471px">
+        <div class="qt-gt"><span>Data Mapping Code</span></div>
+        <div class="qt-tbl" id="q-tbl31" style="left:10px;top:50px;width:251px;height:411px"></div>
+      </div>
+      <!-- groupBox_45 表格可輸入之文字（10,360,411,121） -->
+      <div class="qt-gb" style="left:10px;top:360px;width:411px;height:121px">
+        <div class="qt-gt"><span>表格可輸入之文字</span></div>
+        <div class="qt-gb" style="left:10px;top:20px;width:120px;height:91px">
+          <div class="qt-gt"><span>前循環：</span></div>
+          <div class="qt-lbl c" id="q-l223" style="left:10px;top:30px;width:91px;height:21px">(R-2 / R-1)</div>
+          <div class="qt-lbl c" id="q-l224" style="left:10px;top:50px;width:91px;height:21px">(G-2 / G-1)</div>
+          <div class="qt-lbl c" id="q-l225" style="left:10px;top:70px;width:91px;height:21px">(B-2 / B-1)</div>
+        </div>
+        <div class="qt-gb" style="left:150px;top:20px;width:120px;height:91px">
+          <div class="qt-gt"><span>主循環：</span></div>
+          <div class="qt-lbl c" style="left:10px;top:30px;width:101px;height:21px">R1 ~ R4</div>
+          <div class="qt-lbl c" style="left:10px;top:50px;width:101px;height:21px">G1 ~ G4</div>
+          <div class="qt-lbl c" style="left:10px;top:70px;width:101px;height:21px">B1 ~ B4</div>
+        </div>
+        <div class="qt-gb" style="left:280px;top:20px;width:121px;height:91px">
+          <div class="qt-gt"><span>關閉輸出：</span></div>
+          <div class="qt-lbl c qt-x" style="left:10px;top:30px;width:101px;height:51px">X</div>
+        </div>
+      </div>
+      <!-- pushButton_71／72（440,370／410，271×31，綠底） -->
+      <button class="qt-btn green" id="q-write" style="left:440px;top:370px;width:271px;height:31px">Write to TCON(0x3E)</button>
+      <button class="qt-btn green" id="q-load" style="left:440px;top:410px;width:271px;height:31px">Load from TCON(0x3E)</button>
+      <!-- label_219（420,460,291,20） -->
+      <div class="qt-lbl r" id="q-cks" style="left:420px;top:460px;width:291px;height:20px;color:rgb(85,170,255);font-family:Arial,sans-serif">DM CKS :</div>
+    </div></div>
+    <div class="dm-ns" id="dm-ns"></div>
+    <div class="dm-info" id="dm-note"></div>
 
-  <!-- ④ Data Mapping Code -->
-  <div class="card">
-    <div class="card-header"><span class="icon">🧾</span><span>Data Mapping Code</span><span class="dm-note" style="margin-left:auto;color:#cbd5e1" id="dm-code-sum"></span></div>
-    <div class="card-body">
-      <div class="dm-note" style="margin-bottom:6px" data-i18n="dm.codeNote">匯出的 script 與 I2C 寫入只會碰這些位址、而且只改遮罩內的位元。黃底 ＝ 與匯入／讀回時不同。</div>
-      <div class="dm-tbl-wrap"><table class="dm-code"><thead><tr><th>Addr</th><th data-i18n="dm.val">值</th><th>Mask</th><th data-i18n="dm.base">原值</th><th data-i18n="dm.field">欄位</th></tr></thead><tbody id="dm-code"></tbody></table></div>
-    </div>
-  </div>
+    <!-- 網頁附加：EM01／EM02／E512 原廠工具才有的欄位（Python UI 沒有） -->
+    <details class="stp-more hidden" id="dm-mnt">
+      <summary><span data-i18n="dm.mntSum">網頁附加：EM01／EM02／E512 原廠工具欄位（Python UI 沒有）</span></summary>
+      <div class="dm-row" style="margin-top:10px">
+        <span class="dm-k">Sub panel mode</span><select id="f-subPanel" class="dm-sel"></select>
+        <span class="dm-k">LTPS zigzag</span><select id="f-ltpsZz" class="dm-sel"><option>0</option><option>1</option><option>2</option><option>3</option></select>
+        <label class="dm-chk"><input type="checkbox" id="f-mirror"> Mirror</label>
+        <label class="dm-chk"><input type="checkbox" id="f-chrb"> CHRB</label>
+        <label class="dm-chk"><input type="checkbox" id="f-chwb"> CHWB</label>
+      </div>
+      <div class="dm-row">
+        <label class="dm-chk"><input type="checkbox" id="f-deEn"> force_de_en</label>
+        <span class="dm-k">force_de_sel</span><input type="number" id="f-deSel" class="dm-sel" style="width:72px" min="0" max="63">
+        <span class="dm-k">read_rvs</span><input id="f-rvs" class="dm-sel" style="width:90px" placeholder="0x0000">
+      </div>
+      <div class="dm-row">
+        <span class="dm-k" data-i18n="dm.preset">原廠預設樣式</span><select id="dm-preset" class="dm-sel" style="max-width:100%"></select>
+        <button class="sbtn" id="dm-preset-apply" data-i18n="dm.apply">套用</button><span class="dm-k" id="dm-preset-now"></span>
+      </div>
+      <div class="dm-info" data-i18n="dm.xNote">r2 g2 b2 r3 g3 b3（h005E-h0075）：Python UI 沒有這一組，名稱未確認，只顯示原值（十進位）。</div>
+      <div class="dm-row" id="dm-xcells" style="margin-top:6px"></div>
+    </details>
 
-  <!-- ⑤ 記錄 -->
-  <div class="card">
-    <div class="card-header"><span class="icon">📜</span><span data-i18n="dm.log">記錄</span><button class="dm-btn" id="dm-logclr" style="margin-left:auto;padding:3px 10px" data-i18n="dm.clear">清除</button></div>
-    <div class="card-body"><div class="dm-log" id="dm-log"></div></div>
+    <details class="stp-more" id="dm-logbox">
+      <summary><span data-i18n="dm.log">記錄</span></summary>
+      <div class="dm-row" style="margin-top:8px"><button class="sbtn" id="dm-logclr" data-i18n="dm.clear">清除</button></div>
+      <div class="dm-log" id="dm-log"></div>
+    </details>
   </div>
 
   <div style="text-align:center;margin:18px 0 30px">
@@ -204,248 +210,299 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20261006dm100"></script>
-<script src="common/i18n.js?v=20261006dm100"></script>
+<script src="common/version.js?v=20261007dm110"></script>
+<script src="common/i18n.js?v=20261007dm110"></script>
 <script>
-/* 本頁文案（三語）。放在 common.js 之前，common.js 載入時 applyLang 就找得到。 */
 (function () {
   var D = {
     'dm.title': ['Data Mapping', 'Data Mapping', 'Data Mapping'],
-    'dm.subtitle': ['MNT T-CON（EM01／EM02／E512）Data Mapping：I2C 即時調整、匯入 code、匯出 script', 'MNT T-CON (EM01/EM02/E512) Data Mapping: live I2C tuning, code import, script export', 'MNT T-CON（EM01／EM02／E512）Data Mapping：I2C 实时调整、导入 code、导出 script'],
-    'dm.cardSrc': ['T-CON 與資料來源', 'T-CON and source', 'T-CON 与数据来源'],
+    'dm.subtitle': ['與 Python UI 的 Data Mapping 分頁相同：I2C 即時調整、匯入 code、匯出 script', 'Same as the Data Mapping tab of the Python UI: live I2C tuning, code import, script export', '与 Python UI 的 Data Mapping 分页相同：I2C 实时调整、导入 code、导出 script'],
+    'dm.stpTcon': ['① 選 T-CON（或連線後 Check T-CON 自動認）', '① Pick the T-CON (or connect and use Check T-CON)', '① 选 T-CON（或连接后 Check T-CON 自动识别）'],
+    'dm.stpDm': ['② Data Mapping', '② Data Mapping', '② Data Mapping'],
     'dm.model': ['T-CON 型號', 'T-CON model', 'T-CON 型号'],
-    'dm.import': ['📂 匯入 code', '📂 Import code', '📂 导入 code'],
-    'dm.export': ['⬇ 匯出 script', '⬇ Export script', '⬇ 导出 script'],
+    'dm.connect': ['連線', 'Connect', '连接'],
+    'dm.connected': ['已連線', 'Connected', '已连接'],
+    'dm.check': ['Check T-CON', 'Check T-CON', 'Check T-CON'],
+    'dm.slaveAuto': ['自動', 'Auto', '自动'],
+    'dm.live': ['改值立即寫入', 'Write on change', '改值立即写入'],
+    'dm.grpFile': ['檔案', 'File', '文件'],
+    'dm.importPlain': ['匯入', 'Import', '导入'],
+    'dm.exportPlain': ['匯出', 'Export', '导出'],
+    'dm.importTitle': ['匯入 code（.bin／.hex／.rom／.txt／.dat）', 'Import code (.bin/.hex/.rom/.txt/.dat)', '导入 code（.bin／.hex／.rom／.txt／.dat）'],
+    'dm.exportTitle': ['匯出 script', 'Export script', '导出 script'],
     'dm.source': ['來源', 'Source', '来源'],
     'dm.srcNone': ['尚未載入（目前是預設值 0）', 'Nothing loaded (all values 0)', '尚未加载（目前是默认值 0）'],
     'dm.srcTcon': ['從 TCON 讀回（{m}，slave 0x{s}）', 'Read from TCON ({m}, slave 0x{s})', '从 TCON 读回（{m}，slave 0x{s}）'],
-    'dm.connect': ['連線', 'Connect', '连接'],
-    'dm.disconnect': ['中斷', 'Disconnect', '断开'],
-    'dm.slaveAuto': ['自動', 'Auto', '自动'],
-    'dm.readback': ['⟳ 從 TCON 讀回', '⟳ Read from TCON', '⟳ 从 TCON 读回'],
-    'dm.writeAll': ['⇪ 全部寫入 TCON', '⇪ Write all to TCON', '⇪ 全部写入 TCON'],
-    'dm.live': ['改值立即寫入', 'Write on change', '改值立即写入'],
-    'dm.linkOff': ['I2C 未連線', 'I2C not connected', 'I2C 未连接'],
-    'dm.linkOn': ['I2C 已連線', 'I2C connected', 'I2C 已连接'],
-    'dm.linkBusy': ['連線中…', 'Connecting…', '连接中…'],
-    'dm.linkErr': ['連不上 I2C Bridge', 'Cannot reach I2C Bridge', '连不上 I2C Bridge'],
-    'dm.bannerLive': ['I2C 已連線：改任何欄位都會立即寫入 TCON（寫前讀、寫後讀回比對，記錄在下方）。', 'I2C connected: every change is written to the TCON immediately (read before, read back after; see the log).', 'I2C 已连接：改任何栏位都会立即写入 TCON（写前读、写后读回比对，记录在下方）。'],
-    'dm.bannerHold': ['I2C 已連線，但「改值立即寫入」已關閉：改值只在頁面上，按「全部寫入 TCON」才會寫。', 'I2C connected but "Write on change" is off: changes stay on this page until you press "Write all to TCON".', 'I2C 已连接，但「改值立即写入」已关闭：改值只在页面上，按「全部写入 TCON」才会写。'],
-    'dm.bannerOff': ['I2C 未連線：改值只在頁面上。調好後按「匯出 script」，在 TCON 工具的 Script 頁載入即可把 Data Mapping 改進 MNT T-CON。', 'I2C not connected: changes stay on this page. When done, press "Export script" and load it on the Script page of the TCON tool.', 'I2C 未连接：改值只在页面上。调好后按「导出 script」，在 TCON 工具的 Script 页加载即可把 Data Mapping 改进 MNT T-CON。'],
-    'dm.handNote': ['開啟後 TCON 依右邊表格的索引輸出（force_sel_en）；關閉時由 TCON 依 Panel／Sub panel 自動決定，表格不生效。', 'When on, the TCON outputs by the indexes in the table (force_sel_en). When off, the TCON decides from Panel/Sub panel mode and the table has no effect.', '开启后 TCON 依右边表格的索引输出（force_sel_en）；关闭时由 TCON 依 Panel／Sub panel 自动决定，表格不生效。'],
-    'dm.gPanel': ['面板型態', 'Panel type', '面板型态'],
-    'dm.chrb': ['R↔B 互換', 'Swap R/B', 'R↔B 互换'],
-    'dm.chwb': ['RGB 反相', 'Invert RGB', 'RGB 反相'],
-    'dm.forceDe': ['手動指定 DE phase', 'Force DE phase', '手动指定 DE phase'],
-    'dm.gRvs': ['Port 反向讀取（read_rvs）', 'Port read reverse (read_rvs)', 'Port 反向读取（read_rvs）'],
-    'dm.gPreset': ['原廠預設樣式', 'Vendor presets', '原厂默认样式'],
+    'dm.en01': ['EN01：Data Mapping 演算法不同，暫不支援', 'EN01: different Data Mapping algorithm, not supported yet', 'EN01：Data Mapping 算法不同，暂不支持'],
+    'dm.mntSum': ['網頁附加：EM01／EM02／E512 原廠工具欄位（Python UI 沒有）', 'Web extra: EM01/EM02/E512 vendor-tool fields (not in the Python UI)', '网页附加：EM01／EM02／E512 原厂工具栏位（Python UI 没有）'],
+    'dm.preset': ['原廠預設樣式', 'Vendor preset', '原厂默认样式'],
     'dm.apply': ['套用', 'Apply', '套用'],
-    'dm.slot': ['名稱依時槽', 'Names at slot', '名称依时槽'],
-    'dm.auto': ['自動', 'Auto', '自动'],
-    'dm.slotNow': ['目前用 T{t}', 'using T{t}', '目前用 T{t}'],
-    'dm.legend': ['表格可選的索引', 'Selectable indexes', '表格可选的索引'],
-    'dm.legendNote': ['索引 0～29 的意義依時槽而定（T1～T5 看 tooltip）；30、31 原廠對照表沒有定義（未確認）。原廠 UI 輸入上限 29。', 'The meaning of index 0-29 depends on the time slot (T1-T5 in the tooltip). 30 and 31 are not defined in the vendor table (unconfirmed). The vendor UI caps input at 29.', '索引 0～29 的意义依时槽而定（T1～T5 看 tooltip）；30、31 原厂对照表没有定义（未确认）。原厂 UI 输入上限 29。'],
-    'dm.codeNote': ['匯出的 script 與 I2C 寫入只會碰這些位址、而且只改遮罩內的位元。黃底 ＝ 與匯入／讀回時不同。', 'Script export and I2C writes touch only these addresses, and only the bits inside the mask. Amber = differs from the imported/read value.', '导出的 script 与 I2C 写入只会碰这些地址、而且只改屏蔽内的位元。黄底 ＝ 与导入／读回时不同。'],
-    'dm.val': ['值', 'Value', '值'],
-    'dm.base': ['原值', 'Original', '原值'],
-    'dm.field': ['欄位', 'Field', '栏位'],
-    'dm.codeSum': ['{n} 個位址，{c} 個有改', '{n} addresses, {c} changed', '{n} 个地址，{c} 个有改'],
+    'dm.presetPick': ['（選擇預設樣式）', '(choose a preset)', '（选择默认样式）'],
+    'dm.presetNow': ['目前 ＝ {p}', 'Current = {p}', '目前 ＝ {p}'],
+    'dm.presetNone': ['不符合任何預設樣式', 'No matching preset', '不符合任何默认样式'],
+    'dm.xNote': ['r2 g2 b2 r3 g3 b3（h005E-h0075）：Python UI 沒有這一組，名稱未確認，只顯示原值（十進位）。', 'r2 g2 b2 r3 g3 b3 (h005E-h0075): not in the Python UI; names unconfirmed, raw values (decimal) only.', 'r2 g2 b2 r3 g3 b3（h005E-h0075）：Python UI 没有这一组，名称未确认，只显示原值（十进制）。'],
     'dm.log': ['記錄', 'Log', '记录'],
     'dm.clear': ['清除', 'Clear', '清除'],
-    'dm.tblA': ['Data 0–1（r0 g0 b0 r1 g1 b1）', 'Data 0-1 (r0 g0 b0 r1 g1 b1)', 'Data 0–1（r0 g0 b0 r1 g1 b1）'],
-    'dm.tblB': ['Data 2–3（r2 g2 b2 r3 g3 b3）', 'Data 2-3 (r2 g2 b2 r3 g3 b3)', 'Data 2–3（r2 g2 b2 r3 g3 b3）'],
-    'dm.presetNone': ['不符合任何預設樣式', 'No matching preset', '不符合任何默认样式'],
-    'dm.presetNow': ['目前 ＝ {p}', 'Current = {p}', '目前 ＝ {p}'],
-    'dm.presetPick': ['（選擇預設樣式）', '(choose a preset)', '（选择默认样式）'],
-    'dm.impOk': ['已匯入 {f}：{m}（{md}），Data Mapping 已帶入。', 'Imported {f}: {m} ({md}); Data Mapping loaded.', '已导入 {f}：{m}（{md}），Data Mapping 已带入。'],
+    'dm.nextPick': ['先選 T-CON 型號，再「匯入」code；要直接調 TCON 就按「連線」。', 'Pick the T-CON model and Import a code, or Connect to tune the TCON directly.', '先选 T-CON 型号，再「导入」code；要直接调 TCON 就按「连接」。'],
+    'dm.nextHand': ['勾「Hand Mode Enable」後，在表格輸入 R1~R4、R-1／R-2（G、B 同）或 X。', 'Tick "Hand Mode Enable", then type R1~R4, R-1/R-2 (same for G, B) or X in the table.', '勾「Hand Mode Enable」后，在表格输入 R1~R4、R-1／R-2（G、B 同）或 X。'],
+    'dm.nextEdit': ['在表格直接輸入（Enter 確認）。調好後按「匯出」產生 script；I2C 連線中改值會立即寫入。', 'Type into the table (Enter to apply). Export when done; while connected, every change is written right away.', '在表格直接输入（Enter 确认）。调好后按「导出」产生 script；I2C 连接中改值会立即写入。'],
+    'dm.nextMismatch': ['PANEL_MODE＝{p}、RD_MODE＝{r} 不是 Python UI 的 Single／Dual／Tri 組合，表格不顯示；請在 Gate Type 重選。', 'PANEL_MODE={p}, RD_MODE={r} is not a Single/Dual/Tri combination of the Python UI, so the table is empty; pick a Gate Type again.', 'PANEL_MODE＝{p}、RD_MODE＝{r} 不是 Python UI 的 Single／Dual／Tri 组合，表格不显示；请在 Gate Type 重选。'],
+    'dm.ns': ['非標準值（保留原值，不會自動改掉；在那一格輸入新值才會改）：{l}', 'Non-standard values (kept as is; only typing a new value changes them): {l}', '非标准值（保留原值，不会自动改掉；在那一格输入新值才会改）：{l}'],
+    'dm.impOk': ['已匯入 {f}：{m}（{how}）', 'Imported {f}: {m} ({how})', '已导入 {f}：{m}（{how}）'],
+    'dm.howName': ['依檔名，同 Python UI', 'by file name, as the Python UI does', '依文件名，同 Python UI'],
+    'dm.howPick': ['依選的型號', 'by the selected model', '依选的型号'],
+    'dm.howBin': ['依檔案內容', 'by file content', '依文件内容'],
     'dm.impFail': ['無法匯入 {f}：{r}', 'Cannot import {f}: {r}', '无法导入 {f}：{r}'],
-    'dm.rNoMatch': ['不是 EM01／EM02／E512 的 code，或檔案裡沒有 Data Mapping 區段', 'not an EM01/EM02/E512 code, or the file has no Data Mapping section', '不是 EM01／EM02／E512 的 code，或档案里没有 Data Mapping 区段'],
+    'dm.rNoMatch': ['檔名看不出型號，也不是 EM01／EM02／E512 的 code；請先選型號再匯入', 'model not found in the file name and not an EM01/EM02/E512 code; select the model first', '文件名看不出型号，也不是 EM01／EM02／E512 的 code；请先选型号再导入'],
+    'dm.rShort': ['{m} 的 code 至少要 {n} bytes，這份只有 {g}', 'a {m} code needs at least {n} bytes, this one has {g}', '{m} 的 code 至少要 {n} bytes，这份只有 {g}'],
     'dm.rMismatch': ['這份是 {f} 的 code，與選的型號不同', 'this is a {f} code, not the selected model', '这份是 {f} 的 code，与选的型号不同'],
     'dm.rAmbig': ['同時像 {f}，請先選對型號再匯入', 'looks like {f}; select the model first', '同时像 {f}，请先选对型号再导入'],
-    'dm.impLinked': ['I2C 連線中：匯入的值只帶進頁面，要寫進 TCON 請按「全部寫入 TCON」。', 'I2C is connected: imported values are only on this page. Press "Write all to TCON" to write them.', 'I2C 连接中：导入的值只带进页面，要写进 TCON 请按「全部写入 TCON」。'],
-    'dm.expOk': ['已匯出 {f}（{n} 行 write -m）', 'Exported {f} ({n} write -m lines)', '已导出 {f}（{n} 行 write -m）'],
-    'dm.icFound': ['IC 0xFF00 ＝ {id} ⇒ {m}（slave 0x{s}）', 'IC 0xFF00 = {id} ⇒ {m} (slave 0x{s})', 'IC 0xFF00 ＝ {id} ⇒ {m}（slave 0x{s}）'],
-    'dm.icUnknown': ['認不出 IC（0xFF00 ＝ {id}），沿用選的型號 {m}；請確認型號正確再寫入。', 'Unknown IC (0xFF00 = {id}); keeping selected model {m}. Check the model before writing.', '认不出 IC（0xFF00 ＝ {id}），沿用选的型号 {m}；请确认型号正确再写入。'],
-    'dm.icNone': ['四個 slave 都沒有回應，請確認 I2C 治具與 TCON 供電。', 'No response on any of the four slaves; check the I2C adapter and TCON power.', '四个 slave 都没有回应，请确认 I2C 治具与 TCON 供电。'],
+    'dm.impLinked': ['I2C 連線中：匯入的值只帶進頁面，要寫進 TCON 請按「Write to TCON」。', 'I2C is connected: imported values stay on the page. Press "Write to TCON" to write them.', 'I2C 连接中：导入的值只带进页面，要写进 TCON 请按「Write to TCON」。'],
+    'dm.expScript': ['已匯出 {f}（{n} 列）', 'Exported {f} ({n} rows)', '已导出 {f}（{n} 列）'],
+    'dm.needGlass': ['請輸入NOTE(建議用玻璃廠名稱)，才可匯出Excel !', 'Enter a note (glass maker suggested) before Export Excel.', '请输入NOTE(建议用玻璃厂名称)，才可导出Excel !'],
+    'dm.xlsOk': ['匯入 Data Mapping Excel 完成：{f}', 'Data Mapping Excel imported: {f}', '导入 Data Mapping Excel 完成：{f}'],
+    'dm.xlsFail': ['Excel 內容有誤，無法存取：{r}', 'Excel content error: {r}', 'Excel 内容有误，无法存取：{r}'],
+    'dm.icMnt': ['IC 0xFF00 ＝ {id} ⇒ {m}（slave 0x{s}）', 'IC 0xFF00 = {id} ⇒ {m} (slave 0x{s})', 'IC 0xFF00 ＝ {id} ⇒ {m}（slave 0x{s}）'],
+    'dm.icNb': ['Check T-CON ⇒ {n}（slave 0x3E）', 'Check T-CON ⇒ {n} (slave 0x3E)', 'Check T-CON ⇒ {n}（slave 0x3E）'],
+    'dm.icE503u': ['7D:007D 落在 E503 表內但 3E:207E 分不出 E503／EN01：當 E503 處理，但不寫 3E:0059。', '7D:007D is in the E503 table but 3E:207E cannot tell E503 from EN01: treated as E503 without writing 3E:0059.', '7D:007D 落在 E503 表内但 3E:207E 分不出 E503／EN01：当 E503 处理，但不写 3E:0059。'],
+    'dm.icEn01': ['認出 EN01：Data Mapping 演算法不同，暫不支援（不讀不寫）。', 'EN01 detected: different Data Mapping algorithm, not supported (no read/write).', '认出 EN01：Data Mapping 算法不同，暂不支持（不读不写）。'],
+    'dm.icNone': ['認不出 T-CON，沿用選的型號 {m}；請確認型號正確再寫入。', 'T-CON not recognised; keeping the selected model {m}. Check it before writing.', '认不出 T-CON，沿用选的型号 {m}；请确认型号正确再写入。'],
+    'dm.daz13x': ['DAZ6138 與 DAZ6139 是同一顆 IC，Check T-CON 分不出來；兩者 Data Mapping 表相同。', 'DAZ6138 and DAZ6139 are the same IC and cannot be told apart; their Data Mapping tables are identical.', 'DAZ6138 与 DAZ6139 是同一颗 IC，Check T-CON 分不出来；两者 Data Mapping 表相同。'],
+    'dm.e503NoConfirm': ['E503 是手選的（未經 Check T-CON 確認）：只下 7E:AB←CD，不寫 3E:0059。', 'E503 was picked by hand (not confirmed by Check T-CON): only 7E:AB←CD is sent, 3E:0059 is not written.', 'E503 是手选的（未经 Check T-CON 确认）：只下 7E:AB←CD，不写 3E:0059。'],
     'dm.wrOk': ['已寫入 {n} 個 byte', '{n} bytes written', '已写入 {n} 个 byte'],
     'dm.wrFail': ['寫入失敗 {n} 個位址，已從 TCON 重新讀回', '{n} addresses failed; re-read from TCON', '写入失败 {n} 个地址，已从 TCON 重新读回'],
     'dm.notLinked': ['I2C 未連線', 'I2C not connected', 'I2C 未连接'],
-    'dm.oldBridge': ['I2C Bridge 不支援寫入指令，請到「I2C 讀寫測試」頁下載最新版。', 'This I2C Bridge does not support the write command; get the latest one from the I2C page.', 'I2C Bridge 不支持写入指令，请到「I2C 读写测试」页下载最新版。'],
-    'dm.line': ['Line', 'Line', 'Line']
+    'dm.linkErr': ['連不上 I2C Bridge', 'Cannot reach I2C Bridge', '连不上 I2C Bridge'],
+    'dm.oldBridge': ['I2C Bridge 不支援寫入指令，請到「I2C 讀寫測試」頁下載最新版。', 'This I2C Bridge does not support writes; get the latest one from the I2C page.', 'I2C Bridge 不支持写入指令，请到「I2C 读写测试」页下载最新版。'],
+    'dm.stModel': ['{m}', '{m}', '{m}'],
+    'dm.stGate': ['{g}', '{g}', '{g}']
   };
   var L = ['zh-TW', 'en', 'zh-CN'];
   Object.keys(D).forEach(function (k) { var o = {}; L.forEach(function (l, i) { o[l] = D[k][i]; }); I18N[k] = o; });
 })();
 </script>
 <script src="common/common.js?v=20260523"></script>
-<script src="common/datamap-core.js?v=20261006dm100"></script>
+<script src="common/subpix-colors.js?v=20261007dm110"></script>
+<script src="common/xlsx.js?v=20261007dm110"></script>
+<script src="common/datamap-core.js?v=20261007dm110"></script>
 <script>
 (function () {
   'use strict';
-  var DM = window.TCONDataMap;
+  var DM = window.TCONDataMap, SP = window.TCONSubpix;
   function $(id) { return document.getElementById(id); }
   function tt(k, v) { return t(k, v); }
   var hex = DM.hex;
+  /* 格子底色：R／G／B ＝ Pattern 4×4 的 255 階（subpix-colors.js），X ＝ PY QColor(150,150,150)，
+     暗列 ＝ PY QColor(50,50,50)（RomCodeProcessUI.py:10598、10606） */
+  var CELL_RGB = { r: SP.rgbOf(0, 255), g: SP.rgbOf(1, 255), b: SP.rgbOf(2, 255), x: [150, 150, 150], ns: [150, 150, 150], dark: [50, 50, 50] };
 
   var S = {
-    model: 'EM02', cur: DM.emptyState(), base: null,
-    src: { kind: 'none' }, lastBytes: null,
-    ws: null, seq: 0, pend: {}, linked: false, busy: false, slave: 0x68,
-    chain: Promise.resolve()
+    model: 'E503', cur: null, img: {}, baseImg: null, src: { kind: 'none' }, raw: null, rawName: '',
+    ws: null, seq: 0, pend: {}, linked: false, busy: false, slave: 0x68, e503ok: false, chain: Promise.resolve(), checked: null
   };
-  window.dmState = S;   // 除錯／自測用
+  S.cur = DM.emptyState(S.model);
+  window.dmState = S;
 
-  /* ── 記錄 ── */
   function log(kind, text) {
     var box = $('dm-log'); if (!box) return;
     var d = new Date(), p = function (n) { return (n < 10 ? '0' : '') + n; };
-    var line = document.createElement('div');
-    line.className = kind || 'n';
+    var line = document.createElement('div'); line.className = kind || 'n';
     line.textContent = p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds()) + '  ' + text;
     box.appendChild(line); box.scrollTop = box.scrollHeight;
   }
+  function isNb() { return DM.MODELS[S.model].kind === 'nb'; }
+
+  /* ── 影像：Data Mapping 相關位址的 byte（目前／基準） ── */
+  function imgAddrs() {
+    var a = {};
+    DM.fieldsOf(S.model).forEach(function (f) { f.parts.forEach(function (p) { a[p[0]] = 1; }); });
+    DM.codeAddrs(S.model).forEach(function (x) { a[x] = 1; });
+    return Object.keys(a).map(Number);
+  }
+  function syncImgFromState() {
+    DM.encode(S.model, S.cur).forEach(function (e) { S.img[e.reg] = DM.maskedMerge(S.img[e.reg] | 0, e.val, e.mask); });
+  }
 
   /* ── 畫面 ── */
-  function fillSelect(sel, items, val) {
-    sel.innerHTML = '';
-    items.forEach(function (txt, i) { var o = document.createElement('option'); o.value = i; o.textContent = i + ': ' + txt; sel.appendChild(o); });
-    if (val >= items.length) { var o2 = document.createElement('option'); o2.value = val; o2.textContent = val + ': ?'; sel.appendChild(o2); }
-    sel.value = String(val);
+  function buildModelSelect() {
+    var sel = $('dm-model'); sel.innerHTML = '';
+    DM.MODEL_KEYS.forEach(function (k) { var o = document.createElement('option'); o.value = k; o.textContent = DM.MODELS[k].label; sel.appendChild(o); });
+    var o2 = document.createElement('option'); o2.value = ''; o2.disabled = true; o2.textContent = tt('dm.en01'); sel.appendChild(o2);
   }
-  function slotNow() { var v = $('dm-slot').value; return v === 'auto' ? DM.autoSlot(S.cur.sel) : +v; }
-  function idxLabel(i, T) {
-    var n = DM.idxName(i, T);
-    return n ? (i + ' ' + n) : (i + (i > 29 ? ' ?' : ' ·'));
+  function buildGate() {
+    var sel = $('q-gate'); sel.innerHTML = '';
+    DM.GATE_ITEMS.forEach(function (g) { var o = document.createElement('option'); o.value = g; o.textContent = g; sel.appendChild(o); });
   }
-  function idxTip(i) {
-    if (i > 29) return 'index ' + i + ': not defined in the vendor diagram';
-    var s = [];
-    for (var T = 1; T <= 5; T++) s.push('T' + T + '=' + (DM.idxName(i, T) || '—'));
-    return 'index ' + i + ': ' + s.join('  ');
-  }
-  function buildTables() {
-    var box = $('dm-tables'); box.innerHTML = '';
-    [0, 1].forEach(function (half) {
-      var wrap = document.createElement('div'); wrap.className = 'dm-tbl-wrap';
-      var h = document.createElement('div'); h.className = 'dm-note'; h.style.margin = '2px 0 4px'; h.setAttribute('data-i18n', half ? 'dm.tblB' : 'dm.tblA');
-      h.textContent = tt(half ? 'dm.tblB' : 'dm.tblA');
-      var tb = document.createElement('table'); tb.className = 'dm-tbl';
-      var thead = '<thead><tr><th></th>';
-      for (var c = 0; c < 6; c++) thead += '<th>' + DM.CH_NAMES[half * 6 + c] + '</th>';
-      tb.innerHTML = thead + '</tr></thead>';
-      var tbody = document.createElement('tbody');
-      var rowNames = ['Line 1-1 (_0)', 'Line 1-2 (_1)', 'Line 2-1 (_2)', 'Line 2-2 (_3)'];
-      for (var r = 0; r < 4; r++) {
-        var tr = document.createElement('tr');
-        var th = document.createElement('td'); th.textContent = rowNames[r]; tr.appendChild(th);
-        for (var c2 = 0; c2 < 6; c2++) {
-          var k = (half * 6 + c2) * 4 + r;   // sel 索引：通道 × 4 ＋ type（RApp_TX.cpp:9072 的排法）
-          var td = document.createElement('td');
-          var sel = document.createElement('select'); sel.className = 'dm-cell'; sel.id = 'cell-' + k; sel.dataset.k = k;
-          for (var v = 0; v <= 31; v++) { var o = document.createElement('option'); o.value = v; sel.appendChild(o); }
-          sel.addEventListener('change', onCell);
-          td.appendChild(sel); tr.appendChild(td);
-        }
-        tbody.appendChild(tr);
-      }
-      tb.appendChild(tbody); wrap.appendChild(h); wrap.appendChild(tb); box.appendChild(wrap);
+  function buildTbl30() {
+    var h = '<table style="width:' + (62 + 8 * 75) + 'px"><colgroup><col style="width:62px">';
+    for (var c = 0; c < 8; c++) h += '<col style="width:75px">';
+    h += '</colgroup><thead><tr><th></th>';
+    for (var c2 = 1; c2 <= 8; c2++) h += '<th style="height:24px">Data ' + c2 + '</th>';
+    h += '</tr></thead><tbody>';
+    var R = ['Line 1-1', 'Line 1-2', 'Line 2-1', 'Line 2-2'];
+    for (var r = 0; r < 4; r++) {
+      h += '<tr style="height:45px"><th>' + R[r] + '</th>';
+      for (var c3 = 0; c3 < 8; c3++) h += '<td id="q30-' + r + '-' + c3 + '"><input data-r="' + r + '" data-c="' + c3 + '" autocomplete="off" spellcheck="false"></td>';
+      h += '</tr>';
+    }
+    $('q-tbl30').innerHTML = h + '</tbody></table>';
+    Array.prototype.forEach.call($('q-tbl30').querySelectorAll('input'), function (inp) {
+      inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); inp.blur(); } if (e.key === 'Escape') { inp.value = inp.dataset.v || ''; inp.blur(); } });
+      inp.addEventListener('focus', function () { inp.dataset.v = inp.value; });
+      inp.addEventListener('blur', function () { if (inp.value !== inp.dataset.v) onCellText(+inp.dataset.r, +inp.dataset.c, inp.value); });
     });
   }
-  function buildRvs() {
-    var box = $('f-rvs'); box.innerHTML = '';
-    for (var i = 0; i < 16; i++) {
-      var l = document.createElement('label');
-      l.innerHTML = '<span>P' + i + '</span>';
-      var cb = document.createElement('input'); cb.type = 'checkbox'; cb.dataset.bit = i; cb.addEventListener('change', onRvs);
-      l.appendChild(cb); box.appendChild(l);
+  function buildTbl31() {
+    var addrs = DM.codeAddrs(S.model), n = Math.max(15, addrs.length);
+    var h = '<table style="width:' + (26 + 160) + 'px"><colgroup><col style="width:26px"><col style="width:80px"><col style="width:80px"></colgroup>' +
+            '<thead><tr><th></th><th style="height:24px">Data A</th><th>Data B</th></tr></thead><tbody>';
+    for (var i = 0; i < n; i++) h += '<tr style="height:25px"><th>' + i + '</th><td id="q31-' + i + '"><input data-i="' + i + '" autocomplete="off" spellcheck="false"></td><td></td></tr>';
+    $('q-tbl31').innerHTML = h + '</tbody></table>';
+    Array.prototype.forEach.call($('q-tbl31').querySelectorAll('input'), function (inp) {
+      inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); inp.blur(); } });
+      inp.addEventListener('focus', function () { inp.dataset.v = inp.value; });
+      inp.addEventListener('blur', function () { if (inp.value !== inp.dataset.v) onCodeText(+inp.dataset.i, inp.value); });
+    });
+  }
+  function paintCell(td, inp, view) {
+    var key = view.dark && !view.blank ? 'dark' : (view.blank ? null : view.color);
+    td.classList.toggle('ns', !view.blank && !view.std);
+    if (!key) { td.style.background = ''; inp.style.color = '#000'; }
+    else {
+      var c = view.dark ? CELL_RGB.dark : CELL_RGB[key];
+      td.style.background = 'rgb(' + c[0] + ',' + c[1] + ',' + c[2] + ')';
+      inp.style.color = SP.textOn(c[0], c[1], c[2]);
     }
   }
-  function buildPresets() {
-    var sel = $('dm-preset'); sel.innerHTML = '';
-    var o0 = document.createElement('option'); o0.value = ''; o0.textContent = tt('dm.presetPick'); sel.appendChild(o0);
-    DM.PRESETS.forEach(function (p, i) { var o = document.createElement('option'); o.value = i; o.textContent = p.name; sel.appendChild(o); });
-  }
-
   function render() {
-    var s = S.cur, T = slotNow();
-    $('dm-model').value = S.model;
-    $('f-handMode').checked = !!s.handMode;
-    fillSelect($('f-panelMode'), DM.PANEL_MODES, s.panelMode);
-    fillSelect($('f-subPanel'), DM.SUB_PANEL[s.panelMode] || [], s.subPanel);
-    fillSelect($('f-rdMode'), DM.RD_MODES, s.rdMode);
-    $('f-ltpsZz').value = String(s.ltpsZz);
-    $('f-mirror').checked = !!s.mirror; $('f-chrb').checked = !!s.chrb; $('f-chwb').checked = !!s.chwb;
-    $('f-forceDeEn').checked = !!s.forceDeEn;
-    var deMax = (1 << DM.MODELS[S.model].deSel.bits) - 1;
-    $('f-forceDeSel').max = deMax; $('f-forceDeSel').value = s.forceDeSel;
-    $('f-forceDeSel').disabled = !s.forceDeEn;
-    Array.prototype.forEach.call($('f-rvs').querySelectorAll('input'), function (cb) { cb.checked = !!((s.rvs >> +cb.dataset.bit) & 1); });
-    /* 表格 */
-    var base = S.base;
-    for (var k = 0; k < 48; k++) {
-      var sel = $('cell-' + k); if (!sel) continue;
-      var v = s.sel[k];
-      for (var o = 0; o < sel.options.length; o++) { sel.options[o].textContent = idxLabel(o, T); sel.options[o].title = idxTip(o); }
-      sel.value = String(v);
-      sel.className = 'dm-cell c-' + DM.idxColor(v) + (base && base.sel[k] !== v ? ' chg' : '');
-      sel.title = DM.CH_NAMES[Math.floor(k / 4)] + '_' + (k % 4) + '  ' + idxTip(v);
+    var s = S.cur, m = S.model, g = DM.gateOf(m, s);
+    $('dm-model').value = m;
+    $('q-hand').checked = !!s.hand;
+    $('gb41').classList.toggle('qt-off', !s.hand);
+    $('q-gate').value = DM.gateText(m, s);
+    $('q-gate').disabled = !s.hand;
+    ['q-glass', 'q-samev'].forEach(function (id) { $(id).readOnly = !s.hand; });
+    ['q-expx', 'q-impx', 'q-same'].forEach(function (id) { $(id).disabled = !s.hand; });
+    var nsList = [], R = ['Line 1-1', 'Line 1-2', 'Line 2-1', 'Line 2-2'];
+    for (var r = 0; r < 4; r++) for (var c = 0; c < 8; c++) {
+      var td = $('q30-' + r + '-' + c), inp = td.firstChild, v = DM.cellView(m, s, r, c);
+      if (document.activeElement !== inp) inp.value = v.blank ? '' : (v.std ? v.txt : '');
+      if (!v.blank && !v.std) {
+        if (document.activeElement !== inp) inp.value = '';
+        inp.placeholder = '非標準值 ' + v.txt;
+        if (v.src === r * 6 + c) nsList.push(R[r] + ' Data ' + (c + 1) + ' = ' + v.txt);
+      } else inp.placeholder = '';
+      inp.title = v.blank ? '' : (v.std ? v.txt + ' = ' + v.raw : '非標準值 ' + v.txt + '（保留原值）');
+      inp.readOnly = !v.editable;
+      paintCell(td, inp, v);
     }
-    $('dm-tables').classList.toggle('dm-dim', !s.handMode);
-    $('dm-slot-now').textContent = tt('dm.slotNow', { t: T });
-    /* 圖例 */
-    var lg = $('dm-legend'), html = '';
-    for (var i = 0; i <= 29; i++) {
-      var col = { r: 'rgb(255,150,150)', g: 'rgb(150,255,150)', b: 'rgb(150,150,255)' }[DM.idxColor(i)];
-      html += '<span style="background:' + col + '" title="' + idxTip(i) + '">' + idxLabel(i, T) + '</span>';
+    $('dm-ns').textContent = nsList.length ? tt('dm.ns', { l: nsList.join('、') }) : '';
+    /* Data Mapping Code（Data A ＝ 目前；與基準不同的 byte 標 PY color_snapshot (200,100,150)） */
+    var addrs = DM.codeAddrs(m);
+    for (var i = 0; i < Math.max(15, addrs.length); i++) {
+      var td2 = $('q31-' + i); if (!td2) continue;
+      var inp2 = td2.firstChild;
+      if (i >= addrs.length) { inp2.value = ''; inp2.readOnly = true; td2.classList.remove('chg'); continue; }
+      var a = addrs[i], b = S.img[a] | 0;
+      if (document.activeElement !== inp2) inp2.value = hex(b, 2);
+      inp2.readOnly = false;
+      inp2.title = '0x' + hex(a, 3) + '  ' + DM.regNote(m, a);
+      td2.classList.toggle('chg', !!S.baseImg && (S.baseImg[a] | 0) !== b);
     }
-    lg.innerHTML = html;
-    /* 預設樣式吻合 */
+    var lb = DM.preLabels(m);
+    $('q-l223').textContent = lb[0]; $('q-l224').textContent = lb[1]; $('q-l225').textContent = lb[2];
+    var ck = DM.cks(m, s);
+    $('q-cks').textContent = ck ? 'DM A CKS：' + ck : (S.src.kind === 'none' ? 'DM CKS :' : 'DM CKS：');
+    var sl = isNb() ? '0x3E' : '0x' + hex(S.slave, 2);
+    $('q-write').textContent = 'Write to TCON(' + sl + ')';
+    $('q-load').textContent = 'Load from TCON(' + sl + ')';
+    $('q-write').disabled = $('q-load').disabled = S.busy;   // PY 這兩顆一直可按；沒連線時按下去只提示（PY:32557 印「未成功寫入」）
+    /* 說明列 */
+    var note = '';
+    if (g === 'mismatch') note = tt('dm.nextMismatch', { p: s.panel, r: s.rd });
+    $('dm-note').textContent = note;
+    $('dm-note').className = 'dm-info' + (note ? ' err' : '');
+    renderMnt();
+    renderLink();
+    renderSteps();
+    fitQt();
+  }
+  function renderSteps() {
+    var s = S.cur, g = DM.gateOf(S.model, s);
+    $('card-tcon').className = 'card stp done';
+    $('tk-tcon').textContent = '✔';
+    $('st-tcon').textContent = DM.MODELS[S.model].label + (S.linked ? '  ·  I2C ' + tt('dm.connected') : '');
+    var loaded = S.src.kind !== 'none';
+    $('card-dm').className = 'card stp ' + (loaded ? 'done' : 'cur');
+    $('tk-dm').textContent = loaded ? '✔' : '○';
+    $('st-dm').textContent = DM.gateText(S.model, s) + (s.hand ? '' : '  ·  Hand Mode off');
+    var nx = $('stp-next');
+    nx.className = 'stp-next' + (g === 'mismatch' ? ' err' : '');
+    nx.textContent = !loaded ? tt('dm.nextPick') : (g === 'off' ? tt('dm.nextHand') : (g === 'mismatch' ? tt('dm.nextMismatch', { p: s.panel, r: s.rd }) : tt('dm.nextEdit')));
+  }
+  function renderMnt() {
+    var mnt = !isNb(), box = $('dm-mnt');
+    box.classList.toggle('hidden', !mnt);
+    if (!mnt) return;
+    var s = S.cur, sp = $('f-subPanel'), items = DM.SUB_PANEL[s.panel | 0] || [];
+    sp.innerHTML = ''; items.forEach(function (x, i) { var o = document.createElement('option'); o.value = i; o.textContent = i + ': ' + x; sp.appendChild(o); });
+    if ((s.subPanel | 0) >= items.length) { var o2 = document.createElement('option'); o2.value = s.subPanel; o2.textContent = s.subPanel + ': ?'; sp.appendChild(o2); }
+    sp.value = String(s.subPanel | 0);
+    $('f-ltpsZz').value = String(s.ltpsZz | 0);
+    $('f-mirror').checked = !!s.mirror; $('f-chrb').checked = !!s.chrb; $('f-chwb').checked = !!s.chwb; $('f-deEn').checked = !!s.deEn;
+    $('f-deSel').max = (1 << DM.fieldById(S.model, 'deSel').bits) - 1; $('f-deSel').value = s.deSel | 0;
+    if (document.activeElement !== $('f-rvs')) $('f-rvs').value = '0x' + hex(((s.rvsH | 0) << 8) | (s.rvsL | 0), 4);
     var mp = DM.matchPreset(S.model, s);
     $('dm-preset-now').textContent = mp >= 0 ? tt('dm.presetNow', { p: DM.PRESETS[mp].name }) : tt('dm.presetNone');
-    renderCode();
-    renderLink();
-  }
-  function renderCode() {
-    var enc = DM.encode(S.model, S.cur), benc = S.base ? DM.encode(S.model, S.base) : null, html = '', chg = 0;
-    for (var i = 0; i < enc.length; i++) {
-      var e = enc[i], b = benc ? benc[i] : null, diff = b && b.val !== e.val;
-      if (diff) chg++;
-      html += '<tr' + (diff ? ' class="chg"' : '') + '><td>0x' + hex(e.reg, 4) + '</td><td>' + hex(e.val, 2) + '</td><td>' + hex(e.mask, 2) +
-              '</td><td>' + (b ? hex(b.val, 2) : '—') + '</td><td>' + DM.regNote(S.model, e.reg) + '</td></tr>';
-    }
-    $('dm-code').innerHTML = html;
-    $('dm-code-sum').textContent = tt('dm.codeSum', { n: enc.length, c: chg });
+    var xc = $('dm-xcells'), h = '';
+    for (var k = 0; k < 24; k++) h += '<span class="dm-k" style="min-width:110px">' + DM.fieldById(S.model, 'x' + k).name + ' = ' + (s['x' + k] | 0) + '</span>';
+    xc.innerHTML = h;
   }
   function renderLink() {
-    var p = $('dm-link');
-    p.className = 'dm-pill' + (S.linked ? ' on' : (S.busy ? ' busy' : ''));
-    p.textContent = S.linked ? tt('dm.linkOn') : (S.busy ? tt('dm.linkBusy') : tt('dm.linkOff'));
-    $('dm-connect').disabled = S.linked || S.busy;
-    $('dm-disconnect').disabled = !S.linked;
-    $('dm-readback').disabled = !S.linked || S.busy;
-    $('dm-writeall').disabled = !S.linked || S.busy;
-    var bn = $('dm-banner');
-    if (S.linked) { var live = $('dm-live').checked; bn.className = 'dm-banner ' + (live ? 'live' : 'off'); bn.textContent = tt(live ? 'dm.bannerLive' : 'dm.bannerHold'); }
-    else { bn.className = 'dm-banner off'; bn.textContent = tt('dm.bannerOff'); }
+    var b = $('dm-link');
+    b.setAttribute('aria-pressed', S.linked ? 'true' : 'false');
+    b.textContent = S.linked ? tt('dm.connected') : tt('dm.connect');
+    b.disabled = S.busy;
+    $('dm-check').disabled = !S.linked || S.busy;
     var st = $('dm-src-text');
-    if (S.src.kind === 'file') st.textContent = S.src.name + '  (' + S.src.model + ' / ' + S.src.medium + ', CKS 0x' + hex(S.src.cks, 6) + ')';
-    else if (S.src.kind === 'tcon') st.textContent = tt('dm.srcTcon', { m: S.src.model, s: hex(S.src.slave, 2) });
+    if (S.src.kind === 'file') st.textContent = S.src.name + '  (' + DM.MODELS[S.src.model].label + ', CKS 0x' + hex(S.src.cks, 6) + ')';
+    else if (S.src.kind === 'tcon') st.textContent = tt('dm.srcTcon', { m: DM.MODELS[S.src.model].label, s: hex(S.src.slave, 2) });
     else st.textContent = tt('dm.srcNone');
   }
+  /* 手機：主體依寬度等比縮小（最小 0.55，再小就橫向捲動） */
+  function fitQt() {
+    var w = $('qt-wrap').clientWidth, sc = Math.max(0.55, Math.min(1, w / 1013));
+    $('qt-tab').style.transform = sc < 1 ? 'scale(' + sc + ')' : '';
+    $('qt-wrap').style.height = Math.ceil(493 * sc) + 'px';
+  }
+  window.addEventListener('resize', fitQt);
 
-  /* ── 改值 ── */
+  /* ── 改值（全部經過 commit：更新影像、必要時立即寫入） ── */
   function commit(ns, why) {
-    var old = S.cur; S.cur = ns; render();
+    var old = S.cur; S.cur = ns; syncImgFromState(); render();
     if (S.linked && $('dm-live').checked) {
       var regs = DM.diffRegs(S.model, old, ns);
       if (regs.length) queueWrite(regs, why);
     }
   }
-  function setF(id, v) { var ns = DM.cloneState(S.cur); ns[id] = v; commit(ns, id); }
-  function onCell(ev) { var k = +ev.target.dataset.k, ns = DM.cloneState(S.cur); ns.sel[k] = +ev.target.value; commit(ns, DM.CH_NAMES[Math.floor(k / 4)] + '_' + (k % 4)); }
-  function onRvs(ev) { var b = +ev.target.dataset.bit, ns = DM.cloneState(S.cur); ns.rvs = ev.target.checked ? (ns.rvs | (1 << b)) : (ns.rvs & ~(1 << b)); commit(ns, 'read_rvs'); }
+  function onCellText(r, c, txt) {
+    var res = DM.editCell(S.model, S.cur, r, c, txt);
+    if (!res) { render(); return; }
+    log('n', 'Line ' + ['1-1', '1-2', '2-1', '2-2'][r] + ' Data ' + (c + 1) + ' ← ' + res.text);
+    commit(res.state, 'Line ' + (r + 1) + ' Data ' + (c + 1));
+  }
+  function onCodeText(i, txt) {
+    var addrs = DM.codeAddrs(S.model), a = addrs[i];
+    if (a === undefined) { render(); return; }
+    var v = parseInt(String(txt).trim() || '0', 16);        // PY:12433-12438：解析失敗 ⇒ 00
+    if (!isFinite(v) || v < 0) v = 0;
+    S.img[a] = v & 0xFF;
+    var ns = DM.decode(S.model, function (reg) { return S.img[reg] | 0; });
+    log('n', 'Data Mapping Code 0x' + hex(a, 3) + ' ← ' + hex(v & 0xFF, 2));
+    commit(ns, 'code 0x' + hex(a, 3));
+  }
 
-  /* ── I2C（協定同 i2c.html／dg-selftest.html）── */
+  /* ── I2C（協定同 i2c.html） ── */
   var WS_URL = 'ws://127.0.0.1:8899/ws', WS_MS = 4000, CLOCK_HZ = 150000;
   function send(obj) {
     return new Promise(function (resolve, reject) {
@@ -456,67 +513,109 @@
       try { S.ws.send(JSON.stringify(obj)); } catch (e) { clearTimeout(timer); delete S.pend[id]; reject(e); }
     });
   }
-  var io = {
-    read: async function (addr, len) {
-      var r = await send({ type: 'read', slave: S.slave, addr: addr, len: len, awid: 2 });
-      if (!r.ok) throw new Error('read 0x' + hex(addr, 4) + ' fail' + (r.status != null ? ' status=' + r.status : '') + (r.err ? ' ' + r.err : ''));
-      return r.data || [];
-    },
-    write: async function (addr, bytes) {
-      var r = await send({ type: 'rawwrite', slave: S.slave, addr: addr, data: bytes.map(function (b) { return b & 0xFF; }), awid: 2 });
-      if (!r.ok) {
-        if (r.err && /unknown|type/i.test(String(r.err))) throw new Error(tt('dm.oldBridge'));
-        throw new Error('write 0x' + hex(addr, 4) + ' fail' + (r.status != null ? ' status=' + r.status : '') + (r.err ? ' ' + r.err : ''));
-      }
-      return true;
+  async function rawRead(slave, awid, addr, len) {
+    var r = await send({ type: 'read', slave: slave, addr: addr, len: len, awid: awid });
+    if (!r.ok) throw new Error('read 0x' + hex(slave, 2) + ':0x' + hex(addr, 4) + ' fail' + (r.err ? ' ' + r.err : ''));
+    return r.data || [];
+  }
+  async function rawWrite(slave, awid, addr, bytes) {
+    var r = await send({ type: 'rawwrite', slave: slave, addr: addr, data: bytes.map(function (b) { return b & 0xFF; }), awid: awid });
+    if (!r.ok) {
+      if (r.err && /unknown|type/i.test(String(r.err))) throw new Error(tt('dm.oldBridge'));
+      throw new Error('write 0x' + hex(slave, 2) + ':0x' + hex(addr, 4) + ' fail' + (r.err ? ' ' + r.err : ''));
     }
+  }
+  async function tryRead1(slave, awid, addr) { try { var b = await rawRead(slave, awid, addr, 1); return b.length ? b[0] : null; } catch (e) { return null; } }
+  var io = {
+    read: function (addr, len) { return rawRead(isNb() ? 0x3E : S.slave, 2, addr, len); },
+    write: function (addr, bytes) { return rawWrite(isNb() ? 0x3E : S.slave, 2, addr, bytes); }
   };
-  window.dmIo = io;   // 自測用
-
+  window.dmIo = io;
+  /* PY i2c_open_mbus_to_cbus（:31832）：DAZ613x／E50x／E503 讀寫前都先下；E503 的 3E:0059 只在 Check T-CON 確認是 E503 才下 */
+  async function preamble() {
+    var m = DM.MODELS[S.model];
+    if (m.kind !== 'nb' || !m.mbus) return;
+    await rawWrite(0x7E, 1, 0xAB, [0xCD]); log('n', 'W 0x7E:0xAB <- CD (M-Bus to C-Bus)');
+    if (m.e503) {
+      if (S.e503ok) { await rawWrite(0x3E, 2, 0x0059, [0x1E]); log('n', 'W 0x3E:0x0059 <- 1E (E503)'); }
+      else log('e', tt('dm.e503NoConfirm'));
+    }
+  }
   function queueWrite(regs, why) {
     S.chain = S.chain.then(async function () {
       log('n', '— ' + (why || 'write') + ': ' + regs.length + ' byte');
+      await preamble();
       var res = await DM.writeRegs(io, regs, log);
       if (res.ok) log('w', tt('dm.wrOk', { n: res.written }));
       else { log('e', tt('dm.wrFail', { n: res.failed.length })); await readBack(true); }
     }).catch(function (e) { log('e', String(e && e.message || e)); });
     return S.chain;
   }
-
-  async function detectIc() {
-    var pick = $('dm-slave').value, list = pick === 'auto' ? [0x68, 0x69, 0x60, 0x61] : [+pick], seen = null;
-    for (var i = 0; i < list.length; i++) {
-      S.slave = list[i];
-      try {
-        var id = await io.read(0xFF00, 3);
-        var idTxt = id.map(function (b) { return hex(b, 2); }).join(' ');
-        log('n', 'R 0xFF00 x3 @0x' + hex(S.slave, 2) + ' -> ' + idTxt);
-        if (id.length === 3 && !(id[0] === 0xFF && id[1] === 0xFF && id[2] === 0xFF)) {
-          var m = DM.modelByIcId(id);
-          if (m) { S.model = m; $('dm-ic').textContent = tt('dm.icFound', { id: idTxt, m: m, s: hex(S.slave, 2) }); log('w', $('dm-ic').textContent); return true; }
-          if (!seen) seen = { slave: S.slave, id: idTxt };
-        }
-      } catch (e) { log('n', 'slave 0x' + hex(list[i], 2) + ': ' + (e.message || e)); }
-    }
-    if (seen) { S.slave = seen.slave; $('dm-ic').textContent = tt('dm.icUnknown', { id: seen.id, m: S.model }); log('e', $('dm-ic').textContent); return true; }
-    $('dm-ic').textContent = tt('dm.icNone'); log('e', tt('dm.icNone'));
-    return false;
-  }
-
   async function readBack(quiet) {
-    var st = await DM.readState(io, S.model);
-    S.cur = st; S.base = DM.cloneState(st);
-    S.src = { kind: 'tcon', model: S.model, slave: S.slave };
-    if (!quiet) log('w', 'R ' + S.model + ' rt7 0x' + hex(DM.MODELS[S.model].rt7, 4) + ' x0x76 + 0x0504 OK');
+    await preamble();
+    var r = await DM.readState(io, S.model);
+    S.img = {}; imgAddrs().forEach(function (a) { S.img[a] = r.bytes[a] | 0; });
+    var codeA = DM.codeAddrs(S.model), missing = codeA.filter(function (a) { return !(a in r.bytes); });
+    for (var i = 0; i < missing.length; i++) S.img[missing[i]] = (await io.read(missing[i], 1))[0] | 0;
+    S.cur = r.state; S.baseImg = JSON.parse(JSON.stringify(S.img));
+    S.src = { kind: 'tcon', model: S.model, slave: isNb() ? 0x3E : S.slave };
+    if (!quiet) log('w', 'R ' + S.model + ' Data Mapping OK');
     render();
   }
-
+  /* Check T-CON：i2c.html 的兩段（A：RomCodeProcessUI 的 7C／7D 讀法＋SY 表；B：0xFF00 IC ID）合在這裡 */
+  async function checkTcon() {
+    var pick = $('dm-slave').value, list = pick === 'auto' ? [0x60, 0x61, 0x68, 0x69] : [+pick];
+    for (var i = 0; i < list.length; i++) {
+      try {
+        var id = await rawRead(list[i], 2, 0xFF00, 3), idTxt = id.map(function (b) { return hex(b, 2); }).join(' ');
+        log('n', 'R 0x' + hex(list[i], 2) + ':0xFF00 x3 -> ' + idTxt);
+        var mk = DM.modelByIcId(id);
+        if (mk) { S.slave = list[i]; return { key: mk, info: tt('dm.icMnt', { id: idTxt, m: mk, s: hex(list[i], 2) }) }; }
+      } catch (e) { log('n', 'slave 0x' + hex(list[i], 2) + ': ' + (e.message || e)); }
+    }
+    var id95 = await tryRead1(0x7C, 1, 0x95), f98 = await tryRead1(0x7C, 1, 0x98);
+    log('n', '0x7C:0x95 = ' + (id95 == null ? '—' : hex(id95, 2)) + ' · 0x7C:0x98 = ' + (f98 == null ? '—' : hex(f98, 2)));
+    if (id95 != null && f98 != null) {
+      if (f98 !== 0) {
+        var E501 = { 0x00: 'E501A', 0x40: 'E501B', 0x41: 'E501B', 0x7E: 'DAZ6111' };   // RomCodeProcessUI.py tcon_id_dict :2600-2604
+        if (E501[id95]) return { key: E501[id95], info: tt('dm.icNb', { n: E501[id95] + ' (0x7C:0x95 = ' + hex(id95, 2) + ')' }) };
+      } else {
+        var v7d = await tryRead1(0x7D, 2, 0x007D);
+        log('n', '0x7D:0x007D = ' + (v7d == null ? '—' : hex(v7d, 2)));
+        if (v7d != null && v7d <= 4) {
+          var b = await tryRead1(0x3E, 2, 0x207E);
+          if (b == null || b === 0xFF) { try { await rawWrite(0x7E, 1, 0xAB, [0xCD]); } catch (e) {} b = await tryRead1(0x3E, 2, 0x207E); }
+          log('n', '0x3E:0x207E = ' + (b == null ? '—' : hex(b, 2)));
+          if (b === 0x10 || b === 0x11) return { key: null, en01: true, info: tt('dm.icEn01') };
+          var sure = b != null && b !== 0xFF && (b >> 4) !== 1;
+          return { key: 'E503', e503: sure, info: tt('dm.icNb', { n: 'E503 (0x7D:0x007D = ' + hex(v7d, 2) + ')' }) + (sure ? '' : '  ' + tt('dm.icE503u')) };
+        }
+        if (v7d != null) return { key: 'DAZ6138', info: tt('dm.icNb', { n: 'DAZ613x' }) + '  ' + tt('dm.daz13x') };
+      }
+    }
+    return null;
+  }
+  async function doCheck() {
+    S.busy = true; render();
+    try {
+      var r = await checkTcon();
+      if (r && r.key) {
+        S.model = r.key; S.e503ok = !!r.e503; S.checked = r.key;
+        $('dm-ic').textContent = r.info; $('dm-ic').className = 'dm-info'; log('w', r.info);
+        S.cur = DM.emptyState(S.model); S.img = {}; buildTbl31();
+        await readBack(false);
+      } else if (r && r.en01) { $('dm-ic').textContent = r.info; $('dm-ic').className = 'dm-info err'; log('e', r.info); }
+      else { var m = tt('dm.icNone', { m: DM.MODELS[S.model].label }); $('dm-ic').textContent = m; $('dm-ic').className = 'dm-info err'; log('e', m); }
+    } catch (e) { log('e', String(e && e.message || e)); }
+    finally { S.busy = false; render(); }
+  }
   async function connect() {
-    if (S.linked || S.busy) return;
-    S.busy = true; renderLink();
+    if (S.linked) { return disconnect(); }
+    if (S.busy) return;
+    S.busy = true; render();
     log('n', 'connect ' + WS_URL);
     var ws;
-    try { ws = new WebSocket(WS_URL); } catch (e) { S.busy = false; log('e', tt('dm.linkErr')); renderLink(); return; }
+    try { ws = new WebSocket(WS_URL); } catch (e) { S.busy = false; log('e', tt('dm.linkErr')); render(); return; }
     S.ws = ws;
     ws.onmessage = function (ev) {
       var m; try { m = JSON.parse(ev.data); } catch (e) { return; }
@@ -525,14 +624,14 @@
     ws.onclose = function () {
       for (var k in S.pend) { try { clearTimeout(S.pend[k].timer); S.pend[k].reject(new Error('closed')); } catch (e) {} }
       S.pend = {}; if (S.linked) log('e', 'I2C Bridge closed');
-      S.linked = false; S.ws = null; renderLink();
+      S.linked = false; S.ws = null; render();
     };
     var opened = await new Promise(function (res) {
       var done = false, to = setTimeout(function () { if (!done) { done = true; res(false); } }, WS_MS);
       ws.onopen = function () { if (!done) { done = true; clearTimeout(to); res(true); } };
       ws.onerror = function () { if (!done) { done = true; clearTimeout(to); res(false); } };
     });
-    if (!opened) { try { ws.close(); } catch (e) {} S.ws = null; S.busy = false; log('e', tt('dm.linkErr')); renderLink(); return; }
+    if (!opened) { try { ws.close(); } catch (e) {} S.ws = null; S.busy = false; log('e', tt('dm.linkErr')); $('dm-ic').textContent = tt('dm.linkErr'); $('dm-ic').className = 'dm-info err'; render(); return; }
     try {
       var pong = await send({ type: 'ping' });
       log('n', 'I2C Bridge ' + (pong.helper || '?') + ' proto ' + (pong.proto || '?'));
@@ -544,16 +643,14 @@
         await new Promise(function (r) { setTimeout(r, 500); });
       }
       if (!op || !op.ok) throw new Error('open failed');
-      S.linked = true;
-      log('w', 'channel open');
-      var found = await detectIc();
-      if (found) await readBack(false);
+      S.linked = true; log('w', 'channel open');
     } catch (e) {
       log('e', String(e && e.message || e));
       try { send({ type: 'close' }).catch(function () {}); } catch (e2) {}
       try { ws.close(); } catch (e3) {}
       S.linked = false; S.ws = null;
     } finally { S.busy = false; render(); }
+    if (S.linked) await doCheck();
   }
   async function disconnect() {
     try { if (S.ws && S.ws.readyState === 1) await send({ type: 'close' }); } catch (e) {}
@@ -565,84 +662,137 @@
   function reasonText(r) {
     if (r.reason === 'modelMismatch') return tt('dm.rMismatch', { f: r.found.join('/') });
     if (r.reason === 'ambiguous') return tt('dm.rAmbig', { f: r.found.join('/') });
+    if (r.reason === 'short') return tt('dm.rShort', { m: DM.MODELS[r.model].label, n: r.need, g: r.got });
     return tt('dm.rNoMatch');
   }
-  function importBytes(bytes, name) {
-    var r = DM.parseCode(bytes);
-    if (!r.ok && r.reason === 'ambiguous') r = DM.parseCode(bytes, S.model);
-    if (!r.ok) { log('e', tt('dm.impFail', { f: name, r: reasonText(r) })); alert(tt('dm.impFail', { f: name, r: reasonText(r) })); return false; }
-    S.model = r.model; S.cur = r.state; S.base = DM.cloneState(r.state); S.lastBytes = bytes;
-    S.src = { kind: 'file', name: name, model: r.model, medium: r.medium, cks: r.cks };
-    log('w', tt('dm.impOk', { f: name, m: r.model, md: r.medium }) + '  rt7 @file 0x' + hex(r.rt7File, 4) + ', rt8 @file 0x' + hex(r.rt8File, 4));
+  function useParsed(r, name, bytes) {
+    S.model = r.model; S.cur = r.state; S.e503ok = false;
+    S.img = {}; imgAddrs().forEach(function (a) { var o = r.fileOf(a); S.img[a] = (o >= 0 && o < bytes.length) ? bytes[o] : 0; });
+    S.baseImg = JSON.parse(JSON.stringify(S.img));
+    S.src = { kind: 'file', name: name, model: r.model, cks: r.cks };
+    buildTbl31();
+  }
+  function importBytes(raw, name) {
+    var r = DM.parseCode(raw, S.model, name);
+    if (!r.ok) { var msg = tt('dm.impFail', { f: name, r: reasonText(r) }); log('e', msg); alert(msg); return false; }
+    S.raw = raw; S.rawName = name;
+    useParsed(r, name, DM.loadCodeBytes(name, raw));
+    var how = r.medium === 'rom' ? (r.byName ? tt('dm.howName') : tt('dm.howPick')) : tt('dm.howBin');
+    log('w', tt('dm.impOk', { f: name, m: DM.MODELS[r.model].label + (r.py ? ' / ' + r.py : ''), how: how }));
     if (S.linked) log('n', tt('dm.impLinked'));
     render();
     return true;
   }
-  window.dmImportBytes = importBytes;   // 自測／截圖用
+  window.dmImportBytes = importBytes;
+  function download(name, data, type) {
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([data], { type: type }));
+    a.download = name; document.body.appendChild(a); a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  }
+  function stamp() { var d = new Date(), p = function (n) { return (n < 10 ? '0' : '') + n; }; return d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + '_' + p(d.getHours()) + p(d.getMinutes()); }
   function exportScript() {
+    var m = DM.MODELS[S.model];
+    if (m.kind === 'nb') {
+      var rows = DM.pyScriptRows(S.model, S.cur);
+      var fname = 'SCRIPT_DataMapping_' + m.py + '_' + stamp() + '.xlsx';
+      download(fname, TCONXlsx.build([{ name: 'Sheet1', rows: rows }]), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      log('w', tt('dm.expScript', { f: fname, n: rows.length - 1 }));
+      return;
+    }
     var out = DM.buildScript(S.model, S.cur, {
       version: (window.TOOL_VERSIONS && TOOL_VERSIONS.datamap) || '',
       source: S.src.kind === 'file' ? S.src.name : (S.src.kind === 'tcon' ? 'read from TCON over I2C' : ''),
       cks: S.src.kind === 'file' ? S.src.cks : -1
     });
     if (!out.ok) { alert(out.reason); return; }
-    var d = new Date(), p = function (n) { return (n < 10 ? '0' : '') + n; };
-    var fname = 'DataMap_' + S.model + '_' + d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + '_' + p(d.getHours()) + p(d.getMinutes()) + '.script';
-    var a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([out.text], { type: 'text/plain;charset=utf-8' }));
-    a.download = fname; document.body.appendChild(a); a.click();
-    setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
-    log('w', tt('dm.expOk', { f: fname, n: out.count }));
+    var fn = 'DataMap_' + S.model + '_' + stamp() + '.script';
+    download(fn, out.text, 'text/plain;charset=utf-8');
+    log('w', tt('dm.expScript', { f: fn, n: out.count }));
   }
+  function exportExcel() {
+    var glass = $('q-glass').value;
+    if (!S.cur.hand) return;
+    if (glass === '') { log('e', tt('dm.needGlass')); alert(tt('dm.needGlass')); return; }
+    var fname = DM.excelName(S.model, S.cur, glass);
+    download(fname, TCONXlsx.build([{ name: 'Data Mapping', rows: DM.excelRows(S.model, S.cur) }]), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    log('w', fname);
+  }
+  async function inflateRaw(u8) {
+    var ds = new DecompressionStream('deflate-raw');
+    var buf = await new Response(new Blob([u8]).stream().pipeThrough(ds)).arrayBuffer();
+    return new Uint8Array(buf);
+  }
+  async function importExcel(u8, name) {
+    try {
+      var rows = await DM.readXlsxRows(u8, inflateRaw), r = DM.excelToNames(rows);
+      if (!r.ok) throw new Error(r.reason);
+      var ns = DM.applyNames(S.model, S.cur, r.names);
+      if (!ns) throw new Error('Gate');
+      log('w', tt('dm.xlsOk', { f: name }));
+      commit(ns, 'Import Excel');
+    } catch (e) { log('e', tt('dm.xlsFail', { r: e.message || e })); alert(tt('dm.xlsFail', { r: e.message || e })); }
+  }
+  window.dmImportExcel = importExcel;
 
   /* ── 綁定 ── */
   function bind() {
     $('dm-model').addEventListener('change', function () {
-      var m = this.value;
-      if (S.lastBytes && S.src.kind === 'file') {
-        var r = DM.parseCode(S.lastBytes, m);
+      var k = this.value; if (!k) { this.value = S.model; return; }
+      S.e503ok = false;
+      if (S.raw && S.src.kind === 'file') {
+        var ext = (/\.[^.]+$/.exec(S.rawName) || ['.bin'])[0];
+        var r = DM.parseCode(S.raw, k, 'x' + ext);
         if (!r.ok) { log('e', reasonText(r)); this.value = S.model; return; }
-        S.model = m; S.cur = r.state; S.base = DM.cloneState(r.state);
-      } else S.model = m;
+        useParsed(r, S.rawName, DM.loadCodeBytes(S.rawName, S.raw));
+      } else { S.model = k; S.cur = DM.emptyState(k); S.img = {}; S.baseImg = null; S.src = { kind: 'none' }; buildTbl31(); }
       render();
     });
     $('dm-import').addEventListener('click', function () { $('dm-file').value = ''; $('dm-file').click(); });
     $('dm-file').addEventListener('change', function () {
       var f = this.files && this.files[0]; if (!f) return;
-      var rd = new FileReader();
-      rd.onload = function (e) { importBytes(new Uint8Array(e.target.result), f.name); };
-      rd.readAsArrayBuffer(f);
+      var rd = new FileReader(); rd.onload = function (e) { importBytes(new Uint8Array(e.target.result), f.name); }; rd.readAsArrayBuffer(f);
     });
     $('dm-export').addEventListener('click', exportScript);
-    $('dm-connect').addEventListener('click', connect);
-    $('dm-disconnect').addEventListener('click', disconnect);
-    $('dm-readback').addEventListener('click', function () { S.chain = S.chain.then(function () { return readBack(false); }).catch(function (e) { log('e', e.message || e); }); });
-    $('dm-writeall').addEventListener('click', function () { queueWrite(DM.encode(S.model, S.cur), 'write all').then(function () { S.base = DM.cloneState(S.cur); render(); }); });
-    $('dm-live').addEventListener('change', renderLink);
+    $('dm-link').addEventListener('click', connect);
+    $('dm-check').addEventListener('click', doCheck);
+    $('dm-live').addEventListener('change', render);
     $('dm-logclr').addEventListener('click', function () { $('dm-log').innerHTML = ''; });
-    $('dm-slot').addEventListener('change', render);
-    $('f-handMode').addEventListener('change', function () { setF('handMode', this.checked ? 1 : 0); });
-    $('f-panelMode').addEventListener('change', function () { var ns = DM.cloneState(S.cur); ns.panelMode = +this.value; if (ns.subPanel >= (DM.SUB_PANEL[ns.panelMode] || []).length) ns.subPanel = 0; commit(ns, 'panel_mode'); });
+    $('q-hand').addEventListener('change', function () { commit(DM.setHand(S.model, S.cur, this.checked), 'Hand Mode Enable'); });
+    $('q-gate').addEventListener('change', function () { var ns = DM.setGate(S.model, S.cur, this.value); if (ns) commit(ns, 'Gate Type ' + this.value); else render(); });
+    $('q-same').addEventListener('click', function () {
+      var r = DM.allSame(S.model, S.cur, $('q-samev').value);
+      $('q-samev').value = r ? r.text : 'X';
+      if (r) commit(r.state, 'All Same Pixel ' + r.text);
+    });
+    $('q-expx').addEventListener('click', exportExcel);
+    $('q-impx').addEventListener('click', function () { $('dm-xfile').value = ''; $('dm-xfile').click(); });
+    $('dm-xfile').addEventListener('change', function () {
+      var f = this.files && this.files[0]; if (!f) return;
+      var rd = new FileReader(); rd.onload = function (e) { importExcel(new Uint8Array(e.target.result), f.name); }; rd.readAsArrayBuffer(f);
+    });
+    function needLink() { if (S.linked) return false; log('e', tt('dm.notLinked')); alert(tt('dm.notLinked')); return true; }
+    $('q-write').addEventListener('click', function () { if (needLink()) return; queueWrite(DM.encode(S.model, S.cur), 'Write to TCON').then(function () { S.baseImg = JSON.parse(JSON.stringify(S.img)); render(); }); });
+    $('q-load').addEventListener('click', function () { if (needLink()) return; S.chain = S.chain.then(function () { return readBack(false); }).catch(function (e) { log('e', e.message || e); }); });
+    function setF(id, v) { var ns = DM.cloneState(S.cur); ns[id] = v; commit(ns, id); }
     $('f-subPanel').addEventListener('change', function () { setF('subPanel', +this.value); });
-    $('f-rdMode').addEventListener('change', function () { setF('rdMode', +this.value); });
     $('f-ltpsZz').addEventListener('change', function () { setF('ltpsZz', +this.value); });
     $('f-mirror').addEventListener('change', function () { setF('mirror', this.checked ? 1 : 0); });
     $('f-chrb').addEventListener('change', function () { setF('chrb', this.checked ? 1 : 0); });
     $('f-chwb').addEventListener('change', function () { setF('chwb', this.checked ? 1 : 0); });
-    $('f-forceDeEn').addEventListener('change', function () { setF('forceDeEn', this.checked ? 1 : 0); });
-    $('f-forceDeSel').addEventListener('change', function () {
-      var mx = (1 << DM.MODELS[S.model].deSel.bits) - 1, v = Math.max(0, Math.min(mx, parseInt(this.value, 10) || 0));
-      setF('forceDeSel', v);
-    });
-    $('dm-preset-apply').addEventListener('click', function () {
-      var i = $('dm-preset').value; if (i === '') return;
-      commit(DM.applyPreset(S.model, S.cur, +i), 'preset ' + DM.PRESETS[+i].name);
-    });
+    $('f-deEn').addEventListener('change', function () { setF('deEn', this.checked ? 1 : 0); });
+    $('f-deSel').addEventListener('change', function () { var mx = +this.max || 63; setF('deSel', Math.max(0, Math.min(mx, parseInt(this.value, 10) || 0))); });
+    $('f-rvs').addEventListener('change', function () { var v = parseInt(this.value, 16) & 0xFFFF; var ns = DM.cloneState(S.cur); ns.rvsL = v & 0xFF; ns.rvsH = v >> 8; commit(ns, 'read_rvs'); });
+    $('dm-preset-apply').addEventListener('click', function () { var i = $('dm-preset').value; if (i === '') return; commit(DM.applyPreset(S.model, S.cur, +i), 'preset ' + DM.PRESETS[+i].name); });
     window.addEventListener('beforeunload', function () { try { if (S.ws) S.ws.close(); } catch (e) {} });
   }
-
-  window._onLangChange = function () { buildPresets(); var tb = document.querySelectorAll('[data-i18n^="dm.tbl"]'); tb.forEach(function (el) { el.textContent = tt(el.getAttribute('data-i18n')); }); render(); };
-  buildTables(); buildRvs(); buildPresets(); bind(); render();
+  function buildPresets() {
+    var sel = $('dm-preset'); sel.innerHTML = '';
+    var o0 = document.createElement('option'); o0.value = ''; o0.textContent = tt('dm.presetPick'); sel.appendChild(o0);
+    DM.PRESETS.forEach(function (p, i) { var o = document.createElement('option'); o.value = i; o.textContent = p.name; sel.appendChild(o); });
+  }
+  window._onLangChange = function () { buildModelSelect(); buildPresets(); render(); };
+  buildModelSelect(); buildGate(); buildTbl30(); buildTbl31(); buildPresets(); bind(); render();
 })();
 </script>
 </body>

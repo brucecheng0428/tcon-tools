@@ -5,16 +5,16 @@
    ═══════════════════════════════════════════════════════════════ */
 
 var TOOL_VERSIONS = {
-  app:     'v1.93.0',      // 首頁 app 總版號
+  app:     'v1.93.1',      // 首頁 app 總版號
   rxtx:    'v1.13.0',      // Rx/Tx 頻率計算工具
   calc:    'v1.6.0',       // mLVDS Skew 計算工具
   isp:     'v1.20.0',      // iSP 波形產生器
   aux:     'v2.10.1',     // eDP AUX / DPCD 查詢工具
   wfg:     'v4.54.0',     // 面板訊號模擬與取樣
-  pattern: 'v3.8.2',       // Pattern Generator 畫面產生器
+  pattern: 'v3.8.3',       // Pattern Generator 畫面產生器
   dg:      'v2.4.7',       // Digital Gamma 迭代校正（含量測頁 dg-measure.html）
   i2c:     'v1.34.0',       // I2C（讀寫測試）
-  datamap: 'v1.0.0',        // Data Mapping（MNT T-CON：EM01／EM02／E512）
+  datamap: 'v1.1.0',        // Data Mapping（Python UI 同款：DAZ／E501／E503／EM01／EM02／E512）
   /* 🔴 TCON 自檢畫面量測（dg-selftest.html）。
      這一頁**還沒登記在首頁**（入口與 dg-measure 的拆除是下一階段），所以
      `app` 這一輪不動 —— 首頁上看不到任何新東西。等入口接上去再依
