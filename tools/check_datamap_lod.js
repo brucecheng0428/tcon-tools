@@ -44,6 +44,13 @@ ok(PER.every((p, i) => p && p.lines === (i === 29 ? 12 : 6)), '週期：只有 2
 ok(PER[29].px === 8 && PER[31].px === 4 && PER[30].px === 4 && PER[0].px === 2 && PER[17].px === 6 && PER[21].px === 6, '平移量：29＝8 pixel、30／31＝4 pixel（Dual 6 條×2 顆）、Single 2、Tri 6');
 ok([0, 1, 2, 3, 4, 5].every(c => [0, 1].every(g => LOD.at(LOD.TYPES[31], 0, g, c + 6) === LOD.at(LOD.TYPES[31], 0, g, c) + 12)) && [0, 1, 2, 3, 4, 5].some(c => LOD.at(LOD.TYPES[29], 0, 0, c + 6) !== LOD.at(LOD.TYPES[29], 0, 0, c) + 12), "31：D7~D12＝D1~D6＋4 pixel（6 條就重複）；29：D7~D12 不是 D1~D6＋4 pixel（例：D8 上 R5≠B-1＋4px）");
 
+console.log('── v1.9.0 原廠 E512_V512 data mapping 圖解 xlsx 範例（T 表解碼）');
+ok(LOD.tName(1, 0) === LOD.lin('R1') && LOD.tName(1, 6) === LOD.lin('R-2') && LOD.tName(2, 6) === LOD.lin('R1') && LOD.tName(2, 17) === LOD.lin('B-1') && LOD.tName(4, 18) === LOD.lin('R1') && LOD.tName(1, 12) === null, 'T 表：T1 0→R1、6→R-2；T2 6→R1、17→B-1；T4 18→R1；T1 沒有 12 以上');
+LOD.XLSX_CASES.forEach(c => { const r = LOD.xlsxCheck(c);
+  if (c.id === 'zz5' || c.id === 'zz6') { const sw = LOD.xlsxCheck(Object.assign({}, c, { lod: c.id === 'zz5' ? 6 : 5 }));
+    ok(!r.ok && r.bad.every(b => / D[2-6] /.test(b)) && sw.bad.every(b => / D1 /.test(b)) && sw.bad.length === 8, 'xlsx ' + c.id + '：r0 欄＝' + (c.id === 'zz5' ? 'LRRL' : 'RLLR') + '，g0~b1 五欄是相反的序列（xlsx 本身不一致）'); }
+  else ok(r.ok, 'xlsx ' + c.id + ' ＝ Line OD Type ' + c.lod + ' 逐格一致' + (r.ok ? '' : '：' + r.bad.slice(0, 4).join(', '))); });
+
 if (SRC) {
   console.log('── 原廠原始碼逐字比對：' + SRC);
   const h = fs.readFileSync(path.join(SRC, 'App/Table/RApp_Table.h'), 'latin1');
@@ -69,7 +76,7 @@ if (SRC) {
   const fire = (el, v) => { if (v !== undefined) { if (el.type === 'checkbox') el.checked = v; else el.value = v; } el.dispatchEvent(new w.Event('change')); };
   const Q = s => d.querySelector('#dm-pv-tft ' + s), QA = s => Array.from(d.querySelectorAll('#dm-pv-tft ' + s));
   const ui = () => [0, 1, 2, 3].map(r => [0, 1, 2, 3, 4, 5].map(c => $('dm-c' + r + '-' + c).value).join(' ')).join('/');
-  ok(/^v1\.8\./.test(w.TOOL_VERSIONS.datamap), 'datamap 版號 v1.8.x：' + w.TOOL_VERSIONS.datamap);
+  ok(/^v1\.9\./.test(w.TOOL_VERSIONS.datamap), 'datamap 版號 v1.9.x：' + w.TOOL_VERSIONS.datamap);
   const sel = $('dm-pv-lod');
   ok(!!sel && sel.closest('#card-pv') && sel.options.length === 35 && sel.options[0].value === '-1' && sel.options[34].disabled && /User define/.test(sel.options[34].textContent), '下拉在 ③ 卡片：不使用＋Type 0~32＋User define（停用）');
   ok(Array.from(sel.options).slice(1, 34).every((o, i) => o.textContent === LOD.TYPES[i].name), '選項名稱照原廠');
@@ -87,8 +94,8 @@ if (SRC) {
     good = good && $('dm-lodname').getAttribute('data-ok') === ([27, 29].includes(t.no) ? 'na' : '1') && +$('dm-lodper').getAttribute('data-period') === per;
     good = good && Array.from($('dm-lodgrid').querySelectorAll('tr[data-row]')).every(tr => { const [li, gi] = tr.getAttribute('data-row').split(':').map(Number);
       return Array.from(tr.querySelectorAll('td')).every((td, c) => { const x = LOD.at(t, li, gi, c); return td.textContent === (x === null ? 'X' : LOD.name(x)); }); });
-    const gates = QA('text').map(x => x.textContent).filter(x => /^Line \d-\d$/.test(x));
-    const expG = []; for (let k = 1; k <= nl; k++) for (let g = 1; g <= NG; g++) expG.push('Line ' + k + '-' + g);
+    const gates = QA('text[data-glabel]').map(x => x.textContent);
+    const expG = []; for (let k = 0; k < nl; k++) for (let g = 0; g < NG; g++) { const q = k % 4; expG.push(NG > 1 ? 'Line ' + (k + 1) + '-' + (g + 1) : 'Line ' + ((q >> 1) + 1) + '-' + ((q & 1) + 1) + (k >= 4 ? '′' : '')); }
     good = good && !$('dm-pvbody').classList.contains('hidden') && gates.join(',') === expG.join(',') && QA('circle[data-dot="gate"]').length === nD * expG.length && QA('path[data-dl]').length === nD;
     good = good && +$('dm-pv-tft').getAttribute('data-plines') === per && +$('dm-pv-tft').getAttribute('data-ng') === NG;
     good = good && LOD.linesN(t, nD).every(r => r.names.every((nm, p) => nm === 'X' || !!Q('path[data-w="' + r.line + ':D' + (p + 1) + ':' + ud(r.gate - 1) + ':' + nm + '"]') || (Q('text[data-send="' + r.line + ':D' + (p + 1) + ud(r.gate - 1) + '"]') || {}).textContent === '!' + nm));
@@ -129,7 +136,7 @@ if (SRC) {
   ok(/D3↑/.test(Q('rect[data-pv="1:G1"]').parentNode.getAttribute('data-tip')) && JSON.stringify(w.dmBuildScript()) === sc0, 'Type 32＋對調：G1 改由 D3 送；匯出不變');
   fire($('dm-pv-swap'), false);
   fire(sel, '7');
-  ok(QA('text').filter(x => /^Line 8-1$/.test(x.textContent)).length === 1 && !QA('text').some(x => /^Line \d-2$/.test(x.textContent)), 'Type 7：Single，畫 Line 1-1~8-1');
+  ok(QA('text[data-gsub]').map(x => x.textContent.split(' ')[0]).join(',') === 'G1,G2,G3,G4,G5,G6,G7,G8' && !!Q('line[data-gate="2-2′"]'), 'Type 7：Single 8 條 gate G1~G8（G5~G8＝第二組 Line 1-1′~2-2′，同原廠 xlsx Zigzag 圖）');
   fire(sel, '5');
   ok(!!Q('path[data-w="1:D1:u:R1"]') && !!Q('path[data-w="2:D2:u:R1"]') && !!Q('path[data-w="3:D2:u:R1"]') && !!Q('path[data-w="4:D1:u:R1"]'), 'Type 5 LRRL：R1 在 Line 1~4 依序接 D1、D2、D2、D1');
   fire(sel, '-1');
@@ -138,6 +145,22 @@ if (SRC) {
   ok($('dm-pv-tft').innerHTML !== svg0 && !!Q('path[data-w="1:D1:u:R1"]'), '不使用時仍跟著 ② 連動');
   fire(sel, '23'); fire($('dm-c0-0'), 'B2');
   ok(!!Q('path[data-w="1:D1:u:R1"]') && $('dm-c0-0').value === 'B2', '測試 Type 中改 ②：預覽仍照 Type（不連動），② 照常改');
+  console.log('── v1.9.0 ② 依 code 的模式套 xlsx 範例（暫存器原值 → 預覽接線＝Line OD Type）');
+  fire(sel, '-1'); fire($('dm-model'), 'EM02'); fire($('dm-hand'), true);
+  const putCase = (id, f) => { const c = LOD.XLSX_CASES.find(x => x.id === id), v = c.v.split(' ').map(Number), S = w.dmState;
+    const ns = Object.assign({}, S.cur, f); for (let sl = 0; sl < 4; sl++) for (let ch = 0; ch < 6; ch++) { ns['c' + (sl * 6 + ch)] = v[sl * 12 + ch]; ns['x' + (sl * 6 + ch)] = v[sl * 12 + 6 + ch]; }
+    S.cur = ns; fire($('dm-pv-swap'), false); return c; };
+  const wiresOf = (t, rows, NGx) => rows.every(([k, gi, line]) => [0, 1, 2, 3, 4, 5].every(c => { const x = LOD.at(t, line, gi, c); return x === null || !!Q('path[data-w="' + (k + 1) + ':D' + (c + 1) + ':' + (NGx === 2 ? (gi ? 'd' : 'u') : 'u') + ':' + LOD.name(x) + '"]'); }));
+  putCase('zz1', { panel: 1, rd: 0, subPanel: 0 });
+  ok(QA('text[data-gsub]').length === 4 && wiresOf(LOD.TYPES[1], [[0, 0, 0], [1, 0, 1], [2, 0, 0], [3, 0, 1]], 1), 'xlsx zz1（Zigzag type1）：G1~G4 照暫存器原值畫＝LRLR，和 Line OD Type 1 一致（Python UI 的 1-2＝1-1 複本無法表示這種接法）');
+  putCase('zz7', { panel: 1, rd: 0, subPanel: 6 });
+  ok(QA('text[data-gsub]').length === 8 && wiresOf(LOD.TYPES[7], [0, 1, 2, 3, 4, 5, 6, 7].map(k => [k, 0, k]), 1), 'xlsx zz7（Zigzag type7，sub 6）：8 條 gate、G5~G8 用第二組＝LLLLRRRR');
+  putCase('hsd1', { panel: 2, rd: 1, subPanel: 0 });
+  ok(+$('dm-pv-tft').getAttribute('data-plines') === 6 && wiresOf(LOD.TYPES[22], [[0, 0, 0], [0, 1, 0], [1, 0, 1], [1, 1, 1]], 2), 'xlsx hsd_type1 ＝ Line OD Type 22（Dual，週期 6＝4 pixel）');
+  putCase('hsd3_5', { panel: 2, rd: 1, subPanel: 2 });
+  ok(wiresOf(LOD.TYPES[27], [[0, 0, 0], [0, 1, 0], [1, 0, 1], [1, 1, 1]], 2), 'xlsx hsd_type3-5 ＝ Line OD Type 27');
+  putCase('hsd8', { panel: 2, rd: 1, subPanel: 4 });
+  ok(+$('dm-pv-tft').getAttribute('data-plines') === 12 && wiresOf(LOD.TYPES[29], [[0, 0, 0], [0, 1, 0], [1, 0, 1], [1, 1, 1]], 2) && !!Q('path[data-w="1:D7:u:G4"]') && !!Q('path[data-w="1:D12:d:B7"]'), 'xlsx hsd_8pixel：週期 12，D7~D12＝第二組（T3／T4 表）＝Line OD Type 29');
   console.log('── ② 依 code 的模式：週期／第二組自動判斷');
   fire(sel, '-1');
   const pval = n => Array.from($('dm-preset').options).find(o => o.textContent.indexOf('(' + n + ')') === 0).value;

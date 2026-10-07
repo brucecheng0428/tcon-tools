@@ -206,7 +206,56 @@
     }
     return out;
   }
-  var API = { TYPES: T, lin: lin, name: name, at: at, lines12: lines12, linesN: linesN, deriveReg: deriveReg, nameSeq: nameSeq, sides: sides, expectSides: expectSides, nameCheck: nameCheck, period: period, BK_LOD: 0x0900,
+  /* ── v1.9.0：原廠 E512_V512_data_mapping_diagram（Bruce修改_20250815）.xlsx 的範例（~/TCON/TCON設定相關/，只讀）──────────────
+     「register force setting」分頁的 force_sel 值（每格 code 0~29），「diagram」分頁的 Visio 圖示與 code→名稱表（T1~T5）：
+       ・Tn 表：code 0~5 ＝ pixel (2n−1)、(2n) 的 RGB；6~11 往左 2 pixel；…（T1：0→R1、6→R-2；T2：0→R3、6→R1、12→R-2；每升一個 T 往右 2 pixel）。
+         網頁（Python UI）的 GN1＝T2 表、GN2＝T3 表。
+       ・圖示標的 T：1D1G／Zigzag 全部 T1（_0~_3＝G1~G4，第二組＝G5~G8）；HSD 上 gate（_0／_2）T1、下 gate（_1／_3）T2；
+         HSD 8-pixel 的 D7~D12（第二組）上 T3、下 T4；HSD 4-pixel 的第二組＝G5~G8（第 3、4 條 line），仍是 T1／T2。
+       ・實際解碼要再加一個 T（反推）：Zigzag／HSD 用「圖示 T＋1」的表（Zigzag 有用到 B-1＝17，T1 表沒有 12 以上）；Normal 用圖示 T（code 0＝R1）。
+         照此規則，下面 14 筆範例與 Line OD Type 的反推接線逐格一致（zz5／zz6 的 r0 那一欄與其他欄相位相反＝xlsx 本身打錯，見 xlsxCheck）。 */
+  var XLSX_CASES = [
+  { id: 'nml', lod: 0, hsd: false, nml: true, v: '0 1 2 3 4 5 0 1 2 3 4 5 0 1 2 3 4 5 0 1 2 3 4 5 0 1 2 3 4 5 0 1 2 3 4 5 0 1 2 3 4 5 0 1 2 3 4 5' },
+  { id: 'zz1', lod: 1, hsd: false, nml: false, v: '6 7 8 9 10 11 6 7 8 9 10 11 17 6 7 8 9 10 17 6 7 8 9 10 6 7 8 9 10 11 6 7 8 9 10 11 17 6 7 8 9 10 17 6 7 8 9 10' },
+  { id: 'zz2', lod: 2, hsd: false, nml: false, v: '17 6 7 8 9 10 17 6 7 8 9 10 6 7 8 9 10 11 6 7 8 9 10 11 17 6 7 8 9 10 17 6 7 8 9 10 6 7 8 9 10 11 6 7 8 9 10 11' },
+  { id: 'zz3', lod: 3, hsd: false, nml: false, v: '6 7 8 9 10 11 6 7 8 9 10 11 6 7 8 9 10 11 6 7 8 9 10 11 17 6 7 8 9 10 17 6 7 8 9 10 17 6 7 8 9 10 17 6 7 8 9 10' },
+  { id: 'zz4', lod: 4, hsd: false, nml: false, v: '17 6 7 8 9 10 17 6 7 8 9 10 17 6 7 8 9 10 17 6 7 8 9 10 6 7 8 9 10 11 6 7 8 9 10 11 6 7 8 9 10 11 6 7 8 9 10 11' },
+  { id: 'zz5', lod: 5, hsd: false, nml: false, v: '6 6 7 8 9 10 6 6 7 8 9 10 17 7 8 9 10 11 17 7 8 9 10 11 17 7 8 9 10 11 17 7 8 9 10 11 6 6 7 8 9 10 6 6 7 8 9 10' },
+  { id: 'zz6', lod: 6, hsd: false, nml: false, v: '17 7 8 9 10 11 17 7 8 9 10 11 6 6 7 8 9 10 6 6 7 8 9 10 6 6 7 8 9 10 6 6 7 8 9 10 17 7 8 9 10 11 17 7 8 9 10 11' },
+  { id: 'zz7', lod: 7, hsd: false, nml: false, v: '6 7 8 9 10 11 17 6 7 8 9 10 6 7 8 9 10 11 17 6 7 8 9 10 6 7 8 9 10 11 17 6 7 8 9 10 6 7 8 9 10 11 17 6 7 8 9 10' },
+  { id: 'zz8', lod: 8, hsd: false, nml: false, v: '17 6 7 8 9 10 6 7 8 9 10 11 17 6 7 8 9 10 6 7 8 9 10 11 17 6 7 8 9 10 6 7 8 9 10 11 17 6 7 8 9 10 6 7 8 9 10 11' },
+  { id: 'hsd1', lod: 22, hsd: true, nml: false, v: '6 8 10 0 2 4 6 8 10 0 2 4 13 15 17 7 9 11 13 15 17 7 9 11 6 8 10 0 2 4 6 8 10 0 2 4 13 15 17 7 9 11 13 15 17 7 9 11' },
+  { id: 'hsd4', lod: 24, hsd: true, nml: false, v: '6 9 11 0 3 5 6 9 11 0 3 5 13 14 16 7 8 10 13 14 16 7 8 10 6 9 11 0 3 5 6 9 11 0 3 5 13 14 16 7 8 10 13 14 16 7 8 10' },
+  { id: 'hsd3_5', lod: 27, hsd: true, nml: false, v: '16 17 7 10 11 1 16 17 7 10 11 1 21 12 14 15 6 8 21 12 14 15 6 8 17 7 10 11 1 4 17 7 10 11 1 4 12 14 15 6 8 9 12 14 15 6 8 9' },
+  { id: 'hsd4boe', lod: 25, hsd: true, nml: false, v: '6 9 11 0 3 5 6 9 11 0 3 5 13 14 16 7 8 10 13 14 16 7 8 10 17 6 9 11 0 3 17 6 9 11 0 3 22 13 14 16 7 8 22 13 14 16 7 8' },
+  { id: 'hsd8', lod: 29, hsd: true, nml: false, v: '16 17 7 10 0 1 16 6 7 10 11 1 21 12 14 15 17 8 21 23 14 15 6 8 17 7 10 0 1 4 6 7 10 11 1 4 12 14 15 17 8 9 23 14 15 6 8 9' }
+
+  ];
+  function tName(n, code) { var g = Math.floor(code / 6), j = code % 6; if (code > 29 || g > n) return null; return 3 * (2 * (n - 1) - 2 * g) + j; }
+  /* 範例 → 每條 gate 的 D1..Dn 名稱：single ⇒ G1~G8（第一組 _0~_3、第二組 _0~_3）；hsd ⇒ line 1、2 × 上下，8-pixel 再接 D7~D12 */
+  function xlsxRows(c) {
+    var v = c.v.split(' ').map(Number), de = c.nml ? 0 : 1, rows = [];
+    var at2 = function (slot, ch) { return v[slot * 12 + ch]; };
+    if (!c.hsd) {
+      for (var gset = 0; gset < 2; gset++) for (var sl = 0; sl < 4; sl++) { var r = []; for (var ch = 0; ch < 6; ch++) r.push(tName(1 + de, at2(sl, ch + 6 * gset))); rows.push({ gate: gset * 4 + sl, names: r }); }
+    } else {
+      var p8 = c.id === 'hsd8';
+      for (var sl2 = 0; sl2 < 4; sl2++) { var rr = [], up = sl2 % 2 === 0; for (var ch2 = 0; ch2 < (p8 ? 12 : 6); ch2++) rr.push(tName((up ? 1 : 2) + (ch2 >= 6 ? 2 : 0) + de, at2(sl2, ch2))); rows.push({ line: sl2 >> 1, gi: sl2 & 1, names: rr }); }
+    }
+    return rows;
+  }
+  /* 範例 vs Line OD Type 接線：回傳 { ok, bad:[…] } */
+  function xlsxCheck(c) {
+    var t = T[c.lod], bad = [];
+    xlsxRows(c).forEach(function (r) {
+      r.names.forEach(function (x, ch) {
+        var exp = c.hsd ? at(t, r.line, r.gi, ch) : at(t, r.gate % t.rows.length, 0, ch);
+        if (x !== exp) bad.push((c.hsd ? 'L' + (r.line + 1) + (r.gi ? '↓' : '↑') : 'G' + (r.gate + 1)) + ' D' + (ch + 1) + ' ' + (x === null ? '?' : name(x)) + '≠' + (exp === null ? 'X' : name(exp)));
+      });
+    });
+    return { ok: !bad.length, bad: bad };
+  }
+  var API = { TYPES: T, XLSX_CASES: XLSX_CASES, tName: tName, xlsxRows: xlsxRows, xlsxCheck: xlsxCheck, lin: lin, name: name, at: at, lines12: lines12, linesN: linesN, deriveReg: deriveReg, nameSeq: nameSeq, sides: sides, expectSides: expectSides, nameCheck: nameCheck, period: period, BK_LOD: 0x0900,
     REGS: { de: '0x09C7[2:0]', spec: '0x09C7[5:4]', line: '0x09C8[3:0]', pix: '0x09C8[6:4]', rgb: '0x09C9~0x09F8（r_0..r_15、g_0..g_15、b_0..b_15，各 6 bit）' } };
   if (typeof module === 'object' && module.exports) module.exports = API; else root.TCONDataMapLOD = API;
 })(typeof window !== 'undefined' ? window : this);

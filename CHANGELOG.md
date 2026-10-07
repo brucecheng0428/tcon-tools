@@ -2,6 +2,42 @@
 
 ---
 
+## Data Mapping (datamap) v1.9.0 — 2026-10-07 ｜ MINOR
+
+**③ 面板排列預覽：依原廠 E512_V512 data mapping 圖解（xlsx）修正 Single 的 gate 對應（_0~_3＝G1~G4、第二組＝G5~G8）；加入 T1~T4 code 表與 14 筆 xlsx 範例當回歸**
+
+### 需求（Bruce 2026-10-07 原話）
+
+> 去 TCON底下資料夾的「TCON設定相關資料夾」裡面，找到一個名為「E512_V512_data_mapping_diagram（Bruce修改_20250815.xlsx」的檔案，裡面都有註明清楚。檔案裡有幾個範例，包含：HSD 8 pixel、HSD 4 pixel、HSD Type 1、Type 4、Type 3.5 的看的方式、什麼時候用 T1、T2、T3、T4。在這裡面都有相對應的圖示說明。
+
+### xlsx 讀到的定義（`~/TCON/TCON設定相關/E512_V512_data_mapping_diagram(Bruce修改_20250815).xlsx`，只讀）
+
+- 「diagram」分頁 5 張 Visio 圖（1D1G、Zigzag、HSD type1/type4（type3-5/type4+BOE 同圖）、HSD 4 pixel、HSD 8 pixel）＋ code→名稱表 T1~T5；「register force setting」分頁 44 筆 force_sel 設定值。
+- 圖示的 gate 對應：1D1G／Zigzag 每條 gate 一列，r0_0~r0_3＝G(1)~G(4)、r2_0~r2_3（第二組）＝G(5)~G(8)，全部標 T1；HSD 上 gate（_0／_2）T1、下 gate（_1／_3）T2；HSD 4 pixel 的第二組＝G(5)~G(8)（第 3、4 條 line）仍 T1／T2；HSD 8 pixel 的 D7~D12（r2..b3）上 T3、下 T4。
+- T 表：Tn 的 code 0~5＝pixel 2n−1、2n 的 RGB，每多 6 往左 2 pixel；T(n+1)＝Tn 往右 2 pixel。網頁（Python UI）的 GN1＝T2、GN2＝T3。
+- 解碼規則（反推，14 筆範例驗證）：Zigzag／HSD 用「圖示 T＋1」的表，Normal 用圖示 T。照此，nml、zigzag type1~4、7、8、hsd type1、type4、type3-5、type4+BOE、8pixel 共 12 筆與 Line OD Type 0、1~4、7、8、22、24、27、25、29 的反推接線逐格一致；zigzag type5／type6 的 r0 欄與 g0~b1 欄相位相反（xlsx 本身不一致）。
+
+### 與 v1.8.0 不一致、已修
+
+- **Single 的 gate 對應**：v1.8.0 以前 Single 只畫 Line 1-1、Line 2-1 兩列（照 Python UI「1-2＝1-1」的複本顯示），但 xlsx 圖示是 _0~_3＝G1~G4 四條不同的 gate。改成 e50x 的 Single 畫 4 列（Line 1-1、1-2、2-1、2-2＝G1~G4），用暫存器原值解碼；Zigzag 8 列（secondSetRule line58，sub 6／7）再加 G5~G8＝第二組。例：xlsx zigzag type1 的 r0_1＝17（B-1）與 r0_0 不同 ⇒ G1~G4＝LRLR，這是 Python UI 的複本表格無法表示的接法，預覽現在畫得出來。② 表格、編輯、匯出不變。
+- Gate 標籤：主標＝② 槽位（Line a-b；第二組加 ′），副標＝實體 gate 編號 G(n)。測試 Type 的 Single 也改用同一套（例：Type 5＝G1~G4＝Line 1-1、1-2、2-1、2-2）。
+- 未改、待確認：Normal（panel_mode 0）依 xlsx 用 T1 表（code 0＝R1），Python UI 的名稱表（GN1＝T2）會差 2 pixel；只記在筆記，② 與預覽未改（需實機確認）。
+
+### 驗證一致、沒有改
+
+- Dual／HSD：上 gate T1、下 gate T2 的圖示＝網頁 GN1／GN2；週期 6＝4 pixel；HSD 4 pixel 第二組＝Line 3、4；HSD 8 pixel 週期 12、D7~D12＝第二組＋4 pixel（T3／T4）。
+- TFT 左右：xlsx 圖示的 TFT 都在 drain 目標那一側，和預覽規則相同。
+- Tri-gate：xlsx 沒有 Tri 圖（只有 LTPS mux），沿用 v1.8.0 的設計者說明畫法。
+
+### 回歸
+
+- `tools/check_datamap_lod.js` 196/0（加 `--src`；新增 T 表、14 筆 xlsx 範例逐格比對、zz5／zz6 不一致的確認、② 模式套 xlsx 範例 zz1／zz7／hsd1／hsd3-5／hsd8 畫出的接線＝對應 Line OD Type）。
+- `check_datamap_preview` 45/0（加真實 EM02 code 60/0；Single 改為 4 列的預期）；`check_datamap` 282/0。cache buster `?v=20261007dm190`。
+
+判定依據：`docs/VERSIONING.md` §R3，MINOR：Single 預覽多畫 G2／G4（使用者看到的接線變多、可看出 1-2 與 1-1 不同的 code），既有操作不變；寫入值與匯出 code 不變（回歸比對），不帶輸出變更；首頁卡片文字沒變，app 不動。
+
+---
+
 ## Data Mapping (datamap) v1.8.0 — 2026-10-07 ｜ MINOR
 
 **③ 面板排列預覽：依設計者說明的 L／R 命名原理逐 Type 檢查；Tri-Gate 畫出完整 TFT 圖（每列三條 Gate）；重複週期改依接線自動判斷（6 或 12 條 Data 線），② 依 code 的模式也套用**
