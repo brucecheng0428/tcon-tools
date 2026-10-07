@@ -2,6 +2,21 @@
 
 ---
 
+## Data Mapping (datamap) v1.5.1 — 2026-10-07 ｜ PATCH
+
+**③ 面板排列預覽：相鄰 Data 線至少隔 2 格（Dual）／1 格（Single）；TFT 標籤重疊時不畫**
+
+### 根因
+- v1.5.0 線上截圖（蘇坤 EM02 code、Dual、不勾選）：均衡搜尋把 D1~D3、D4~D6 各擠在相鄰的縫（位置 1,2,3,7,8,9），相鄰兩條 Data 線的 TFT 與「→名稱」標籤疊在一起，看不清楚。
+
+### 改了什麼
+- 位置搜尋加上最小間距：Dual 相鄰 Data 線至少隔 2 格、Single 至少 1 格（＝每條 Data 線至少擁有自己要充的格數）。蘇坤 code 實測：Dual 不勾選 5.5 → 5.5（固定間距本身就是最佳）、勾選 1.5 → 1.5、Single 勾選 5.5 → 1.5。
+- TFT 旁的「→名稱」標籤：和同一條 Gate 上其他標籤、或相鄰 Data 線的 TFT 區重疊就不畫（目標仍可由 drain 顏色與方格內 D n 看出）。cache buster `?v=20261007dm151`。
+
+判定依據：`docs/VERSIONING.md` §R1，PATCH：修正 v1.5.0 預覽的重疊顯示，使用者能做的事沒變；寫入值與匯出 code 不變；app 不動。
+
+---
+
 ## Data Mapping (datamap) v1.5.0 — 2026-10-07 ｜ MINOR
 
 **③ 面板排列預覽新增「模擬 Source Driver 輸出對調（D1↔D3、D4↔D6）」核取方塊；TFT 依 drain 目標放在 Data 線左／右側；Data 線位置改成線長均衡自動排**
