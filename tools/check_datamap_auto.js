@@ -65,8 +65,15 @@ ok(A.wiring(A.list('E503').find(e => e.name === 'LTPS Type 1 Z-Zag MUX3')).g ===
 console.log('── v1.12.0 Hand 關 ③ 一定有圖或明確原因');
 { const T = {}; for (const m of DM.MODEL_KEYS) { const L = A.list(m); T[m] = { draw: L.filter(e => A.wiring(e)).length, est: L.filter(e => A.wiring(e) && e.est).length, none: L.filter(e => !A.wiring(e)).map(e => e.name) }; }
   ok(['E503', 'E501A', 'E501B', 'DAZ6138', 'DAZ6139', 'EM01', 'EM02', 'E512'].every(m => T[m].none.length === 0), 'E50x／DAZ6138／6139／EM01／EM02／E512：每個 Auto Type 都有架構（含 MUX2）');
-  ok(T.DAZ6111.none.join() === 'HSD type0,HSD type2,HSD type3' && T.DAZ7353.none.join() === 'HSD type0,HSD type2,HSD type3,HSD Z,HSD Z2,HSD N1,HSD N2,HSD N3,HSD N4', 'DAZ6111／DAZ7353 只剩 E50x 沒有同名的 HSD Type 不畫：' + T.DAZ6111.none.join('、') + '｜' + T.DAZ7353.none.join('、'));
-  ok(['DAZ6111', 'DAZ7353'].every(m => A.list(m).every(e => A.wiring(e) ? /^推定/.test(e.est) : /無法推定/.test(e.why))), 'DAZ 推定的都標「推定」、不畫的都有原因');
+  ok(T.DAZ6111.none.length === 0 && T.DAZ7353.none.join() === 'Zinv type4,Zinv type5,Zinv type6,Zinv type7', 'v1.14.0 DAZ6111 全部有架構；DAZ7353 只剩 datasheet 沒畫的 Zinv type4~7：' + T.DAZ7353.none.join('、'));
+  ok(['DAZ6111', 'DAZ7353'].every(m => A.list(m).every(e => A.wiring(e) ? !e.est && /Datasheet/.test(e.src) : /查無接線定義/.test(e.why) && /查過：/.test(e.why))), 'DAZ 每個 Type：有圖的都寫 datasheet 出處（不再「推定」），沒圖的寫明查過哪些檔');
+  { const W = (m, n) => A.wiring(A.list(m).find(e => e.name === n)), R = t => JSON.stringify(t.rows), perm = t => t.rows.every(r => { const a = r.flat().sort((x, y) => x - y); return new Set(a).size === a.length && a[a.length - 1] - a[0] + 1 === a.length; });
+    ok(['DAZ6111', 'DAZ7353'].every(m => [0, 1, 2, 3].every(z => W(m, 'Zinv type' + z) === LOD.TYPES[z + 1]) && W(m, 'HSD type0') === LOD.TYPES[22] && W(m, 'HSD type3') === LOD.TYPES[24] && W(m, 'HSD type 3-5') === LOD.TYPES[27]),
+      'DAZ：Zinv type0~3＝ZIGZAG TYPE1~4（LR／RL／LLRR／RRLL＝Line OD 1~4）、HSD type0＝HSD0 (Z1 Type1)＝Line OD 22、type3＝HSD3 (Type4)＝24、type 3-5＝HSD4 (Type5)＝27');
+    ok(R(W('DAZ7353', 'HSD type1')) === '[[[0,3,4,7,8,11],[1,2,5,6,9,10]]]' && R(W('DAZ7353', 'HSD type2')) === '[[[0,3,4,7,8,11],[1,2,5,6,9,10]],[[1,2,5,6,9,10],[0,3,4,7,8,11]]]', 'HSD1 (Type2)：上 r0 r1 g1 g2 b2 b3／下 g0 b0 b1 r2 r3 g3；HSD2 (Type3)：奇數列上下互換');
+    ok(R(W('DAZ7353', 'HSD Z')) === '[[[0,2,4],[1,3,5]],[[1,3,5],[0,2,4]]]' && W('DAZ7353', 'HSD Z2').rows.length === 4, 'HSD5 (弓)：每列上下 gate 互換；HSD6 (Z2)：兩列一換');
+    ok(R(W('DAZ7353', 'HSD N1')) === '[[[0,1,4,5,8,9],[2,3,6,7,10,11]],[[-1,0,3,4,7,8],[1,2,5,6,9,10]]]' && W('DAZ7353', 'HSD N3').P === 12, 'HSD7 (N1)：S0 上 R0 下 B0、S1 上 G0 下 R1，第 2 列往左 1 顆（X＝B-1）；N3／N4 週期 12 條 Data 線');
+    ok(['HSD type1', 'HSD type2', 'HSD Z', 'HSD Z2', 'HSD N1', 'HSD N2', 'HSD N3', 'HSD N4'].every(n => perm(W('DAZ7353', n))), 'DAZ7353 新增 8 種 HSD：每條 line 的子像素都剛好一次、連續'); }
   const s = Object.assign(DM.emptyState('EM01'), { mirror: 1, chrb: 1 }), lo = A.matchLoose('EM01', s);
   ok(A.match('EM01', s) < 0 && lo && A.list('EM01')[lo.i].name === '(0) 1D1G(Mirror)' && lo.rb, 'EM01 B19 code（panel 0／sub 0／mirror 1／chrb 1，不在清單）⇒ 比照 (0) Mirror＋R↔B');
   ok(JSON.stringify(A.rbSwap(LOD.TYPES[25]).rows) === JSON.stringify(LOD.TYPES[26].rows), 'chrb＝R↔B 的依據：Line OD 25 做 R↔B ＝ Line OD 26（RB_chg）'); }
@@ -104,7 +111,6 @@ console.log('── v1.12.0 Hand 關 ③ 一定有圖或明確原因');
         const r = rows.find(x => x[4] === off); good = good && !!r && parseInt(r[6], 16) === (e.set.subPanel | 0); }
       if (A.wiring(e)) { drawn++; good = good && $('dm-pvtag').textContent === 'Auto · ' + e.name + (e.est ? '（推定）' : '') && QA('rect[data-pv]').length > 0 && !Q('[data-bad]'); }
       else { nopic++; good = good && /尚無架構定義，③ 無法畫圖。原因：.+/.test($('dm-pvnote').textContent) && !$('dm-pvnote').classList.contains('hidden') && $('dm-pv-tft').innerHTML === ''; }
-      if (A.wiring(e) && e.est) good = good && /（推定）$/.test($('dm-pvtag').textContent) && $('dm-pvnote').textContent.indexOf(e.est) >= 0;
       if (A.fam(m) === 'mnt' && m !== 'EM02') good = good && /依 EM02／查詢表定義推定/.test($('dm-pvnote').textContent);
     }
     ok(good, m + '：Hand 關 ⇒ Auto 下拉 ' + L.length + ' 項，逐項寫入欄位、匯出含對應位址；③ 畫 ' + drawn + ' 項、無圖 ' + nopic + ' 項（不出錯、無衝突）');

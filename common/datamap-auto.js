@@ -128,15 +128,64 @@
   var LTPS_HID = ['14', '15', '16', '17', '18', '19', '20', '21'];
   function ltpsList() { return LTPS.map(function (n, i) { return { name: n, set: { panel: 3, subPanel: i, rd: (i & 1) ? 1 : 2 }, lod: i === 0 ? 17 : null, hid: LTPS_HID[i], mux2: !!(i & 1) }; }); }
   var _lists = {};
-  /* v1.12.0 DAZ6111／DAZ7353：model 檔只有 Type 編號、沒有架構圖 ⇒ 能比照 E50x 同名（或同序）Type 的才畫，並標「推定」；其餘寫明原因 */
-  var EST_NML = '推定：Normal（1D1G，每條 Data 線接正下方）各晶片相同，比照 E50x Normal／Line OD 0';
-  function estZ(n) { return '推定（依據較弱）：DAZ model 檔只有「Zinv type' + n + '」編號；依清單順序比照 E50x Z-Zag Type ' + (n + 1) + '（＝Line OD ' + (n + 1) + '），未經原廠確認'; }
-  var DAZ_HSD = { 'type1': [22, '推定：同名比照 E50x HSD Type 1（＝Line OD 22），DAZ model 檔無架構圖、未經原廠確認'],
-                  'type 3-5': [27, '推定：同名比照 E50x HSD Type 3-5（＝Line OD 27），DAZ model 檔無架構圖、未經原廠確認'] };
-  function dazHsd(n, i) {
-    var d = DAZ_HSD[n];
-    return d ? { name: 'HSD ' + n, set: { panel: 2, subPanel: i }, lod: d[0], est: d[1] }
-      : { name: 'HSD ' + n, set: { panel: 2, subPanel: i }, lod: null, why: 'DAZ model 檔只有「HSD ' + n + '」編號、沒有架構圖；E50x 沒有同名 Type（E50x HSD 只有 Type 1／4／3-5／4+Z-Zag(BOE)），無法推定' };
+  /* ── v1.14.0 DAZ6111／DAZ7353 Auto Type 架構（Bruce 10/7「要知道每一個設定對應的 Type 是什麼，請去查 Model File」）──────────
+     model 檔（11 個不同版本全文查過，見 Obsidian「DAZ_DataMapping_Type對照」）只寫名稱：
+       DAZ7353_20190418.model:710/717-719  MAIN_PANEL_MODE「0:Normal 1:Zinv 2: HSD」；SUB_PANEL_MODE「Zinv : select type 0 ~7」
+         「HSD : 0 : type0 1:type1 2: type2 3: type3 4:type 3-5 5:Z 6:Z2 7:N1 8:N2 9:N3 10:N4」
+       DAZ6111_for_FAE_20240509_20240830.model:530/537-539「Zinv : select type 0 1 2 3」「HSD : 0 : type0 … 4:type 3-5」
+     接線定義在同一顆 IC 的 datasheet 圖（~/TCON/Datasheet，只讀）：
+       DAZ7353_Datasheet_V0.16.pdf 第 6 章 p.14-20：7-1 Normal、7-3 HSD0 (Z1 Type1)、7-4 HSD1 (Type2)、7-5 HSD2 (Type3)、7-6 HSD3 (Type4)、
+         7-7 HSD4 (Type5)、7-8 HSD5 (弓)、7-9 HSD6 (Z2)、7-10 HSD7 (N1)、7-11 HSD8 (N2)、7-12 HSD9 (N3)、7-13 HSD10 (N4) ⇒ HSDn＝SUB n；
+       DAZ7353_Datasheet_V0.4.pdf p.14-15 ZIGZAG – TYPE1~TYPE4（LR、RL、LLRR、RRLL）＝Zinv type0~3；
+       Raydium_DAZ6111_QFN46_Datasheet_V0.6_20210701.pdf p.15-16 HSD Type1~Type5（與 DAZ7353 HSD0~4 同圖）、p.17 Z-inversion Type1（LR）、Type2（LLRR）。
+     下列 rows 由圖逐顆 TFT 讀出（index：0＝R0（畫面 R1）、1＝G0、2＝B0、3＝R1…；負數＝前一 pixel，圖上 X dummy 欄＝B-1）。 */
+  var DS73 = 'DAZ7353_Datasheet_V0.16.pdf', DS73a = 'DAZ7353_Datasheet_V0.4.pdf', DS61 = 'Raydium_DAZ6111_QFN46_Datasheet_V0.6_20210701.pdf';
+  function stepRows(per, add, n) {   // 每條 line：[[上 gate…],[下 gate…]]，per＝一個小週期（D 條數）的 [上,下]，往右每 per 條 +add
+    return per.map(function (row) { var u = [], l = []; for (var k = 0; k < n; k++) { var q = Math.floor(k / row.length), c = row[k % row.length]; u.push(c[0] + q * add); l.push(c[1] + q * add); } return [u, l]; });
+  }
+  var H_U = [0, 3, 4, 7, 8, 11], H_L = [1, 2, 5, 6, 9, 10], A3 = [[0, 2, 4], [1, 3, 5]], B3 = [[1, 3, 5], [0, 2, 4]];
+  var DAZ_W = {
+    hsd1: { no: -1, name: 'HSD1 (Type2)', g: 'dual', P: 6, A: 4, rows: [[H_U, H_L]], reg: null },
+    hsd2: { no: -1, name: 'HSD2 (Type3)', g: 'dual', P: 6, A: 4, rows: [[H_U, H_L], [H_L, H_U]], reg: null },
+    hsd5: { no: -1, name: 'HSD5 (弓)', g: 'dual', P: 3, A: 2, rows: [A3, B3], reg: null },
+    hsd6: { no: -1, name: 'HSD6 (Z2)', g: 'dual', P: 3, A: 2, rows: [A3, A3, B3, B3], reg: null },
+    n1: { no: -1, name: 'HSD7 (N1)', g: 'dual', P: 6, A: 4, rows: stepRows([[[0, 2], [1, 3]], [[-1, 1], [0, 2]]], 4, 6), reg: null },
+    n2: { no: -1, name: 'HSD8 (N2)', g: 'dual', P: 6, A: 4, rows: stepRows([[[1, -1], [2, 0]], [[2, 0], [3, 1]]], 4, 6), reg: null },
+    n3: { no: -1, name: 'HSD9 (N3)', g: 'dual', P: 12, A: 8, rows: stepRows([[[0, 4], [1, 5], [2, 6], [3, 7]], [[-1, 3], [0, 4], [1, 5], [2, 6]]], 8, 12), reg: null },
+    n4: { no: -1, name: 'HSD10 (N4)', g: 'dual', P: 12, A: 8, rows: stepRows([[[3, -1], [4, 0], [5, 1], [6, 2]], [[4, 0], [5, 1], [6, 2], [7, 3]]], 8, 12), reg: null }
+  };
+  /* SUB n → [datasheet 名稱, 接線（LOD 編號或 DAZ_W 鍵）, 出處頁, 同義] */
+  var DAZ_HSD = [
+    ['HSD0 (Z1 Type1)', 22, 'p.15 7-3', '＝E50x HSD Type 1＝Line OD 22（HSD+RBG/GRB）'],
+    ['HSD1 (Type2)', 'hsd1', 'p.15 7-4', ''],
+    ['HSD2 (Type3)', 'hsd2', 'p.16 7-5', ''],
+    ['HSD3 (Type4)', 24, 'p.16 7-6', '＝E50x HSD Type 4＝Line OD 24（HSD+RRB/GBG）'],
+    ['HSD4 (Type5)', 27, 'p.17 7-7', '＝E50x HSD Type 3-5＝Line OD 27（HSD+GGB/RBR+2RRRL）'],
+    ['HSD5 (弓)', 'hsd5', 'p.17 7-8', ''],
+    ['HSD6 (Z2)', 'hsd6', 'p.18 7-9', ''],
+    ['HSD7 (N1)', 'n1', 'p.18 7-10', ''],
+    ['HSD8 (N2)', 'n2', 'p.19 7-11', ''],
+    ['HSD9 (N3)', 'n3', 'p.19 7-12', ''],
+    ['HSD10 (N4)', 'n4', 'p.20 7-13', '']
+  ];
+  var ZZ_NM = ['LR', 'RL', 'LLRR', 'RRLL'];
+  function dazList(f) {
+    var L = [], n6111 = f === 'daz6111';
+    L.push({ name: 'Normal', set: { panel: 0, subPanel: 0 }, lod: 0, src: DS73 + ' p.14 7-1 Normal data mapping（＝Line OD 0）' + (n6111 ? '；DAZ6111 model 的 MAIN_PANEL_MODE 寫法與 DAZ7353 相同（0:Normal 1:Zinv 2: HSD）' : '') });
+    for (var a = 0; a < (n6111 ? 4 : 8); a++) {
+      if (a < 4) L.push({ name: 'Zinv type' + a, set: { panel: 1, subPanel: a }, lod: a + 1,
+        src: DS73a + ' p.' + (a < 2 ? 14 : 15) + ' ZIGZAG – TYPE' + (a + 1) + '＝' + ZZ_NM[a] + '（＝E50x Z-Zag Type ' + (a + 1) + '＝Line OD ' + (a + 1) + '）' + (n6111 ? '；' + DS61 + ' p.17 Z-inversion Type1＝LR、Type2＝LLRR 同組' : '') });
+      else L.push({ name: 'Zinv type' + a, set: { panel: 1, subPanel: a }, lod: null,
+        why: 'DAZ7353 model 檔只寫「Zinv : select type 0 ~7」；datasheet V0.4 只畫 ZIGZAG TYPE1~4（＝type0~3）、V0.16 只畫一張通用 Zigzag 圖，type4~7 查無接線定義（查過：11 個 DAZ model 檔、DAZ7353 datasheet V0.4／V0.16、DAZ6111 datasheet V0.6、Raydium_TCON_DataMapping查詢 xlsx、Set_6111_Timing pptx）' });
+    }
+    DAZ_HSD.slice(0, n6111 ? 5 : 11).forEach(function (d, i) {
+      var nm = ['type0', 'type1', 'type2', 'type3', 'type 3-5', 'Z', 'Z2', 'N1', 'N2', 'N3', 'N4'][i];
+      var e = { name: 'HSD ' + nm, set: { panel: 2, subPanel: i }, ds: d[0],
+        src: (n6111 ? DS61 + ' HSD Type' + (i + 1) + '（同 ' + DS73 + ' ' + d[2] + ' ' + d[0] + '）' : DS73 + ' ' + d[2] + ' ' + d[0]) + (d[3] ? ' ' + d[3] : '') };
+      if (typeof d[1] === 'number') e.lod = d[1]; else { e.lod = null; e.wire = DAZ_W[d[1]]; }
+      L.push(e);
+    });
+    return L;
   }
   function list(model) {
     var f = fam(model); if (!f) return [];
@@ -150,14 +199,8 @@
       L.push({ name: 'HSD Type 3-5', set: { panel: 2, subPanel: 2, rd: 1 }, lod: 27, hid: '12' });
       if (f === 'e50x') L.push({ name: 'HSD Type 4+Z-Zag(BOE)', set: { panel: 2, subPanel: 3, rd: 1 }, lod: 25, hid: '13' });
       L = L.concat(ltpsList());
-    } else if (f === 'daz6111') {
-      L.push({ name: 'Normal', set: { panel: 0, subPanel: 0 }, lod: 0, est: EST_NML });
-      for (var a = 0; a < 4; a++) L.push({ name: 'Zinv type' + a, set: { panel: 1, subPanel: a }, lod: a + 1, est: estZ(a) });
-      ['type0', 'type1', 'type2', 'type3', 'type 3-5'].forEach(function (n, i) { L.push(dazHsd(n, i)); });
-    } else if (f === 'daz7353') {
-      L.push({ name: 'Normal', set: { panel: 0, subPanel: 0 }, lod: 0, est: EST_NML });
-      for (var b = 0; b < 8; b++) L.push({ name: 'Zinv type' + b, set: { panel: 1, subPanel: b }, lod: b + 1, est: estZ(b) });
-      ['type0', 'type1', 'type2', 'type3', 'type 3-5', 'Z', 'Z2', 'N1', 'N2', 'N3', 'N4'].forEach(function (n, i) { L.push(dazHsd(n, i)); });
+    } else if (f === 'daz6111' || f === 'daz7353') {
+      L = dazList(f);
     } else {   // mnt：原廠 RT7 清單中 force_sel_en＝0 的樣式
       var HID = { 0: '1', 17: '14', 22: '10', 24: '11', 25: '13', 26: '13', 27: '12' };
       DM.PRESETS.forEach(function (p, pi) {
@@ -211,6 +254,7 @@
   /* 這個 Type 的接線（給 ③ 畫）：Line OD 反推接線（datamap-lod.js）或隱藏表解碼；沒有 ⇒ null */
   function wiring(e) {
     if (!e) return null;
+    if (e.wire) return e.wire;
     if (e.lod !== null && e.lod !== undefined && LOD.TYPES[e.lod]) return LOD.TYPES[e.lod];
     if (e.hid && /mux3$/.test(HIDDEN[e.hid].name)) return mux3Type(HIDDEN[e.hid], e.name);
     if (e.hid && /mux2$/.test(HIDDEN[e.hid].name)) return mux2Type(HIDDEN[e.hid], e.name);
@@ -337,6 +381,6 @@
     return { state: d.length ? 'diff' : 'ok', cur: cur, curType: ct, exp: exp, diff: d };
   }
   function lodApply(model, s) { var e = expectedLod(model, s); return e.ok ? lodSet(s, e.reg) : null; }
-  var API = { HIDDEN: HIDDEN, manualMatch: manualMatch, rt7Match: rt7Match, matchLoose: matchLoose, rbSwap: rbSwap, mux2Type: mux2Type, lodSupported: lodSupported, lodOf: lodOf, lodSet: lodSet, wiringFromState: wiringFromState, expectedLod: expectedLod, lodCheck: lodCheck, lodApply: lodApply, PM_KEYS: PM_KEYS, FIXES: FIXES, ZZ_SEQ: ZZ_SEQ, fam: fam, list: list, match: match, apply: apply, wiring: wiring, fixesFor: fixesFor, mux3Type: mux3Type, rawByte: rawByte };
+  var API = { HIDDEN: HIDDEN, manualMatch: manualMatch, rt7Match: rt7Match, matchLoose: matchLoose, DAZ_W: DAZ_W, rbSwap: rbSwap, mux2Type: mux2Type, lodSupported: lodSupported, lodOf: lodOf, lodSet: lodSet, wiringFromState: wiringFromState, expectedLod: expectedLod, lodCheck: lodCheck, lodApply: lodApply, PM_KEYS: PM_KEYS, FIXES: FIXES, ZZ_SEQ: ZZ_SEQ, fam: fam, list: list, match: match, apply: apply, wiring: wiring, fixesFor: fixesFor, mux3Type: mux3Type, rawByte: rawByte };
   if (typeof module === 'object' && module.exports) module.exports = API; else root.TCONDataMapAuto = API;
 })(typeof window !== 'undefined' ? window : this);
