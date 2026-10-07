@@ -85,21 +85,63 @@ console.log('── code 表（D2:R31）＝網頁 T 表解碼');
     ok([1, 2, 3, 4, 5, 6].every(n => a['D' + n + 'u'] === a.D1u + n - 1), 'Line 1：D1~D6 直下（每條接正下方）：' + JSON.stringify(a));
     ok([1, 2, 3, 4, 5, 6].every(n => b['D' + n + 'u'] === a['D' + n + 'u'] + 1), 'Line 2：整排往右錯一條（Zigzag LR）：' + JSON.stringify(b));
     ok(['B2', 'G2', 'R2', 'B1', 'G1', 'R1'].every((x, i) => !!Q('path[data-w="1:D' + (i + 1) + ':u:' + x + '"]')), 'Mirror 解碼後 D1~D6＝B2 G2 R2 B1 G1 R1（資料顏色＝code 的顏色，同原廠 Pixel mapping；不再是 B-1 G-1 R-1 B-2 G-2 R-2）');
+    const gridTxt = r => [0, 1, 2, 3, 4, 5].map(c => $('dm-c' + r + '-' + c).value);
+    ok(gridTxt(0).join(' ') === 'B2 G2 R2 B1 G1 R1' && gridTxt(1).join(' ') === 'G2 R2 B1 G1 R1 B4' && [0, 1, 2, 3].every(r => gridTxt(r).every(v => v !== '__ns' && !/-/.test(v))),
+      'v1.17.0 ②：Mirror＝1 依原廠 Pixel mapping 解讀，Data 1~6＝B2 G2 R2 B1 G1 R1（主循環）、Line 2／4 的 Data 6（0x17）＝B4，24 格沒有非標準也沒有前循環：' + gridTxt(1).join(' '));
+    ok([0, 1, 2, 3].every(r => [0, 1, 2, 3, 4, 5].every(c => $('dm-c' + r + '-' + c).getAttribute('data-t') === '2')) && /D1~D6 用 T2/.test($('dm-tsum').textContent) && /0x1F/.test($('dm-tsum').textContent),
+      '每格標 T2；總結：FORCE_DE_EN＝1、FORCE_DE_SEL＝0x1F（多位元）⇒ T2');
+    ok(!$('dm-pmrow').classList.contains('hidden') && $('f-mirror').checked && !$('f-chrb').checked && $('dm-pvflags').textContent.indexOf('Mirror＝1') === 0, 'Mirror／CHRB 等設定在 ② 上方（和 Hand Mode 同層）可見；③ 標示 Mirror＝1');
+    const sc0 = w.dmBuildScript().text;
+    fire($('f-mirror'), false);
+    ok(gridTxt(0).join(' ') === 'B-1 G-1 R-1 B-2 G-2 R-2' && (m01 => !!m01 && (parseInt(m01[1], 16) & 1) === 0 && (parseInt(m01[2], 16) & 1) === 1)(/write -m 0401 ([0-9A-F]{2}) ([0-9A-F]{2})/.exec(w.dmBuildScript().text)) && w.dmState.cur.mirror === 0, 'Mirror 改 0 ⇒ ② 名稱照非 mirror 解讀（code 原值不變）、匯出 script 有 0401 bit0＝0');
+    fire($('f-mirror'), true);
+    ok(gridTxt(0).join(' ') === 'B2 G2 R2 B1 G1 R1' && w.dmBuildScript().text === sc0 && [17, 16, 15, 14, 13, 12].every((v, i) => w.dmState.cur['c' + i] === v), 'Mirror 改回 1 ⇒ ② 名稱回來、匯出 script 和匯入時逐字相同、code 原值沒變');
+    fire($('f-tsel'), '3');
+    ok(w.dmState.cur.deEn === 1 && w.dmState.cur.deSel === 4 && $('dm-c0-0').getAttribute('data-t') === '3', 'T 表選 T3 ⇒ 寫 FORCE_DE_EN＝1、FORCE_DE_SEL＝0x04，每格標 T3');
+    fire($('dm-hand'), true);
+    w.dmState.cur = Object.assign(DM.cloneState(w.dmState.cur), { deEn: 1, deSel: 31 }); w.dmRender();
     const T = $('dm-pv-tft');
-    ok(/0x67/.test($('dm-pv-shlsrc').textContent) && /SHL＝1/.test($('dm-pv-shlsrc').textContent) && $('dm-pv-drv').value === 'f', 'iSP REG 自動帶入：0x1001＝0x67 ⇒ EPD9173B SHL＝1 ⇒ Driver 輸出正向（channel 1→N）');
-    ok(QA('[data-misk]').length > 0 && T.getAttribute('data-sug') === 'rl+rgb' && T.getAttribute('data-sugcombo') === 'rfgn' && !$('dm-pv-sugbtn').classList.contains('hidden'), '預設（第一圈最左＋正向＋RGB）顏色不符 ⇒ 建議：第一圈最右＋正向＋RGB＋無對調（等效 D1 在最右）');
+    ok(/0x67/.test($('dm-pv-shlsrc').textContent) && /SHL＝1/.test($('dm-pv-shlsrc').textContent) && $('dm-pv-drv').value === 'f', 'iSP REG 自動帶入：0x1001＝0x67 ⇒ EPD9173B SHL＝1 ⇒ Driver 輸出正向（CH1→CHn）');
+    ok(QA('[data-misk]').length > 0 && T.getAttribute('data-sug') === 'rl+rgb' && T.getAttribute('data-sugcombo') === 'rfgn' && !$('dm-pv-sugbtn').classList.contains('hidden'), '預設（CH1 在最左＋正向＋RGB）顏色不符 ⇒ 建議：CH1 在最右＋正向＋RGB＋無對調（等效 D1 在最右）');
     ok(d.querySelectorAll('#dm-pv-combotbl tbody tr').length === 16 && new Set(Array.from(d.querySelectorAll('#dm-pv-combotbl tbody tr')).map(r => r.getAttribute('data-group'))).size === 8, '16 種組合列表、8 個等效群組');
     fire($('dm-pv-first'), 'r');
     const a2 = slots(1);
     ok(d.querySelector('#dm-pv-tft [data-flip]') && +T.getAttribute('data-mis') === 0 && QA('[data-misk]').length === 0 && $('dm-pv-sugbtn').classList.contains('hidden') && JSON.stringify(a2) === JSON.stringify(a) && /等效：D1 在最右/.test($('dm-pv-eq').textContent),
-      '第一圈最右＋正向＋RGB：D1 在最右、整張左右翻，接法不變、資料顏色＝玻璃顏色、不再出建議、顯示等效方向');
+      'CH1 在最右＋正向＋RGB：D1 在最右、整張左右翻，接法不變、資料顏色＝玻璃顏色、不再出建議、顯示等效方向');
     fire($('dm-pv-drv'), 'r');
-    ok(T.getAttribute('data-dir') === 'lr' && /反＋反＝正/.test($('dm-pv-eq').textContent) && /等效：D1 在最左/.test($('dm-pv-eq').textContent), '第一圈最右＋Driver 反向 ⇒ 反＋反＝正，等效 D1 在最左（由左往右）');
+    ok(T.getAttribute('data-dir') === 'lr' && /反＋反＝正/.test($('dm-pv-eq').textContent) && /等效：D1 在最左/.test($('dm-pv-eq').textContent), 'CH1 在最右＋Driver 反向 ⇒ 反＋反＝正，等效 D1 在最左（由左往右）');
     fire($('dm-pv-first'), 'l');
-    ok(T.getAttribute('data-dir') === 'rl' && +T.getAttribute('data-mis') === 0, '第一圈最左＋Driver 反向 ⇒ 等效 D1 在最右，和「第一圈最右＋正向」畫出來相同');
+    ok(T.getAttribute('data-dir') === 'rl' && +T.getAttribute('data-mis') === 0, 'CH1 在最左＋Driver 反向 ⇒ 等效 D1 在最右，和「CH1 在最右＋正向」畫出來相同');
     fire($('dm-pv-stripe'), 'bgr');
     ok(+T.getAttribute('data-mis') > 0, '等效由右往左＋BGR：顏色不符（' + T.getAttribute('data-mis') + ' 格）');
-    fire($('dm-pv-drv'), 'f'); fire($('dm-pv-stripe'), 'rgb');
+    fire($('dm-pv-drv'), 'f'); fire($('dm-pv-first'), 'r'); fire($('dm-pv-stripe'), 'bgr');
+    ok(T.getAttribute('data-sug') === 'lr+bgr' && T.getAttribute('data-sugcombo') === 'lfbn', 'Bruce 判定正面 B G R ⇒ 子像素選 BGR 後建議：CH1 在最左＋正向（SHL＝1）＋BGR＋無對調');
+    fire($('dm-pv-first'), 'l');
+    ok(+T.getAttribute('data-mis') === 0 && QA('[data-misk]').length === 0 && $('dm-pv-sugbtn').classList.contains('hidden'), 'CH1 在最左＋正向＋BGR：資料顏色＝玻璃顏色 24/24');
+    /* v1.17.0 Panel mode 欄位逐一切換 ⇒ ③ 是否反應（Bruce 10/7「把 CHRB 打勾，③ 沒有任何變化」） */
+    { const svg = () => T.innerHTML, g0 = [0, 1, 2, 3].map(gridTxt).join('|'), v0 = svg(), st0 = DM.cloneState(w.dmState.cur);
+      const reg01 = () => /write -m 0401 ([0-9A-F]{2}) ([0-9A-F]{2})/.exec(w.dmBuildScript().text);
+      fire($('f-chrb'), true);
+      ok(w.dmState.cur.chrb === 1 && svg() !== v0 && [0, 1, 2, 3].map(gridTxt).join('|') === g0 && +T.getAttribute('data-mis') > 0 && !!Q('path[data-w="1:D1:u:R2"]') && !Q('path[data-w="1:D1:u:B2"]') && QA('[data-misk]').length > 0 && QA('rect[data-pv="1:B2"][data-dn="R2"]').length > 0,
+        'CHRB 勾 ⇒ ③ 即時改：D1 收到的資料 B2→R2（R↔B，接線位置不變）、格內改寫收到的資料（B2 位置寫 R2）、BGR 面板顏色出現 ≠（' + T.getAttribute('data-mis') + ' 格）；② 仍顯示暫存器原值');
+      ok(/CHRB＝1（R↔B）/.test($('dm-pvflags').textContent) && /CHRB＝1/.test($('dm-tsum').textContent) && (m => !!m && (parseInt(m[1], 16) & 8) === 8 && (parseInt(m[2], 16) & 8) === 8)(reg01()), 'CHRB 勾 ⇒ ③ 標示 CHRB＝1（R↔B）、② 摘要註明、匯出 script 0401 bit3＝1');
+      fire($('f-chrb'), false);
+      ok(svg() === v0 && +T.getAttribute('data-mis') === 0, 'CHRB 取消 ⇒ ③ 回到原圖、顏色 24/24 相符');
+      fire($('f-chwb'), true);
+      ok(svg() === v0 && /CHWB＝1/.test($('dm-pvflags').textContent), 'CHWB 勾 ⇒ ③ 接線與顏色不變（只反相灰階），③ 標示 CHWB＝1');
+      fire($('f-chwb'), false);
+      const rv = $('f-rvs').value; fire($('f-rvs'), '0x0000');
+      ok(svg() === v0 && /READ_RVS＝0x0000/.test($('dm-pvflags').textContent), 'READ_RVS 改 0x0000 ⇒ ③ 不變（原廠未定義它和 force_sel 名稱的關係，不模擬），③ 標示目前值');
+      fire($('f-rvs'), rv);
+      fire($('f-tsel'), '3');
+      ok(svg() !== v0 && $('dm-c0-0').getAttribute('data-t') === '3' && [0, 1, 2, 3].map(gridTxt).join('|') !== g0, 'T 表改 T3 ⇒ ② 名稱與 ③ 接線一起變');
+      w.dmState.cur = Object.assign(DM.cloneState(w.dmState.cur), { deEn: st0.deEn, deSel: st0.deSel }); w.dmRender();
+      ok(svg() === v0, 'T 表改回（FORCE_DE_SEL 0x1F）⇒ ③ 回到原圖');
+      fire($('f-mirror'), false);
+      ok(svg() !== v0, 'Mirror 改 0 ⇒ ③ 接線改變');
+      fire($('f-mirror'), true);
+      ok(svg() === v0 && [0, 1, 2, 3].map(gridTxt).join('|') === g0, 'Mirror 改回 1 ⇒ ②③ 回到原樣'); }
+    fire($('dm-pv-stripe'), 'rgb');
     ok([0, 1, 2, 3].map(r => $('dm-rh' + r).textContent).join('|') === 'Line 1（_0）|Line 2（_1）|Line 3（_2）|Line 4（_3）' && $('dm-c1-5').value !== $('dm-c0-5').value, '② 列名 Line 1~4，Line 2 顯示 _1 原值（不是 Line 1 的複本）');
   }
   console.log((fail ? '✗ ' : '✓ ') + 'check_datamap_kickoff ' + pass + ' pass / ' + fail + ' fail');

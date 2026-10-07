@@ -79,7 +79,7 @@ console.log('── v1.12.0 Hand 關 ③ 一定有圖或明確原因');
     ok(R(W('DAZ7353', 'HSD N1')) === '[[[0,1,4,5,8,9],[2,3,6,7,10,11]],[[-1,0,3,4,7,8],[1,2,5,6,9,10]]]' && W('DAZ7353', 'HSD N3').P === 12, 'HSD7 (N1)：S0 上 R0 下 B0、S1 上 G0 下 R1，第 2 列往左 1 顆（X＝B-1）；N3／N4 週期 12 條 Data 線');
     ok(['HSD type1', 'HSD type2', 'HSD Z', 'HSD Z2', 'HSD N1', 'HSD N2', 'HSD N3', 'HSD N4'].every(n => perm(W('DAZ7353', n))), 'DAZ7353 新增 8 種 HSD：每條 line 的子像素都剛好一次、連續'); }
   const s = Object.assign(DM.emptyState('EM01'), { mirror: 1, chrb: 1 }), lo = A.matchLoose('EM01', s);
-  ok(A.match('EM01', s) < 0 && lo && A.list('EM01')[lo.i].name === '(0) 1D1G(Mirror)' && lo.rb, 'EM01 B19 code（panel 0／sub 0／mirror 1／chrb 1，不在清單）⇒ 比照 (0) Mirror＋R↔B');
+  ok(A.match('EM01', s) < 0 && lo && A.list('EM01')[lo.i].name === '(0) 1D1G(Mirror)' && lo.rb, '人工組合 panel 0／sub 0／mirror 1／chrb 1（不在清單；v1.17.0 更正：這不是 B19 全民 code，全民實際 0x0400＝02、0x0401＝81 ⇒ Hand 開、panel 1、mirror 1、chrb 0）⇒ 比照 (0) Mirror＋R↔B');
   ok(JSON.stringify(A.rbSwap(LOD.TYPES[25]).rows) === JSON.stringify(LOD.TYPES[26].rows), 'chrb＝R↔B 的依據：Line OD 25 做 R↔B ＝ Line OD 26（RB_chg）'); }
 
 (async () => {
@@ -172,7 +172,7 @@ console.log('── v1.12.0 Hand 關 ③ 一定有圖或明確原因');
   }
   fire($('dm-auto'), 'p0'); fire($('f-mirror'), true); fire($('f-chrb'), true);
   ok(!w.dmState.cur.hand && $('dm-auto').value === 'u' && QA('rect[data-pv]').length > 0 && /R↔B（推定）$/.test($('dm-pvtag').textContent) && /chrb 不同 ⇒ R、B 對換/.test($('dm-pvnote').textContent),
-    'EM01 panel 0＋mirror 1＋chrb 1（B19 code 的組合，不在清單）⇒ ② 顯示 User define、③ 照 (0) Mirror＋R↔B 畫並標推定：' + $('dm-pvtag').textContent);
+    'EM01 panel 0＋mirror 1＋chrb 1（人工組合，不在清單）⇒ ② 顯示 User define、③ 照 (0) Mirror＋R↔B 畫並標推定：' + $('dm-pvtag').textContent);
   console.log('── v1.12.0 單一 RT7 Type Select（EM02）');
   if (w.dmClearImport) w.dmClearImport();
   fire($('dm-model'), 'EM02'); if (w.dmState.cur.hand) fire($('dm-hand'), false);
@@ -216,6 +216,12 @@ console.log('── v1.12.0 Hand 關 ③ 一定有圖或明確原因');
     const raw = new Uint8Array(fs.readFileSync(EM02));
     w.dmImportBytes(raw, path.basename(EM02)); await new Promise(r => setTimeout(r, 50));
     ok($('dm-lodrow').getAttribute('data-state') === 'ok' && +$('dm-lodrow').getAttribute('data-cur') === 32 && /一致（Type 32/.test($('dm-lodstat').textContent) && /對調/.test($('dm-loddiff').textContent), '蘇坤 code：✓ Line OD 與 RT7 一致（Type 32，依 driver 對調後接線）');
+    { const lod0 = JSON.stringify(A.lodOf(w.dmState.cur)); fire($('f-chrb'), true);
+      ok($('dm-lodrow').getAttribute('data-state') === 'ok' && JSON.stringify(A.lodOf(w.dmState.cur)) !== lod0, 'v1.17.0 CHRB 勾 ⇒ Line OD 跟著 RT7 自動改成 R↔B 後的接線（依原廠 (25)→(26) 只差 chrb、Line OD 25 R↔B＝26），狀態仍一致：' + $('dm-lodstat').textContent);
+      const W1 = A.wiringFromState('EM02', w.dmState.cur, true), W0 = A.wiringFromState('EM02', Object.assign(DM.cloneState(w.dmState.cur), { chrb: 0 }), true);
+      ok(W1.ok && W0.ok && JSON.stringify(W1.t.rows) === JSON.stringify(A.rbSwap({ rows: W0.t.rows, name: '' }).rows), 'CHRB＝1 的 Line OD 依據接線＝CHRB＝0 的接線做 R↔B（G 和位置不變）');
+      fire($('f-chrb'), false);
+      ok($('dm-lodrow').getAttribute('data-state') === 'ok' && JSON.stringify(A.lodOf(w.dmState.cur)) === lod0 && +$('dm-lodrow').getAttribute('data-cur') === 32, 'CHRB 取消 ⇒ Line OD 回到原本的 Type 32'); }
     const bad = raw.slice(), oL = bad[0x3B] | (bad[0x3C] << 8); bad[oL + 0xC9] = 8; bad[oL + 0xC8] = (bad[oL + 0xC8] & 0xF0) | 3;
     w.dmImportBytes(bad, 'broken_' + path.basename(EM02)); await new Promise(r => setTimeout(r, 50));
     ok($('dm-lodrow').getAttribute('data-state') === 'diff' && !$('dm-lodfix').classList.contains('hidden') && /不一致/.test($('dm-lodstat').textContent) && /r_0 8→25/.test($('dm-loddiff').textContent) && /line 3→1/.test($('dm-loddiff').textContent), '故意改壞 r_0 與 line ⇒ 醒目警示、列出差異（r_0 8→25、line 3→1）、出現修正按鈕');

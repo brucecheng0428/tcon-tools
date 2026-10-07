@@ -422,8 +422,43 @@
     return p <= 1 ? GATE_ITEMS[1] : (p === 2 ? GATE_ITEMS[2] : GATE_ITEMS[3]);
   }
   function inputDict(key) { var se = semOf(key); return se === 'daz7353' ? D7353 : (se === 'daz6111' ? D6111 : GN1); }
-  function rowDict(key, row, gate) {
+  /* v1.17.0（Bruce 10/7「Data 6 居然會有非標準 0x17…已經點亮，顯示也都是正常的」）：MNT（EM01／EM02／E512）的 force_sel 是 code 0~29 全部合法
+     （EM01 原廠 StringGrid 顯示十進位、>29 才改成 29：RApp_TX.cpp:9328-9361；Kick Off「Data hand mode」code 表 D2:R31 也是 0~29），
+     Python UI 的 GN1／GN2 只收 0~17 的名稱，所以 18~29 被標成「非標準」（全民 b1_1／b1_3＝0x17）。MNT 改用完整 30 碼命名：
+       ・位置 k＝T 表（Single／Dual 上 gate＝T2、Dual 下 gate＝T3）全範圍：k＝3×(2(T−1)−2⌊code/6⌋)＋code%6；
+       ・Mirror＝1：送到 D1 起第 p＝−1−k 顆，名稱照原廠 Pixel mapping 檢視（每組 6×gate 數顆左右反轉；資料顏色＝code 的顏色）。 */
+  function linName(k) { var px = Math.floor(k / 3), c = k - px * 3; return 'RGB'.charAt(c) + (px >= 0 ? px + 1 : px); }
+  function mntIdx(T, code) { return 3 * (2 * (T - 1) - 2 * Math.floor(code / 6)) + code % 6; }
+  /* v1.17.0 T 表（Bruce 10/7「81010 的 Kickoff…可以選 T1、T2、T3、T4，也有一個 register 來設定吧」）：
+     RM81010_Kick_Off_Check_20210805.xlsx「Data hand mode」A1「FORCE_DE_SEL 182h[7:4]:」、D1:G1＝0001／0010／0100／1000（code 表 D～G 欄＝T1～T4），
+     AN7:AQ7「FORCE_DE_SEL 3F2h[7:4]｜FORCE_DE_SEL：0010(default) NOTE:FORCE_DE_EN=1｜2」⇒ FORCE_DE_EN＝1 時 FORCE_DE_SEL 的 one-hot 位元選 D1~D6 用哪張 T 表；
+     預設 0010＝T2（輸出公式 E36 從 E 欄＝T2 開始）。MNT：force_de_en＝rt7+0x02[0]、force_de_sel＝rt7+0x45[5:0]（EM02A1_RegisterBank.model:18200／18905，
+     6 bit「[0]~[5]: de phase 0~5」）。多位元值（Python UI 一律寫 0xE：PY pyNormalize；蘇坤 0x0E、全民 0x1F）原廠資料未定義，
+     實際接線（33 個 Line OD Type 逐格驗算、全民 code 每條 Data 線直下）都和 T2 一致 ⇒ 只有 one-hot 時換表，其他一律 T2。Dual 下 gate＝下一張（＋1）。 */
+  function mntBaseT(s) {
+    if (!s || !(s.deEn | 0)) return { t: 2, why: 'auto' };
+    var v = (s.deSel | 0) & 0x3F;
+    for (var b = 0; b < 6; b++) if (v === (1 << b)) return { t: b + 1, why: 'onehot' };
+    return { t: 2, why: v ? 'multi' : 'zero' };
+  }
+  function mntTOf(s, gate, row) { return mntBaseT(s).t + (gate === 'dual' && (row & 1) ? 1 : 0); }
+  function mntName(gate, row, code, mirror, base) {
+    if (code === 31) return 'X';
+    if (code < 0 || code > 29) return null;
+    var dual = gate === 'dual', T = (base || 2) + (dual && (row & 1) ? 1 : 0), k = mntIdx(T, code);
+    if (mirror) { var S2 = dual ? 12 : 6, p = -1 - k, b = Math.floor(p / S2) * S2; k = b + (S2 - 1 - (p - b)); }
+    return linName(k);
+  }
+  var _mntDicts = {};
+  function mntDict(gate, row, mirror, base) {
+    var key = gate + (gate === 'dual' && (row & 1) ? 'L' : 'U') + (mirror ? 'M' : '') + (base || 2);
+    if (_mntDicts[key]) return _mntDicts[key];
+    var d = {}; for (var c = 0; c < 30; c++) d[mntName(gate, row, c, mirror, base)] = c; d.X = 31;
+    return (_mntDicts[key] = d);
+  }
+  function rowDict(key, row, gate, s) {
     var se = semOf(key);
+    if (MODELS[key].kind === 'mnt' && (gate === 'single' || gate === 'dual')) return mntDict(gate, row, !!(s && (s.mirror | 0)), mntBaseT(s).t);
     if (se === 'daz7353') return D7353;
     if (se === 'daz6111') return D6111;
     return (gate === 'dual' && (row & 1)) ? GN2 : GN1;
@@ -449,7 +484,7 @@
       if (g === 'single') { if (!mntSingle) srcRow = row - (row & 1); }
       else if (g !== 'dual') return v;                     // Tri／組合不符：PY 不更新表格
     }
-    var idx = srcRow * 6 + col, raw = s['c' + idx] | 0, name = inv(rowDict(key, row, g), raw);
+    var idx = srcRow * 6 + col, raw = s['c' + idx] | 0, name = inv(rowDict(key, row, g, s), raw);
     v.blank = false; v.raw = raw; v.src = idx;
     v.std = name !== null;
     v.txt = name !== null ? name : ('0x' + hex(raw, 2));
@@ -476,19 +511,22 @@
   function editCell(key, s, row, col, text) {
     var cv = cellView(key, s, row, col);
     if (!cv.editable) return null;
-    var t = normText(text), dict = inputDict(key);
+    var g0 = gateOf(key, s), mnt = MODELS[key].kind === 'mnt';
+    var t = normText(text), dict = mnt ? rowDict(key, row, g0, s) : inputDict(key);
     if (!(t in dict)) t = 'X';
-    var ns = cloneState(s), g = gateOf(key, s), se = semOf(key);
-    if (se !== 'e50x') ns['c' + (row * 6 + col)] = dict[t];
-    else if (g === 'single') { ns['c' + (row * 6 + col)] = GN1[t]; if (MODELS[key].kind !== 'mnt') ns['c' + ((row + 1) * 6 + col)] = GN1[t]; }
-    else { var dd = rowDict(key, row, g); ns['c' + (row * 6 + col)] = (t in dd) ? dd[t] : dd.X; }
+    var ns = cloneState(s), g = g0, se = semOf(key);
+    if (mnt) ns['c' + (row * 6 + col)] = dict[t];
+    else if (se !== 'e50x') ns['c' + (row * 6 + col)] = dict[t];
+    else if (g === 'single') { ns['c' + (row * 6 + col)] = GN1[t]; ns['c' + ((row + 1) * 6 + col)] = GN1[t]; }
+    else { var dd = rowDict(key, row, g, s); ns['c' + (row * 6 + col)] = (t in dd) ? dd[t] : dd.X; }
     return { state: pyNormalize(key, ns), text: t };
   }
   /* 24 個名稱整批套用（Import Excel、All Same Pixel 共用：PY set_rgb_table_to_dm_info :29707-29847） */
   function applyNames(key, s, names) {
     var g = gateOf(key, s), se = semOf(key), ns = cloneState(s);
     function look(d, n) { n = normText(n); return (n in d) ? d[n] : d.X; }
-    if (se !== 'e50x') { var d0 = inputDict(key); for (var i = 0; i < 24; i++) ns['c' + i] = look(d0, names[i]); }
+    if (MODELS[key].kind === 'mnt' && (g === 'single' || g === 'dual')) { for (var m = 0; m < 24; m++) ns['c' + m] = look(rowDict(key, Math.floor(m / 6), g, s), names[m]); }
+    else if (se !== 'e50x') { var d0 = inputDict(key); for (var i = 0; i < 24; i++) ns['c' + i] = look(d0, names[i]); }
     else if (g === 'dual') { for (var j = 0; j < 24; j++) ns['c' + j] = look(Math.floor(j / 6) & 1 ? GN2 : GN1, names[j]); }
     else if (g === 'single') { var mntS = MODELS[key].kind === 'mnt'; for (var k = 0; k < 24; k++) { var r = Math.floor(k / 6); ns['c' + k] = look(GN1, names[(mntS ? r : r - (r & 1)) * 6 + k % 6]); } }
     else return null;
@@ -496,7 +534,7 @@
   }
   /* All Same Pixel（PY dm_all_same_pixel :29925：先用 GN2 驗證，不在表內 ⇒ 'X'） */
   function allSame(key, s, text) {
-    var t = normText(text); if (!(t in GN2)) t = 'X';
+    var t = normText(text); if (!(t in GN2) && !(MODELS[key].kind === 'mnt' && t in rowDict(key, 0, gateOf(key, s), s))) t = 'X';
     var names = []; for (var i = 0; i < 24; i++) names.push(t);
     var ns = applyNames(key, s, names);
     return ns ? { state: ns, text: t } : null;
@@ -509,14 +547,14 @@
   function cellOptions(key, s, row, col) {
     var v = cellView(key, s, row, col);
     if (!v.editable) return [];
-    var d = rowDict(key, row, gateOf(key, s));
+    var d = rowDict(key, row, gateOf(key, s), s);
     return namesOf(d).map(function (n) { return { name: n, value: d[n] }; });
   }
   /* 下拉選某個名稱。與 editCell 的差別只有一處：Dual 的 Line 1-2／2-2 接受 GN2 名稱（R5／R6…），
      其餘（含 Single 鏡射、連動欄位）完全走 editCell。 */
   function pickCell(key, s, row, col, name) {
     var t = normText(name), g = gateOf(key, s);
-    if (semOf(key) === 'e50x' && g === 'dual' && (row & 1) && (t in GN2) && !(t in GN1)) {
+    if (MODELS[key].kind !== 'mnt' && semOf(key) === 'e50x' && g === 'dual' && (row & 1) && (t in GN2) && !(t in GN1)) {
       if (!cellView(key, s, row, col).editable) return null;
       var ns = cloneState(s); ns['c' + (row * 6 + col)] = GN2[t];
       return { state: pyNormalize(key, ns), text: t };
@@ -529,6 +567,7 @@
      e50x Dual ⇒ GN2（R5／R6 只會寫到 Line 1-2／2-2，其他列變 X）；e50x Single ⇒ GN1；DAZ ⇒ 自己的表。 */
   function allSameOptions(key, s) {
     var se = semOf(key), g = gateOf(key, s);
+    if (MODELS[key].kind === 'mnt' && (g === 'single' || g === 'dual')) return namesOf(rowDict(key, 0, g, s));
     if (se === 'e50x') return g === 'dual' ? namesOf(GN2) : (g === 'single' ? namesOf(GN1) : []);
     return namesOf(inputDict(key)).filter(function (n) { return n in GN2; });
   }
@@ -974,6 +1013,7 @@
     emptyState: emptyState, cloneState: cloneState, decode: decode, encode: encode, encodeFields: encodeFields,
     changedIds: changedIds, diffRegs: diffRegs, regsOf: regsOf, maskedMerge: maskedMerge,
     gateOf: gateOf, gateText: gateText, cellView: cellView, editCell: editCell, applyNames: applyNames, allSame: allSame,
+    mntName: mntName, mntIdx: mntIdx, linName: linName, mntBaseT: mntBaseT, mntTOf: mntTOf,
     setGate: setGate, setHand: setHand, pyNormalize: pyNormalize, pyNames: pyNames, cks: cks, preLabels: preLabels,
     inputDict: inputDict, colorOfName: colorOfName, codeAddrs: codeAddrs, byteOf: byteOf, regNote: regNote, fieldsAt: fieldsAt,
     applyPreset: applyPreset, matchPreset: matchPreset, PRESET_SECOND: PRESET_SECOND, presetHasSecond: presetHasSecond,

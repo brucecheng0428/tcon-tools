@@ -318,7 +318,9 @@
   function wiringFromState(model, s, swap) {
     var g = DM.gateOf(model, s), R = DM.secondSetRule(model, s), tn = function (T, v) { return v === 31 ? null : LOD.tName(T, v); };
     var c = function (slot, ch) { return s['c' + (slot * 6 + ch)] | 0; }, x = function (slot, ch) { return s['x' + (slot * 6 + ch)] | 0; };
-    var bad = false, lin = function (T, v) { if (v === 31) return null; var l = tn(T, v); if (l === null) bad = true; return l; };
+    /* v1.17.0：Hand Mode 的 T 表跟 FORCE_DE_EN／FORCE_DE_SEL（DM.mntBaseT；Kick Off「Data hand mode」D1:G1，預設／多位元＝T2 ⇒ 位移 0，舊行為不變） */
+    var dT = DM.mntBaseT ? DM.mntBaseT(s).t - 2 : 0;
+    var bad = false, lin = function (T, v) { if (v === 31) return null; var l = tn(T + dT, v); if (l === null) bad = true; return l; };
     var rows = [], P = 6, A, G;
     if (g === 'single') {
       G = 1; A = 2;
@@ -357,6 +359,8 @@
       r.forEach(function (v, i) { if (v === null) { r[i] = r[idx[0]] + d * (i - idx[0]); filled++; } });
     }); });
     if (swap) rows = rows.map(function (line) { return line.map(function (r) { return r.map(function (v, i) { return r[6 * Math.floor(i / 6) + SWAP6[i % 6]]; }); }); });
+    /* v1.17.0 CHRB＝1：送出的 R、B 資料對調（EM02A1_RegisterBank.model:18160；原廠 RT7 (25)→(26) 只差 chrb、Line OD 25 做 R↔B＝26，RApp_TX.h:559-560）⇒ Line OD 依 R↔B 後的接線算 */
+    if (s.chrb | 0) rows = rows.map(function (line) { return line.map(function (r) { return r.map(function (v) { return v === null ? null : rbIdx(v); }); }); });
     /* 最小的 line 循環（原廠 1 line 的 Type 會把兩列寫成一樣） */
     var n = rows.length, key = function (ln) { return JSON.stringify(ln); };
     for (var Lm = 1; Lm <= n; Lm++) if (n % Lm === 0 && rows.every(function (ln, i) { return key(ln) === key(rows[i % Lm]); })) { rows = rows.slice(0, Lm); break; }

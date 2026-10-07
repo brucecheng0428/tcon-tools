@@ -2,6 +2,39 @@
 
 ---
 
+## Data Mapping (datamap) v1.17.0 — 2026-10-07 ｜ MINOR
+
+**② 的 Mirror／CHRB／CHWB／FORCE_DE／T 表／READ_RVS 提到和 Hand Mode 同層並附原廠出處說明；② 依 Mirror 與 T 表 register 正確解讀（全民 code 24 格沒有前循環、沒有非標準）；勾 CHRB 時 ③ 和 Line OD 即時反映 R↔B；①～④ 版面整理成「欄位名｜控制項」表單，「圈」改為 CH**
+
+### 需求（Bruce 2026-10-07 原話，節錄）
+
+> 我沒看到 mirror 等於 1 的設定在哪裡…應該也要開放出來讓我來修改。pixel 排列應該是最左邊的是 B，再來是 G，再來是 R。Data 6 的時候居然會有非標準 0x17 在 Line 2 跟 Line 4。
+> 為什麼填到第二步驟的卡片，它填的是 B-1、G-1、R-1、B-2、G-2、R-2？這理論上應該是在前一個循環。
+> 81010 的 Kickoff 文件…應該是可以選 T1、T2、T3、T4，也有一個 register 來設定吧？
+> 你那些卡片裡面的內容，排列實在是太亂了…它那個應該不是「圈」吧？應該是 CH。
+> 我目前把「CHRB」打勾，沒有發現在第三張卡片上面有任何的變化，這就不對了啊。
+
+### 變更
+
+- **② Panel mode 設定**：Hand Mode、Gate Type、RT7 Type Select、Mirror、CHRB、CHWB、FORCE_DE_EN、FORCE_DE_SEL（含 T1～T6 下拉）、READ_RVS 排成同一張表單，每列一個欄位，ⓘ 一行說明。最下面「說明與進階」可展開完整對照表，含每個欄位做什麼、會不會影響 ②③，以及原廠出處（檔案:行號）。
+- **② 名稱解讀**：根因在 v1.16.0 `common/datamap-core.js:452` `cellView` 用 Python UI 的 GN1／GN2 對照表（`rowDict` :425），沒有看 Mirror，也不認 code 18～29。現在 EM01／EM02／E512 改依 T 表公式加 Mirror 解讀（`mntName`／`mntDict`），和原廠 Pixel mapping view 相同。全民 code 的 Line 1／3＝B2 G2 R2 B1 G1 R1，Line 2／4＝G2 R2 B1 G1 R1 B4，24 格都沒有非標準，也沒有前循環。0x17 是合法值（B4）。匯出 script 不變（逐字比對 v1.16.0：EM01／EM02／E512／E503／DAZ6138 預設值，以及全民、蘇坤兩份 code 都相同）。
+- **T 表規則**：FORCE_DE_EN＝1，且 FORCE_DE_SEL 只有一個 bit 為 1 時，T＝bit＋1（Kick Off「Data hand mode」D1:G1 0001／0010／0100／1000；AN7:AQ7 預設 0010＝T2）。其他情況（自動、多個 bit 為 1 或 0）用 T2，並註明原廠資料沒有定義。Dual 下方那條 gate 用下一張表，D7～D12 依序用下一張。② 每格標 T 編號，下方一行總結。全民 code 的 FORCE_DE_SEL＝0x1F，屬於多個 bit 為 1 ⇒ T2。
+- **CHRB**：原廠定義 EM02A1_RegisterBank.model:18160「Change pixel R and pixel B」、DAZ6138 model:7752「Swap Red / Blue output data」。EM02 RApp_TX.h:559-560 的 (25)、(26) RB_chg 兩個 Type 只差 chrb；Line OD 25 解成接線後做 R↔B，就等於 26。
+  - 線上 v1.16.0 的 bug：`datamap.html:1069/1073` Hand Mode 的 ③ 只套 pvMirror，沒有讀 chrb。只有 Auto Mode 找不到完全相符的 Type 時（:1019-1021 matchLoose）才換色，所以全民（Hand Mode）勾 CHRB 時 ③ 沒有變化。
+  - 修正：加入 `pvChrb`。勾 CHRB 後，③ 每格改寫實際收到的資料（例如 B2 位置收到 R2），≠ 標示、16 種配置比較和建議會一起更新。② 照原廠 StringGrid 顯示暫存器原值，並在格子提示和總結註明「實際送出 R↔B」。Line OD（EM02）預期值依 R↔B 後的接線計算，Hand Mode 下也依 FORCE_DE 選的 T 表計算（`common/datamap-auto.js` wiringFromState）。
+- **各欄位對 ③ 的影響（都有回歸測試）**：Mirror、T 表、CHRB 會改變 ③。CHWB 只反相灰階，不改接線；READ_RVS 的原廠資料沒有寫它和 force_sel 名稱的關係。這兩個欄位不影響預覽，ⓘ 寫明原因，③ 上方標示目前值。
+- **③ 版面**：分成「預覽來源」「面板／Driver 硬體模擬」「TFT 接線圖」「說明與進階」四區。硬體模擬是一張小表，依序為 Source Driver 輸出對調、CH1 位置、Driver 輸出方向（SHL）、子像素排列，最後一列顯示等效結果和建議。圖例、套用順序、16 種配置比較都收在最下方。
+- **①④ 版面**：同樣改成「欄位名｜控制項」表單。窄螢幕（≤560px）時，欄位名和控制項改成上下排。
+- **用語替換**：第一圈位置→CH1 位置；第一圈最左／最右→CH1 在最左／最右；channel 1→N／N→1→CH1→CHn／CHn→CH1；Data 線第一圈位置（玻璃佈線）→CH1 位置（玻璃佈線）；面板子像素排列→子像素排列（正面由左往右）；模擬 Source Driver 輸出對調（…）→Source Driver 輸出對調；子像素兩列的 TFT 接線→TFT 接線圖（子像素兩列）。
+- **更正先前結論**：
+  - v1.13.0 寫「EM01 B19 code：Hand 關、panel 0、mirror 1、chrb 1」是錯的。全民 20260429171306.bin 的 0x0400＝0x02、0x0401＝0x81，代表 Hand 開、panel 1、mirror 1、chrb 0。全民資料夾 22 份 bin 中，沒有任何一份的 chrb＝1。相關測試敘述已改成「人工組合」。
+  - v1.16.0 依 Checklist E8／E12 推出「CH1 在右＋RGB」，但那些是背面視角的說法。Bruce 確認正面由左往右是 B G R，所以正確配置是 CH1 在左＋正向（SHL＝1）＋BGR＋不對調；③ 選 BGR 後的建議也是這個組合。
+- **測試**：check_datamap_kickoff 40/0（新增全民 24 格、T 標示、Mirror／CHRB／CHWB／READ_RVS／T 表逐一切換對 ③ 的影響、匯出 0401 bit0／bit3）；check_datamap_auto 101/0（新增 CHRB→Line OD R↔B 連動）；check_datamap 282/0；check_datamap_preview 46/0（EM02 61/0）；check_datamap_lod 196/0。
+
+判定依據：`docs/VERSIONING.md` §R3，MINOR：② 新增可編輯欄位與解讀修正、③ 反映 CHRB、版面重排；匯出 script 與寫入的位元組不變；app 不動。
+
+---
+
 ## Data Mapping (datamap) v1.16.0 — 2026-10-07 ｜ MINOR
 
 **③ 的 Driver 方向拆成「Data 線第一圈位置」和「Driver 輸出方向」兩個選項，並顯示等效方向（反＋反＝正）；比較 16 種面板／driver 配置；匯入 EM01 code 時依 iSP REG 的 SHL 自動帶入 Driver 輸出方向；修正 Mirror 名稱的顏色**
