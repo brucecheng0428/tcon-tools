@@ -65,8 +65,12 @@ ok(A.wiring(A.list('E503').find(e => e.name === 'LTPS Type 1 Z-Zag MUX3')).g ===
 console.log('── v1.12.0 Hand 關 ③ 一定有圖或明確原因');
 { const T = {}; for (const m of DM.MODEL_KEYS) { const L = A.list(m); T[m] = { draw: L.filter(e => A.wiring(e)).length, est: L.filter(e => A.wiring(e) && e.est).length, none: L.filter(e => !A.wiring(e)).map(e => e.name) }; }
   ok(['E503', 'E501A', 'E501B', 'DAZ6138', 'DAZ6139', 'EM01', 'EM02', 'E512'].every(m => T[m].none.length === 0), 'E50x／DAZ6138／6139／EM01／EM02／E512：每個 Auto Type 都有架構（含 MUX2）');
-  ok(T.DAZ6111.none.length === 0 && T.DAZ7353.none.join() === 'Zinv type4,Zinv type5,Zinv type6,Zinv type7', 'v1.14.0 DAZ6111 全部有架構；DAZ7353 只剩 datasheet 沒畫的 Zinv type4~7：' + T.DAZ7353.none.join('、'));
-  ok(['DAZ6111', 'DAZ7353'].every(m => A.list(m).every(e => A.wiring(e) ? !e.est && /Datasheet/.test(e.src) : /查無接線定義/.test(e.why) && /查過：/.test(e.why))), 'DAZ 每個 Type：有圖的都寫 datasheet 出處（不再「推定」），沒圖的寫明查過哪些檔');
+  ok(T.DAZ6111.none.length === 0 && T.DAZ7353.none.length === 0, 'v1.14.1 DAZ6111／DAZ7353 每個 Auto Type 都有架構（DAZ7353 Zinv type4~7 依同系列查詢表 Z-Zag Type 5~8 補上）');
+  ok(['DAZ6111', 'DAZ7353'].every(m => A.list(m).filter(e => /^Zinv/.test(e.name)).every((e, z) => A.wiring(e) === LOD.TYPES[z + 1] && /查詢_20260424\.xlsx Z-Zag Type /.test(e.src))) && A.list('DAZ7353').filter(e => /^Zinv/.test(e.name)).length === 8,
+    '查詢表交叉：Zinv type0~7＝Z-Zag Type 1~8（LR／RL／LLRR／RRLL／LRRL／RLLR／LLLLRRRR／RRRRLLLL＝Line OD 1~8），type0~3 也與 datasheet 一致');
+  ok(['DAZ6111', 'DAZ7353'].every(m => ['HSD type0', 'HSD type3', 'HSD type 3-5'].every(n => /查詢_20260424\.xlsx HSD Type/.test(A.list(m).find(e => e.name === n).src) && /一致/.test(A.list(m).find(e => e.name === n).src))) && /查詢表沒有此 Type/.test(A.list('DAZ7353').find(e => e.name === 'HSD type1').src) && A.wiring(A.list('DAZ7353').find(e => e.name === 'HSD type1')) !== LOD.TYPES[22],
+    '查詢表交叉：HSD type0／type3／type 3-5＝查詢表 HSD Type 1／4／3-5（與 datasheet 一致）；type1 不在查詢表、≠Line OD 22（0 起算命名）');
+  ok(['DAZ6111', 'DAZ7353'].every(m => A.list(m).every(e => A.wiring(e) && !e.est && (/Datasheet/.test(e.src) || /查詢_20260424/.test(e.src)))), 'DAZ 每個 Type：都寫 datasheet 或查詢表出處（不再「推定」）');
   { const W = (m, n) => A.wiring(A.list(m).find(e => e.name === n)), R = t => JSON.stringify(t.rows), perm = t => t.rows.every(r => { const a = r.flat().sort((x, y) => x - y); return new Set(a).size === a.length && a[a.length - 1] - a[0] + 1 === a.length; });
     ok(['DAZ6111', 'DAZ7353'].every(m => [0, 1, 2, 3].every(z => W(m, 'Zinv type' + z) === LOD.TYPES[z + 1]) && W(m, 'HSD type0') === LOD.TYPES[22] && W(m, 'HSD type3') === LOD.TYPES[24] && W(m, 'HSD type 3-5') === LOD.TYPES[27]),
       'DAZ：Zinv type0~3＝ZIGZAG TYPE1~4（LR／RL／LLRR／RRLL＝Line OD 1~4）、HSD type0＝HSD0 (Z1 Type1)＝Line OD 22、type3＝HSD3 (Type4)＝24、type 3-5＝HSD4 (Type5)＝27');

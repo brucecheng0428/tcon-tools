@@ -169,19 +169,27 @@
     ['HSD10 (N4)', 'n4', 'p.20 7-13', '']
   ];
   var ZZ_NM = ['LR', 'RL', 'LLRR', 'RRLL'];
+  /* v1.14.1（Bruce 10/7「Model File 裡面的定義，其實去對那個 Excel 的 Data Mapping 查詢的 Excel 就可以了，那個是同一個系列的」）：
+     ~/TCON/TCON設定相關/Raydium_TCON_DataMapping查詢_20260424.xlsx（Data mapping 分頁 B2:F22＋Pixel Structure 圖）交叉確認：
+       Zinv typeN ＝ 查詢表 Z-Zag Type N+1（type0~3 與 DAZ7353 datasheet V0.4 一致；type4~7 datasheet 未畫，依查詢表 LRRL／RLLR／LLLLRRRR／RRRRLLLL）；
+       HSD type0／type3／type 3-5 ＝ 查詢表 HSD Type 1／Type 4／Type 3-5（Pixel Structure 圖與 datasheet HSD0／HSD3／HSD4 同結構）；
+       HSD type1、type2、Z、Z2、N1~N4 查詢表沒有，只依 datasheet。DAZ 名稱是 0 起算（type0＝Type1、type3＝Type4），所以 type1≠HSD Type 1。 */
+  var QX = 'Raydium_TCON_DataMapping查詢_20260424.xlsx', ZZ8 = ['LR', 'RL', 'LLRR', 'RRLL', 'LRRL', 'RLLR', 'LLLLRRRR', 'RRRRLLLL'];
+  var QHSD = { 0: 'HSD Type 1（B11）', 3: 'HSD Type 4（B12）', 4: 'HSD Type 3-5（B13）' };
   function dazList(f) {
     var L = [], n6111 = f === 'daz6111';
-    L.push({ name: 'Normal', set: { panel: 0, subPanel: 0 }, lod: 0, src: DS73 + ' p.14 7-1 Normal data mapping（＝Line OD 0）' + (n6111 ? '；DAZ6111 model 的 MAIN_PANEL_MODE 寫法與 DAZ7353 相同（0:Normal 1:Zinv 2: HSD）' : '') });
+    L.push({ name: 'Normal', set: { panel: 0, subPanel: 0 }, lod: 0, q: true, src: QX + ' Normal（B2）＋' + DS73 + ' p.14 7-1 Normal data mapping（＝Line OD 0）' });
     for (var a = 0; a < (n6111 ? 4 : 8); a++) {
-      if (a < 4) L.push({ name: 'Zinv type' + a, set: { panel: 1, subPanel: a }, lod: a + 1,
-        src: DS73a + ' p.' + (a < 2 ? 14 : 15) + ' ZIGZAG – TYPE' + (a + 1) + '＝' + ZZ_NM[a] + '（＝E50x Z-Zag Type ' + (a + 1) + '＝Line OD ' + (a + 1) + '）' + (n6111 ? '；' + DS61 + ' p.17 Z-inversion Type1＝LR、Type2＝LLRR 同組' : '') });
-      else L.push({ name: 'Zinv type' + a, set: { panel: 1, subPanel: a }, lod: null,
-        why: 'DAZ7353 model 檔只寫「Zinv : select type 0 ~7」；datasheet V0.4 只畫 ZIGZAG TYPE1~4（＝type0~3）、V0.16 只畫一張通用 Zigzag 圖，type4~7 查無接線定義（查過：11 個 DAZ model 檔、DAZ7353 datasheet V0.4／V0.16、DAZ6111 datasheet V0.6、Raydium_TCON_DataMapping查詢 xlsx、Set_6111_Timing pptx）' });
+      L.push({ name: 'Zinv type' + a, set: { panel: 1, subPanel: a }, lod: a + 1, q: true, ds: a < 4 ? 'ZIGZAG TYPE' + (a + 1) : '',
+        src: QX + ' Z-Zag Type ' + (a + 1) + '（B' + (a + 3) + '）＝' + ZZ8[a] + '＝Line OD ' + (a + 1) +
+          (a < 4 ? '＋' + DS73a + ' p.' + (a < 2 ? 14 : 15) + ' ZIGZAG – TYPE' + (a + 1) + '（一致）' + (n6111 ? '；' + DS61 + ' p.17 Z-inversion Type1＝LR、Type2＝LLRR 同組' : '')
+                 : '（DAZ7353 datasheet 未畫 type4~7，依同系列查詢表）') });
     }
     DAZ_HSD.slice(0, n6111 ? 5 : 11).forEach(function (d, i) {
       var nm = ['type0', 'type1', 'type2', 'type3', 'type 3-5', 'Z', 'Z2', 'N1', 'N2', 'N3', 'N4'][i];
-      var e = { name: 'HSD ' + nm, set: { panel: 2, subPanel: i }, ds: d[0],
-        src: (n6111 ? DS61 + ' HSD Type' + (i + 1) + '（同 ' + DS73 + ' ' + d[2] + ' ' + d[0] + '）' : DS73 + ' ' + d[2] + ' ' + d[0]) + (d[3] ? ' ' + d[3] : '') };
+      var dsTxt = n6111 ? DS61 + ' HSD Type' + (i + 1) + '（同 ' + DS73 + ' ' + d[2] + ' ' + d[0] + '）' : DS73 + ' ' + d[2] + ' ' + d[0];
+      var e = { name: 'HSD ' + nm, set: { panel: 2, subPanel: i }, ds: d[0], q: !!QHSD[i],
+        src: (QHSD[i] ? QX + ' ' + QHSD[i] + '＋' + dsTxt + '（一致）' : dsTxt + '（查詢表沒有此 Type）') + (d[3] ? ' ' + d[3] : '') };
       if (typeof d[1] === 'number') e.lod = d[1]; else { e.lod = null; e.wire = DAZ_W[d[1]]; }
       L.push(e);
     });

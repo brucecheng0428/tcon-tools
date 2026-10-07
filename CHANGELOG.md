@@ -2,6 +2,37 @@
 
 ---
 
+## Data Mapping (datamap) v1.14.1 — 2026-10-07 ｜ PATCH
+
+**DAZ6111／DAZ7353 的 Type 和同系列的 DataMapping 查詢表交叉確認：補上 DAZ7353 Zinv type4～7，資料來源同時列出查詢表與 datasheet**
+
+### 需求（Bruce 2026-10-07 原話）
+
+> Model File 裡面的定義，其實去對那個 Excel 的 Data Mapping 查詢的 Excel 就可以了，那個是同一個系列的。
+
+### 比對結果（Raydium_TCON_DataMapping查詢_20260424.xlsx「Data mapping」分頁 B2:F22 與 Pixel Structure 圖）
+
+- 查詢表沒有直接寫 DAZ 的名稱，對應方式是比對編號與結構：DAZ 的名稱從 0 起算，type0 對應查詢表的 Type 1。
+- Zinv type0～7 對應查詢表 Z-Zag Type 1～8（B3:B10），也就是 LR／RL／LLRR／RRLL／LRRL／RLLR／LLLLRRRR／RRRRLLLL（Line OD 1～8）。
+  - type0～3 和 DAZ7353 datasheet V0.4 的 ZIGZAG TYPE1～4 一致。
+  - type4～7 datasheet 沒有畫，依查詢表補上。
+- HSD 各項：
+  - type0、type3、type 3-5 分別對應查詢表 HSD Type 1、Type 4、Type 3-5（B11～B13）。查詢表的 Pixel Structure 圖和 datasheet 的 HSD0、HSD3、HSD4 結構相同，也就是 Line OD 22／24／27。
+  - type1、type2、Z、Z2、N1～N4 查詢表沒有，只依 datasheet。
+- type1≠Line OD 22 的更正成立：查詢表的 HSD Type 1（Line OD 22）對應的是 DAZ type0，不是 type1。
+- 查詢表的「HSD Type 4+Z-Zag(BOE)」在 DAZ 沒有對應項目。
+- DAZ6138／6139 和 E50x：model 的 SUB_PANEL_MODE 說明與查詢表各列的 PANEL／SUB 值逐項相同（Z-Zag 1～4／1～8、HSD Type 1／4／3-5（／4+Z-Zag）、LTPS 8 種），程式不需修改。
+
+### 變更
+
+- DAZ7353 Zinv type4～7 依查詢表 Z-Zag Type 5～8 畫出接線。
+- DAZ 各 Type 在 ③ 的資料來源同時列出查詢表儲存格和 datasheet 頁碼，並標明是否一致。
+- check_datamap_auto 新增查詢表交叉比對的檢查。
+
+判定依據：`docs/VERSIONING.md` §R3，PATCH：補齊原本缺的 4 個 Type 圖，並更正資料來源文字；② 的值、匯出 script 與寫入都不變；app 不動。
+
+---
+
 ## Data Mapping (datamap) v1.14.0 — 2026-10-07 ｜ MINOR
 
 **DAZ6111／DAZ7353 的 Auto Type 改依原廠定義畫圖：model 檔確認 SUB_PANEL_MODE 的編號與名稱，datasheet 確認實際接線。不再比照 E50x 推定**
