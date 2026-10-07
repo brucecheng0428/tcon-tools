@@ -2,6 +2,26 @@
 
 ---
 
+## Data Mapping (datamap) v1.17.3 — 2026-10-08 ｜ PATCH
+
+**匯入 code 時 ③ 硬體模擬一律回到預設，不再自動改 CH1 位置；建議改成「套用建議」按鈕；CH1 位置標籤改為「Driver CH1 位置」；刪除已作廢的等效方向字串**
+
+### 需求（Bruce 2026-10-08 原話）
+
+> 匯入code的時候，在面板排列預覽要恢復到預設值。然後 CH1位置要註明，這是 Driver 的 Channel。是 CH1在最左邊還是最右邊？
+
+### 變更
+
+- **匯入時的 ③ 預設值**：Source Driver 輸出對調＝無、CH1 在最左、子像素排列＝RGB。Driver 輸出方向在 code 有 iSP SHL 時照 code 帶入，沒有時用正向。不再沿用上一份 code 或手動改過的值。
+- **拿掉 v1.17.1 的「CH1 位置依 SHL＋顏色比對自動帶入」**：建議改成顯示「套用建議：…」，由使用者自己按。全民 code 匯入後是 CH1 在最左，建議「CH1 在最右＋正向＋RGB」；按下後 24/24 相符。
+- **標籤**：「Driver CH1 位置（Source Driver 的 Channel 1 在面板最左或最右；Checklist 視角：CF 朝上、X-PCB 朝下）」，選項為「CH1 在最左（預設）／CH1 在最右」，ⓘ 同步更新。
+- **刪除作廢字串**（Dispatch QA）：i18n 的 dm.pvEq、pvEqNone、pvEqFirst、pvEqDrv、pvEqBoth 都已經沒有元件使用，三種語言一併刪除。grep 確認畫面字串不再有「等效」「反＋反」，只剩說明移除原因的程式註解。
+- **測試**：check_datamap_kickoff 50/0（全民匯入後回預設並顯示建議、按下套用建議後 24/24；手動改 ③ 後匯入沒有 iSP 的 B code，③ 全部回預設並用正向；再匯入全民，SHL 依 code 帶入）；check_datamap_auto 101/0；check_datamap 282/0；check_datamap_preview 46/0（EM02 61/0）；check_datamap_lod 196/0。
+
+判定依據：`docs/VERSIONING.md` §R3，PATCH：調整 ③ 匯入時的預設值與標籤；② 的值、匯出 script 與寫入都不變；app 不動。
+
+---
+
 ## Data Mapping (datamap) v1.17.2 — 2026-10-08 ｜ PATCH
 
 **③ 的 CH1 位置和 Driver 輸出方向（SHL）拆成兩個獨立效果：CH1 位置只決定 Data 線的位置和標號；SHL 不動 Data 線，只決定每條線收到哪一筆資料。拿掉「等效方向（反＋反＝正）」；② 的 Mirror 與 READ_RVS 照原廠工具連動**
