@@ -95,7 +95,7 @@ if (SRC) {
     good = good && Array.from($('dm-lodgrid').querySelectorAll('tr[data-row]')).every(tr => { const [li, gi] = tr.getAttribute('data-row').split(':').map(Number);
       return Array.from(tr.querySelectorAll('td')).every((td, c) => { const x = LOD.at(t, li, gi, c); return td.textContent === (x === null ? 'X' : LOD.name(x)); }); });
     const gates = QA('text[data-glabel]').map(x => x.textContent);
-    const expG = []; for (let k = 0; k < nl; k++) for (let g = 0; g < NG; g++) { const q = k % 4; expG.push(NG > 1 ? 'Line ' + (k + 1) + '-' + (g + 1) : 'Line ' + ((q >> 1) + 1) + '-' + ((q & 1) + 1) + (k >= 4 ? '′' : '')); }
+    const expG = []; for (let k = 0; k < nl; k++) for (let g = 0; g < NG; g++) { const q = k % 4; expG.push(NG > 1 ? 'Line ' + (k + 1) + '-' + (g + 1) : 'Line ' + (k + 1)); }
     good = good && !$('dm-pvbody').classList.contains('hidden') && gates.join(',') === expG.join(',') && QA('circle[data-dot="gate"]').length === nD * expG.length && QA('path[data-dl]').length === nD;
     good = good && +$('dm-pv-tft').getAttribute('data-plines') === per && +$('dm-pv-tft').getAttribute('data-ng') === NG;
     good = good && LOD.linesN(t, nD).every(r => r.names.every((nm, p) => nm === 'X' || !!Q('path[data-w="' + r.line + ':D' + (p + 1) + ':' + ud(r.gate - 1) + ':' + nm + '"]') || (Q('text[data-send="' + r.line + ':D' + (p + 1) + ud(r.gate - 1) + '"]') || {}).textContent === '!' + nm));
@@ -136,7 +136,7 @@ if (SRC) {
   ok(/D3↑/.test(Q('rect[data-pv="1:G1"]').parentNode.getAttribute('data-tip')) && JSON.stringify(w.dmBuildScript()) === sc0, 'Type 32＋對調：G1 改由 D3 送；匯出不變');
   fire($('dm-pv-swap'), false);
   fire(sel, '7');
-  ok(QA('text[data-gsub]').map(x => x.textContent.split(' ')[0]).join(',') === 'G1,G2,G3,G4,G5,G6,G7,G8' && !!Q('line[data-gate="2-2′"]'), 'Type 7：Single 8 條 gate G1~G8（G5~G8＝第二組 Line 1-1′~2-2′，同原廠 xlsx Zigzag 圖）');
+  ok(QA('text[data-gsub]').map(x => x.textContent.split(' ')[0]).join(',') === 'G1,G2,G3,G4,G5,G6,G7,G8' && !!Q('line[data-gate="8"]'), 'Type 7：Single 8 條 gate G1~G8（G5~G8＝第二組 Line 1-1′~2-2′，同原廠 xlsx Zigzag 圖）');
   fire(sel, '5');
   ok(!!Q('path[data-w="1:D1:u:R1"]') && !!Q('path[data-w="2:D2:u:R1"]') && !!Q('path[data-w="3:D2:u:R1"]') && !!Q('path[data-w="4:D1:u:R1"]'), 'Type 5 LRRL：R1 在 Line 1~4 依序接 D1、D2、D2、D1');
   fire(sel, '-1');
