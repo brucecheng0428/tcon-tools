@@ -2,6 +2,27 @@
 
 ---
 
+## Data Mapping (datamap) v1.13.0 — 2026-10-07 ｜ MINOR
+
+**Hand Mode 關時，③ 依 Auto Type 畫出實際 Data Mapping 架構：EM01 的實際 code、LTPS MUX2、DAZ6111／DAZ7353 補上；畫不出來的寫明原因，不再空白**
+
+### 需求（Bruce 2026-10-07 原話）
+
+> 是不是 EM01 如果選擇的是用 Hand Mode en關閉，然後可能是 Normal 或者是 ZZag Type 1、Type 2之類，那些在第三部分是不會顯示出來的？這個應該也要一起顯示喔，你再檢查看看，除了 EM01 是不是還有其他也有（TCON也有這個問題）。也就是選擇到不是 Hand Mode，也要可以顯示它的實際 DataMapping架構列在第三部分。
+
+### 變更
+
+- 重現：EM01 B19 實際 code（Hand 關、panel 0／sub 0、mirror 1、chrb 1）不在原廠清單，③ 顯示「未知（0x00）」且沒畫。原因是 `datamap-auto.js` 的 `match()` 要求四個欄位全等，`pvAutoModel()` 比對失敗就清空 ③。
+- 修正：完全相同的 Type 找不到時，改依 panel／sub 比照最接近的 Type（mirror 相同的優先）。mirror 不影響接線；chrb 不同時 R、B 對換，依據是 RT7 (25)→(26) RB_chg，Line OD 25 做 R↔B 後和 26 相同。③ 標「（推定）」並寫出依據。
+- LTPS MUX2（E501A／B、E503、DAZ6138／6139 各 4 項）：用隱藏表兩個時槽（T3／T4）解碼成 Dual 後畫出；每條 line 12 顆各出現一次，已驗證。
+- DAZ6111／DAZ7353：Normal、HSD type1、HSD type 3-5 比照 E50x 同名 Type 畫並標「推定」；Zinv typeN 依清單順序比照 Z-Zag Type N+1，依據較弱，畫面有註明。E50x 沒有同名的 HSD Type 不畫，③ 寫出「此型號 Auto Type … 尚無架構定義，③ 無法畫圖。原因：…」。
+- EM01／E512：③ 加註「依 EM02／查詢表定義推定」。
+- 測試：check_datamap_auto 91/0，逐型號、逐 Auto Type 檢查 ③ 都有圖或有原因，另含 MUX2 排列、chrb 依據、EM01 Normal／ZZ1／ZZ2 與 B19 組合；check_datamap_preview DAZ7353 預期改為「Normal 推定畫」。
+
+判定依據：`docs/VERSIONING.md` §R3，MINOR：③ 多畫 50 個原本空白的 Auto Type，並新增推定標示與原因說明；② 的值、匯出 script 與寫入都不變（回歸比對）；app 不動。
+
+---
+
 ## Data Mapping (datamap) v1.12.0 — 2026-10-07 ｜ MINOR
 
 **② 改成和原廠 UI 一樣只有一個「RT7 Type Select」：完整 35 項（含 Manual 樣式 (18)~(21)、(23)、(28)~(32) 與 (33) User define），Hand Mode 開或關都能選**

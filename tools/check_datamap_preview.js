@@ -142,7 +142,7 @@ const ok = (c, m) => { if (c) pass++; else { fail++; console.log('  ✗ ' + m); 
   fire($('dm-gate'), 'Tri-Gate');
   ok($('dm-pvbody').classList.contains('hidden') && /Tri-Gate/.test($('dm-pvnote').textContent), 'Tri ⇒ 預覽顯示不支援');
   fire($('dm-model'), 'DAZ7353');
-  ok($('dm-model').value === 'DAZ7353' && /沒有可用的架構對照/.test($('dm-pvnote').textContent), 'v1.10.0：切 DAZ7353（Hand 關）⇒ Auto Type Normal 沒有架構圖，③ 不畫');
+  ok($('dm-model').value === 'DAZ7353' && /Normal（推定）$/.test($('dm-pvtag').textContent) && QA('rect[data-pv]').length > 0 && /^推定：Normal/m.test($('dm-pvnote').textContent), 'v1.12.0：切 DAZ7353（Hand 關）⇒ Auto Type Normal 比照 E50x Normal 畫、標推定');
   fire($('dm-hand'), true);
   ok(npre() === 0 && QA('rect[data-pv^="1:"]').length === 12, 'DAZ7353 Hand 開（全 0＝R1）⇒ 前循環收起');
 

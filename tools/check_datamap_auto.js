@@ -58,7 +58,18 @@ ok(A.FIXES['6'][0].cell === 'X13' && A.FIXES['6'][0].from === 6 && A.FIXES['6'][
   const dupFree = [0, 1, 2, 3].every(s => new Set(v.slice(s * 12, s * 12 + 6)).size === 6 && new Set(v.slice(s * 12 + 6, s * 12 + 12)).size === 6);
   const seq = [0, 1, 2, 3].map(s => v[s * 12] === 6 ? 'L' : 'R').join('');
   ok(dupFree && seq === 'LRRL', '修正後 zz5 每條 gate 6 格不重複、L／R＝' + seq); }
-ok(A.wiring(A.list('E503').find(e => e.name === 'LTPS Type 1 Z-Zag MUX3')).g === 'tri' && A.wiring(A.list('E503').find(e => e.name === 'LTPS Type 1 Normal MUX2')) === null, 'LTPS MUX3 用隱藏表解碼畫（Tri）；MUX2 未解碼 ⇒ 不畫');
+ok(A.wiring(A.list('E503').find(e => e.name === 'LTPS Type 1 Z-Zag MUX3')).g === 'tri', 'LTPS MUX3 用隱藏表解碼畫（Tri）');
+{ const mx = A.list('E503').filter(e => / MUX2$/.test(e.name)).map(e => ({ e, t: A.wiring(e) }));
+  ok(mx.length === 4 && mx.every(({ e, t }) => t && t.g === 'dual' && t.rows.every((ln, l) => { const a = ln[0].concat(ln[1]).sort((x, y) => x - y).join(); const z = / Z-Zag /.test(e.name) && l === 1; return a === (z ? [-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10] : [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]).join(); })),
+    'v1.12.0 LTPS MUX2 四種用隱藏表 T3／T4 兩時槽解碼（Dual）：每條 line 12 顆各一次（Z-Zag 第 2 條整體左移 1 顆）'); }
+console.log('── v1.12.0 Hand 關 ③ 一定有圖或明確原因');
+{ const T = {}; for (const m of DM.MODEL_KEYS) { const L = A.list(m); T[m] = { draw: L.filter(e => A.wiring(e)).length, est: L.filter(e => A.wiring(e) && e.est).length, none: L.filter(e => !A.wiring(e)).map(e => e.name) }; }
+  ok(['E503', 'E501A', 'E501B', 'DAZ6138', 'DAZ6139', 'EM01', 'EM02', 'E512'].every(m => T[m].none.length === 0), 'E50x／DAZ6138／6139／EM01／EM02／E512：每個 Auto Type 都有架構（含 MUX2）');
+  ok(T.DAZ6111.none.join() === 'HSD type0,HSD type2,HSD type3' && T.DAZ7353.none.join() === 'HSD type0,HSD type2,HSD type3,HSD Z,HSD Z2,HSD N1,HSD N2,HSD N3,HSD N4', 'DAZ6111／DAZ7353 只剩 E50x 沒有同名的 HSD Type 不畫：' + T.DAZ6111.none.join('、') + '｜' + T.DAZ7353.none.join('、'));
+  ok(['DAZ6111', 'DAZ7353'].every(m => A.list(m).every(e => A.wiring(e) ? /^推定/.test(e.est) : /無法推定/.test(e.why))), 'DAZ 推定的都標「推定」、不畫的都有原因');
+  const s = Object.assign(DM.emptyState('EM01'), { mirror: 1, chrb: 1 }), lo = A.matchLoose('EM01', s);
+  ok(A.match('EM01', s) < 0 && lo && A.list('EM01')[lo.i].name === '(0) 1D1G(Mirror)' && lo.rb, 'EM01 B19 code（panel 0／sub 0／mirror 1／chrb 1，不在清單）⇒ 比照 (0) Mirror＋R↔B');
+  ok(JSON.stringify(A.rbSwap(LOD.TYPES[25]).rows) === JSON.stringify(LOD.TYPES[26].rows), 'chrb＝R↔B 的依據：Line OD 25 做 R↔B ＝ Line OD 26（RB_chg）'); }
 
 (async () => {
   console.log('── 網頁（jsdom）');
@@ -91,8 +102,10 @@ ok(A.wiring(A.list('E503').find(e => e.name === 'LTPS Type 1 Z-Zag MUX3')).g ===
         good = good && !!line && (parseInt(line.split(' ')[3], 16) & 0xFE) === want; }
       else { const rows = DM.pyScriptRows(m, s), sp = DM.fieldById(m, 'subPanel'), off = '0x' + hex(sp.parts[0][0], 3) + '[' + sp.parts[0][1] + ':' + sp.parts[0][2] + ']';
         const r = rows.find(x => x[4] === off); good = good && !!r && parseInt(r[6], 16) === (e.set.subPanel | 0); }
-      if (A.wiring(e)) { drawn++; good = good && $('dm-pvtag').textContent === 'Auto · ' + e.name && QA('rect[data-pv]').length > 0 && !Q('[data-bad]'); }
-      else { nopic++; good = good && /沒有可用的架構對照/.test($('dm-pvnote').textContent) && $('dm-pv-tft').innerHTML === ''; }
+      if (A.wiring(e)) { drawn++; good = good && $('dm-pvtag').textContent === 'Auto · ' + e.name + (e.est ? '（推定）' : '') && QA('rect[data-pv]').length > 0 && !Q('[data-bad]'); }
+      else { nopic++; good = good && /尚無架構定義，③ 無法畫圖。原因：.+/.test($('dm-pvnote').textContent) && !$('dm-pvnote').classList.contains('hidden') && $('dm-pv-tft').innerHTML === ''; }
+      if (A.wiring(e) && e.est) good = good && /（推定）$/.test($('dm-pvtag').textContent) && $('dm-pvnote').textContent.indexOf(e.est) >= 0;
+      if (A.fam(m) === 'mnt' && m !== 'EM02') good = good && /依 EM02／查詢表定義推定/.test($('dm-pvnote').textContent);
     }
     ok(good, m + '：Hand 關 ⇒ Auto 下拉 ' + L.length + ' 項，逐項寫入欄位、匯出含對應位址；③ 畫 ' + drawn + ' 項、無圖 ' + nopic + ' 項（不出錯、無衝突）');
   }
@@ -140,6 +153,16 @@ ok(A.wiring(A.list('E503').find(e => e.name === 'LTPS Type 1 Z-Zag MUX3')).g ===
     ok(+mm.getAttribute('data-preset') === mi && /panel_mode＝2/.test(mm.textContent) && /rd_mode＝1/.test(mm.textContent), '蘇坤 code（Hand 開）：force_sel＝原廠 Manual 樣式 (32)，顯示 Panel Mode 應設值（panel_mode＝2、rd_mode＝1…），差異 ' + mm.getAttribute('data-diff') + ' 項');
     ok(s.hand === 1 && !sel.disabled && sel.value === 'p' + mi && sel.options[sel.selectedIndex].textContent.startsWith('(32) HSD BOE+GBG/RRB+LR'), '匯入蘇坤 code 後 RT7 Type Select 自動選到 (32) HSD BOE+GBG/RRB+LR（Hand 開仍可選）');
   }
+  console.log('── v1.12.0 EM01 Hand 關 ③');
+  if (w.dmClearImport) w.dmClearImport();
+  fire($('dm-model'), 'EM01'); if (w.dmState.cur.hand) fire($('dm-hand'), false);
+  for (const n of ['(0) 1D1G(Normal)', '(1) ZZ+LR', '(2) ZZ+RL']) {
+    fire($('dm-auto'), 'p' + DM.PRESETS.findIndex(p => p.name === n));
+    ok(!w.dmState.cur.hand && $('dm-pvtag').textContent.startsWith('Auto · ' + n) && QA('rect[data-pv]').length > 0 && !$('dm-pvbody').classList.contains('hidden') && /依 EM02／查詢表定義推定/.test($('dm-pvnote').textContent), 'EM01 Hand 關選 ' + n + ' ⇒ ③ 有畫、註明依 EM02／查詢表定義推定');
+  }
+  fire($('dm-auto'), 'p0'); fire($('f-mirror'), true); fire($('f-chrb'), true);
+  ok(!w.dmState.cur.hand && $('dm-auto').value === 'u' && QA('rect[data-pv]').length > 0 && /R↔B（推定）$/.test($('dm-pvtag').textContent) && /chrb 不同 ⇒ R、B 對換/.test($('dm-pvnote').textContent),
+    'EM01 panel 0＋mirror 1＋chrb 1（B19 code 的組合，不在清單）⇒ ② 顯示 User define、③ 照 (0) Mirror＋R↔B 畫並標推定：' + $('dm-pvtag').textContent);
   console.log('── v1.12.0 單一 RT7 Type Select（EM02）');
   if (w.dmClearImport) w.dmClearImport();
   fire($('dm-model'), 'EM02'); if (w.dmState.cur.hand) fire($('dm-hand'), false);

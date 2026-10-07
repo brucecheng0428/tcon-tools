@@ -105,6 +105,18 @@
     }
     return { no: -1, name: label, g: 'tri', P: 6, A: 6, rows: rows, reg: null };
   }
+  /* ── v1.12.0 LTPS MUX2（Dual）解碼（Bruce 10/7「選擇到不是 Hand Mode，也要可以顯示它的實際 DataMapping架構列在第三部分」）：
+     兩個時槽＝r0_(2l)（T3 表）、r0_(2l+1)（T4 表）；6 條 Data 線 × 2 時槽＝4 pixel 的 12 顆，normal 列每顆剛好一次（zigzag 整體往左 1 顆），
+     與 MUX3 用 T3／T4／T5 同一套表（第二組 r2..b3 在 MUX2 列只是第一組的複本，不用）。四列 normal／zigzag × type1／type2 均驗證為 12 顆排列。 */
+  function mux2Type(h, label) {
+    var rows = [];
+    for (var l = 0; l < 2; l++) {
+      var line = [];
+      for (var g = 0; g < 2; g++) { var r = []; for (var c = 0; c < 6; c++) { var v = hv(h, CH[c], 2 * l + g); r.push(v === null || v === 31 ? null : LOD.tName(3 + g, v)); } line.push(r); }
+      rows.push(line);
+    }
+    return { no: -1, name: label, g: 'dual', P: 6, A: 4, rows: rows, reg: null };
+  }
   /* ── 各型號 Auto Mode Type 清單（Hand Mode 關＝依 PANEL_MODE＋SUB_PANEL_MODE 自動選；出處見 datamap-core SUB_PANEL_REG 與 Obsidian 筆記） */
   function fam(model) {
     var M = DM.MODELS[model]; if (!M) return null;
@@ -116,6 +128,16 @@
   var LTPS_HID = ['14', '15', '16', '17', '18', '19', '20', '21'];
   function ltpsList() { return LTPS.map(function (n, i) { return { name: n, set: { panel: 3, subPanel: i, rd: (i & 1) ? 1 : 2 }, lod: i === 0 ? 17 : null, hid: LTPS_HID[i], mux2: !!(i & 1) }; }); }
   var _lists = {};
+  /* v1.12.0 DAZ6111／DAZ7353：model 檔只有 Type 編號、沒有架構圖 ⇒ 能比照 E50x 同名（或同序）Type 的才畫，並標「推定」；其餘寫明原因 */
+  var EST_NML = '推定：Normal（1D1G，每條 Data 線接正下方）各晶片相同，比照 E50x Normal／Line OD 0';
+  function estZ(n) { return '推定（依據較弱）：DAZ model 檔只有「Zinv type' + n + '」編號；依清單順序比照 E50x Z-Zag Type ' + (n + 1) + '（＝Line OD ' + (n + 1) + '），未經原廠確認'; }
+  var DAZ_HSD = { 'type1': [22, '推定：同名比照 E50x HSD Type 1（＝Line OD 22），DAZ model 檔無架構圖、未經原廠確認'],
+                  'type 3-5': [27, '推定：同名比照 E50x HSD Type 3-5（＝Line OD 27），DAZ model 檔無架構圖、未經原廠確認'] };
+  function dazHsd(n, i) {
+    var d = DAZ_HSD[n];
+    return d ? { name: 'HSD ' + n, set: { panel: 2, subPanel: i }, lod: d[0], est: d[1] }
+      : { name: 'HSD ' + n, set: { panel: 2, subPanel: i }, lod: null, why: 'DAZ model 檔只有「HSD ' + n + '」編號、沒有架構圖；E50x 沒有同名 Type（E50x HSD 只有 Type 1／4／3-5／4+Z-Zag(BOE)），無法推定' };
+  }
   function list(model) {
     var f = fam(model); if (!f) return [];
     if (_lists[f]) return _lists[f];
@@ -129,13 +151,13 @@
       if (f === 'e50x') L.push({ name: 'HSD Type 4+Z-Zag(BOE)', set: { panel: 2, subPanel: 3, rd: 1 }, lod: 25, hid: '13' });
       L = L.concat(ltpsList());
     } else if (f === 'daz6111') {
-      L.push({ name: 'Normal', set: { panel: 0, subPanel: 0 }, lod: null });
-      for (var a = 0; a < 4; a++) L.push({ name: 'Zinv type' + a, set: { panel: 1, subPanel: a }, lod: null });
-      ['type0', 'type1', 'type2', 'type3', 'type 3-5'].forEach(function (n, i) { L.push({ name: 'HSD ' + n, set: { panel: 2, subPanel: i }, lod: null }); });
+      L.push({ name: 'Normal', set: { panel: 0, subPanel: 0 }, lod: 0, est: EST_NML });
+      for (var a = 0; a < 4; a++) L.push({ name: 'Zinv type' + a, set: { panel: 1, subPanel: a }, lod: a + 1, est: estZ(a) });
+      ['type0', 'type1', 'type2', 'type3', 'type 3-5'].forEach(function (n, i) { L.push(dazHsd(n, i)); });
     } else if (f === 'daz7353') {
-      L.push({ name: 'Normal', set: { panel: 0, subPanel: 0 }, lod: null });
-      for (var b = 0; b < 8; b++) L.push({ name: 'Zinv type' + b, set: { panel: 1, subPanel: b }, lod: null });
-      ['type0', 'type1', 'type2', 'type3', 'type 3-5', 'Z', 'Z2', 'N1', 'N2', 'N3', 'N4'].forEach(function (n, i) { L.push({ name: 'HSD ' + n, set: { panel: 2, subPanel: i }, lod: null }); });
+      L.push({ name: 'Normal', set: { panel: 0, subPanel: 0 }, lod: 0, est: EST_NML });
+      for (var b = 0; b < 8; b++) L.push({ name: 'Zinv type' + b, set: { panel: 1, subPanel: b }, lod: b + 1, est: estZ(b) });
+      ['type0', 'type1', 'type2', 'type3', 'type 3-5', 'Z', 'Z2', 'N1', 'N2', 'N3', 'N4'].forEach(function (n, i) { L.push(dazHsd(n, i)); });
     } else {   // mnt：原廠 RT7 清單中 force_sel_en＝0 的樣式
       var HID = { 0: '1', 17: '14', 22: '10', 24: '11', 25: '13', 26: '13', 27: '12' };
       DM.PRESETS.forEach(function (p, pi) {
@@ -157,6 +179,28 @@
     }
     return -1;
   }
+  /* v1.12.0 Hand 關、但 panel／sub／mirror／chrb 組合不在清單（例：EM01 B19 code panel 0＋sub 0＋mirror 1＋chrb 1）：
+     依 panel／sub 找同一個 Type（mirror 相同者優先），mirror 不影響接線（Line OD 0、9~16 與 0、1~8 接線相同，只是輸入資料左右反向），
+     chrb 不同 ⇒ R、B 對換（依據：RT7 (25)→(26) RB_chg 只差 chrb，Line OD 25／26 接線正好 R↔B）。回傳 { i, rb } 或 null。 */
+  function matchLoose(model, s) {
+    var L = list(model), best = -1;
+    for (var i = 0; i < L.length; i++) {
+      var e = L[i]; if ((s.panel | 0) !== (e.set.panel | 0) || (s.subPanel | 0) !== ((e.set.subPanel | 0))) continue;
+      if (best < 0) best = i;
+      if (fam(model) === 'mnt' && (s.mirror | 0) === (e.set.mirror | 0) && (s.chrb | 0) === (e.set.chrb | 0)) { best = i; break; }
+      if (fam(model) === 'mnt' && (s.mirror | 0) === (e.set.mirror | 0) && (L[best].set.mirror | 0) !== (s.mirror | 0)) best = i;
+    }
+    if (best < 0) return null;
+    return { i: best, rb: fam(model) === 'mnt' && (s.chrb | 0) !== (L[best].set.chrb | 0) };
+  }
+  function rbIdx(k) { if (k === null || k === undefined) return k; var m = ((k % 3) + 3) % 3; return m === 1 ? k : k - m + (2 - m); }
+  function rbSwap(t) {
+    var o = {}; for (var k in t) o[k] = t[k];
+    o.rows = t.rows.map(function (line) { return line.map(function (g) { return g.map(rbIdx); }); });
+    o.reg = null; o.no = -1; o.name = t.name + ' + R↔B（chrb）';
+    if (t.L) o.L = t.L.map(function (r) { return r.map(function (x) { return x.replace(/[RB]/g, function (c) { return c === 'R' ? 'B' : 'R'; }); }); });
+    return o;
+  }
   function apply(model, s, i) {
     var e = list(model)[i]; if (!e) return s;
     if (e.preset !== undefined) return DM.applyPreset(model, s, e.preset);
@@ -169,6 +213,7 @@
     if (!e) return null;
     if (e.lod !== null && e.lod !== undefined && LOD.TYPES[e.lod]) return LOD.TYPES[e.lod];
     if (e.hid && /mux3$/.test(HIDDEN[e.hid].name)) return mux3Type(HIDDEN[e.hid], e.name);
+    if (e.hid && /mux2$/.test(HIDDEN[e.hid].name)) return mux2Type(HIDDEN[e.hid], e.name);
     return null;
   }
   function fixesFor(e) { return e && e.hid && FIXES[e.mirror ? e.hid : e.hid] ? { row: HIDDEN[e.hid], list: FIXES[e.hid] } : null; }
@@ -292,6 +337,6 @@
     return { state: d.length ? 'diff' : 'ok', cur: cur, curType: ct, exp: exp, diff: d };
   }
   function lodApply(model, s) { var e = expectedLod(model, s); return e.ok ? lodSet(s, e.reg) : null; }
-  var API = { HIDDEN: HIDDEN, manualMatch: manualMatch, rt7Match: rt7Match, lodSupported: lodSupported, lodOf: lodOf, lodSet: lodSet, wiringFromState: wiringFromState, expectedLod: expectedLod, lodCheck: lodCheck, lodApply: lodApply, PM_KEYS: PM_KEYS, FIXES: FIXES, ZZ_SEQ: ZZ_SEQ, fam: fam, list: list, match: match, apply: apply, wiring: wiring, fixesFor: fixesFor, mux3Type: mux3Type, rawByte: rawByte };
+  var API = { HIDDEN: HIDDEN, manualMatch: manualMatch, rt7Match: rt7Match, matchLoose: matchLoose, rbSwap: rbSwap, mux2Type: mux2Type, lodSupported: lodSupported, lodOf: lodOf, lodSet: lodSet, wiringFromState: wiringFromState, expectedLod: expectedLod, lodCheck: lodCheck, lodApply: lodApply, PM_KEYS: PM_KEYS, FIXES: FIXES, ZZ_SEQ: ZZ_SEQ, fam: fam, list: list, match: match, apply: apply, wiring: wiring, fixesFor: fixesFor, mux3Type: mux3Type, rawByte: rawByte };
   if (typeof module === 'object' && module.exports) module.exports = API; else root.TCONDataMapAuto = API;
 })(typeof window !== 'undefined' ? window : this);
