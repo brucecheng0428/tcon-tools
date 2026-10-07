@@ -2,6 +2,29 @@
 
 ---
 
+## Data Mapping (datamap) v1.17.2 — 2026-10-08 ｜ PATCH
+
+**③ 的 CH1 位置和 Driver 輸出方向（SHL）拆成兩個獨立效果：CH1 位置只決定 Data 線的位置和標號；SHL 不動 Data 線，只決定每條線收到哪一筆資料。拿掉「等效方向（反＋反＝正）」；② 的 Mirror 與 READ_RVS 照原廠工具連動**
+
+### 需求（Bruce 2026-10-08 原話）
+
+> CH1 是在最右邊還是在最左邊，才是決定 TFT 接線圖中 D1 在最左邊還是 DN+6 在最左邊的關鍵。應該只有這個會決定 TFT 接線的 Data 位置。而 Driver 的輸出方向（也就是 SHL），只跟丟進 Driver 裡面資料的順序有關(也就是subpixel內的R1G1B1等等的順序有關)，而不會去改到面板上面的data 名稱順序。
+
+### 變更
+
+- **兩個獨立效果**（`datamap.html` 的 pvRL／pvRLOf 只看 CH1 位置；新增 pvRevIdx；pvWiresSpec 與 pvPhysMis 加上 rev 參數）：
+  - CH1 位置：決定整張圖是否左右翻，以及 D1…D6 或 Dn+6…Dn+1 的標號。
+  - SHL 反向：Data 線的位置和標號不變，同一組（一個週期）內第 p 條線改收第（週期−1−p）條的資料。格內寫實際收到的資料，顏色比對也照收到的資料算。這裡假設 COF 的 CH 數是週期的整數倍。
+- **16 種組合不再合併成等效群組**：每一種各自計算，依「顏色全對 → 子像素排列同目前 → SHL 和 code 的 iSP 一致 → 線長」排序。結果欄改成兩句：「Data 線：…｜資料：…」。
+- **全民 code**（CH1 最右、SHL＝1、RGB、Mirror＝1）在新定義下：24/24 顏色相符，Data 6＝B-1 和 D5 相鄰，主循環置左；匯入後自動建議與自動帶入不變。SHL 改成 0 時，Data 線位置和標號不變，格內資料每組倒過來，有 16 格顏色不符。
+- ⓘ 和「說明與進階」改成上面兩句白話定義；移除「等效方向」「反＋反＝正」的說法。
+- **Mirror 與 READ_RVS 連動**（Bruce 10/8；EM01／EM02／E512）：改 Mirror 時照原廠工具一起寫 READ_RVS，1→0xFFFF、0→0x0000（EM01 RApp_TX.cpp:8859-8880、EM02 :8699-8719、E512 :8443-8463），並納入匯出與 I2C。匯入時兩者不一致會提示，不自動改；量產例外為 EM01 B4 34" mLVDS 用 0x0003／0x0001 逐 port 反向。READ_RVS 的 ⓘ 改成正式用途：bit n＝port n 從 RVS_ADDR 反向讀（EM01 rt7_data_proc.md:82、EM02A1_RegisterBank.model:18929、DAZ6138 model:7722）。NB（E501／E503／DAZ6138）網頁沒有這兩個欄位，這次不加連動，只記錄 model 註解（RM8100x model:8887-8897「MIRROR=1, READ_RVS=FF」）。
+- **測試**：check_datamap_kickoff 47/0（含 Mirror／READ_RVS 連動與提示；切換 SHL 時 Data 線位置和標號不變、只有格內資料改變；切換 CH1 位置時 Data 線位置和標號改變；16 種各自獨立）；check_datamap_preview 46/0（EM02 61/0）；check_datamap_auto 101/0；check_datamap 282/0；check_datamap_lod 196/0。
+
+判定依據：`docs/VERSIONING.md` §R3，PATCH：修正 ③ 預覽模型的定義；② 的值、匯出 script 與寫入都不變；app 不動。
+
+---
+
 ## Data Mapping (datamap) v1.17.1 — 2026-10-08 ｜ PATCH
 
 **全民改回 RGB（CH1 在最右＋正向＋RGB，匯入時自動帶入）；Mirror 名稱改成整行反轉（全民 0x17＝B-1）；T 表判定拿掉「預設 T2」，依 code 實際值與 Excel 公式；CH1 在右時 ③ 主循環畫在最左（Dn+k 標號）**
