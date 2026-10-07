@@ -1,0 +1,100 @@
+#!/usr/bin/env node
+/* ═══════════════════════════════════════════════════════════════════════════
+   check_datamap_kickoff.js — v1.15.0 RM81010 Kick Off「Data hand mode」分頁 ⇔ 網頁 ②③ 回歸
+   用法：node tools/check_datamap_kickoff.js [repo] [--qm <全民 EM01 code.bin>]
+   出處（只讀）：~/TCON/Kick Off/RM81010_Kick_Off_Check_20210805.xlsx「Data hand mode」
+     ・code 表 D2:R31（code 0~29 × 欄位；每往右一欄＝往右 2 pixel）；輸出 E36:R51＝INDIRECT(ADDRESS(code+2, COLUMN()))，
+       偶數欄用 _0（line 1 用 _2）、奇數欄用 _1（_3）；Normal & Zigzag 只填第一行；HSD 兩行（上／下 gate）。
+     ・範例：mirror＝0 Zigzag（C36:D51）、mirror＝1 HSD（U36:V51）、HSD 圖（C95:Q113 的 image87.png，code 抄錄、輸出用同一公式算）。
+   下方 FX 由 openpyxl 讀公式與值產生（data_only 不用；公式照 Excel 規則算出）。
+   ═══════════════════════════════════════════════════════════════════════════ */
+'use strict';
+const path = require('path'), fs = require('fs');
+const args = process.argv.slice(2), qi = args.indexOf('--qm'), QM = qi >= 0 ? args[qi + 1] : null;
+const pos = args.filter((a, i) => a !== '--qm' && (qi < 0 || i !== qi + 1));
+const ROOT = path.resolve(pos[0] || path.join(__dirname, '..'));
+const DM = require(path.join(ROOT, 'common/datamap-core.js'));
+global.TCONDataMap = DM;
+const LOD = require(path.join(ROOT, 'common/datamap-lod.js'));
+let fail = 0, pass = 0;
+const ok = (c, m) => { if (c) pass++; else { fail++; console.log('  ✗ ' + m); } };
+const FX = {"src": "~/TCON/Kick Off/RM81010_Kick_Off_Check_20210805.xlsx「Data hand mode」", "table": [["R1", "R3", "R5", "R7", "R9", "R11", "R13", "R15", "R17", "R19", "R21", "R23", null, null, null], ["G1", "G3", "G5", "G7", "G9", "G11", "G13", "G15", "G17", "G19", "G21", "G23", null, null, null], ["B1", "B3", "B5", "B7", "B9", "B11", "B13", "B15", "B17", "B19", "B21", "B23", null, null, null], ["R2", "R4", "R6", "R8", "R10", "R12", "R14", "R16", "R18", "R20", "R22", "R24", null, null, null], ["G2", "G4", "G6", "G8", "G10", "G12", "G14", "G16", "G18", "G20", "G22", "G24", null, null, null], ["B2", "B4", "B6", "B8", "B10", "B12", "B14", "B16", "B18", "B20", "B22", "B24", null, null, null], [null, "R1", "R3", "R5", "R7", "R9", "R11", "R13", "R15", "R17", "R19", "R21", "R23", null, null], [null, "G1", "G3", "G5", "G7", "G9", "G11", "G13", "G15", "G17", "G19", "G21", "G23", null, null], [null, "B1", "B3", "B5", "B7", "B9", "B11", "B13", "B15", "B17", "B19", "B21", "B23", null, null], [null, "R2", "R4", "R6", "R8", "R10", "R12", "R14", "R16", "R18", "R20", "R22", "R24", null, null], [null, "G2", "G4", "G6", "G8", "G10", "G12", "G14", "G16", "G18", "G20", "G22", "G24", null, null], [null, "B2", "B4", "B6", "B8", "B10", "B12", "B14", "B16", "B18", "B20", "B22", "B24", null, null], [null, null, "R1", "R3", "R5", "R7", "R9", "R11", "R13", "R15", "R17", "R19", "R21", "R23", null], [null, null, "G1", "G3", "G5", "G7", "G9", "G11", "G13", "G15", "G17", "G19", "G21", "G23", null], [null, null, "B1", "B3", "B5", "B7", "B9", "B11", "B13", "B15", "B17", "B19", "B21", "B23", null], [null, null, "R2", "R4", "R6", "R8", "R10", "R12", "R14", "R16", "R18", "R20", "R22", "R24", null], [null, null, "G2", "G4", "G6", "G8", "G10", "G12", "G14", "G16", "G18", "G20", "G22", "G24", null], [null, null, "B2", "B4", "B6", "B8", "B10", "B12", "B14", "B16", "B18", "B20", "B22", "B24", null], [null, null, null, "R1", "R3", "R5", "R7", "R9", "R11", "R13", "R15", "R17", "R19", "R21", "R23"], [null, null, null, "G1", "G3", "G5", "G7", "G9", "G11", "G13", "G15", "G17", "G19", "G21", "G23"], [null, null, null, "B1", "B3", "B5", "B7", "B9", "B11", "B13", "B15", "B17", "B19", "B21", "B23"], [null, null, null, "R2", "R4", "R6", "R8", "R10", "R12", "R14", "R16", "R18", "R20", "R22", "R24"], [null, null, null, "G2", "G4", "G6", "G8", "G10", "G12", "G14", "G16", "G18", "G20", "G22", "G24"], [null, null, null, "B2", "B4", "B6", "B8", "B10", "B12", "B14", "B16", "B18", "B20", "B22", "B24"], [null, null, null, null, "R1", "R3", "R5", "R7", "R9", "R11", "R13", "R15", "R17", "R19", "R21"], [null, null, null, null, "G1", "G3", "G5", "G7", "G9", "G11", "G13", "G15", "G17", "G19", "G21"], [null, null, null, null, "B1", "B3", "B5", "B7", "B9", "B11", "B13", "B15", "B17", "B19", "B21"], [null, null, null, null, "R2", "R4", "R6", "R8", "R10", "R12", "R14", "R16", "R18", "R20", "R22"], [null, null, null, null, "G2", "G4", "G6", "G8", "G10", "G12", "G14", "G16", "G18", "G20", "G22"], [null, null, null, null, "B2", "B4", "B6", "B8", "B10", "B12", "B14", "B16", "B18", "B20", "B22"]], "zz": {"mirror": 0, "line0": {"c0": [6, 7, 8, 9, 10, 11], "c1": [6, 7, 8, 9, 10, 11], "cols": [["R1", "G1", "B1", "R2", "G2", "B2"], ["R3", "G3", "B3", "R4", "G4", "B4"], ["R5", "G5", "B5", "R6", "G6", "B6"], ["R7", "G7", "B7", "R8", "G8", "B8"], ["R9", "G9", "B9", "R10", "G10", "B10"], ["R11", "G11", "B11", "R12", "G12", "B12"], ["R13", "G13", "B13", "R14", "G14", "B14"], ["R15", "G15", "B15", "R16", "G16", "B16"], ["R17", "G17", "B17", "R18", "G18", "B18"], ["R19", "G19", "B19", "R20", "G20", "B20"], ["R21", "G21", "B21", "R22", "G22", "B22"], ["R23", "G23", "B23", "R24", "G24", "B24"], [null, null, null, null, null, null], [null, null, null, null, null, null]]}, "line1": {"c0": [17, 6, 7, 8, 9, 10], "c1": [17, 6, 7, 8, 9, 10], "cols": [[null, "R1", "G1", "B1", "R2", "G2"], ["B2", "R3", "G3", "B3", "R4", "G4"], ["B4", "R5", "G5", "B5", "R6", "G6"], ["B6", "R7", "G7", "B7", "R8", "G8"], ["B8", "R9", "G9", "B9", "R10", "G10"], ["B10", "R11", "G11", "B11", "R12", "G12"], ["B12", "R13", "G13", "B13", "R14", "G14"], ["B14", "R15", "G15", "B15", "R16", "G16"], ["B16", "R17", "G17", "B17", "R18", "G18"], ["B18", "R19", "G19", "B19", "R20", "G20"], ["B20", "R21", "G21", "B21", "R22", "G22"], ["B22", "R23", "G23", "B23", "R24", "G24"], ["B24", null, null, null, null, null], [null, null, null, null, null, null]]}}, "mir": {"mirror": 1, "line0": {"c0": [6, 16, 14, 12, 22, 20], "c1": [13, 23, 21, 19, 29, 27], "cols": [["R1", null, null, null, null, null], ["G1", null, null, null, null, null], ["R5", "G4", "B3", "R3", "G2", "B1"], ["G5", "B4", "R4", "G3", "B2", "R2"], ["R9", "G8", "B7", "R7", "G6", "B5"], ["G9", "B8", "R8", "G7", "B6", "R6"], ["R13", "G12", "B11", "R11", "G10", "B9"], ["G13", "B12", "R12", "G11", "B10", "R10"], ["R17", "G16", "B15", "R15", "G14", "B13"], ["G17", "B16", "R16", "G15", "B14", "R14"], ["R21", "G20", "B19", "R19", "G18", "B17"], ["G21", "B20", "R20", "G19", "B18", "R18"], [null, "G24", "B23", "R23", "G22", "B21"], [null, "B24", "R24", "G23", "B22", "R22"]]}, "line1": {"c0": [16, 14, 12, 22, 20, 18], "c1": [23, 21, 19, 29, 27, 25], "cols": [[null, null, null, null, null, null], [null, null, null, null, null, null], ["G4", "B3", "R3", "G2", "B1", "R1"], ["B4", "R4", "G3", "B2", "R2", "G1"], ["G8", "B7", "R7", "G6", "B5", "R5"], ["B8", "R8", "G7", "B6", "R6", "G5"], ["G12", "B11", "R11", "G10", "B9", "R9"], ["B12", "R12", "G11", "B10", "R10", "G9"], ["G16", "B15", "R15", "G14", "B13", "R13"], ["B16", "R16", "G15", "B14", "R14", "G13"], ["G20", "B19", "R19", "G18", "B17", "R17"], ["B20", "R20", "G19", "B18", "R18", "G17"], ["G24", "B23", "R23", "G22", "B21", "R21"], ["B24", "R24", "G23", "B22", "R22", "G21"]]}}, "hsd": {"note": "codes 從 Data hand mode 分頁 C95:Q113 的圖（xl/media/image87.png）抄錄；輸出用同一個公式（E36 的 INDIRECT）算", "codes": {"c0": [16, 17, 7, 10, 11, 1], "c1": [21, 12, 14, 15, 6, 8], "c2": [17, 7, 10, 11, 1, 4], "c3": [12, 14, 15, 6, 8, 9]}, "line0": [[null, null, "G1", "G2", "B2", "G3"], [null, "R1", "B1", "R2", "R3", "B3"], ["G4", "B4", "G5", "G6", "B6", "G7"], ["R4", "R5", "B5", "R6", "R7", "B7"], ["G8", "B8", "G9", "G10", "B10", "G11"], ["R8", "R9", "B9", "R10", "R11", "B11"], ["G12", "B12", "G13", "G14", "B14", "G15"], ["R12", "R13", "B13", "R14", "R15", "B15"], ["G16", "B16", "G17", "G18", "B18", "G19"], ["R16", "R17", "B17", "R18", "R19", "B19"], ["G20", "B20", "G21", "G22", "B22", "G23"], ["R20", "R21", "B21", "R22", "R23", "B23"], ["G24", "B24", null, null, null, null], ["R24", null, null, null, null, null]], "line1": [[null, "G1", "G2", "B2", "G3", "G4"], ["R1", "B1", "R2", "R3", "B3", "R4"], ["B4", "G5", "G6", "B6", "G7", "G8"], ["R5", "B5", "R6", "R7", "B7", "R8"], ["B8", "G9", "G10", "B10", "G11", "G12"], ["R9", "B9", "R10", "R11", "B11", "R12"], ["B12", "G13", "G14", "B14", "G15", "G16"], ["R13", "B13", "R14", "R15", "B15", "R16"], ["B16", "G17", "G18", "B18", "G19", "G20"], ["R17", "B17", "R18", "R19", "B19", "R20"], ["B20", "G21", "G22", "B22", "G23", "G24"], ["R21", "B21", "R22", "R23", "B23", "R24"], ["B24", null, null, null, null, null], [null, null, null, null, null, null]]}};
+const nm = x => { const px = Math.floor(x / 3), c = ((x % 3) + 3) % 3; return 'RGB'[c] + (px >= 0 ? px + 1 : px); };
+console.log('── code 表（D2:R31）＝網頁 T 表解碼');
+{ let good = 0, total = 0, bad = [];
+  for (let code = 0; code < 30; code++) for (let k = 0; k < 15; k++) {
+    const ex = FX.table[code][k], t = LOD.tName(k + 1, code), mine = t === null || t < 0 || t >= 72 ? null : nm(t);
+    total++; if (ex === mine) good++; else bad.push(code + '@' + k + ':' + ex + '/' + mine);
+  }
+  ok(good === total, 'Excel code 表 30×15 格＝tName(欄+1, code)（Excel 空白＝前循環或超過表上的 24 pixel）：' + good + '/' + total + (bad.length ? ' ✗ ' + bad.slice(0, 6).join(' ') : ''));
+  ok(FX.zz.mirror === 0 && FX.mir.mirror === 1, 'mirror＝0／1 兩組範例的公式相同，只差填的 code（左 C:R、右 U:AJ 的 code 表逐格相同）'); }
+(async () => {
+  const { JSDOM, VirtualConsole } = require(path.join(ROOT, 'node_modules/jsdom'));
+  const vc = new VirtualConsole(); vc.on('jsdomError', e => { console.log('jsdomError', e.message); fail++; });
+  const dom = await JSDOM.fromFile(path.join(ROOT, 'datamap.html'), { runScripts: 'dangerously', resources: 'usable', pretendToBeVisual: true, virtualConsole: vc,
+    beforeParse(w) { w.WebSocket = function () { throw new Error('no ws'); }; } });
+  await new Promise(r => dom.window.addEventListener('load', r));
+  const w = dom.window, d = w.document, $ = id => d.getElementById(id);
+  const fire = (el, v) => { if (v !== undefined) { if (el.type === 'checkbox') el.checked = v; else el.value = v; } el.dispatchEvent(new w.Event('change')); };
+  const Q = s => d.querySelector('#dm-pv-tft ' + s), QA = s => Array.from(d.querySelectorAll('#dm-pv-tft ' + s));
+  const put = (m, set, rows) => { fire($('dm-model'), m); const s = Object.assign(DM.emptyState(m), set); rows.forEach((r, i) => r.forEach((v, c) => { s['c' + (i * 6 + c)] = v; })); w.dmState.cur = s; w.dmRender(); };
+  const slots = row => { const out = {}; QA('rect[data-pv^="' + row + ':"]').forEach((r, i) => r.getAttribute('data-in').split(',').filter(Boolean).forEach(x => { out[x] = i; })); return out; };
+  const glabels = () => QA('text[data-glabel]').map(t => t.textContent);
+  console.log('── Zigzag 範例（mirror 0，C36:R51）＝E501A（RM81010）③');
+  { const z = FX.zz; put('E501A', { hand: 1, panel: 1, subPanel: 0, rd: 0 }, [z.line0.c0, z.line0.c1, z.line1.c0, z.line1.c1]);
+    let good = true, why = '';
+    [z.line0, z.line1].forEach((L, li) => { for (let p = 0; p < 12; p++) { const ex = L.cols[Math.floor(p / 6)][p % 6];
+      const hit = ex ? !!Q('path[data-w="' + (li + 1) + ':D' + (p + 1) + ':u:' + ex + '"]') : QA('path[data-w^="' + (li + 1) + ':D' + (p + 1) + ':u:"]').some(e => /-\d$/.test(e.getAttribute('data-w')));
+      if (!hit) { good = false; why = 'Line ' + (li + 1) + ' D' + (p + 1) + '≠' + ex; } } });
+    ok(good, 'Line 1／Line 2 的 D1~D12＝Excel E36:F41／E46:F51（D1~6＝E 欄、D7~12＝F 欄）' + why);
+    ok(glabels().join(',') === 'Line 1,Line 2', 'NB Single：③ 只有 Line 1、Line 2（line 0／line 1），不是 Line 1-1／1-2：' + glabels().join(','));
+    ok([0, 1, 2, 3].map(r => $('dm-rh' + r).textContent).join('|') === 'Line 1（_0）|Line 1′（_1）|Line 2（_2）|Line 2′（_3）', '② 列名：Line 1、Line 1′、Line 2、Line 2′（括號＝暫存器尾碼）'); }
+  console.log('── HSD 範例（mirror 0，圖 C95:Q113）＝E501A Dual ③');
+  { const h = FX.hsd; put('E501A', { hand: 1, panel: 2, subPanel: 0, rd: 1 }, [h.codes.c0, h.codes.c1, h.codes.c2, h.codes.c3]);
+    let good = true, why = '';
+    [h.line0, h.line1].forEach((L, li) => { for (let p = 0; p < 12; p++) for (let gi = 0; gi < 2; gi++) { const ex = L[2 * Math.floor(p / 6) + gi][p % 6];
+      if (!ex) continue; if (!Q('path[data-w="' + (li + 1) + ':D' + (p + 1) + ':' + (gi ? 'd' : 'u') + ':' + ex + '"]')) { good = false; why = ' L' + (li + 1) + ' D' + (p + 1) + (gi ? 'd' : 'u') + '≠' + ex; } } });
+    ok(good, 'Line 1-1／1-2、2-1／2-2 的 D1~D12＝Excel 圖的上／下半行（E/F、G/H 欄）' + why);
+    ok(glabels().join(',') === 'Line 1-1,Line 1-2,Line 2-1,Line 2-2', 'Dual：Line x-1／x-2'); }
+  console.log('── Mirror＝1 範例（U36:AJ51，HSD）＝EM02 Dual＋mirror ③');
+  { const mr = FX.mir; const codes = [mr.line0.c0, mr.line0.c1, mr.line1.c0, mr.line1.c1];
+    put('EM02', { hand: 1, panel: 2, subPanel: 0, rd: 1, mirror: 0 }, codes);
+    const s0 = slots(1);
+    put('EM02', { hand: 1, panel: 2, subPanel: 0, rd: 1, mirror: 1 }, codes);
+    const s1 = slots(1), seq = [1, 2, 3, 4, 5, 6].map(n => [s1['D' + n + 'u'], s1['D' + n + 'd']]);
+    const straight = seq.every((p, i) => Math.abs(p[0] - p[1]) === 1 && (i === 0 || Math.min(p[0], p[1]) === Math.min(seq[i - 1][0], seq[i - 1][1]) + 2));
+    ok(straight && !Q('[data-bad]') && /Mirror＝1/.test($('dm-pvnote').textContent), 'mirror＝1：每條 Data 線接正下方相鄰兩顆、往右每條 +2（Dual 直下），無衝突、③ 註明 Mirror：' + JSON.stringify(seq));
+    ok(JSON.stringify(s0) !== JSON.stringify(s1), '同一組 code 不勾 mirror 時接法不同（mirror 位元會改變 ③）'); }
+  console.log('── Line 標示：各型號');
+  { let good = true, why = '';
+    for (const m of DM.MODEL_KEYS) { fire($('dm-model'), m);
+      for (const [gate, re] of [['Single-Gate', /^Line \d$/], ['Dual-Gate', /^Line \d-[12]$/]]) {
+        const s = Object.assign(DM.emptyState(m), { hand: 1, panel: gate === 'Single-Gate' ? 1 : 2, rd: gate === 'Single-Gate' ? 0 : 1 }); w.dmState.cur = s; w.dmRender();
+        const g = glabels(); if (!g.length || !g.every(x => re.test(x))) { good = false; why += ' ' + m + '/' + gate + ':' + g.join(','); } } }
+    ok(good, '所有型號：Single／Normal／Zigzag＝Line 1~N、Dual＝Line x-1／x-2' + why); }
+  if (QM) {
+    console.log('── 全民 EM01 code：' + path.basename(QM));
+    if (w.dmClearImport) w.dmClearImport();
+    fire($('dm-model'), 'EM01');
+    w.dmImportBytes(new Uint8Array(fs.readFileSync(QM)), path.basename(QM));
+    await new Promise(r => setTimeout(r, 80));
+    const s = w.dmState.cur;
+    ok(s.hand === 1 && s.panel === 1 && s.mirror === 1 && [17, 16, 15, 14, 13, 12].every((v, i) => s['c' + i] === v), '匯入：Hand 開、Zigzag、mirror 1、_0＝17,16,15,14,13,12');
+    ok(glabels().join(',') === 'Line 1,Line 2,Line 3,Line 4', '③ Line 1~4（Single 4 條 gate），不是 Line 1-1／1-2：' + glabels().join(','));
+    const a = slots(1), b = slots(2);
+    ok([1, 2, 3, 4, 5, 6].every(n => a['D' + n + 'u'] === a.D1u + n - 1), 'Line 1：D1~D6 直下（每條接正下方）：' + JSON.stringify(a));
+    ok([1, 2, 3, 4, 5, 6].every(n => b['D' + n + 'u'] === a['D' + n + 'u'] + 1), 'Line 2：整排往右錯一條（Zigzag LR）：' + JSON.stringify(b));
+    ok(['R1', 'G1', 'B1', 'R2', 'G2', 'B2'].every((x, i) => !!Q('path[data-w="1:D' + (i + 1) + ':u:' + x + '"]')), 'Mirror 解碼後 D1~D6＝R1 G1 B1 R2 G2 B2（送出順序；不再是 B-1 G-1 R-1 B-2 G-2 R-2）');
+    ok(+$('dm-pv-tft').getAttribute('data-mis') === 0 && $('dm-pv-tft').getAttribute('data-sug') === 'rl+bgr' && !$('dm-pv-sugbtn').classList.contains('hidden'), '預設（由左往右＋RGB）顏色相符但 Mirror＝1 畫面方向反 ⇒ 建議 Driver 由右往左＋BGR');
+    fire($('dm-pv-dir'), 'rl'); fire($('dm-pv-stripe'), 'bgr');
+    const a2 = slots(1);
+    ok(d.querySelector('#dm-pv-tft [data-flip]') && +$('dm-pv-tft').getAttribute('data-mis') === 0 && QA('[data-misk]').length === 0 && $('dm-pv-sugbtn').classList.contains('hidden') && JSON.stringify(a2) === JSON.stringify(a),
+      '由右往左＋BGR：D1 在最右、整張左右翻，每條 Data 線仍接正下方（接法不變）、資料顏色＝玻璃顏色（R 在最右）、不再出建議');
+    fire($('dm-pv-stripe'), 'rgb');
+    ok(+$('dm-pv-tft').getAttribute('data-mis') > 0 && QA('[data-misk]').length > 0, '由右往左＋RGB：顏色不符的格子標 ≠（' + $('dm-pv-tft').getAttribute('data-mis') + ' 格）');
+    fire($('dm-pv-dir'), 'lr'); fire($('dm-pv-stripe'), 'rgb');
+    ok([0, 1, 2, 3].map(r => $('dm-rh' + r).textContent).join('|') === 'Line 1（_0）|Line 2（_1）|Line 3（_2）|Line 4（_3）' && $('dm-c1-5').value !== $('dm-c0-5').value, '② 列名 Line 1~4，Line 2 顯示 _1 原值（不是 Line 1 的複本）');
+  }
+  console.log((fail ? '✗ ' : '✓ ') + 'check_datamap_kickoff ' + pass + ' pass / ' + fail + ' fail');
+  process.exit(fail ? 1 : 0);
+})().catch(e => { console.log('✗ ', e && e.stack || e); process.exit(1); });

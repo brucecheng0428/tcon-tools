@@ -442,8 +442,11 @@
     if (g === 'off' || col >= 6) return v;
     v.dark = (p <= 1 && (row & 1) === 1) || p === 3;      // PY:10603-10621（依 PANEL_MODE）
     var srcRow = row;
+    /* v1.15.0：MNT（EM01／EM02／E512）的 Single＝_0~_3 各是一條 gate（G1~G4，E512 圖解；EM01 原廠 StringGrid 也是 4 列原值），
+       不套 Python UI「1-2＝1-1」的複本規則（那是 NB／RM81010 的規則：Kick Off「Data hand mode」寫 Normal & Zigzag 只填第一行）。 */
+    var mntSingle = MODELS[key].kind === 'mnt' && g === 'single';
     if (se === 'e50x') {
-      if (g === 'single') srcRow = row - (row & 1);
+      if (g === 'single') { if (!mntSingle) srcRow = row - (row & 1); }
       else if (g !== 'dual') return v;                     // Tri／組合不符：PY 不更新表格
     }
     var idx = srcRow * 6 + col, raw = s['c' + idx] | 0, name = inv(rowDict(key, row, g), raw);
@@ -451,7 +454,7 @@
     v.std = name !== null;
     v.txt = name !== null ? name : ('0x' + hex(raw, 2));
     v.color = name !== null ? colorOfName(name) : 'ns';
-    v.editable = se !== 'e50x' || g === 'dual' || (g === 'single' && (row & 1) === 0);
+    v.editable = se !== 'e50x' || g === 'dual' || (g === 'single' && (mntSingle || (row & 1) === 0));
     return v;
   }
   /* PY 每次改動都會順手寫的連動欄位（PY:29230-29315）。只用在使用者動作之後。 */
@@ -477,7 +480,7 @@
     if (!(t in dict)) t = 'X';
     var ns = cloneState(s), g = gateOf(key, s), se = semOf(key);
     if (se !== 'e50x') ns['c' + (row * 6 + col)] = dict[t];
-    else if (g === 'single') { ns['c' + (row * 6 + col)] = GN1[t]; ns['c' + ((row + 1) * 6 + col)] = GN1[t]; }
+    else if (g === 'single') { ns['c' + (row * 6 + col)] = GN1[t]; if (MODELS[key].kind !== 'mnt') ns['c' + ((row + 1) * 6 + col)] = GN1[t]; }
     else { var dd = rowDict(key, row, g); ns['c' + (row * 6 + col)] = (t in dd) ? dd[t] : dd.X; }
     return { state: pyNormalize(key, ns), text: t };
   }
@@ -487,7 +490,7 @@
     function look(d, n) { n = normText(n); return (n in d) ? d[n] : d.X; }
     if (se !== 'e50x') { var d0 = inputDict(key); for (var i = 0; i < 24; i++) ns['c' + i] = look(d0, names[i]); }
     else if (g === 'dual') { for (var j = 0; j < 24; j++) ns['c' + j] = look(Math.floor(j / 6) & 1 ? GN2 : GN1, names[j]); }
-    else if (g === 'single') { for (var k = 0; k < 24; k++) { var r = Math.floor(k / 6); ns['c' + k] = look(GN1, names[(r - (r & 1)) * 6 + k % 6]); } }
+    else if (g === 'single') { var mntS = MODELS[key].kind === 'mnt'; for (var k = 0; k < 24; k++) { var r = Math.floor(k / 6); ns['c' + k] = look(GN1, names[(mntS ? r : r - (r & 1)) * 6 + k % 6]); } }
     else return null;
     return pyNormalize(key, ns);
   }

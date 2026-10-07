@@ -2,6 +2,58 @@
 
 ---
 
+## Data Mapping (datamap) v1.15.0 — 2026-10-07 ｜ MINOR
+
+**吸收 RM81010 Kick Off「Data hand mode」：修正 Mirror＝1 的解碼、Single 改標 Line 1～N、NB Single 改依 Excel 公式；③ 新增「Driver 傳遞方向」與「面板子像素排列」模擬，並會建議合適的組合**
+
+### 需求（Bruce 2026-10-07 原話，節錄）
+
+> 裡面的「Data Hand Mode」這個 sheet 分頁，裡面有完整講到跟 Data Mapping 有關的設定以及如何做連動…如果 Mirror 等於 1 的時候，Data Mapping 是怎麼連接到面板排列預覽的部分？
+> 匯入以後…data 1 是 B-1、data 2 是 G-1、data 3 是 R-1、data 4 是 B-2…明明就不是 HSD 的架構…為什麼會有 Line 1-1 跟 Line 1-2 出現？…這應該是 Line 1、Line 2、Line 3、Line 4 才對吧？
+> Driver 的傳遞方向：Data line 第一圈是在最右邊…Pixel 排列也是一樣…它的 R 反而是在最右邊，B 反而是在最左邊…那還要再多這兩個部分：1. Driver 的傳遞方向…2. RGB 的 pixel 排列…
+
+### Excel 邏輯（RM81010_Kick_Off_Check_20210805.xlsx「Data hand mode」，以公式為準）
+
+- code 表在 D2:R31：code 0～29 各一列，往右每一欄就往右移 2 pixel。這和網頁的 T 表解碼逐格相同，450 格都已驗證。
+- 輸出公式：E36＝INDIRECT(ADDRESS($C36+2,COLUMN(E36)))。
+  - 偶數欄用 _0、奇數欄用 _1。line 0 用 _0／_1，line 1 用 _2／_3。
+  - Normal 和 Zigzag 只填第一行；HSD 填兩行，分別是上、下半行。
+- mirror＝0 和 mirror＝1 兩組範例的公式完全相同，只有填的 code 不同：mirror＝1 的 code 由大到小。
+
+### 修正與新增
+
+- **Mirror＝1（T-CON code 的行為，EM01／EM02／E512，Hand Mode）**
+  - 根因：`pvModel` 沒有處理 mirror 位元，一律照非 mirror 解碼，所以全民 code 的 17～12 被畫成 B-1 G-1 R-1 B-2 G-2 R-2，接到前循環。
+  - 改法：code 解出位置 k 後，Data 線實際接到 D1 起算第 −1−k 顆（整行反向）。依據有三個：
+    - Kick Off 的 mirror 範例。
+    - EM01 原廠 Pixel mapping（`RApp_TX.cpp:7430/7434/7465/7604`）。
+    - 全民 Checklist 附1。
+  - 結果：全民 code 的 Line 1 是 D1～D6＝R1 G1 B1 R2 G2 B2 直接往下接，Line 2 往右錯一條（Zigzag LR）。Kick Off 的 mirror 範例也變成每條 Data 線接正下方相鄰兩顆。
+- **③ 新增兩個硬體模擬設定**：和「Source Driver 輸出對調」放在一起，都只影響預覽。
+  - 「Driver 傳遞方向」：由左往右／由右往左。選由右往左時，D1 在最右，整張圖左右翻。
+  - 「面板子像素排列」：RGB／BGR。
+  - 套用順序：code（含 Mirror）→ 輸出對調 → Driver 方向 → 子像素排列。資料顏色和玻璃顏色不符的格子會標「≠」。
+  - 建議功能：4 種組合中，會選出「顏色全部相符，且 Mirror 位元和 Driver 方向一致（畫面是正向）」的那一組，按鈕一按就套用。全民 code 的建議是由右往左＋BGR，和 Checklist 附1 一致。線長與左右對稱在這 4 種組合下都相同，所以不列入判斷。
+- **Line 標示**
+  - 根因：`pvLabel` 的 Single 分支沿用 Line 1-1／1-2。
+  - 改法：Single／Normal／Zigzag 一律標 Line 1～N；Dual 維持 x-1／x-2，Tri 維持 x-1／x-2／x-3。
+  - ② 的列名也依 Gate 架構顯示，並加上暫存器尾碼，例如「Line 1（_0）」。
+- **② 在 MNT Single 時的顯示**
+  - 根因：`datamap-core.js` 的 `cellView` 對 MNT 也套用「1-2＝1-1 複本」規則。
+  - 改法：MNT Single 照 EM01 原廠 StringGrid，4 列都顯示並編輯原值。NB 仍維持複本規則，和 Excel「只填第一行」一致。
+- **NB Single 的 ③**
+  - 改依 Excel 公式只畫兩條 Line：line 0 用 _0，line 1 用 _2。
+  - 如果 _1 和 _0 不同，D7～D12 改用 _1。
+
+### 測試
+
+- 新增 tools/check_datamap_kickoff.js（19 項），涵蓋：code 表、Zigzag／HSD／mirror 範例、全部型號的 Line 標示、全民 code（含 Driver 方向與子像素排列的建議）。
+- 更新 check_datamap_preview 與 check_datamap_lod 中舊 Line 標示的預期值。
+
+判定依據：`docs/VERSIONING.md` §R3，MINOR：③ 的接法、標示與新增模擬設定、② 在 MNT Single 的列可編輯 _1／_3；匯出 script 與寫入格式不變（回歸比對）；app 不動。
+
+---
+
 ## Data Mapping (datamap) v1.14.1 — 2026-10-07 ｜ PATCH
 
 **DAZ6111／DAZ7353 的 Type 和同系列的 DataMapping 查詢表交叉確認：補上 DAZ7353 Zinv type4～7，資料來源同時列出查詢表與 datasheet**
