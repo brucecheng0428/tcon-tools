@@ -2,6 +2,30 @@
 
 ---
 
+## Data Mapping (datamap) v1.4.0 — 2026-10-07 ｜ MINOR
+
+**新增「③ 面板排列預覽」卡片（② 調 Data Mapping 的正下方）：依 ② 的設定即時模擬兩列子像素、Gate Line 歸屬與每條 Data 線的 TFT 接線；原 ③ 寫入／匯出順延為 ④**
+
+### 需求（Bruce 2026-10-07 原話，附手繪草圖）
+> 請在第二步驟的卡片「調整 Data Mapping」下方，再多加一個卡片，也就是模擬實際 Data Mapping 結構的卡片。…當調整 Data Mapping 的時候，它也會即時的更動。
+> （追加）子像素排列實際上只有兩列。Single Gate 只用到 Line 1-1 跟 Line 2-1，各管全部的（R-2 到 B4）；Dual Gate 是 Line 1-1 跟 Line 1-2 共用第一列，Line 2-1 跟 Line 2-2 共用第二列。
+> （追加）放大圖中 data line 跨 gate line 的時候會有一種弧形的跨法；TFT 的 gate 或 source 跟 gate line 與 data line 連接的時候會有一點黑點。
+
+### 做了什麼
+- 上半「子像素兩列與 Gate Line」（SVG）：第一列、第二列各 R-2…B-1｜R1…B4（DAZ6111／7353 前循環只有 R-1…B-1；Dual 的 x-2 列用到 GN2 的 R5～B6 時會多畫這 6 格），前循環與主循環中間一道虛線。
+  - Single：只畫 Line 1-1、Line 2-1，每顆子像素都以 TFT 接點接上線；② 指定到的方格亮色並標 D n。
+  - Dual：每列上 Line x-1、下 Line x-2；② 中 Line x-1 列出現的名稱 ⇒ 接上線，Line x-2 出現的 ⇒ 接下線；兩者都有或同條 Line 重複 ⇒ 橘框；沒被指定 ⇒ 虛線框。X／非標準 ⇒ 列尾標「D n X（不輸出）」。
+- 下半「補充：每條 Data 線的 TFT 接線」（草圖 Data 1 放大圖，Data 1～6 各一）：Data 線跨 Gate 線不相接處畫半圓跳線；TFT gate↔Gate Line、source↔Data Line 畫實心點；drain 拉到子像素方格。
+- Hand Mode 關（Auto）：照暫存器目前的值畫並標「Auto」；Tri-Gate／組合不符：顯示不支援。
+- 連動：預覽在 render() 內重畫 ⇒ 改格子、全部套用、匯入 code／Excel、切型號、切 Gate、切 Hand Mode 都即時更新。② 與 ④ 的既有行為不變（只改 ④ 的標題序號與「調好到 ④」文案）。
+- 語意依據：② 的「Line x-y × Data n ＝ 名稱」＝ Line x-y 打開時 Data n 充「名稱」那顆子像素（force_sel_{r0,g0,b0,r1,g1,b1}_{0..3}：Data 1~6 ＝ r0..b1、Line 1-1~2-2 ＝ _0~_3，common/datamap-core.js 檔頭 :50-54；PY 表頭 RomCodeProcessUI.py:3179、:3181）。物理排列是依草圖的解讀，待 Bruce 確認。
+- 新增回歸 `tools/check_datamap_preview.js`（jsdom；25 項：卡片順序、Auto、Single 兩條 Gate、改 ② 一格前後、Dual 上下線、跳線弧與實心點、全部套用、Tri、切型號）。
+- cache buster：datamap.html、index.html `?v=20261007dm140`。
+
+判定依據：`docs/VERSIONING.md` §R3／案例 1，MINOR：多了一個能看的預覽卡（使用者能做的事多一件），既有操作、寫入值與匯出 code 都不變，不帶輸出變更；首頁卡片文字沒變，app 不動。
+
+---
+
 ## Data Mapping (datamap) v1.3.1 — 2026-10-07 ｜ PATCH
 
 **Hand Mode 手動切到 Single Gate 時，Line 1-2／Line 2-2（複本列、硬體不用）淡化加深到接近黑色**
