@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Data Mapping — TCON FAE Toolbox</title>
-<link rel="stylesheet" href="common/common.css?v=20261007dm161">
-<link rel="stylesheet" href="common/site-ui.css?v=20261007dm161">
+<link rel="stylesheet" href="common/common.css?v=20261007dm162">
+<link rel="stylesheet" href="common/site-ui.css?v=20261007dm162">
 <!--
   Data Mapping 分頁 v1.2.0（Bruce 2026-10-07）
   ・Bruce 10/7：「我其實沒有要你把它做得跟原生 UI 一模一樣，你還是要兼顧到網頁的風格，現在這個有點太突兀了。
@@ -107,6 +107,10 @@
   .dm-pvh { font-size: 13px; font-weight: 600; color: var(--text); margin: 14px 0 0; }
   .dm-pvh .dm-sub { font-weight: 400; margin-left: 6px; }
   .dm-pvexp { display: inline-block; margin-left: 8px; padding: 0 7px; border: 1px solid #b45309; border-radius: 9px; font-size: 11.5px; font-weight: 600; color: #fbbf24; }
+  /* v1.6.2：預覽圖可用滑鼠左右拖曳（手掌游標）；觸控維持原生捲動 */
+  .dm-pvdrag { cursor: grab; }
+  .dm-pvdrag.dragging { cursor: grabbing; user-select: none; -webkit-user-select: none; }
+  .dm-pvdrag.dragging * { pointer-events: none; }
   .dm-pvwrap { color-scheme: dark; margin-top: 8px; overflow-x: auto; -webkit-overflow-scrolling: touch; border: 1px solid var(--border); border-radius: 8px; background: #0b1424; padding: 10px 12px; }
   #dm-pv-tft { display: block; }
   #dm-pv-tft text { font-family: ui-monospace, Menlo, Consolas, monospace; }
@@ -266,7 +270,7 @@
       <div class="dm-row" style="margin-top:10px"><label class="dm-chk dm-hand" id="dm-pv-swapbox"><input type="checkbox" id="dm-pv-swap"> <span data-i18n="dm.pvSwap">模擬 Source Driver 輸出對調（D1↔D3、D4↔D6、D7↔D9、D10↔D12）</span></label>
         <span class="dm-sub" data-i18n="dm.pvSwapNote">只模擬 source driver 的輸出行為，與 T-CON code 無關；不會改變 ② 的值、匯出 script 或寫入 TCON。</span></div>
       <div class="dm-pvh"><span data-i18n="dm.pvTftH">子像素兩列的 TFT 接線</span><span class="dm-sub" id="dm-pv-tftd"></span><span class="dm-pvexp" id="dm-pv-exp"></span></div>
-      <div class="dm-pvwrap"><svg id="dm-pv-tft" xmlns="http://www.w3.org/2000/svg"></svg></div>
+      <div class="dm-pvwrap dm-pvdrag" id="dm-pv-wrap"><svg id="dm-pv-tft" xmlns="http://www.w3.org/2000/svg"></svg></div>
       <div class="dm-sub" id="dm-pv-pos" style="margin-top:6px"></div>
       <div class="dm-pvlg" id="dm-pv-legend"></div>
     </div>
@@ -299,8 +303,8 @@
 </div>
 <div class="dm-toasts" id="dm-toasts" aria-live="polite"></div>
 
-<script src="common/version.js?v=20261007dm161"></script>
-<script src="common/i18n.js?v=20261007dm161"></script>
+<script src="common/version.js?v=20261007dm162"></script>
+<script src="common/i18n.js?v=20261007dm162"></script>
 <script>
 (function () {
   /* [zh-TW, en, zh-CN] */
@@ -325,7 +329,10 @@
     'dm.pvLgX': ['橘框＋!＝同一列同一顆被兩條以上接到（衝突）；「!R5」＝指向畫面上沒有的子像素；灰＝X／非標準（不接線）', 'Orange frame + ! = two or more drains on one sub-pixel (conflict); "!R5" = names a sub-pixel not on screen; grey = X / non-standard (not wired)', '橘框＋!＝同一列同一颗被两条以上接到（冲突）；「!R5」＝指向画面上没有的子像素；灰＝X／非标准（不接线）'],
     'dm.pvExpS': ['實驗：Single，Data 線間隔 1 顆子像素，Data 1 固定在 R1 左邊', 'Experimental: Single, data lines 1 sub-pixel apart, Data 1 pinned left of R1', '实验：Single，Data 线间隔 1 颗子像素，Data 1 固定在 R1 左边'],
     'dm.pvExpD': ['實驗：Dual，Data 線間隔 2 顆子像素，Data 1 固定在 R1 左邊', 'Experimental: Dual, data lines 2 sub-pixels apart, Data 1 pinned left of R1', '实验：Dual，Data 线间隔 2 颗子像素，Data 1 固定在 R1 左边'],
-    'dm.pvLgCell': ['方格亮度：D1~D6 接到＝高亮；只有 D7~D12（重複組）接到＝暗色；沒有 Data 線接到＝暗灰 dummy。彩色線＝drain，從 Data n 的 TFT 接到 ② 指定的子像素；跨線不相接處畫半圓跳線', 'Cell brightness: driven by D1~D6 = bright; only by D7~D12 (repeat) = dim; not driven = dark-grey dummy. Coloured line = drain from the Data n TFT to the sub-pixel named in ②; hops where lines cross without connecting', '方格亮度：D1~D6 接到＝高亮；只有 D7~D12（重复组）接到＝暗色；没有 Data 线接到＝暗灰 dummy。彩色线＝drain，从 Data n 的 TFT 接到 ② 指定的子像素；跨线不相接处画半圆跳线'],
+    'dm.pvLgCell': ['方格亮度：主循環被 D1~D6 接到＝高亮；被 D7~D12（重複組）接到或屬於前循環＝暗色；沒有 Data 線接到＝暗灰 dummy。方格只寫實體名稱，滑鼠移上去看由哪條 Data／Gate 接到。彩色線＝drain；跨線不相接處畫半圓跳線；圖可按住左右拖曳', 'Cell brightness: main cycle driven by D1~D6 = bright; driven by D7~D12 (repeat) or in the previous cycle = dim; not driven = dark-grey dummy. Cells show the physical name only; hover to see which data line / gate drives it. Coloured line = drain; hops where lines cross; drag the diagram left/right', '方格亮度：主循环被 D1~D6 接到＝高亮；被 D7~D12（重复组）接到或属于前循环＝暗色；没有 Data 线接到＝暗灰 dummy。方格只写实体名称，鼠标移上去看由哪条 Data／Gate 接到。彩色线＝drain；跨线不相接处画半圆跳线；图可按住左右拖曳'],
+    'dm.pvTipFrom': ['：{s}', ': {s}', '：{s}'],
+    'dm.pvTipNone': ['：沒有 Data 線接到（dummy）', ': not driven (dummy)', '：没有 Data 线接到（dummy）'],
+    'dm.pvTipConflict': ['（衝突：被兩條以上接到）', ' (conflict: driven by two or more)', '（冲突：被两条以上接到）'],
     'dm.pvSwap': ['模擬 Source Driver 輸出對調（D1↔D3、D4↔D6、D7↔D9、D10↔D12）', 'Simulate source-driver output swap (D1↔D3, D4↔D6, D7↔D9, D10↔D12)', '模拟 Source Driver 输出对调（D1↔D3、D4↔D6、D7↔D9、D10↔D12）'],
     'dm.pvRep': ['　D7~D12＝D1~D6 的重複：位置與目標各往右平移 {n} 格（{p} pixel），D1~D6 排好後整組複製。', '  D7~D12 repeat D1~D6: positions and targets shifted right by {n} sub-pixels ({p} pixels); D1~D6 are placed first and copied.', '　D7~D12＝D1~D6 的重复：位置与目标各往右平移 {n} 格（{p} pixel），D1~D6 排好后整组复制。'],
     'dm.pvSwapNote': ['只模擬 source driver 的輸出行為，與 T-CON code 無關；不會改變 ② 的值、匯出 script 或寫入 TCON。', 'Simulates the source driver output only and has nothing to do with the T-CON code; it does not change ②, the exported script or what is written to the TCON.', '只模拟 source driver 的输出行为，与 T-CON code 无关；不会改变 ② 的值、导出 script 或写入 TCON。'],
@@ -456,9 +463,9 @@
 })();
 </script>
 <script src="common/common.js?v=20260523"></script>
-<script src="common/subpix-colors.js?v=20261007dm161"></script>
-<script src="common/xlsx.js?v=20261007dm161"></script>
-<script src="common/datamap-core.js?v=20261007dm161"></script>
+<script src="common/subpix-colors.js?v=20261007dm162"></script>
+<script src="common/xlsx.js?v=20261007dm162"></script>
+<script src="common/datamap-core.js?v=20261007dm162"></script>
 <script>
 (function () {
   'use strict';
@@ -952,21 +959,24 @@
       if (sw) s += svgEl('text', { x: dx, y: top - 31, 'text-anchor': 'middle', fill: '#fbbf24', 'font-size': 9.5, 'font-weight': 600 }, tt('dm.pvSends', { n: srcN }));
       if (grp) oR += s; else o += s;
     }
-    /* 4) 子像素方格：三級亮度（D1~D6 高亮／只有 D7~D12 暗色／沒人接＝暗灰 dummy） */
+    /* 4) 子像素方格：三級亮度（主循環被 D1~D6 接到＝高亮／D7~D12 或前循環有接到＝暗色／沒人接＝暗灰 dummy）
+       v1.6.2（Bruce 10/7「前循環就算是有接到…也用…比較暗的 RGB」「Subpixel 裡面不要加上像是 D1…還有上跟下的箭號」）：
+       前循環一律不高亮；格內只寫實體名稱；來源改放 <title>（滑鼠移上去看），衝突仍有橘框＋!。 */
     rowsG.forEach(function (g, k) {
       o2 += svgEl('text', { x: 4, y: g.bxY + CH / 2 + 4, fill: '#64748b', 'font-size': 11 }, tt('dm.pvRow', { n: k + 1 }));
       for (var s = smin; s <= smax; s++) {
         var bx = boxX(s), phys = pvName(s), pc = pvFill(phys), ins = g.hit[s] || [], st = ins.length > 1 ? 'conflict' : (ins.length ? 'ok' : 'none');
-        var tier = ins.some(function (w) { return !w.rep; }) ? 'main' : (ins.length ? 'rep' : 'dummy');
+        var tier = s >= 0 && ins.some(function (w) { return !w.rep; }) ? 'main' : (ins.length ? 'rep' : 'dummy');
+        var tip = phys + (ins.length ? tt('dm.pvTipFrom', { s: ins.map(function (w) { return 'D' + (w.p + 1) + (dual ? (w.up ? '↑' : '↓') : ''); }).join('、') }) : tt('dm.pvTipNone')) + (st === 'conflict' ? tt('dm.pvTipConflict') : '');
+        o2 += '<g data-tip="' + esc(tip) + '"><title>' + esc(tip) + '</title>';
         var fill = tier === 'dummy' ? PV_DUMMY : rgbCss(pc), fo = tier === 'rep' ? .3 : 1;
         o2 += svgEl('rect', { x: bx, y: g.bxY, width: CW, height: CH, rx: 5, fill: fill, 'fill-opacity': fo,
           stroke: st === 'conflict' ? PV_BAD : (tier === 'main' ? 'rgba(255,255,255,.35)' : (tier === 'rep' ? '#475569' : '#323a46')), 'stroke-width': st === 'conflict' ? 3 : 1, 'stroke-dasharray': tier === 'dummy' ? '3 3' : 'none',
           'data-pv': (k + 1) + ':' + phys, 'data-st': st, 'data-tier': tier, 'data-in': ins.map(function (w) { return 'D' + (w.p + 1) + (w.up ? 'u' : 'd'); }).join(',') });
         var ptc = tier === 'main' ? SP.textOn(pc[0], pc[1], pc[2]) : (tier === 'rep' ? (PV_LBL[colorKeyOf(phys)] || '#94a3b8') : '#5b6474');
-        o2 += svgEl('text', { x: bx + CW / 2, y: tier === 'dummy' ? g.bxY + 24 : g.bxY + 17, 'text-anchor': 'middle', fill: ptc, 'font-size': tier === 'dummy' ? 10 : 12, 'font-weight': tier === 'dummy' ? 600 : 700, opacity: tier === 'rep' ? .8 : 1 }, phys);
-        if (ins.length) o2 += svgEl('text', { x: bx + CW / 2, y: g.bxY + 32, 'text-anchor': 'middle', fill: ptc, 'font-size': 9.5, 'font-weight': 600, opacity: tier === 'rep' ? .7 : .85 },
-          ins.map(function (w) { return 'D' + (w.p + 1) + (dual ? (w.up ? '↑' : '↓') : ''); }).join(','));
+        o2 += svgEl('text', { x: bx + CW / 2, y: g.bxY + 25, 'text-anchor': 'middle', fill: ptc, 'font-size': tier === 'dummy' ? 10.5 : 12, 'font-weight': tier === 'dummy' ? 600 : 700, opacity: tier === 'rep' ? .8 : 1, 'data-name': 1 }, phys);
         if (st === 'conflict') o2 += svgEl('circle', { cx: bx + CW, cy: g.bxY, r: 7, fill: PV_BAD, 'data-bad': 1 }) + svgEl('text', { x: bx + CW, y: g.bxY + 4, 'text-anchor': 'middle', fill: '#1c0a00', 'font-size': 11, 'font-weight': 800 }, '!');
+        o2 += '</g>';
       }
     });
     /* 5) TFT 與 drain（D7~D12 畫進 oR，整組調暗） */
@@ -1412,6 +1422,23 @@
     $('dm-link').addEventListener('click', connect);
     $('dm-check').addEventListener('click', doCheck);
     $('dm-live').addEventListener('change', render);
+    /* v1.6.2：滑鼠拖曳捲動（只處理左鍵滑鼠；觸控走原生捲動）。拖過 3px 才算拖曳，之後吃掉 click，避免誤觸。 */
+    (function () {
+      var wr = $('dm-pv-wrap'), st = null, moved = false;
+      wr.addEventListener('mousedown', function (e) {
+        if (e.button !== 0) return;
+        st = { x: e.clientX, sl: wr.scrollLeft }; moved = false;
+        wr.classList.add('dragging'); e.preventDefault();
+      });
+      window.addEventListener('mousemove', function (e) {
+        if (!st) return;
+        var dx = e.clientX - st.x; if (Math.abs(dx) > 3) moved = true;
+        wr.scrollLeft = st.sl - dx; e.preventDefault();
+      });
+      window.addEventListener('mouseup', function () { if (!st) return; st = null; wr.classList.remove('dragging'); });
+      wr.addEventListener('click', function (e) { if (moved) { e.stopPropagation(); e.preventDefault(); moved = false; } }, true);
+      wr.addEventListener('dragstart', function (e) { e.preventDefault(); });
+    })();
     $('dm-pv-swap').addEventListener('change', function () { pvSwapOn = this.checked; $('dm-pv-swapbox').classList.toggle('on', pvSwapOn); renderPreview(); });   // v1.5.0：只重畫預覽
     $('dm-logclr').addEventListener('click', function () { $('dm-log').innerHTML = ''; });
     $('dm-hand').addEventListener('change', function () { commit(DM.setHand(S.model, S.cur, this.checked), 'Hand Mode Enable'); });
