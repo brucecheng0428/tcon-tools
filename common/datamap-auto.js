@@ -199,6 +199,13 @@
          4line,4pixel 的 Line 3、4＝第二組；Tri 三個時槽 T3／T4／T5），再用 LOD.autoReg 反推 48 值，最後比對是哪個 Line OD Type。
          原廠 (30)／(31) 名稱與值對調的問題因此自動按接線交叉；(32)（要 driver 對調）先做 D1↔D3、D4↔D6 再反推（面板實際接線）。
        ・算不出來（Tri 以外的 Gate 組合不符、非標準值、找不到合法的 de）⇒ ok:false，不寫 LOD。 */
+  /* v1.12.0 單一 RT7 Type Select 目前對應哪一項（DM.PRESETS 索引；-1 ⇒ User define）：
+     Hand 關 ⇒ Auto 清單比對（panel／sub／mirror／chrb）；Hand 開 ⇒ 兩組 force_sel 與 Panel Mode 都和某個 Manual 樣式完全相同 */
+  function rt7Match(model, s) {
+    if (fam(model) !== 'mnt') return -1;
+    if (!(s.hand | 0)) { var i = match(model, s); return i >= 0 ? list(model)[i].preset : -1; }
+    var mm = manualMatch(model, s); return mm && !mm.diff.length ? mm.preset : -1;
+  }
   function lodSupported(model) { return !!(DM.MODELS[model] && DM.MODELS[model].lod); }
   function lodOf(s) {
     var r = { de: s.lodDe | 0, spec: s.lodSpec | 0, line: s.lodLine | 0, pix: s.lodPix | 0, r: [], g: [], b: [] };
@@ -285,6 +292,6 @@
     return { state: d.length ? 'diff' : 'ok', cur: cur, curType: ct, exp: exp, diff: d };
   }
   function lodApply(model, s) { var e = expectedLod(model, s); return e.ok ? lodSet(s, e.reg) : null; }
-  var API = { HIDDEN: HIDDEN, manualMatch: manualMatch, lodSupported: lodSupported, lodOf: lodOf, lodSet: lodSet, wiringFromState: wiringFromState, expectedLod: expectedLod, lodCheck: lodCheck, lodApply: lodApply, PM_KEYS: PM_KEYS, FIXES: FIXES, ZZ_SEQ: ZZ_SEQ, fam: fam, list: list, match: match, apply: apply, wiring: wiring, fixesFor: fixesFor, mux3Type: mux3Type, rawByte: rawByte };
+  var API = { HIDDEN: HIDDEN, manualMatch: manualMatch, rt7Match: rt7Match, lodSupported: lodSupported, lodOf: lodOf, lodSet: lodSet, wiringFromState: wiringFromState, expectedLod: expectedLod, lodCheck: lodCheck, lodApply: lodApply, PM_KEYS: PM_KEYS, FIXES: FIXES, ZZ_SEQ: ZZ_SEQ, fam: fam, list: list, match: match, apply: apply, wiring: wiring, fixesFor: fixesFor, mux3Type: mux3Type, rawByte: rawByte };
   if (typeof module === 'object' && module.exports) module.exports = API; else root.TCONDataMapAuto = API;
 })(typeof window !== 'undefined' ? window : this);

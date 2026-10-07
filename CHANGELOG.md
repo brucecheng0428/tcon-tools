@@ -2,6 +2,31 @@
 
 ---
 
+## Data Mapping (datamap) v1.12.0 — 2026-10-07 ｜ MINOR
+
+**② 改成和原廠 UI 一樣只有一個「RT7 Type Select」：完整 35 項（含 Manual 樣式 (18)~(21)、(23)、(28)~(32) 與 (33) User define），Hand Mode 開或關都能選**
+
+### 需求（Bruce 2026-10-07 原話）
+
+> 為何 EM02 在第二部分調 Data Mapping 的下拉選單，Auto Mode 只有 0 到 27？那 28 之後咧？
+> 不行啊！我hand mode打開的時候，我就選不到那個 Auto Mode 的下拉選單了
+
+### 變更
+
+- EM02（以及同為 MNT 的 EM01／E512）：② 的下拉改名「RT7 Type Select」，選項＝原廠 ListBox_rt7_data_mapping 完整 35 項，順序同原廠：(0) Normal、(0) Mirror、(1)~(32)、(33) User define。Hand 開關都可選（只在唯讀／寫入中停用）。
+  - 選 Auto 樣式（Force_sel_en＝Auto）：自動關 Hand Mode，寫 panel／sub／mirror／chrb／rd 等，force_sel 表隱藏。
+  - 選 Manual 樣式（Force_sel_en＝Manual）：自動開 Hand Mode，兩組 force_sel（含第二組 r2..b3）與 Panel Mode 欄位照原廠表寫入。
+  - 選 (33) User define：不改任何值，只標示自訂。
+  - 手改表格／切 Hand 後自動比對：Hand 關依 panel／sub／mirror／chrb；Hand 開需兩組 force_sel 與 Panel Mode 都和某個 Manual 樣式相同，否則顯示 User define（自訂）。匯入 code 同樣自動選到（蘇坤 EM02 code ⇒ (32)）。
+  - 原本 Hand 關的「Auto Mode」下拉與 Hand 開的「原廠預設樣式」選單合併成這一個，舊選單移除。
+  - Line OD 照 v1.11.0 繼續跟著 RT7 寫，③ 預覽跟著畫。
+- NB 型號（E501A/B、E503、DAZ6138/6139、DAZ6111、DAZ7353）：原本 Hand 開時 Auto 下拉被停用（同樣選不到）⇒ 改成 Hand 開也能選，顯示「Hand Mode 開」，選了自動關 Hand。
+- 測試：check_datamap_auto 新增 RT7 Type Select 案例（35 項順序、(29) ⇒ Hand 開＋48 格＋匯出、(22) ⇒ Hand 關、手改一格 ⇒ User define、User define 不改值、蘇坤 code ⇒ (32)、NB Hand 開仍可選）；check_datamap_lod 改用新下拉。
+
+判定依據：`docs/VERSIONING.md` §R3，MINOR：② 兩個選單合併成單一 RT7 Type Select、可選樣式由 24 項增為 35 項、Hand 開也能選（選樣式會自動切 Hand）；匯出 script／寫入格式不變，既有表格與 Line OD 連動行為不變（回歸比對）；app 不動。
+
+---
+
 ## Data Mapping (datamap) v1.11.0 — 2026-10-07 ｜ MINOR
 
 **EM02：Line OD 跟著 RT7 自動連動寫入 code，匯入時檢查一致性，不一致可一鍵「依 RT7 修正 Line OD」**
