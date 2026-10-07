@@ -2,6 +2,22 @@
 
 ---
 
+## Data Mapping (datamap) v1.4.2 — 2026-10-07 ｜ PATCH
+
+**③ 面板排列預覽：「實驗」標示壓到「主循環」標頭 → 移到圖外；預覽捲軸改深色**
+
+### 根因
+- v1.4.1 線上實測截圖（1400 寬）：`renderPvRows` 把「實驗：…」畫在 SVG 右上角 y=13、靠右對齊，與置中的「主循環」標頭重疊。
+
+### 改了什麼
+- 「實驗」改成「子像素兩列與 Gate Line」標題列上的琥珀色小標籤（`#dm-pv-exp`），不再畫進 SVG。
+- `.dm-pvwrap` 加 `color-scheme: dark`，橫向捲軸跟深色主題一致（原本是白色）。
+- 回歸 `tools/check_datamap_preview.js` 改查 `#dm-pv-exp`。cache buster `?v=20261007dm142`。
+
+判定依據：`docs/VERSIONING.md` §R1，PATCH：修正顯示重疊，使用者能做的事沒變；寫入值與匯出 code 不變，不帶輸出變更；app 不動。
+
+---
+
 ## Data Mapping (datamap) v1.4.1 — 2026-10-07 ｜ PATCH
 
 **③ 面板排列預覽（初版續修，實驗）：Data 線畫進兩列圖，Data 1 固定在 R1 左邊；Single 間隔 1 顆、Dual 間隔 2 顆；每格改顯示 ② 送進去的內容**
