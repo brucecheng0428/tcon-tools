@@ -192,6 +192,99 @@
     }
     return null;
   }
-  var API = { HIDDEN: HIDDEN, manualMatch: manualMatch, PM_KEYS: PM_KEYS, FIXES: FIXES, ZZ_SEQ: ZZ_SEQ, fam: fam, list: list, match: match, apply: apply, wiring: wiring, fixesFor: fixesFor, mux3Type: mux3Type, rawByte: rawByte };
+  /* ── v1.11.0 Line OD 跟著 RT7（Bruce 10/7「以 RT7 為主…實際上應該要將 RT7 跟 LineOD 設成是一樣的才對」）──────────────
+     應有的 Line OD：
+       ・Hand 關（Auto）：Auto Type 對應的 Line OD Type（Line OD n ↔ RT7 (n)；(0) Normal／Mirror 都是 0）。
+       ・Hand 開：由 ② 的 force_sel 解出實際接線（Single T2；Dual 上 T2／下 T3；HSD 8-pixel 的 D7~D12＝第二組 T4／T5；
+         4line,4pixel 的 Line 3、4＝第二組；Tri 三個時槽 T3／T4／T5），再用 LOD.autoReg 反推 48 值，最後比對是哪個 Line OD Type。
+         原廠 (30)／(31) 名稱與值對調的問題因此自動按接線交叉；(32)（要 driver 對調）先做 D1↔D3、D4↔D6 再反推（面板實際接線）。
+       ・算不出來（Tri 以外的 Gate 組合不符、非標準值、找不到合法的 de）⇒ ok:false，不寫 LOD。 */
+  function lodSupported(model) { return !!(DM.MODELS[model] && DM.MODELS[model].lod); }
+  function lodOf(s) {
+    var r = { de: s.lodDe | 0, spec: s.lodSpec | 0, line: s.lodLine | 0, pix: s.lodPix | 0, r: [], g: [], b: [] };
+    for (var q = 0; q < 48; q++) r[['r', 'g', 'b'][Math.floor(q / 16)]].push(s['lodM' + q] | 0);
+    return r;
+  }
+  function lodSet(s, reg) {
+    var ns = DM.cloneState(s); ns.lodDe = reg.de; ns.lodSpec = reg.spec | 0; ns.lodLine = reg.line; ns.lodPix = reg.pix;
+    for (var q = 0; q < 48; q++) ns['lodM' + q] = reg[['r', 'g', 'b'][Math.floor(q / 16)]][q % 16];
+    return ns;
+  }
+  var SWAP6 = [2, 1, 0, 5, 4, 3];
+  function wiringFromState(model, s, swap) {
+    var g = DM.gateOf(model, s), R = DM.secondSetRule(model, s), tn = function (T, v) { return v === 31 ? null : LOD.tName(T, v); };
+    var c = function (slot, ch) { return s['c' + (slot * 6 + ch)] | 0; }, x = function (slot, ch) { return s['x' + (slot * 6 + ch)] | 0; };
+    var bad = false, lin = function (T, v) { if (v === 31) return null; var l = tn(T, v); if (l === null) bad = true; return l; };
+    var rows = [], P = 6, A, G;
+    if (g === 'single') {
+      G = 1; A = 2;
+      for (var sl = 0; sl < 4; sl++) { var r = []; for (var h = 0; h < 6; h++) r.push(lin(2, c(sl, h))); rows.push([r]); }
+      if (R.meaning === 'line58') for (var s2 = 0; s2 < 4; s2++) { var r2 = []; for (var h2 = 0; h2 < 6; h2++) r2.push(lin(2, x(s2, h2))); rows.push([r2]); }
+    } else if (g === 'dual') {
+      G = 2; A = 4;
+      var p8 = R.meaning === 'pix58';
+      if (p8) { P = 12; A = 8; }
+      for (var l = 0; l < 2; l++) {
+        var line = [];
+        for (var gi = 0; gi < 2; gi++) {
+          var rr = []; for (var hh = 0; hh < 6; hh++) rr.push(lin(2 + gi, c(2 * l + gi, hh)));
+          if (p8) for (var h3 = 0; h3 < 6; h3++) rr.push(lin(4 + gi, x(2 * l + gi, h3)));
+          line.push(rr);
+        }
+        rows.push(line);
+      }
+      if (R.meaning === 'row34') for (var l2 = 0; l2 < 2; l2++) { var ln = []; for (var g2 = 0; g2 < 2; g2++) { var r3 = []; for (var h4 = 0; h4 < 6; h4++) r3.push(lin(2 + g2, x(2 * l2 + g2, h4))); ln.push(r3); } rows.push(ln); }
+    } else if (g === 'tri') {
+      G = 3; A = 6;
+      for (var l3 = 0; l3 < 2; l3++) {
+        var t3 = [];
+        for (var g3 = 0; g3 < 3; g3++) { var r4 = []; for (var h5 = 0; h5 < 6; h5++) r4.push(lin(3 + g3, g3 === 2 ? x(2 * l3, h5) : c(2 * l3 + (g3 === 1 ? 1 : 0), h5))); t3.push(r4); }
+        rows.push(t3);
+      }
+    } else return { ok: false, why: 'gate' };
+    if (bad) return { ok: false, why: 'code' };
+    /* X（31）補位：同一列其他 Data 線是等距（如 Tri 每條差 1 pixel）時，依同一間距補上。原廠 Tri+ZZ (18)~(20) 的 B-1 在 T5 表沒有 code，寫 31 */
+    var filled = 0;
+    rows.forEach(function (ln) { ln.forEach(function (r) {
+      var idx = []; r.forEach(function (v, i) { if (v !== null) idx.push(i); });
+      if (idx.length < 3 || idx.length === r.length) return;
+      var d = (r[idx[1]] - r[idx[0]]) / (idx[1] - idx[0]);
+      if (d !== Math.round(d) || !idx.every(function (i, k) { return !k || r[i] - r[idx[k - 1]] === d * (i - idx[k - 1]); })) return;
+      r.forEach(function (v, i) { if (v === null) { r[i] = r[idx[0]] + d * (i - idx[0]); filled++; } });
+    }); });
+    if (swap) rows = rows.map(function (line) { return line.map(function (r) { return r.map(function (v, i) { return r[6 * Math.floor(i / 6) + SWAP6[i % 6]]; }); }); });
+    /* 最小的 line 循環（原廠 1 line 的 Type 會把兩列寫成一樣） */
+    var n = rows.length, key = function (ln) { return JSON.stringify(ln); };
+    for (var Lm = 1; Lm <= n; Lm++) if (n % Lm === 0 && rows.every(function (ln, i) { return key(ln) === key(rows[i % Lm]); })) { rows = rows.slice(0, Lm); break; }
+    return { ok: true, filled: filled, t: { g: g, P: P, A: A, rows: rows, mir: !!s.mirror } };
+  }
+  function expectedLod(model, s) {
+    if (!lodSupported(model)) return { ok: false, why: 'model' };
+    if (!s.hand) {
+      var i = match(model, s), e = i >= 0 ? list(model)[i] : null;
+      if (!e || e.lod === null || e.lod === undefined) return { ok: false, why: 'auto' };
+      return { ok: true, type: e.lod, reg: LOD.TYPES[e.lod].reg, src: 'auto', from: e.name };
+    }
+    var mm = manualMatch(model, s), swap = !!(mm && /^\(32\)/.test(mm.name));
+    var w = wiringFromState(model, s, swap); if (!w.ok) return { ok: false, why: w.why };
+    var reg = LOD.autoReg(w.t); if (!reg) return { ok: false, why: 'de' };
+    return { ok: true, type: LOD.typeOfReg(reg), reg: reg, src: 'wiring', from: mm ? mm.name : null, swap: swap, filled: w.filled };
+  }
+  function lodDiff(a, b) {
+    var out = [];
+    ['de', 'spec', 'line', 'pix'].forEach(function (k) { if ((a[k] | 0) !== (b[k] | 0)) out.push({ k: k, from: a[k] | 0, to: b[k] | 0 }); });
+    ['r', 'g', 'b'].forEach(function (c) { for (var i = 0; i < 16; i++) if (a[c][i] !== b[c][i]) out.push({ k: c + '_' + i, from: a[c][i], to: b[c][i] }); });
+    return out;
+  }
+  /* 一致性：{ state:'na'|'ok'|'diff'|'fail', cur:{reg,type}, exp } */
+  function lodCheck(model, s) {
+    if (!lodSupported(model)) return { state: 'na' };
+    var cur = lodOf(s), ct = LOD.typeOfReg(cur), exp = expectedLod(model, s);
+    if (!exp.ok) return { state: 'fail', cur: cur, curType: ct, exp: exp };
+    var d = lodDiff(cur, exp.reg);
+    return { state: d.length ? 'diff' : 'ok', cur: cur, curType: ct, exp: exp, diff: d };
+  }
+  function lodApply(model, s) { var e = expectedLod(model, s); return e.ok ? lodSet(s, e.reg) : null; }
+  var API = { HIDDEN: HIDDEN, manualMatch: manualMatch, lodSupported: lodSupported, lodOf: lodOf, lodSet: lodSet, wiringFromState: wiringFromState, expectedLod: expectedLod, lodCheck: lodCheck, lodApply: lodApply, PM_KEYS: PM_KEYS, FIXES: FIXES, ZZ_SEQ: ZZ_SEQ, fam: fam, list: list, match: match, apply: apply, wiring: wiring, fixesFor: fixesFor, mux3Type: mux3Type, rawByte: rawByte };
   if (typeof module === 'object' && module.exports) module.exports = API; else root.TCONDataMapAuto = API;
 })(typeof window !== 'undefined' ? window : this);

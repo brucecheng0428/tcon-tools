@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Data Mapping — TCON FAE Toolbox</title>
-<link rel="stylesheet" href="common/common.css?v=20261007dm1100">
-<link rel="stylesheet" href="common/site-ui.css?v=20261007dm1100">
+<link rel="stylesheet" href="common/common.css?v=20261007dm190">
+<link rel="stylesheet" href="common/site-ui.css?v=20261007dm190">
 <!--
   Data Mapping 分頁 v1.2.0（Bruce 2026-10-07）
   ・Bruce 10/7：「我其實沒有要你把它做得跟原生 UI 一模一樣，你還是要兼顧到網頁的風格，現在這個有點太突兀了。
@@ -121,6 +121,10 @@
   .dm-pvnote { margin-top: 8px; font-size: 12.5px; line-height: 1.6; color: #fde68a; }
   .dm-pvnote.err { color: #fecaca; }
   /* v1.7.0：測試用 Line OD Type 下拉（只影響預覽）＋反推接線表（仿原廠圖：欄＝Data 線、列＝gate 列） */
+  .dm-lodst { margin-top: 8px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border); font-size: 13px; display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
+  .dm-lodst.ok { border-color: #16a34a; background: rgba(22,163,74,.08); }
+  .dm-lodst.diff, .dm-lodst.fail { border-color: #f59e0b; background: rgba(245,158,11,.12); color: #fde68a; }
+  .dm-lodst .dm-sub { flex-basis: 100%; }
   .dm-lodbar { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; margin-top: 10px; padding: 8px 10px; border: 1px dashed #a855f7; border-radius: 8px; background: rgba(168,85,247,.06); }
   .dm-lodbar .dm-k { color: #d8b4fe; font-weight: 700; }
   .dm-lodbar select { max-width: 100%; }
@@ -232,6 +236,10 @@
     <div class="dm-row hidden" id="dm-autorow"><span class="dm-k">Auto Mode：Data Mapping Type</span>
       <select id="dm-auto" class="dm-sel" style="max-width:100%"></select><span class="dm-sub" id="dm-autonote"></span></div>
     <div class="dm-sub hidden" id="dm-automan" style="margin-top:4px"></div>
+    <!-- v1.11.0（Bruce 10/7「以 RT7 為主…實際上應該要將 RT7 跟 LineOD 設成是一樣的才對」）：Line OD 跟著 RT7；匯入時檢查一致性 -->
+    <div class="dm-lodst hidden" id="dm-lodrow"><span class="dm-k">Line OD</span><span id="dm-lodstat"></span>
+      <button class="sbtn hidden" id="dm-lodfix" data-i18n="dm.lodFix">依 RT7 修正 Line OD</button>
+      <div class="dm-sub" id="dm-loddiff"></div></div>
 
     <div class="dm-gridwrap"><table class="dm-grid" id="dm-grid"></table><div class="dm-gridnote hidden" id="dm-gridnote"></div></div>
     <div class="dm-legend" id="dm-legend"></div>
@@ -347,8 +355,8 @@
 </div>
 <div class="dm-toasts" id="dm-toasts" aria-live="polite"></div>
 
-<script src="common/version.js?v=20261007dm1100"></script>
-<script src="common/i18n.js?v=20261007dm1100"></script>
+<script src="common/version.js?v=20261007dm190"></script>
+<script src="common/i18n.js?v=20261007dm190"></script>
 <script>
 (function () {
   /* [zh-TW, en, zh-CN] */
@@ -394,6 +402,12 @@
     'dm.manSum': ['原廠 UI 手動輸入對照（System → TX → Rt7_data_mapping，script 出錯時的備援）', 'Vendor UI manual entry (System → TX → Rt7_data_mapping; fallback if the script fails)', '原厂 UI 手动输入对照（System → TX → Rt7_data_mapping，script 出错时的备援）'],
     'dm.manCopy': ['複製全部', 'Copy all', '复制全部'],
     'dm.manCopied': ['已複製手動輸入對照', 'Manual-entry table copied', '已复制手动输入对照'],
+    'dm.lodFix': ['依 RT7 修正 Line OD', 'Fix Line OD from RT7', '依 RT7 修正 Line OD'],
+    'dm.lodOk': ['✓ Line OD 與 RT7 一致（Type {t}）', '✓ Line OD matches RT7 (Type {t})', '✓ Line OD 与 RT7 一致（Type {t}）'],
+    'dm.lodDiff': ['⚠ Line OD 與 RT7 不一致：目前 {c}，依 RT7 應為 {e}（差 {n} 格）', '⚠ Line OD does not match RT7: now {c}, RT7 needs {e} ({n} cells differ)', '⚠ Line OD 与 RT7 不一致：目前 {c}，依 RT7 应为 {e}（差 {n} 格）'],
+    'dm.lodFail': ['⚠ 無法依 RT7 自動對應 Line OD（{w}），不會自動寫 LOD，請手動確認', '⚠ Line OD cannot be derived from RT7 ({w}); LOD is not written automatically, check it by hand', '⚠ 无法依 RT7 自动对应 Line OD（{w}），不会自动写 LOD，请手动确认'],
+    'dm.lodNa': ['{m} 的 Line OD 尚未支援（格式與 EM02 不同或 bin 位置未確認），請在原廠 UI 手動確認', 'Line OD for {m} is not supported yet; check it in the vendor UI', '{m} 的 Line OD 尚未支持，请在原厂 UI 手动确认'],
+    'dm.lodLinked': ['RT7 改動時 Line OD 會自動跟著寫（含匯出 script／I2C）', 'Line OD follows RT7 edits automatically (export / I2C included)', 'RT7 改动时 Line OD 会自动跟着写（含导出 script／I2C）'],
     'dm.pv2nd': ['第二組', '2nd set', '第二组'],
     'dm.pvRowsTri': ['Tri-Gate：每列子像素三條 Gate（Line x-1、x-2 在上，x-3 在下）；Data n 經三顆 TFT 接到指定的子像素，每條 Data 線管 3 顆。', 'Tri-Gate: three gate lines per sub-pixel row (Line x-1, x-2 above, x-3 below); Data n drives three TFTs, one sub-pixel each (3 per data line).', 'Tri-Gate：每列子像素三条 Gate（Line x-1、x-2 在上，x-3 在下）；Data n 经三颗 TFT 接到指定的子像素，每条 Data 线管 3 颗。'],
     'dm.pvLgUp3': ['TFT 接上方兩條 Gate（Line x-1 外側、x-2 內側；外側 drain 跨內側 gate 處跳線）', 'TFT on the two upper gates (Line x-1 outer, x-2 inner; outer drains hop over the inner gate)', 'TFT 接上方两条 Gate（Line x-1 外侧、x-2 内侧；外侧 drain 跨内侧 gate 处跳线）'],
@@ -544,11 +558,11 @@
 })();
 </script>
 <script src="common/common.js?v=20260523"></script>
-<script src="common/subpix-colors.js?v=20261007dm1100"></script>
-<script src="common/xlsx.js?v=20261007dm1100"></script>
-<script src="common/datamap-core.js?v=20261007dm1100"></script>
-<script src="common/datamap-lod.js?v=20261007dm1100"></script>
-<script src="common/datamap-auto.js?v=20261007dm1100"></script>
+<script src="common/subpix-colors.js?v=20261007dm190"></script>
+<script src="common/xlsx.js?v=20261007dm190"></script>
+<script src="common/datamap-core.js?v=20261007dm190"></script>
+<script src="common/datamap-lod.js?v=20261007dm190"></script>
+<script src="common/datamap-auto.js?v=20261007dm190"></script>
 <script>
 (function () {
   'use strict';
@@ -783,7 +797,7 @@
     if (ro) $('dm-ro').textContent = tt('dm.v512', { a: S.ro.slice(0, 4).map(function (a) { return '0x' + hex(a, 4); }).join(', ') + (S.ro.length > 4 ? '…' : '') });
     $('dm-glass').disabled = !s.hand || ro;
     $('dm-expx').disabled = !s.hand || ro; $('dm-impx').disabled = !s.hand || ro;
-    renderGrid(); renderLegend(); renderSame(); renderCode(); renderX(); renderMnt(); renderAuto(); renderManual(); renderPreview();
+    renderGrid(); renderLegend(); renderSame(); renderCode(); renderX(); renderMnt(); renderAuto(); renderLod(); renderManual(); renderPreview();
     var sl = isNb() ? '0x3E' : '0x' + hex(S.slave, 2);
     $('dm-write').textContent = 'Write to TCON(' + sl + ')'; $('dm-bar-write').textContent = 'Write to TCON(' + sl + ')';
     $('dm-load').textContent = 'Load from TCON(' + sl + ')';
@@ -1300,11 +1314,38 @@
     /* 第一組有改 ⇒ 第二組依循環判定寫（短循環＝第一組；Auto／長循環＝不動）；第二組值有變就記 xTouched */
     if (!(opt && opt.noSync)) ns = DM.firstEdit(S.model, S.cur, ns).state;
     if (!isNb() && DM.xChanged(S.cur, ns)) S.xTouched = true;
+    /* v1.11.0：RT7 有改 ⇒ Line OD 跟著寫成依 RT7 算出的應有值（算不出來就不動 LOD，由 ② 的 Line OD 狀態列提示） */
+    if (AUTO && AUTO.lodSupported(S.model) && !(opt && opt.noLod) && rt7Changed(S.cur, ns)) { var le = AUTO.expectedLod(S.model, ns); if (le.ok) ns = AUTO.lodSet(ns, le.reg); }
     var old = S.cur; S.cur = ns; syncImgFromState(); render();
     if (S.linked && $('dm-live').checked) {
       var regs = DM.diffRegs(S.model, old, ns);
       if (regs.length) queueWrite(regs, why, true);
     }
+  }
+  function rt7Changed(a, b) { return DM.fieldsOf(S.model).some(function (f) { return !/^lod/.test(f.id) && (a[f.id] | 0) !== (b[f.id] | 0); }); }
+  /* v1.11.0 ② Line OD 狀態列 */
+  var LOD_NAME = function (i) { return i >= 0 && LOD.TYPES[i] ? LOD.TYPES[i].name : null; };
+  function renderLod() {
+    var m = S.model, row = $('dm-lodrow'), mnt = !isNb();
+    row.classList.toggle('hidden', !mnt);
+    if (!mnt) return;
+    var st = $('dm-lodstat'), fx = $('dm-lodfix'), df = $('dm-loddiff');
+    if (!AUTO.lodSupported(m)) { row.className = 'dm-lodst fail'; st.textContent = tt('dm.lodNa', { m: m }); fx.classList.add('hidden'); df.textContent = ''; row.setAttribute('data-state', 'na'); return; }
+    var c = AUTO.lodCheck(m, S.cur), cn = LOD_NAME(c.curType) || ('非原廠值 de=' + c.cur.de + ' line=' + c.cur.line + ' pix=' + c.cur.pix);
+    row.className = 'dm-lodst ' + c.state; row.setAttribute('data-state', c.state); row.setAttribute('data-cur', c.curType); row.setAttribute('data-exp', c.exp && c.exp.ok ? c.exp.type : '');
+    var why = c.exp && c.exp.ok ? '' : ({ gate: 'Gate 組合不符', code: '② 有非標準值', de: '找不到合法的 de／line／pix', auto: 'Auto Type 不在清單' }[c.exp && c.exp.why] || '?');
+    var en = c.exp && c.exp.ok ? (LOD_NAME(c.exp.type) || '依接線算出的值（非原廠 Type）') : '';
+    st.textContent = c.state === 'ok' ? tt('dm.lodOk', { t: cn }) : (c.state === 'diff' ? tt('dm.lodDiff', { c: cn, e: en, n: c.diff.length }) : tt('dm.lodFail', { w: why }));
+    fx.classList.toggle('hidden', c.state !== 'diff'); fx.disabled = !!S.ro || S.busy;
+    var note = [];
+    if (c.exp && c.exp.ok) {
+      note.push('依 RT7：' + (c.exp.src === 'auto' ? 'Auto Type「' + c.exp.from + '」' : 'Hand 的 force_sel' + (c.exp.from ? '（＝原廠「' + c.exp.from + '」）' : '') + '→接線反推'));
+      if (c.exp.swap) note.push('此樣式要搭配 Source Driver 對調；Line OD 依對調後的實際面板接線（D1↔D3、D4↔D6）算，結果和不對調相同（Line OD 只看同一條 Data 線上前後送的子像素）');
+      if (c.exp.filled) note.push('② 有 ' + c.exp.filled + ' 格 X 依同列等距補上（原廠 Tri+ZZ 的 B-1 無 code 可寫）');
+    }
+    if (c.state === 'diff') note.push('差異：' + c.diff.slice(0, 12).map(function (d) { return d.k + ' ' + d.from + '→' + d.to; }).join('、') + (c.diff.length > 12 ? '…' : ''));
+    note.push(tt('dm.lodLinked'));
+    df.textContent = note.join('；');
   }
   function onPick(r, c, name) {
     if (name === '__ns') return;
@@ -1688,6 +1729,7 @@
     $('dm-logclr').addEventListener('click', function () { $('dm-log').innerHTML = ''; });
     $('dm-hand').addEventListener('change', function () { commit(DM.setHand(S.model, S.cur, this.checked), 'Hand Mode Enable'); });
     $('dm-auto').addEventListener('change', function () { var i = +this.value; if (i < 0) return; var e = AUTO.list(S.model)[i]; commit(AUTO.apply(S.model, S.cur, i), 'Auto Type ' + e.name); });
+    $('dm-lodfix').addEventListener('click', function () { var ns = AUTO.lodApply(S.model, S.cur); if (!ns) return; log('n', 'Line OD ← RT7'); commit(ns, 'Line OD ← RT7', { noLod: true, noSync: true }); });
     $('dm-mancopy').addEventListener('click', function () { try { navigator.clipboard.writeText(S.manualText || ''); toast('n', tt('dm.manCopied')); } catch (e) { toast('e', e.message || e); } });
     $('dm-gate').addEventListener('change', function () { var ns = DM.setGate(S.model, S.cur, this.value); if (ns) { log('n', 'Gate Type ← ' + this.value); commit(ns, 'Gate Type ' + this.value); } else render(); });
     $('dm-samev').addEventListener('change', function () { paintSel(this, colorKeyOf(this.value)); });
