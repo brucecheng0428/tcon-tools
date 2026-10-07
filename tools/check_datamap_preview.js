@@ -3,6 +3,7 @@
    check_datamap_preview.js — datamap.html「③ 面板排列預覽」回歸（jsdom，不需客戶 code）
    用法：node tools/check_datamap_preview.js [repo]（預設＝這支的上一層；jsdom 取 repo/node_modules）
    v1.4.0：卡片順序、Auto、Single 只畫 Line 1-1／2-1、改 ② 一格即時更新、Dual 上下線、TFT 跳線弧與實心點、Tri、切型號
+   v1.4.2：「實驗」標示移出 SVG
    v1.4.1（實驗）：Data 1 固定在 R1 左邊；Single 間隔 1 顆、Dual 間隔 2 顆；Dual 每條 Data 的左右格依 ② 分給 Line x-1／x-2
    ═══════════════════════════════════════════════════════════════════════════ */
 'use strict';
@@ -46,7 +47,7 @@ const ok = (c, m) => { if (c) pass++; else { fail++; console.log('  ✗ ' + m); 
   ok(d1x !== null && d1x < r1x && r1x - d1x <= 16, 'Data 1 在 R1 左邊：D1 x=' + d1x + '、R1 x=' + r1x);
   ok(dlx(2) - d1x === +rect(1, 'G1').getAttribute('x') - r1x && dlx(3) - dlx(2) === dlx(2) - d1x, 'Single 間隔 1 顆：Data 2 在 G1 左、Data 3 在 B1 左');
   ok(cell(1, 'G1') === 'R3/D2/up' && cell(1, 'R2') === 'R3/D4/up', 'Single：G1 歸 D2、R2 歸 D4');
-  ok(rowsText().some(t => /實驗：Single/.test(t)), '標「實驗」');
+  ok(/實驗：Single/.test($('dm-pv-exp').textContent) && $('dm-pv-exp').getAttribute('data-exp') === 'single', '標「實驗」（SVG 外，不壓標頭）');
 
   console.log('── 改 ② 一格 ⇒ 預覽即時改');
   fire($('dm-c0-0'), 'G1');
@@ -70,7 +71,7 @@ const ok = (c, m) => { if (c) pass++; else { fail++; console.log('  ✗ ' + m); 
   ok(arcs.length === 6 && (arcs[0].getAttribute('d').match(/ A5 /g) || []).length === 4, '補充圖 Data 線跨四條 Gate 都是跳線弧');
   ok((d.querySelector('#dm-pv-rows path[data-dl="1"]').getAttribute('d').match(/ A5 /g) || []).length === 4, '兩列圖 Data 線跨四條 Gate 也是跳線弧');
   ok(d.querySelectorAll('#dm-pv-tft circle[data-dot="gate"]').length === 24 && d.querySelectorAll('#dm-pv-tft circle[data-dot="source"]').length === 24, 'TFT gate／source 實心點各 24');
-  ok(rowsText().some(t => /實驗：Dual/.test(t)), 'Dual 標「實驗」');
+  ok(/實驗：Dual/.test($('dm-pv-exp').textContent), 'Dual 標「實驗」');
 
   console.log('── 全部套用、Tri、切型號');
   fire($('dm-samev'), 'B2'); $('dm-same').click();
