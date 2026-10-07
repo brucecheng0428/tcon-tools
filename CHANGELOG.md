@@ -2,6 +2,35 @@
 
 ---
 
+## Data Mapping (datamap) v1.17.5 — 2026-10-08 ｜ PATCH
+
+**全頁文字截斷／溢出修正：用程式在 18 種條件下自動檢查，修到 0 筆**
+
+### 需求（Bruce 2026-10-08 原話）
+
+> 在第一部分匯入以後的code名稱居然會被截掉…還有第二部分，有一大堆文字有可能會被截掉，這個也一併修正，其他的也都仔細檢查一下。
+
+### 變更
+
+- **自動檢查**：開發時用 headless Chrome 跑檢查腳本（腳本沒有放進 repo）。在 3 種狀態（空白預設、匯入全民、匯入蘇坤）× 2 種寬度（1400／390）× 3 種語言共 18 種條件下，逐一檢查每張卡片內的元素：
+  - scrollWidth＞clientWidth 且被 hidden／clip 裁掉；
+  - 有 text-overflow:ellipsis 卻沒有 title；
+  - 元素超出卡片邊界（橫向捲動區除外）；
+  - 下拉選單或輸入框的文字放不下。
+  檢查時會展開所有 <details>。
+- **v1.17.4 檢查出 18 筆，修正後 0 筆**：
+  - ② RT7 Type Select 下方的說明（#dm-autonote，單行省略且沒有 title）：12 筆，桌面三種語言 × 全民／蘇坤，每筆都同時被判為 clip 和 ellipsis-no-title。
+  - ① 手機英文時 T-CON 型號下拉超出卡片 48px，連帶表單被裁：6 筆。
+- **修法**：
+  - .dm-one 不再單行省略，改成完整換行（影響 ② 說明、③ SHL 來源和建議訊息）。
+  - 表單第二欄改用 minmax(0, 1fr)，下拉選單加 max-width:100%。
+  - ① 的檔名在 v1.17.4 已改成換行。
+- **測試**：check_datamap_kickoff 55/0、check_datamap_auto 101/0、check_datamap 282/0、check_datamap_preview 46/0（EM02 61/0）、check_datamap_lod 196/0。
+
+判定依據：`docs/VERSIONING.md` §R3，PATCH：只改版面 CSS；功能、匯出 script 與寫入都不變；app 不動。
+
+---
+
 ## Data Mapping (datamap) v1.17.4 — 2026-10-08 ｜ PATCH
 
 **TFT 接線圖上方兩列標號分清楚：SD Out（亮字，面板 Data 線位置，只看 CH1 位置）和 TCON Out（暗字，TCON 送出的 Data k，對應 ② 表格，隨 SHL、輸出對調改變）；輸出對調改成只動 TCON Out**
