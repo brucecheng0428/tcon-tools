@@ -1,0 +1,125 @@
+#!/usr/bin/env node
+/* ═══════════════════════════════════════════════════════════════════════════
+   check_datamap_auto.js — v1.10.0 ② Auto Mode（Hand Mode 關）Data Mapping Type 回歸
+   用法：node tools/check_datamap_auto.js [repo] [--em02 <蘇坤 EM02 code.bin>]
+     1) 純邏輯：各型號 Type 清單、套用→反查一致、NB 有 SUB_PANEL_MODE 欄位、隱藏表填錯修正（zz5／zz6 與 mirror 列）。
+     2) jsdom：Hand 關時 ② 出現 Auto 下拉、選了寫入欄位與匯出 script、③ 依 Type 畫；Hand 開時停用；未知值顯示「未知（0xNN）」；
+        EM01／EM02 原廠 UI 手動輸入對照；匯入蘇坤 EM02 code 自動選到 Type。
+   ═══════════════════════════════════════════════════════════════════════════ */
+'use strict';
+const path = require('path'), fs = require('fs');
+const args = process.argv.slice(2), ei = args.indexOf('--em02'), EM02 = ei >= 0 ? args[ei + 1] : null;
+const pos = args.filter((a, i) => a !== '--em02' && (ei < 0 || i !== ei + 1));
+const ROOT = path.resolve(pos[0] || path.join(__dirname, '..'));
+const DM = require(path.join(ROOT, 'common/datamap-core.js'));
+global.TCONDataMap = DM;
+const LOD = require(path.join(ROOT, 'common/datamap-lod.js'));
+const A = require(path.join(ROOT, 'common/datamap-auto.js'));
+let fail = 0, pass = 0;
+const ok = (c, m) => { if (c) pass++; else { fail++; console.log('  ✗ ' + m); } };
+const hex = (v, n) => v.toString(16).toUpperCase().padStart(n, '0');
+
+console.log('── 各型號 Auto Type 清單（model 檔 SUB_PANEL_MODE 說明＋查詢表）');
+const N = { E503: 21, E501A: 21, E501B: 21, DAZ6138: 16, DAZ6139: 16, DAZ6111: 10, DAZ7353: 20, EM01: 24, EM02: 24, E512: 24 };
+for (const m of DM.MODEL_KEYS) ok(A.list(m).length === N[m], m + ' Type 數 ' + A.list(m).length + '（預期 ' + N[m] + '）');
+ok(['E503', 'E501A', 'DAZ6138', 'DAZ6111', 'DAZ7353'].every(m => !!DM.fieldById(m, 'subPanel')), 'NB 型號都有 SUB_PANEL_MODE 欄位');
+ok(JSON.stringify(DM.fieldById('E503', 'subPanel').parts) === '[[800,6,4]]' && JSON.stringify(DM.fieldById('E501A', 'subPanel').parts) === '[[1008,6,4]]' && JSON.stringify(DM.fieldById('DAZ7353', 'subPanel').parts) === '[[201,7,4]]', 'SUB_PANEL_MODE 位址：E503 0x320[6:4]、E501 0x3F0[6:4]、DAZ7353 0xC9[7:4]');
+for (const m of DM.MODEL_KEYS) {
+  const L = A.list(m); let good = true;
+  L.forEach((e, i) => { let s = DM.emptyState(m); s = A.apply(m, s, i); if (A.match(m, s) !== i) good = false; if (s.hand) good = false; });
+  ok(good, m + '：每個 Type 套用後反查回同一個 Type，且 Hand 維持關');
+}
+const E = A.list('E503');
+ok(E.filter(e => /^LTPS/.test(e.name)).every((e, i) => e.set.panel === 3 && e.set.subPanel === i && e.set.rd === ((i & 1) ? 1 : 2)), 'LTPS 八種：sub bit0 MUX3/MUX2（rd 2/1）、bit1 Normal/Zigzag、bit2 Type1/Type2');
+ok(E[5].name === 'Z-Zag Type 5' && E[5].lod === 5 && E[10].name === 'HSD Type 4' && E[10].lod === 24 && E[11].lod === 27 && E[12].lod === 25, 'E50x：Z-Zag Type 5→Line OD 5、HSD Type 4→24、Type 3-5→27、Type 4+Z-Zag(BOE)→25');
+ok(A.list('EM02').every(e => DM.PRESETS[e.preset].set.hand === 0), 'MNT 清單＝原廠 RT7 清單中 force_sel_en＝0 的樣式');
+{ const i29 = DM.PRESETS.findIndex(p => p.name.startsWith('(29)')); let s = DM.applyPreset('EM02', DM.emptyState('EM02'), i29); const r = A.manualMatch('EM02', s);
+  ok(r && r.preset === i29 && r.diff.length === 0, 'Manual：套 (29) 後 force_sel 比對回 (29)、Panel Mode 全相同');
+  s.subPanel = 0; const r2 = A.manualMatch('EM02', s); ok(r2 && r2.diff.join() === 'subPanel', 'Manual：(29) 的 force_sel 但 sub_panel 改成 0 ⇒ 指出 sub_panel_mode 應為 4'); }
+console.log('── 隱藏表填錯修正（依表格邏輯＋Pixel Structure 圖）');
+const nf = id => (A.FIXES[id] || []).length;
+ok(nf('6') === 40 && nf('7') === 40 && nf('27') === 38 && nf('28') === 38 && ['23', '24', '25', '26'].every(i => nf(i) === 2) && ['2', '3', '4', '5', '8', '9'].every(i => !nf(i)), '填錯格數：zz5／zz6 各 40、mirror zz5／zz6 各 38、mirror zz1~4 各 2（g2 欄）；其他 zigzag 列 0');
+ok(A.FIXES['6'][0].cell === 'X13' && A.FIXES['6'][0].from === 6 && A.FIXES['6'][0].to === 7, 'zz5 第一筆：X13（g0_0）6→7');
+/* 修正後 zz5：同一 slot 6 格互不相同，序列 LRRL（與查詢表 Z-Zag Type 5 圖、原廠 RT7 (5) ZZ+LRRL 一致） */
+{ const h = A.HIDDEN['6'], v = h.v.slice(); A.FIXES['6'].forEach(f => { const i = h.cell.indexOf(f.cell); v[i] = f.to; });
+  const dupFree = [0, 1, 2, 3].every(s => new Set(v.slice(s * 12, s * 12 + 6)).size === 6 && new Set(v.slice(s * 12 + 6, s * 12 + 12)).size === 6);
+  const seq = [0, 1, 2, 3].map(s => v[s * 12] === 6 ? 'L' : 'R').join('');
+  ok(dupFree && seq === 'LRRL', '修正後 zz5 每條 gate 6 格不重複、L／R＝' + seq); }
+ok(A.wiring(A.list('E503').find(e => e.name === 'LTPS Type 1 Z-Zag MUX3')).g === 'tri' && A.wiring(A.list('E503').find(e => e.name === 'LTPS Type 1 Normal MUX2')) === null, 'LTPS MUX3 用隱藏表解碼畫（Tri）；MUX2 未解碼 ⇒ 不畫');
+
+(async () => {
+  console.log('── 網頁（jsdom）');
+  const { JSDOM, VirtualConsole } = require(path.join(ROOT, 'node_modules/jsdom'));
+  const vc = new VirtualConsole(); vc.on('jsdomError', e => { console.log('jsdomError', e.message); fail++; });
+  const dom = await JSDOM.fromFile(path.join(ROOT, 'datamap.html'), { runScripts: 'dangerously', resources: 'usable', pretendToBeVisual: true, virtualConsole: vc,
+    beforeParse(w) { w.WebSocket = function () { throw new Error('no ws'); }; } });
+  await new Promise(r => dom.window.addEventListener('load', r));
+  const w = dom.window, d = w.document, $ = id => d.getElementById(id);
+  const fire = (el, v) => { if (v !== undefined) { if (el.type === 'checkbox') el.checked = v; else el.value = v; } el.dispatchEvent(new w.Event('change')); };
+  const Q = s => d.querySelector('#dm-pv-tft ' + s), QA = s => Array.from(d.querySelectorAll('#dm-pv-tft ' + s));
+  ok(/^v1\.1\d\./.test(w.TOOL_VERSIONS.datamap), 'datamap 版號 v1.10 以上：' + w.TOOL_VERSIONS.datamap);
+  for (const m of DM.MODEL_KEYS) {
+    fire($('dm-model'), m); if (w.dmState.cur.hand) fire($('dm-hand'), false);
+    const L = A.list(m), sel = $('dm-auto');
+    let good = !$('dm-autorow').classList.contains('hidden') && !sel.disabled && Array.from(sel.options).filter(o => o.value !== '-1').length === L.length;
+    let drawn = 0, nopic = 0;
+    for (let i = 0; i < L.length; i++) {
+      fire(sel, String(i));
+      const s = w.dmState.cur, e = L[i];
+      good = good && Object.keys(e.set).every(k => !DM.fieldById(m, k) || (s[k] | 0) === (e.set[k] | 0)) && !s.hand && sel.value === String(i);
+      /* 匯出：MNT 的 write -m 有 rt7+0x00；NB 的 SCRIPT 列有 SUB_PANEL_MODE */
+      if (DM.MODELS[m].kind === 'mnt') { const t = w.dmBuildScript().text, b0 = DM.MODELS[m].rt7, line = t.split('\n').find(l => l.startsWith('write -m ' + hex(b0, 4)));
+        const want = (((e.set.panel | 0) << 1) | ((e.set.ltpsZz | 0) << 3) | ((e.set.subPanel | 0) << 5)) & 0xFE;
+        good = good && !!line && (parseInt(line.split(' ')[3], 16) & 0xFE) === want; }
+      else { const rows = DM.pyScriptRows(m, s), sp = DM.fieldById(m, 'subPanel'), off = '0x' + hex(sp.parts[0][0], 3) + '[' + sp.parts[0][1] + ':' + sp.parts[0][2] + ']';
+        const r = rows.find(x => x[4] === off); good = good && !!r && parseInt(r[6], 16) === (e.set.subPanel | 0); }
+      if (A.wiring(e)) { drawn++; good = good && $('dm-pvtag').textContent === 'Auto · ' + e.name && QA('rect[data-pv]').length > 0 && !Q('[data-bad]'); }
+      else { nopic++; good = good && /沒有可用的架構對照/.test($('dm-pvnote').textContent) && $('dm-pv-tft').innerHTML === ''; }
+    }
+    ok(good, m + '：Hand 關 ⇒ Auto 下拉 ' + L.length + ' 項，逐項寫入欄位、匯出含對應位址；③ 畫 ' + drawn + ' 項、無圖 ' + nopic + ' 項（不出錯、無衝突）');
+  }
+  console.log('── Hand 開關、未知值、修正標示');
+  fire($('dm-model'), 'E503'); fire($('dm-hand'), true);
+  ok($('dm-auto').disabled && !$('dm-c0-0').disabled && /Hand Mode 開啟中/.test($('dm-autonote').textContent), 'Hand 開 ⇒ Auto 下拉停用、force_sel 表格可編輯');
+  fire($('dm-hand'), false);
+  ok(!$('dm-auto').disabled && $('dm-c0-0').disabled && !$('dm-gridnote').classList.contains('hidden'), 'Hand 關 ⇒ Auto 下拉可選、表格不顯示（同原本）');
+  { const st = Object.assign(DM.emptyState('E503'), { panel: 2, subPanel: 7 }); const raw = A.rawByte('E503', st);
+    ok(raw === 0x72 && A.match('E503', st) === -1, 'E503 panel 2＋sub 7 不在清單 ⇒ 未知（0x72）'); }
+
+  fire($('dm-model'), 'EM02'); if (w.dmState.cur.hand) fire($('dm-hand'), false);
+  const iL = A.list('EM02').findIndex(e => e.name === '(5) ZZ+LRRL');
+  fire($('dm-auto'), String(iL));
+  ok(+$('dm-pvnote').getAttribute('data-fix') === 40 && /已依邏輯修正/.test($('dm-pvnote').textContent) && /X13/.test($('dm-pvnote').textContent), 'EM02 選 (5) ZZ+LRRL ⇒ ③ 標「已依邏輯修正」（隱藏表 40 格，例 X13 6→7）');
+  ok(!!Q('path[data-w="1:D1:u:R1"]') && !!Q('path[data-w="2:D2:u:R1"]') && !!Q('path[data-w="3:D2:u:R1"]') && !!Q('path[data-w="4:D1:u:R1"]'), 'EM02 Auto (5) ZZ+LRRL：G1~G4 的 R1 依序接 D1、D2、D2、D1');
+  fire($('dm-pv-lod'), '23');
+  ok(/Line OD Type 23/.test($('dm-pvtag').textContent), '「測試：Line OD Type」仍優先（Hand 關也能用）');
+  fire($('dm-pv-lod'), '-1');
+  console.log('── EM01／EM02 原廠 UI 手動輸入對照');
+  const manRows = () => Array.from($('dm-mantbl').querySelectorAll('tbody tr')).map(tr => Array.from(tr.children).map(td => td.textContent));
+  ok(!$('dm-manual').classList.contains('hidden'), 'EM02 顯示手動輸入對照');
+  let mr = manRows();
+  ok(mr[0][0] === 'Type_select:（ListBox）' && mr[0][1] === '(5) ZZ+LRRL' && mr.find(r => /^Panel_mode（/.test(r[0]))[1] === 'Zigzag' && mr.find(r => /^sub_panel/.test(r[0]))[1] === 'type5' && mr.find(r => /^Force_sel_en/.test(r[0]))[1] === 'Auto', 'EM02 Auto (5)：ListBox 選 (5) ZZ+LRRL、Panel_mode Zigzag、sub_panel type5、Force_sel_en Auto');
+  fire($('dm-hand'), true); fire($('dm-c0-0'), 'G2');
+  mr = manRows();
+  const g01 = mr.filter(r => /^StringGrid_rt7_data_mapping_01 /.test(r[0])), g23 = mr.filter(r => /^StringGrid_rt7_data_mapping_23 /.test(r[0]));
+  ok(g01.length === 24 && g23.length === 24 && g01[0][0].endsWith('r0_0') && g01[1][0].endsWith('g0_0') && g01[6][0].endsWith('r0_1') && g01[0][1] === String(w.dmState.cur.c0) && g01[0][2] === '0x' + hex(w.dmState.cur.c0, 2) && g01[0][3] === '0x0483', 'Hand：StringGrid_01／_23 各 24 列，順序 r0_i g0_i … b1_i（同原廠），r0_0 值＝② Line 1-1 Data 1、位址 0x0483');
+  ok(mr.find(r => /^Force_sel_en/.test(r[0]))[1] === 'Manual' && /StringGrid_rt7_data_mapping_01 r0_0\t10\t0x0A/.test(w.dmState.manualText || ''), 'Force_sel_en＝Manual；複製文字含 r0_0＝10（G2）');
+  fire($('dm-model'), 'EM01');
+  ok(!$('dm-manual').classList.contains('hidden') && /EM01 原廠工具沒有 Type 清單/.test(manRows()[0][1]), 'EM01：手動對照沒有 Type_select（原廠工具沒有清單）');
+  fire($('dm-model'), 'E503');
+  ok($('dm-manual').classList.contains('hidden'), 'E503 不顯示 EM01／EM02 的手動對照');
+  if (EM02) {
+    console.log('── 匯入蘇坤 EM02 code：' + path.basename(EM02));
+    fire($('dm-model'), 'EM02');
+    w.dmImportBytes(new Uint8Array(fs.readFileSync(EM02)), path.basename(EM02));
+    await new Promise(r => setTimeout(r, 50));
+    const s = w.dmState.cur, i = A.match('EM02', s), sel = $('dm-auto');
+    console.log('   force_sel_en=' + s.hand + ' panel=' + s.panel + ' sub=' + s.subPanel + ' rd=' + s.rd + ' mirror=' + s.mirror + ' chrb=' + s.chrb + ' ⇒ ' + (i >= 0 ? A.list('EM02')[i].name : '未知'));
+    const mi = DM.PRESETS.findIndex(p => p.name === '(32) HSD BOE+GBG/RRB+LR'), mm = $('dm-automan');
+    console.log('   Hand：' + mm.textContent);
+    ok(+mm.getAttribute('data-preset') === mi && /panel_mode＝2/.test(mm.textContent) && /rd_mode＝1/.test(mm.textContent), '蘇坤 code（Hand 開）：force_sel＝原廠 Manual 樣式 (32)，顯示 Panel Mode 應設值（panel_mode＝2、rd_mode＝1…），差異 ' + mm.getAttribute('data-diff') + ' 項');
+    ok(s.hand === 1 && sel.disabled && sel.value === String(i) && i >= 0 && sel.options[sel.selectedIndex].textContent.startsWith(A.list('EM02')[i].name), '匯入後 Auto 下拉自動選到 ' + (i >= 0 ? A.list('EM02')[i].name : '?') + '（Hand 開 ⇒ 停用、只顯示）');
+  }
+  console.log((fail ? '✗ ' : '✓ ') + 'check_datamap_auto ' + pass + ' pass / ' + fail + ' fail');
+  process.exit(fail ? 1 : 0);
+})().catch(e => { console.log('✗ ', e && e.stack || e); process.exit(1); });

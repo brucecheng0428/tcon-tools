@@ -2,6 +2,43 @@
 
 ---
 
+## Data Mapping (datamap) v1.10.0 — 2026-10-07 ｜ MINOR
+
+**② 新增「Auto Mode：Data Mapping Type」下拉（Hand Mode 關時依 PANEL_MODE＋SUB_PANEL_MODE 選 Type，與 TCON code 連動）；③ 依 Type 畫 Pixel 架構；EM01／EM02 原廠 UI 手動輸入對照**
+
+### 需求（Bruce 2026-10-07 原話，節錄）
+
+> 那個不是 Head Mode，而是跟 TCON code 相關的，所以那個下拉式選單應該要放在調 Data Mapping 的那張卡片，因為它是連動 TCON-code 的。當 Head Mode Enable 關閉的時候，應該還會有一個 Auto Mode，對應到的下拉式選單可以選擇這些不同的 Type。選完以後，會在第三步驟的「面板排列預覽」秀出它對應的 Pixel 架構
+> 這個要避免 script如果出錯的時候，在這個網頁還是要有一個可以對應到 EM01 或 EM02、在 RT7 Data Mapping 那個分頁要填入的表格，其輸入數值要怎麼輸入，這個還是要保留。
+> 另外你說的矛盾地方，請以你的理解為主。也就是說，是以這個表格的邏輯為主，它有可能是填錯數值
+
+### 查證（全部只讀）
+
+- Hand Mode 關（FORCE_SEL_EN／HAND_DATA_SEL_EN＝0）⇒ TCON 依 PANEL_MODE＋SUB_PANEL_MODE 自動選 Type（DAZ6111／DAZ7353 model 原文「4 type of data Auto select by PANEL_MODE and SUB_PANEL_MODE」）。Python UI V5.0.4 不讀寫 SUB_PANEL_MODE（全檔 0 筆），只讀 Hand／PANEL_MODE／RD_MODE 判 Gate（:1791、:1807、:28945-29022）。
+- SUB_PANEL_MODE 位址（Python UI V5.0.3 Release 內的 .model）：E503 0x320[6:4]（RM8100x model:8522）、E501A／B 0x3F0[6:4]（RM81010 model:9748、RM81011:9605）、DAZ6138／6139 0x180[6:4]（:7440）、DAZ6111 0x32[6:4]（:531）、DAZ7353 0xC9[7:4]（:711）。MNT：rt7+0x00[7:5] sub_panel、[2:1] panel_mode、[4:3] ltps_zigzag，rt7+0x01[0] mirror、[3] chrb，0x0504[7:6] rd_mode（EM02 RApp_TX.h:82-99、EM01 Docs/rt7_data_proc.md）。
+- Type 清單：E50x 21 種（Normal、Z-Zag Type 1~8、HSD Type 1／4／3-5／4+Z-Zag(BOE)、LTPS 8 種）＝ Raydium_TCON_DataMapping查詢_20260424.xlsx；DAZ6138 16 種（Z-Zag 1~4、無 BOE）；DAZ6111 10 種、DAZ7353 20 種（model 只有編號、沒有圖）；MNT＝原廠 RT7 清單（RApp_TX.h:530-568）中 force_sel_en＝0 的 24 筆。
+- 四方比對（查詢表 Pixel Structure 圖、隱藏表「register force setting」、原廠 RT7 清單、Line OD 反推）：Z-Zag Type 1~8 的圖＝LR、RL、LLRR、RRLL、LRRL、RLLR、LLLLRRRR、RRRRLLLL；HSD Type 1＝Line OD 22、Type 4＝24、Type 3-5＝27、Type 4+Z-Zag(BOE)＝25。
+- 隱藏表依邏輯判定填錯（同一條 gate 6 條 Data 線送不同子像素＋圖／名稱）：normal zigzag_type5、type6 各 40 格（g0~b1、g2~b3 欄相位反了，r0／r2 欄才對）；mirror zigzag_type5／6 各 38 格；mirror zigzag_type1~4 各 2 格（g2 欄沒交替）。畫圖用修正值，③ 標「已依邏輯修正」。
+
+### 改了什麼
+
+- `common/datamap-core.js`：NB 型號加 `subPanel`（SUB_PANEL_MODE）欄位（`SUB_PANEL_REG`），隨匯入、匯出 script、I2C 寫入一起處理。
+- 新增 `common/datamap-auto.js`：各型號 Auto Type 清單、`apply`（寫 PANEL／SUB_PANEL／RD_MODE；MNT 照原廠 RT7 樣式寫）、`match`（匯入 code 自動選；不在清單 ⇒「未知（0xNN）」）、`wiring`（Line OD 反推接線或隱藏表 MUX3 解碼）、隱藏表 44 列與填錯清單。
+- ②：Hand 關時「Auto Mode：Data Mapping Type」可選、表格維持不顯示；Hand 開時停用、只顯示對應 Type。
+- ②（MNT，Hand 開）：force_sel 值＝原廠 RT7 Manual 樣式時，顯示該樣式的 Panel Mode 應設值（rd_mode／panel_mode／sub_panel_mode／mirror／chrb／force_de／read_rvs）與目前是否相同（原廠 RegSet 會一併寫這些欄位，RApp_TX.cpp:10873）；例：蘇坤 code＝(32) HSD BOE+GBG/RRB+LR，全部相同。
+- ③：Hand 關時依 Auto Type 畫（標籤「Auto · Type 名稱」、資料來源、修正標示）；沒有架構圖的（DAZ6111／DAZ7353、LTPS MUX2）只顯示說明。「測試：Line OD Type」保留且優先。
+- ②（EM01／EM02）：可摺疊的「原廠 UI 手動輸入對照」：Type_select（EM02 ListBox 項次）、Panel_mode／sub_panel／Label「Panel_mode : n」／chrb／chwb／mirror／Force_sel_en、StringGrid_rt7_data_mapping_01／_23 各 24 格（順序同原廠、十進位＋十六進位＋位址），一鍵複製。既有表格與功能都保留。
+
+### 回歸
+
+- 新增 `tools/check_datamap_auto.js` 56/0（加 `--em02` 蘇坤 code；各型號逐 Type 寫入欄位、匯出 script 位址與值、③ 畫圖或說明、Hand 開關、修正標示、手動對照、匯入自動選到 (22) HSD+RBG/GRB、Hand 時比對出 Manual 樣式 (32)）。
+- 原廠 RT7 Type Select 的第二組表格：只要 force_sel_en＝Manual 就顯示並可輸入（RApp_TX.cpp:9092-9107、8966-8984），共 10 個 index（Tri (18)~(21)、(23)、(28)~(32)）；第二組有值＝需要第一組以外的資料（(29) 12 條 Data 線、(30)(31) Line 3/4、Tri 第 3 時槽），全 0＝短循環。網頁週期以接線計算，第二組是否全 0 只做交叉檢查。
+- `check_datamap_preview` 46/0（加真實 EM02 code 61/0；DAZ7353 Hand 關改為驗 Auto 無圖說明）；`check_datamap_lod` 196/0；`check_datamap` 282/0。cache buster `?v=20261007dm1100`。
+
+判定依據：`docs/VERSIONING.md` §R3，MINOR：② 多一個可操作的 Auto Type 選項與手動對照表；NB 匯出 script 多一列 SUB_PANEL_MODE（使用者選 Auto Type 才會改值）；既有 Hand 表格、匯出、寫入行為不變（回歸比對）；app 不動。
+
+---
+
 ## Data Mapping (datamap) v1.9.0 — 2026-10-07 ｜ MINOR
 
 **③ 面板排列預覽：依原廠 E512_V512 data mapping 圖解（xlsx）修正 Single 的 gate 對應（_0~_3＝G1~G4、第二組＝G5~G8）；加入 T1~T4 code 表與 14 筆 xlsx 範例當回歸**

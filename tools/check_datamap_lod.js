@@ -76,7 +76,7 @@ if (SRC) {
   const fire = (el, v) => { if (v !== undefined) { if (el.type === 'checkbox') el.checked = v; else el.value = v; } el.dispatchEvent(new w.Event('change')); };
   const Q = s => d.querySelector('#dm-pv-tft ' + s), QA = s => Array.from(d.querySelectorAll('#dm-pv-tft ' + s));
   const ui = () => [0, 1, 2, 3].map(r => [0, 1, 2, 3, 4, 5].map(c => $('dm-c' + r + '-' + c).value).join(' ')).join('/');
-  ok(/^v1\.9\./.test(w.TOOL_VERSIONS.datamap), 'datamap 版號 v1.9.x：' + w.TOOL_VERSIONS.datamap);
+  ok(/^v1\.(9|1\d)\./.test(w.TOOL_VERSIONS.datamap), 'datamap 版號 v1.9 以上：' + w.TOOL_VERSIONS.datamap);
   const sel = $('dm-pv-lod');
   ok(!!sel && sel.closest('#card-pv') && sel.options.length === 35 && sel.options[0].value === '-1' && sel.options[34].disabled && /User define/.test(sel.options[34].textContent), '下拉在 ③ 卡片：不使用＋Type 0~32＋User define（停用）');
   ok(Array.from(sel.options).slice(1, 34).every((o, i) => o.textContent === LOD.TYPES[i].name), '選項名稱照原廠');

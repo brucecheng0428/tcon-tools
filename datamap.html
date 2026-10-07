@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Data Mapping — TCON FAE Toolbox</title>
-<link rel="stylesheet" href="common/common.css?v=20261007dm190">
-<link rel="stylesheet" href="common/site-ui.css?v=20261007dm190">
+<link rel="stylesheet" href="common/common.css?v=20261007dm1100">
+<link rel="stylesheet" href="common/site-ui.css?v=20261007dm1100">
 <!--
   Data Mapping 分頁 v1.2.0（Bruce 2026-10-07）
   ・Bruce 10/7：「我其實沒有要你把它做得跟原生 UI 一模一樣，你還是要兼顧到網頁的風格，現在這個有點太突兀了。
@@ -227,6 +227,11 @@
       <span class="dm-chip dm-push" data-i18n-title="dm.cksTip" title="Python UI 的 DM CKS（Hand Mode 開才有）">DM CKS <b id="dm-cks">—</b></span>
     </div>
     <div class="dm-alert err hidden" id="dm-ro"></div>
+    <!-- v1.10.0（Bruce 10/7「當 Hand Mode Enable 關閉的時候，應該還會有一個 Auto Mode，對應到的下拉式選單可以選擇這些不同的 Type」）：
+         Auto Mode 的 Type＝PANEL_MODE＋SUB_PANEL_MODE（MNT 另加 mirror／chrb）；選了就寫入暫存器、納入匯出與 I2C 即時寫入。清單見 common/datamap-auto.js -->
+    <div class="dm-row hidden" id="dm-autorow"><span class="dm-k">Auto Mode：Data Mapping Type</span>
+      <select id="dm-auto" class="dm-sel" style="max-width:100%"></select><span class="dm-sub" id="dm-autonote"></span></div>
+    <div class="dm-sub hidden" id="dm-automan" style="margin-top:4px"></div>
 
     <div class="dm-gridwrap"><table class="dm-grid" id="dm-grid"></table><div class="dm-gridnote hidden" id="dm-gridnote"></div></div>
     <div class="dm-legend" id="dm-legend"></div>
@@ -257,6 +262,14 @@
       <summary><span id="dm-codesum">Data Mapping Code</span></summary>
       <div class="dm-row" style="margin-top:8px"><label class="dm-chk"><input type="checkbox" id="dm-codeonly" checked> <span data-i18n="dm.codeOnly">只看有變動的位址</span></label><span class="dm-sub" data-i18n="dm.codeHint">「目前」那欄可以直接改 hex（同 Python UI 的 Data A）</span></div>
       <table class="dm-code" id="dm-code"></table>
+    </details>
+
+    <!-- v1.10.0（Bruce 10/7「script如果出錯的時候…在 RT7 Data Mapping 那個分頁要填入的表格，其輸入數值要怎麼輸入，這個還是要保留」）：
+         EM01／EM02 原廠 UI「System → TX → Rt7_data_mapping」分頁的手動輸入對照（元件名稱照 SDIMAIN.dfm，見 renderManual） -->
+    <details class="stp-more hidden" id="dm-manual">
+      <summary><span data-i18n="dm.manSum">原廠 UI 手動輸入對照（System → TX → Rt7_data_mapping，script 出錯時的備援）</span></summary>
+      <div class="dm-row" style="margin-top:8px"><button class="sbtn" id="dm-mancopy" data-i18n="dm.manCopy">複製全部</button><span class="dm-sub" id="dm-mannote"></span></div>
+      <div class="dm-gridwrap"><table class="dm-code" id="dm-mantbl"></table></div>
     </details>
 
     <!-- 網頁附加：EM01／EM02／E512 原廠工具欄位（Python UI 沒有） -->
@@ -334,8 +347,8 @@
 </div>
 <div class="dm-toasts" id="dm-toasts" aria-live="polite"></div>
 
-<script src="common/version.js?v=20261007dm190"></script>
-<script src="common/i18n.js?v=20261007dm190"></script>
+<script src="common/version.js?v=20261007dm1100"></script>
+<script src="common/i18n.js?v=20261007dm1100"></script>
 <script>
 (function () {
   /* [zh-TW, en, zh-CN] */
@@ -368,6 +381,19 @@
     'dm.pvRep': ['　重複週期 {m} 條 Data 線：D{a}~D{b}＝D1~D{m} 的重複，位置與目標各往右平移 {n} 格（{p} pixel）。', '  Repeat period {m} data lines: D{a}~D{b} repeat D1~D{m}, positions and targets shifted right by {n} sub-pixels ({p} pixels).', '　重复周期 {m} 条 Data 线：D{a}~D{b}＝D1~D{m} 的重复，位置与目标各往右平移 {n} 格（{p} pixel）。'],
     'dm.lodXlOk': ['✓ 原廠 E512_V512 data mapping 圖解 xlsx 範例「{id}」的 force_sel 值（依 T 表解碼）與此接線逐格一致', '✓ The force_sel values of example "{id}" in the vendor E512_V512 data-mapping xlsx (decoded with the T tables) match this wiring', '✓ 原厂 E512_V512 data mapping 图解 xlsx 范例「{id}」的 force_sel 值（依 T 表解码）与此接线逐格一致'],
     'dm.lodXlBad': ['△ 原廠 xlsx 範例「{id}」有 {n} 格與此接線不同（xlsx 該列 r0 欄與其他欄相位相反，疑似 xlsx 打錯；見 Obsidian 筆記）', '△ Vendor xlsx example "{id}" differs in {n} cells (its r0 column has the opposite phase to the others; likely a typo in the xlsx)', '△ 原厂 xlsx 范例「{id}」有 {n} 格与此接线不同（xlsx 该列 r0 栏与其他栏相位相反，疑似 xlsx 打错；见 Obsidian 笔记）'],
+    'dm.autoNoteOff': ['選了就寫入 {f}（匯出 script／I2C 即時寫入同 ② 其他欄位）', 'Selecting writes {f} (exported / written live like other ② fields)', '选了就写入 {f}（导出 script／I2C 实时写入同 ② 其他栏位）'],
+    'dm.autoNoteOn': ['Hand Mode 開啟中：TCON 用下方 force_sel 表格；這裡只顯示 PANEL_MODE／SUB_PANEL_MODE 目前對應的 Auto Type', 'Hand Mode is on: the TCON uses the force_sel table below; this only shows the Auto type matching PANEL_MODE / SUB_PANEL_MODE', 'Hand Mode 开启中：TCON 用下方 force_sel 表格；这里只显示 PANEL_MODE／SUB_PANEL_MODE 目前对应的 Auto Type'],
+    'dm.autoMan': ['② 的 force_sel＝原廠 RT7 Manual 樣式「{n}」，Panel Mode 應設：{f}。', '② force_sel equals vendor RT7 manual style "{n}"; panel settings should be: {f}. ', '② 的 force_sel＝原厂 RT7 Manual 样式「{n}」，Panel Mode 应设：{f}。'],
+    'dm.autoManOk': ['✓ 目前相同', '✓ current values match', '✓ 目前相同'],
+    'dm.autoManBad': ['⚠ 目前不同：{d}（可用下方「原廠預設樣式」一次套用）', '⚠ current differs: {d} (apply the vendor preset below to set all)', '⚠ 目前不同：{d}（可用下方「原厂预设样式」一次套用）'],
+    'dm.autoUnknownOpt': ['未知（0x{v}）', 'Unknown (0x{v})', '未知（0x{v}）'],
+    'dm.autoPv': ['Auto Mode：依 ② 選的 Type「{n}」畫（資料來源：{src}）', 'Auto Mode: drawn from the Type "{n}" chosen in ② (source: {src})', 'Auto Mode：依 ② 选的 Type「{n}」画（资料来源：{src}）'],
+    'dm.autoNoPic': ['Auto Mode：Type「{n}」沒有可用的架構對照（{why}），③ 不畫', 'Auto Mode: no structure reference for "{n}" ({why}); nothing drawn', 'Auto Mode：Type「{n}」没有可用的架构对照（{why}），③ 不画'],
+    'dm.autoUnk': ['Auto Mode：PANEL_MODE／SUB_PANEL_MODE（0x{v}）不在 Type 清單內，③ 不畫', 'Auto Mode: PANEL_MODE / SUB_PANEL_MODE (0x{v}) is not in the type list; nothing drawn', 'Auto Mode：PANEL_MODE／SUB_PANEL_MODE（0x{v}）不在 Type 清单内，③ 不画'],
+    'dm.autoFix': ['已依邏輯修正：隱藏表「{row}」共 {n} 格與 Type 名稱／Pixel Structure 圖矛盾，畫圖時改用修正值（{ex}…）', 'Corrected by table logic: {n} cells of hidden-table row "{row}" contradict the type name / pixel-structure image; corrected values used ({ex}…)', '已依逻辑修正：隐藏表「{row}」共 {n} 格与 Type 名称／Pixel Structure 图矛盾，画图时改用修正值（{ex}…）'],
+    'dm.manSum': ['原廠 UI 手動輸入對照（System → TX → Rt7_data_mapping，script 出錯時的備援）', 'Vendor UI manual entry (System → TX → Rt7_data_mapping; fallback if the script fails)', '原厂 UI 手动输入对照（System → TX → Rt7_data_mapping，script 出错时的备援）'],
+    'dm.manCopy': ['複製全部', 'Copy all', '复制全部'],
+    'dm.manCopied': ['已複製手動輸入對照', 'Manual-entry table copied', '已复制手动输入对照'],
     'dm.pv2nd': ['第二組', '2nd set', '第二组'],
     'dm.pvRowsTri': ['Tri-Gate：每列子像素三條 Gate（Line x-1、x-2 在上，x-3 在下）；Data n 經三顆 TFT 接到指定的子像素，每條 Data 線管 3 顆。', 'Tri-Gate: three gate lines per sub-pixel row (Line x-1, x-2 above, x-3 below); Data n drives three TFTs, one sub-pixel each (3 per data line).', 'Tri-Gate：每列子像素三条 Gate（Line x-1、x-2 在上，x-3 在下）；Data n 经三颗 TFT 接到指定的子像素，每条 Data 线管 3 颗。'],
     'dm.pvLgUp3': ['TFT 接上方兩條 Gate（Line x-1 外側、x-2 內側；外側 drain 跨內側 gate 處跳線）', 'TFT on the two upper gates (Line x-1 outer, x-2 inner; outer drains hop over the inner gate)', 'TFT 接上方两条 Gate（Line x-1 外侧、x-2 内侧；外侧 drain 跨内侧 gate 处跳线）'],
@@ -518,10 +544,11 @@
 })();
 </script>
 <script src="common/common.js?v=20260523"></script>
-<script src="common/subpix-colors.js?v=20261007dm190"></script>
-<script src="common/xlsx.js?v=20261007dm190"></script>
-<script src="common/datamap-core.js?v=20261007dm190"></script>
-<script src="common/datamap-lod.js?v=20261007dm190"></script>
+<script src="common/subpix-colors.js?v=20261007dm1100"></script>
+<script src="common/xlsx.js?v=20261007dm1100"></script>
+<script src="common/datamap-core.js?v=20261007dm1100"></script>
+<script src="common/datamap-lod.js?v=20261007dm1100"></script>
+<script src="common/datamap-auto.js?v=20261007dm1100"></script>
 <script>
 (function () {
   'use strict';
@@ -756,7 +783,7 @@
     if (ro) $('dm-ro').textContent = tt('dm.v512', { a: S.ro.slice(0, 4).map(function (a) { return '0x' + hex(a, 4); }).join(', ') + (S.ro.length > 4 ? '…' : '') });
     $('dm-glass').disabled = !s.hand || ro;
     $('dm-expx').disabled = !s.hand || ro; $('dm-impx').disabled = !s.hand || ro;
-    renderGrid(); renderLegend(); renderSame(); renderCode(); renderX(); renderMnt(); renderPreview();
+    renderGrid(); renderLegend(); renderSame(); renderCode(); renderX(); renderMnt(); renderAuto(); renderManual(); renderPreview();
     var sl = isNb() ? '0x3E' : '0x' + hex(S.slave, 2);
     $('dm-write').textContent = 'Write to TCON(' + sl + ')'; $('dm-bar-write').textContent = 'Write to TCON(' + sl + ')';
     $('dm-load').textContent = 'Load from TCON(' + sl + ')';
@@ -798,6 +825,61 @@
     else if (dn) txt = '';   // 未匯出提示由上方黏著的橘色提示列負責，不重複
     else txt = live ? tt('dm.nextLive') : tt('dm.nextEdit');
     nx.className = 'stp-next' + (err ? ' err' : ''); nx.textContent = txt;
+  }
+  /* v1.10.0 ② Auto Mode：Type 下拉（Hand 關才可選；Hand 開時停用、只顯示目前 PANEL_MODE／SUB_PANEL_MODE 對應的 Type） */
+  function renderAuto() {
+    var m = S.model, row = $('dm-autorow'), f = AUTO && AUTO.fam(m);
+    row.classList.toggle('hidden', !f);
+    if (!f) return;
+    var sel = $('dm-auto'), L = AUTO.list(m), i = AUTO.match(m, S.cur);
+    sel.innerHTML = '';
+    if (i < 0) sel.appendChild(optEl('-1', tt('dm.autoUnknownOpt', { v: hex(AUTO.rawByte(m, S.cur), 2) })));
+    L.forEach(function (e, k) { sel.appendChild(optEl(String(k), e.name + (AUTO.wiring(e) ? '' : '　·（無圖）'))); });
+    sel.value = String(i);
+    sel.disabled = !!S.cur.hand || !!S.ro || S.busy;
+    var fs = ['panel', 'subPanel', 'rd', 'ltpsZz', 'mirror', 'chrb'].filter(function (k) { return DM.fieldById(m, k) && (f !== 'mnt' ? k !== 'ltpsZz' && k !== 'mirror' && k !== 'chrb' : true); })
+      .map(function (k) { return DM.fieldById(m, k).name; });
+    var note = S.cur.hand ? tt('dm.autoNoteOn') : tt('dm.autoNoteOff', { f: fs.join('、') });
+    /* v1.10.0（Bruce 10/7「FORCE_SEL_EN…在選擇不同 type select 時對應的 Panel Mode 的相關設定也會不同…Manual」）：Hand 開時，
+       ② 的 force_sel＝原廠 Manual 樣式 ⇒ 顯示該樣式的 Panel Mode 應設值與目前是否相符 */
+    var mm = S.cur.hand ? AUTO.manualMatch(m, S.cur) : null, mmEl = $('dm-automan');
+    if (mm) {
+      var fmt = function (k) { var fd = DM.fieldById(m, k); return fd.name + '＝' + mm.set[k]; };
+      mmEl.textContent = tt('dm.autoMan', { n: mm.name, f: AUTO.PM_KEYS.filter(function (k) { return mm.set[k] !== undefined && DM.fieldById(m, k); }).map(fmt).join('、') }) +
+        (mm.diff.length ? tt('dm.autoManBad', { d: mm.diff.map(function (k) { return DM.fieldById(m, k).name + '＝' + (S.cur[k] | 0); }).join('、') }) : tt('dm.autoManOk'));
+      mmEl.className = 'dm-sub ' + (mm.diff.length ? 'warn' : 'ok'); mmEl.setAttribute('data-preset', mm.preset); mmEl.setAttribute('data-diff', mm.diff.length);
+    } else { mmEl.textContent = ''; mmEl.className = 'dm-sub hidden'; mmEl.removeAttribute('data-preset'); }
+    $('dm-autonote').textContent = note;
+  }
+  /* v1.10.0 EM01／EM02 原廠 UI 手動輸入對照。元件與畫面字樣出處（EM02 VCL_TV_TCON_EM02_Tool/SDIMAIN.dfm；EM01 同名元件 SDIMAIN.dfm:37578 起）：
+       TabSheet_rt7_data_mapping Caption 'Rt7_data_mapping'（:28672）；Label584 'Type_select:'＋ListBox_rt7_data_mapping（:28687／:29264，只有 EM02）；
+       GroupBox_TX_panel_mode 'Panel_mode'（:28775）：ComboBox_TX_panel_mode（1D1G／Zigzag／HSD／LTPS）、ComboBox_TX_sub_panel_mode（項目由 RApp_TX.cpp:8729-8790 依 panel 填）、
+       CheckBox chrb／chwb／mirror；Label305 'Panel_mode : n'（選 panel 時原廠自動寫 rd_mode＝n−1 到 0x0504[7:6]，RApp_TX.cpp:8784-8801）；
+       RadioGroup_TX_Force_sel_en 'Force_sel_en'（Auto／Manual，:28850）；StringGrid_rt7_data_mapping_01（r0..b1）／_23（r2..b3），
+       列順序 r0_i g0_i b0_i r1_i g1_i b1_i（i＝0~3，RApp_TX.cpp:660-674），十進位、>29 會被改成 29，按 Enter 整張寫入（RApp_TX.cpp:9328-9361）。 */
+  function renderManual() {
+    var m = S.model, box = $('dm-manual'), on = m === 'EM01' || m === 'EM02';
+    box.classList.toggle('hidden', !on);
+    if (!on) return;
+    var s = S.cur, rows = [], add = function (a, b, c, d) { rows.push([a, b, c, d]); };
+    var mp = m === 'EM02' ? DM.matchPreset(m, s) : -1, PM = ['1D1G', 'Zigzag', 'HSD', 'LTPS'];
+    if (m === 'EM02') add('Type_select:（ListBox）', mp >= 0 ? DM.PRESETS[mp].name : '（清單沒有完全相同的樣式：不點 ListBox，直接填下列欄位）', mp >= 0 ? 'ListBox 第 ' + (mp + 1) + ' 項' : '', mp >= 0 ? '點一下即寫入全部欄位' : '');
+    else add('Type_select', '（EM01 原廠工具沒有 Type 清單）', '', '');
+    var sp = (DM.SUB_PANEL[s.panel | 0] || [])[s.subPanel | 0];
+    add('Panel_mode（ComboBox）', PM[s.panel | 0] || ('?' + s.panel), 'ItemIndex ' + (s.panel | 0), 'rt7+0x00[2:1]');
+    add('sub_panel（ComboBox）', sp || ('? ' + s.subPanel), 'ItemIndex ' + (s.subPanel | 0), 'rt7+0x00[7:5]');
+    add('Label「Panel_mode : n」', 'Panel_mode : ' + ((s.rd | 0) + 1), 'rd_mode ' + (s.rd | 0), '選 Panel_mode 時原廠自動寫 0x0504[7:6]；不符時要另外改 rd_mode');
+    add('chrb／chwb／mirror（CheckBox）', [s.chrb ? '☑chrb' : '☐chrb', s.chwb ? '☑chwb' : '☐chwb', s.mirror ? '☑mirror' : '☐mirror'].join(' '), '', 'rt7+0x01[3]／[4]／[0]');
+    add('Force_sel_en（RadioGroup）', s.hand ? 'Manual' : 'Auto', 'ItemIndex ' + (s.hand ? 1 : 0), 'rt7+0x01[7]');
+    var CHN = ['r0', 'g0', 'b0', 'r1', 'g1', 'b1'];
+    for (var t = 0; t < 4; t++) for (var c = 0; c < 6; c++) { var v = s['c' + (t * 6 + c)] | 0; add('StringGrid_rt7_data_mapping_01 ' + CHN[c] + '_' + t, String(v), '0x' + hex(v, 2), '0x' + hex(DM.fieldById(m, 'c' + (t * 6 + c)).parts[0][0], 4)); }
+    var CHX = ['r2', 'g2', 'b2', 'r3', 'g3', 'b3'];
+    for (var t2 = 0; t2 < 4; t2++) for (var c2 = 0; c2 < 6; c2++) { var v2 = s['x' + (t2 * 6 + c2)] | 0; add('StringGrid_rt7_data_mapping_23 ' + CHX[c2] + '_' + t2, String(v2), '0x' + hex(v2, 2), '0x' + hex(DM.fieldById(m, 'x' + (t2 * 6 + c2)).parts[0][0], 4)); }
+    var H = ['原廠 UI 欄位（畫面字樣）', '要輸入的值', '十六進位／索引', '暫存器'];
+    $('dm-mantbl').innerHTML = '<thead><tr>' + H.map(function (h) { return '<th>' + h + '</th>'; }).join('') + '</tr></thead><tbody>' +
+      rows.map(function (r) { return '<tr>' + r.map(function (x, i) { return '<td' + (i ? ' class="mono"' : '') + '>' + esc(x) + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody>';
+    $('dm-mannote').textContent = '格子填十進位；改完按 Enter，原廠會把整張表（24 格）一起寫入。Hand 關時表格不作用，只要設 Panel_mode／sub_panel／Force_sel_en＝Auto。';
+    S.manualText = [m + ' System → TX → Rt7_data_mapping'].concat(rows.map(function (r) { return r.join('\t'); })).join('\n');
   }
   function renderMnt() {
     var mnt = !isNb(), box = $('dm-mnt');
@@ -846,8 +928,16 @@
     return { m: S.model, g: t.g, ok: true, auto: false, lod: t, NG: NG, nl: Math.max(2, t.rows.length), rows: rows, period: per.lines, shift: per.sub,
       pre: ['R-2', 'G-2', 'B-2', 'R-1', 'G-1', 'B-1'] };
   }
+  /* v1.10.0：Hand Mode 關（Auto）⇒ 依 ② 的 Auto Mode Type 畫（datamap-auto.js：Line OD 反推接線或隱藏表解碼），不再畫暫存器殘值 */
+  var AUTO = window.TCONDataMapAuto;
+  function pvAutoModel() {
+    var m = S.model, i = AUTO.match(m, S.cur), e = i >= 0 ? AUTO.list(m)[i] : null, t = AUTO.wiring(e);
+    if (t) { var P = pvLodModel(t); P.lod = null; P.auto = true; P.autoE = e; P.m = m; return P; }
+    return { m: m, g: 'auto', ok: false, auto: true, autoE: e, autoRaw: AUTO.rawByte(m, S.cur), NG: 1, nl: 2, rows: [], period: 6, pre: [] };
+  }
   function pvModel() {
     if (pvLod >= 0 && LOD && LOD.TYPES[pvLod]) return pvLodModel(LOD.TYPES[pvLod]);
+    if (!S.cur.hand && AUTO && AUTO.fam(S.model)) return pvAutoModel();
     var m = S.model, auto = !S.cur.hand, s = S.cur;
     if (auto) { s = DM.cloneState(S.cur); s.hand = 1; }
     var g = DM.gateOf(m, s), e50 = /-2/.test(DM.preLabels(m)[0]);
@@ -897,15 +987,21 @@
       $('dm-pvtag').className = 'dm-pvtag auto';
       $('st-pv').textContent = tt('dm.lodTag', { n: P.lod.no });
     } else {
-      $('dm-pvtag').textContent = (P.auto ? 'Auto · ' : '') + DM.gateText(P.m, P.auto ? (function () { var x = DM.cloneState(S.cur); x.hand = 1; return x; })() : S.cur);
+      $('dm-pvtag').textContent = P.autoE !== undefined ? 'Auto · ' + (P.autoE ? P.autoE.name : tt('dm.autoUnknownOpt', { v: hex(P.autoRaw | 0, 2) })) : (P.auto ? 'Auto · ' : '') + DM.gateText(P.m, P.auto ? (function () { var x = DM.cloneState(S.cur); x.hand = 1; return x; })() : S.cur);
       $('dm-pvtag').className = 'dm-pvtag' + (P.auto ? ' auto' : '');
       $('st-pv').textContent = (P.auto ? 'Auto' : 'Hand') + (ok ? ' · ' + GT[P.g] : '');
     }
-    $('card-pv').className = 'card stp' + (ok ? '' : ' err');
+    $('card-pv').className = 'card stp' + (ok || P.autoE !== undefined ? '' : ' err');
     $('dm-lodbar').classList.toggle('on', !!P.lod);
     renderLodInfo(P.lod || null);
-    var note = $('dm-pvnote'), nt = !ok ? tt('dm.pvTri') : (P.auto ? tt('dm.pvAuto') : '');
-    note.textContent = nt; note.className = 'dm-pvnote' + (!ok ? ' err' : '') + (nt ? '' : ' hidden');
+    var AE = P.autoE, autoMode = AE !== undefined, src = AE ? (AE.lod !== null && AE.lod !== undefined ? 'Line OD Type ' + AE.lod : '隱藏表 ' + (AE.hid && AUTO.HIDDEN[AE.hid] ? AUTO.HIDDEN[AE.hid].name : '')) : '';
+    var note = $('dm-pvnote'), nt = autoMode ? (ok ? tt('dm.autoPv', { n: AE.name, src: src }) : (AE ? tt('dm.autoNoPic', { n: AE.name, why: AE.mux2 ? 'MUX2 隱藏表未解碼' : 'model 檔只有 Type 編號、沒有架構圖' }) : tt('dm.autoUnk', { v: hex(P.autoRaw | 0, 2) })))
+      : (!ok ? tt('dm.pvTri') : (P.auto ? tt('dm.pvAuto') : ''));
+    var fx = AE && AUTO.fixesFor(AE);
+    if (fx) nt += '\n' + tt('dm.autoFix', { row: fx.row.mode + ' ' + fx.row.name, n: fx.list.length, ex: fx.list.slice(0, 3).map(function (f) { return f.cell + '（' + f.reg + '）' + f.from + '→' + f.to; }).join('、') });
+    note.setAttribute('data-fix', fx ? fx.list.length : 0);
+    note.style.whiteSpace = 'pre-line';
+    note.textContent = nt; note.className = 'dm-pvnote' + (!ok && !autoMode ? ' err' : '') + (nt ? '' : ' hidden');
     $('dm-pvbody').classList.toggle('hidden', !ok);
     if (!ok) { $('dm-pv-tft').innerHTML = ''; return; }
     $('dm-pv-tftd').textContent = tt(NG === 3 ? 'dm.pvRowsTri' : (NG === 2 ? 'dm.pvRowsDual' : 'dm.pvRowsSingle'));
@@ -1591,6 +1687,8 @@
     $('dm-pv-lod').addEventListener('change', function () { var v = parseInt(this.value, 10); pvLod = isNaN(v) ? -1 : v; renderPreview(); });   // v1.7.0：只重畫預覽，不碰 S.cur
     $('dm-logclr').addEventListener('click', function () { $('dm-log').innerHTML = ''; });
     $('dm-hand').addEventListener('change', function () { commit(DM.setHand(S.model, S.cur, this.checked), 'Hand Mode Enable'); });
+    $('dm-auto').addEventListener('change', function () { var i = +this.value; if (i < 0) return; var e = AUTO.list(S.model)[i]; commit(AUTO.apply(S.model, S.cur, i), 'Auto Type ' + e.name); });
+    $('dm-mancopy').addEventListener('click', function () { try { navigator.clipboard.writeText(S.manualText || ''); toast('n', tt('dm.manCopied')); } catch (e) { toast('e', e.message || e); } });
     $('dm-gate').addEventListener('change', function () { var ns = DM.setGate(S.model, S.cur, this.value); if (ns) { log('n', 'Gate Type ← ' + this.value); commit(ns, 'Gate Type ' + this.value); } else render(); });
     $('dm-samev').addEventListener('change', function () { paintSel(this, colorKeyOf(this.value)); });
     $('dm-same').addEventListener('click', function () {
