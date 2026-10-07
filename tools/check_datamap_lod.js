@@ -32,6 +32,18 @@ const t32 = LOD.lines12(LOD.TYPES[32]).map(r => r.names.slice(0, 6)), sw = a => 
 ok(t32.map(r => sw(r).join(' ')).join('/') === 'G2 B1 G1 G4 B3 G3/B2 R2 R1 B4 R4 R3/B1 G1 G-1 B3 G3 G2/R2 R1 B-1 R4 R3 B2', 'Type 32 做 D1↔D3、D4↔D6 ＝ 原廠預設樣式 (32)（＝蘇坤 code）');
 ok(LOD.lines12(LOD.TYPES[17]) === null && LOD.lines12(LOD.TYPES[7]).length === 8, 'Tri 沒有 ② 形式；Type 7 有 8 條 line');
 
+console.log('── v1.8.0 命名原理（設計者說明：L／R＝同一直行每列接左／右 Data 線；Tri 依 gate 列）');
+const NC = LOD.TYPES.map(t => LOD.nameCheck(t));
+LOD.TYPES.forEach((t, i) => { const c = NC[i]; if (c.ok === null) ok([27, 29].includes(i) && c.act.join('') === 'RRLL', t.name + '：名稱「2RRRL」無法逐列解讀，實際 RL（每條 line 上下 gate 同側）：' + c.act.join(''));
+  else ok(c.ok && !c.act.includes('?'), t.name + '：名稱推出 ' + c.exp.join('') + '＝接線 ' + c.act.join('')); });
+ok(LOD.expectSides(LOD.TYPES[19]).join('') === 'LLLRRR' && LOD.expectSides(LOD.TYPES[18]).join('') === 'LRLRLR' && LOD.expectSides(LOD.TYPES[5]).join('') === 'LRRL', '展開：19＝LLLRRR（逐 gate 列）、18 的 LR 循環成 LRLRLR、5＝LRRL（逐 line）');
+ok(LOD.nameCheck(mut(LOD.TYPES[5], r => [r[0], r[1], r[1], r[1]])).ok === false && LOD.nameCheck(mut(LOD.TYPES[19], r => [r[1], r[0]])).ok === false, '反例：5 改成 LRRR、19 改成 RRRLLL ⇒ 命名原理抓得到');
+console.log('── v1.8.0 重複週期');
+const PER = LOD.TYPES.map(t => LOD.period(t));
+ok(PER.every((p, i) => p && p.lines === (i === 29 ? 12 : 6)), '週期：只有 29 是 12 條 Data 線，其餘 32 個都是 6 條：' + PER.map(p => p.lines).join(','));
+ok(PER[29].px === 8 && PER[31].px === 4 && PER[30].px === 4 && PER[0].px === 2 && PER[17].px === 6 && PER[21].px === 6, '平移量：29＝8 pixel、30／31＝4 pixel（Dual 6 條×2 顆）、Single 2、Tri 6');
+ok([0, 1, 2, 3, 4, 5].every(c => [0, 1].every(g => LOD.at(LOD.TYPES[31], 0, g, c + 6) === LOD.at(LOD.TYPES[31], 0, g, c) + 12)) && [0, 1, 2, 3, 4, 5].some(c => LOD.at(LOD.TYPES[29], 0, 0, c + 6) !== LOD.at(LOD.TYPES[29], 0, 0, c) + 12), "31：D7~D12＝D1~D6＋4 pixel（6 條就重複）；29：D7~D12 不是 D1~D6＋4 pixel（例：D8 上 R5≠B-1＋4px）");
+
 if (SRC) {
   console.log('── 原廠原始碼逐字比對：' + SRC);
   const h = fs.readFileSync(path.join(SRC, 'App/Table/RApp_Table.h'), 'latin1');
@@ -57,7 +69,7 @@ if (SRC) {
   const fire = (el, v) => { if (v !== undefined) { if (el.type === 'checkbox') el.checked = v; else el.value = v; } el.dispatchEvent(new w.Event('change')); };
   const Q = s => d.querySelector('#dm-pv-tft ' + s), QA = s => Array.from(d.querySelectorAll('#dm-pv-tft ' + s));
   const ui = () => [0, 1, 2, 3].map(r => [0, 1, 2, 3, 4, 5].map(c => $('dm-c' + r + '-' + c).value).join(' ')).join('/');
-  ok(/^v1\.7\./.test(w.TOOL_VERSIONS.datamap), 'datamap 版號 v1.7.x：' + w.TOOL_VERSIONS.datamap);
+  ok(/^v1\.8\./.test(w.TOOL_VERSIONS.datamap), 'datamap 版號 v1.8.x：' + w.TOOL_VERSIONS.datamap);
   const sel = $('dm-pv-lod');
   ok(!!sel && sel.closest('#card-pv') && sel.options.length === 35 && sel.options[0].value === '-1' && sel.options[34].disabled && /User define/.test(sel.options[34].textContent), '下拉在 ③ 卡片：不使用＋Type 0~32＋User define（停用）');
   ok(Array.from(sel.options).slice(1, 34).every((o, i) => o.textContent === LOD.TYPES[i].name), '選項名稱照原廠');
@@ -68,22 +80,24 @@ if (SRC) {
   ok(!$('dm-lodbar').classList.contains('on') && $('dm-lodinfo').classList.contains('hidden') && $('dm-lodgridbox').classList.contains('hidden'), '預設不使用：說明與反推表隱藏');
   for (const t of LOD.TYPES) {
     fire(sel, String(t.no));
-    const tri = t.g === 'tri', nl = Math.max(2, t.rows.length), G = t.rows[0].length;
+    const nl = Math.max(2, t.rows.length), G = t.rows[0].length, per = LOD.period(t).lines, nD = 2 * per, NG = { single: 1, dual: 2, tri: 3 }[t.g];
+    const ud = gi => NG === 3 ? 'g' + (gi + 1) : (gi ? 'd' : 'u');
     const lab = new RegExp('Line OD Type ' + t.no + '\\b');
     let good = lab.test($('dm-pvtag').textContent) && $('dm-lodchk').getAttribute('data-ok') === '1' && $('dm-lodgrid').querySelectorAll('tr[data-row]').length === nl * G;
+    good = good && $('dm-lodname').getAttribute('data-ok') === ([27, 29].includes(t.no) ? 'na' : '1') && +$('dm-lodper').getAttribute('data-period') === per;
     good = good && Array.from($('dm-lodgrid').querySelectorAll('tr[data-row]')).every(tr => { const [li, gi] = tr.getAttribute('data-row').split(':').map(Number);
       return Array.from(tr.querySelectorAll('td')).every((td, c) => { const x = LOD.at(t, li, gi, c); return td.textContent === (x === null ? 'X' : LOD.name(x)); }); });
-    if (tri) good = good && $('dm-pvbody').classList.contains('hidden') && /Tri-Gate/.test($('dm-pvnote').textContent);
-    else {
-      const gates = QA('text').map(x => x.textContent).filter(x => /^Line \d-\d$/.test(x));
-      const expG = []; for (let k = 1; k <= nl; k++) { expG.push('Line ' + k + '-1'); if (t.g === 'dual') expG.push('Line ' + k + '-2'); }
-      good = good && !$('dm-pvbody').classList.contains('hidden') && gates.join(',') === expG.join(',') && QA('circle[data-dot="gate"]').length === 12 * expG.length;
-      const L12 = LOD.lines12(t);
-      good = good && L12.every((r, ri) => r.names.every((nm, p) => nm === 'X' || !!Q('path[data-w="' + (r.line) + ':D' + (p + 1) + ':' + (r.gate === 1 ? 'u' : 'd') + ':' + nm + '"]') || (Q('text[data-send="' + r.line + ':D' + (p + 1) + (r.gate === 1 ? 'u' : 'd') + '"]') || {}).textContent === '!' + nm));
-      good = good && !Q('[data-bad]');
-    }
+    const gates = QA('text').map(x => x.textContent).filter(x => /^Line \d-\d$/.test(x));
+    const expG = []; for (let k = 1; k <= nl; k++) for (let g = 1; g <= NG; g++) expG.push('Line ' + k + '-' + g);
+    good = good && !$('dm-pvbody').classList.contains('hidden') && gates.join(',') === expG.join(',') && QA('circle[data-dot="gate"]').length === nD * expG.length && QA('path[data-dl]').length === nD;
+    good = good && +$('dm-pv-tft').getAttribute('data-plines') === per && +$('dm-pv-tft').getAttribute('data-ng') === NG;
+    good = good && LOD.linesN(t, nD).every(r => r.names.every((nm, p) => nm === 'X' || !!Q('path[data-w="' + r.line + ':D' + (p + 1) + ':' + ud(r.gate - 1) + ':' + nm + '"]') || (Q('text[data-send="' + r.line + ':D' + (p + 1) + ud(r.gate - 1) + '"]') || {}).textContent === '!' + nm));
+    good = good && !Q('[data-bad]');
+    /* 三級亮度依週期：主循環（D1~D週期）接到的 ⇒ main；只有重複組接到 ⇒ rep */
+    good = good && QA('rect[data-pv]').every(r => { const ins = r.getAttribute('data-in').split(',').filter(Boolean).map(x => +/^D(\d+)/.exec(x)[1]), pre = /-/.test(r.getAttribute('data-pv').split(':')[1]);
+      return r.getAttribute('data-tier') === (!pre && ins.some(n => n <= per) ? 'main' : (ins.length ? 'rep' : 'dummy')); });
     good = good && JSON.stringify(w.dmState.cur) === cur0 && JSON.stringify(w.dmBuildScript()) === sc0 && ui() === ui0;
-    ok(good, 'Type ' + t.name + '：' + (tri ? 'Tri 只畫反推表' : t.g + '，' + nl + ' 條 line，D1~D12 的 drain 照反推表') + '；驗算一致；② 與匯出 script 不變');
+    ok(good, 'Type ' + t.name + '：' + t.g + '，' + nl + ' 條 line × ' + NG + ' gate，週期 ' + per + '（畫 D1~D' + nD + '），drain 照反推表、亮度依週期；驗算／命名一致；② 與匯出 script 不變');
   }
   console.log('── 代表 Type 細節');
   fire(sel, '1');
@@ -91,7 +105,24 @@ if (SRC) {
   fire(sel, '23');
   ok(!!Q('path[data-w="1:D1:u:R1"]') && !!Q('path[data-w="1:D1:d:G1"]') && !!Q('path[data-w="2:D1:u:G-1"]'), 'Type 23：D1 上→R1、下→G1；第二列 D1 上→G-1');
   fire(sel, '29');
-  ok(!!Q('path[data-w="1:D7:u:G4"]') && !!Q('path[data-w="1:D12:d:B7"]'), 'Type 29（12 條一循環）：D7~D12 照反推表（D7 上→G4、D12 下→B7），不是 D1~D6＋週期');
+  ok(!!Q('path[data-w="1:D7:u:G4"]') && !!Q('path[data-w="1:D12:d:B7"]') && !!Q('path[data-w="1:D13:u:G8"]') && !!Q('path[data-dl="24"][data-rep="1"]') && !!Q('path[data-dl="12"][data-rep="0"]'), 'Type 29（週期 12）：D1~D12 都是主循環、D13~D24 是重複組（D13 上→G8＝D1 的 G-1 往右 8 pixel）');
+  ok(Q('rect[data-pv="1:B7"]').getAttribute('data-tier') === 'main' && Q('rect[data-pv="1:G9"]').getAttribute('data-tier') === 'rep', 'Type 29：D12 接到的 B7 高亮、D13 起接到的 G9 暗色');
+  fire(sel, '31');
+  ok(+$('dm-pv-tft').getAttribute('data-plines') === 6 && !!Q('path[data-w="1:D7:u:R5"]') && Q('rect[data-pv="1:R5"]').getAttribute('data-tier') === 'rep', 'Type 31（週期 6＝4 pixel）：D7 上→R5（D1 的 R1 往右 4 pixel），R5 是重複組');
+  console.log('── Tri-Gate TFT 圖');
+  fire(sel, '19');
+  ok(['Line 1-1', 'Line 1-2', 'Line 1-3', 'Line 2-1', 'Line 2-2', 'Line 2-3'].every(x => !!Q('line[data-gate="' + x.slice(5) + '"]')), 'Type 19：每列三條 Gate（Line k-1、k-2、k-3）');
+  ok(!!Q('path[data-w="1:D1:g1:R1"]') && !!Q('path[data-w="1:D1:g2:G1"]') && !!Q('path[data-w="1:D1:g3:B1"]') && !!Q('path[data-w="2:D2:g1:R1"]') && !!Q('path[data-w="2:D1:g1:R-1"]'), 'Type 19 LLLRRR：Line 1-1~1-3 的 R1／G1／B1 接 D1（左），Line 2-1 的 R1 接 D2（右）');
+  const gys = { }; QA('circle[data-dot="gate"]').forEach(c => { const k = c.getAttribute('data-tft').split(':'); gys[k[0] + k[2]] = +c.getAttribute('data-gy'); });
+  ok(gys['1g1'] < gys['1g2'] && gys['1g2'] < +Q('rect[data-pv="1:R1"]').getAttribute('y') && gys['1g3'] > +Q('rect[data-pv="1:R1"]').getAttribute('y'), 'TFT 接到對應的 gate：Line 1-1 在最上、1-2 在方格上方、1-3 在方格下方');
+  ok(/ A4 4 0 0 1 /.test(Q('path[data-w="1:D1:g1:R1"]').getAttribute('d')) && +Q('path[data-w="1:D1:g1:R1"]').getAttribute('data-hops') >= 1, '外側 gate（Line 1-1）的 drain 跨內側 gate 處畫跳線');
+  const tg = $('dm-pv-tft').getAttribute('data-gaps').split(',').map(Number);
+  ok(tg.length === 12 && tg.every((g, i) => !i || g - tg[i - 1] === 3), 'Tri：Data 線間距 3 顆（每條管 3 顆）：' + tg.join(','));
+  fire($('dm-pv-swap'), true);
+  ok(/D3\(1-1\)/.test(Q('rect[data-pv="1:R1"]').parentNode.getAttribute('data-tip')) && Q('path[data-dl="1"]').getAttribute('data-src') === '3', 'Tri＋Source Driver 對調：R1 改由 D3 送（D1 送 D3 的資料）');
+  fire($('dm-pv-swap'), false);
+  fire(sel, '21');
+  ok(!!Q('path[data-w="1:D1:g1:R1"]') && !!Q('path[data-w="1:D1:g2:R3"]') && !!Q('path[data-w="1:D1:g3:R5"]') && !Q('[data-bad]'), 'Type 21 BOE Tri：D1 經三條 gate 接 R1、R3、R5，沒有衝突');
   fire(sel, '32');
   ok(!!Q('path[data-w="1:D1:u:G1"]') && /D1↑/.test(Q('rect[data-pv="1:G1"]').parentNode.getAttribute('data-tip')), 'Type 32：D1 上→G1');
   fire($('dm-pv-swap'), true);
@@ -99,12 +130,25 @@ if (SRC) {
   fire($('dm-pv-swap'), false);
   fire(sel, '7');
   ok(QA('text').filter(x => /^Line 8-1$/.test(x.textContent)).length === 1 && !QA('text').some(x => /^Line \d-2$/.test(x.textContent)), 'Type 7：Single，畫 Line 1-1~8-1');
+  fire(sel, '5');
+  ok(!!Q('path[data-w="1:D1:u:R1"]') && !!Q('path[data-w="2:D2:u:R1"]') && !!Q('path[data-w="3:D2:u:R1"]') && !!Q('path[data-w="4:D1:u:R1"]'), 'Type 5 LRRL：R1 在 Line 1~4 依序接 D1、D2、D2、D1');
   fire(sel, '-1');
   ok($('dm-pv-tft').innerHTML === svg0 && $('dm-pvtag').textContent === tag0 && $('dm-lodinfo').classList.contains('hidden') && $('dm-lodgridbox').classList.contains('hidden'), '選回「不使用」⇒ 預覽與標籤回到 ② 的結果（逐字相同）');
   fire($('dm-c0-0'), 'R1');
   ok($('dm-pv-tft').innerHTML !== svg0 && !!Q('path[data-w="1:D1:u:R1"]'), '不使用時仍跟著 ② 連動');
   fire(sel, '23'); fire($('dm-c0-0'), 'B2');
   ok(!!Q('path[data-w="1:D1:u:R1"]') && $('dm-c0-0').value === 'B2', '測試 Type 中改 ②：預覽仍照 Type（不連動），② 照常改');
+  console.log('── ② 依 code 的模式：週期／第二組自動判斷');
+  fire(sel, '-1');
+  const pval = n => Array.from($('dm-preset').options).find(o => o.textContent.indexOf('(' + n + ')') === 0).value;
+  fire($('dm-preset'), pval(29)); $('dm-preset-apply').click();
+  ok(+$('dm-pv-tft').getAttribute('data-plines') === 12 && !!Q('path[data-w="1:D7:u:G4"]') && !!Q('path[data-w="1:D12:d:B7"]') && !!Q('path[data-w="1:D13:u:G8"]'), '預設樣式 (29)（HSD 8-pixel）：週期 12，D7~D12＝第二組＋4 pixel（D7 上→G4、D12 下→B7），D13 起重複');
+  fire($('dm-preset'), pval(31)); $('dm-preset-apply').click();
+  ok(['3-1', '3-2', '4-1', '4-2'].every(x => !!Q('line[data-gate="' + x + '"]')) && +$('dm-pv-tft').getAttribute('data-plines') === 6 && !!Q('path[data-w="3:D1:u:G1"]') && !!Q('path[data-w="4:D1:u:G-1"]'), '預設樣式 (31)（HSD 4line,4pixel）：畫 4 條 line，Line 3、4＝第二組（＝Line OD Type 30 的 Line 3、4）');
+  fire($('dm-preset'), pval(23)); $('dm-preset-apply').click();
+  ok(+$('dm-pv-tft').getAttribute('data-plines') === 6 && !Q('line[data-gate="3-1"]') && !!Q('path[data-w="1:D7:u:R5"]'), '預設樣式 (23)：週期 6、2 條 line，D7＝D1＋4 pixel（不變）');
+  fire($('dm-gate'), 'Tri-Gate');
+  ok($('dm-pvbody').classList.contains('hidden') && /測試：Line OD Type/.test($('dm-pvnote').textContent), '② 選 Tri-Gate：依 code 不畫，提示改用測試 Type 17~21');
   console.log((fail ? '✗ ' : '✓ ') + 'check_datamap_lod ' + pass + ' pass / ' + fail + ' fail');
   process.exit(fail ? 1 : 0);
 })().catch(e => { console.log('✗ ', e && e.stack || e); process.exit(1); });
