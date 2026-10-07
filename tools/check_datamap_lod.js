@@ -163,12 +163,12 @@ if (SRC) {
   ok(+$('dm-pv-tft').getAttribute('data-plines') === 12 && wiresOf(LOD.TYPES[29], [[0, 0, 0], [0, 1, 0], [1, 0, 1], [1, 1, 1]], 2) && !!Q('path[data-w="1:D7:u:G4"]') && !!Q('path[data-w="1:D12:d:B7"]'), 'xlsx hsd_8pixel：週期 12，D7~D12＝第二組（T3／T4 表）＝Line OD Type 29');
   console.log('── ② 依 code 的模式：週期／第二組自動判斷');
   fire(sel, '-1');
-  const pval = n => Array.from($('dm-preset').options).find(o => o.textContent.indexOf('(' + n + ')') === 0).value;
-  fire($('dm-preset'), pval(29)); $('dm-preset-apply').click();
+  const pval = n => Array.from($('dm-auto').options).find(o => o.textContent.indexOf('(' + n + ')') === 0).value;
+  fire($('dm-auto'), pval(29));
   ok(+$('dm-pv-tft').getAttribute('data-plines') === 12 && !!Q('path[data-w="1:D7:u:G4"]') && !!Q('path[data-w="1:D12:d:B7"]') && !!Q('path[data-w="1:D13:u:G8"]'), '預設樣式 (29)（HSD 8-pixel）：週期 12，D7~D12＝第二組＋4 pixel（D7 上→G4、D12 下→B7），D13 起重複');
-  fire($('dm-preset'), pval(31)); $('dm-preset-apply').click();
+  fire($('dm-auto'), pval(31));
   ok(['3-1', '3-2', '4-1', '4-2'].every(x => !!Q('line[data-gate="' + x + '"]')) && +$('dm-pv-tft').getAttribute('data-plines') === 6 && !!Q('path[data-w="3:D1:u:G1"]') && !!Q('path[data-w="4:D1:u:G-1"]'), '預設樣式 (31)（HSD 4line,4pixel）：畫 4 條 line，Line 3、4＝第二組（＝Line OD Type 30 的 Line 3、4）');
-  fire($('dm-preset'), pval(23)); $('dm-preset-apply').click();
+  fire($('dm-auto'), pval(23));
   ok(+$('dm-pv-tft').getAttribute('data-plines') === 6 && !Q('line[data-gate="3-1"]') && !!Q('path[data-w="1:D7:u:R5"]'), '預設樣式 (23)：週期 6、2 條 line，D7＝D1＋4 pixel（不變）');
   fire($('dm-gate'), 'Tri-Gate');
   ok($('dm-pvbody').classList.contains('hidden') && /測試：Line OD Type/.test($('dm-pvnote').textContent), '② 選 Tri-Gate：依 code 不畫，提示改用測試 Type 17~21');
