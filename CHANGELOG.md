@@ -2,6 +2,42 @@
 
 ---
 
+## Data Mapping (datamap) v1.14.0 — 2026-10-07 ｜ MINOR
+
+**DAZ6111／DAZ7353 的 Auto Type 改依原廠定義畫圖：model 檔確認 SUB_PANEL_MODE 的編號與名稱，datasheet 確認實際接線。不再比照 E50x 推定**
+
+### 需求（Bruce 2026-10-07 原話）
+
+> DAZ-6111、7353 之類的，要知道每一個設定對應的 Type 是什麼，請去查 Model File 裡面，Model File 裡面有定義。
+
+### 查證
+
+- 全機找到 186 個 DAZ model 檔，去重後 11 個版本，逐一讀完。SUB_PANEL_MODE 只定義編號和名稱，沒有接線說明：
+  - `DAZ7353_20190418.model:717-719`：「Zinv : select type 0 ~7」「HSD : 0 : type0 1:type1 2: type2 3: type3 4:type 3-5 5:Z 6:Z2 7:N1 8:N2 9:N3 10:N4」
+  - `DAZ6111_for_FAE_20240509_20240830.model:537-539`：「Zinv : select type 0 1 2 3」「HSD : 0 : type0 1:type1 2: type2 3: type3 4:type 3-5」
+- 接線定義在同一顆 IC 的 datasheet 圖：
+  - DAZ7353 Datasheet V0.16 第 6 章：HSD0 (Z1 Type1)～HSD10 (N4)，HSDn 對應 SUB n。
+  - DAZ7353 Datasheet V0.4：ZIGZAG TYPE1～4。
+  - DAZ6111 Datasheet V0.6：HSD Type1～5、Z-inversion Type1／2。
+- 每張圖都逐顆 TFT 讀出接線並寫進程式，每條 line 的子像素都剛好出現一次，已驗證。
+
+### 變更
+
+- 和已知 Type 相同的：
+  - Zinv type0～3＝LR／RL／LLRR／RRLL（Line OD 1～4）。
+  - HSD type0＝Line OD 22（E50x HSD Type 1）。注意：v1.13.0 推定的 type1→22 是錯的，已修正。
+  - HSD type3＝Line OD 24（E50x HSD Type 4）。
+  - HSD type 3-5＝Line OD 27（E50x HSD Type 3-5）。
+- 新增依 datasheet 圖畫的接線：HSD type1 (Type2)、type2 (Type3)、Z (弓)、Z2、N1～N4。
+- ③ 的資料來源改寫 datasheet 檔名、頁碼與圖號。② 的選項名稱保留 model 原文，後面加註 datasheet 名稱。
+- DAZ7353 Zinv type4～7：datasheet 沒有畫，③ 顯示「尚無架構定義」，並列出查過的檔案。
+- 一併修正 v1.13.1 的提示文字。
+- 測試：check_datamap_auto 新增 DAZ 各 Type 的接線與完整性檢查；check_datamap_preview 的 DAZ7353 Normal 預期改為依 datasheet 畫。
+
+判定依據：`docs/VERSIONING.md` §R3，MINOR：③ 多畫 13 個原本空白的 DAZ Auto Type，並修正 4 個推定接線的來源（其中 HSD type1 的接線也改正）；② 的值、匯出 script 與寫入都不變（回歸比對）；app 不動。
+
+---
+
 ## Data Mapping (datamap) v1.13.1 — 2026-10-07 ｜ PATCH
 
 **修正提示文字：② Manual 樣式差異提示改指向「RT7 Type Select」（「原廠預設樣式」選單已在 v1.12.0 移除）**
