@@ -2,6 +2,25 @@
 
 ---
 
+## Data Mapping (datamap) v1.4.1 — 2026-10-07 ｜ PATCH
+
+**③ 面板排列預覽（初版續修，實驗）：Data 線畫進兩列圖，Data 1 固定在 R1 左邊；Single 間隔 1 顆、Dual 間隔 2 顆；每格改顯示 ② 送進去的內容**
+
+### 需求（Bruce 2026-10-07 原話）
+> 就是 Data 1 的位置，看能不能固定都出現在 R1 的左邊，其他的就照編排做即時的變動。
+> 如果是 single gate 的話：可能 data 2 剛好就會在 G1 的左邊，data 3 就會在 B1 的左邊…間隔重複是一個 subpixel。如果是 dual gate 的話：data 2 可能會出現在 B1 的左邊，而 data 3 可能會出現在 G2 的左邊（但是這個我不是很確定）。
+
+### 改了什麼
+- 兩列圖的實體欄位固定（slot 0 ＝ R1 那一欄，前循環照同樣間距往左延伸）；Data 線（直、跨 Gate 線一律半圓跳線）：Single 在每一格左邊（D1 R1、D2 G1、D3 B1…每 6 格重複），Dual 在每兩格左邊（D1 R1、D2 B1、D3 G2…每 12 格重複）。
+- 每格顯示 ② 送進該格的內容（顏色＝內容的 R／G／B，下方 D n 與 ↑／↓ 表示經哪條 Gate）；Dual 每條 Data 的兩格：② 兩個名稱中位置較左的放左格，Line x-1 的格 TFT 接上線、Line x-2 的接下線。重複組內容平移 2 pixel（Single）／4 pixel（Dual）——推論，待 Bruce 確認。
+- 右上角標「實驗」。v1.4.0 的「沒被指定的虛線框、重複的橘框、列尾 X 清單」改為：X／非標準直接畫灰格。
+- Dual 間距的佐證：EM02 原廠預設樣式 (23) HSD+RBG/GRB+LR（panel_mode=2）Line 1-1 ＝ R1 B1 G2 R3 B3 G4、Line 1-2 ＝ G1 R2 B2 G3 R4 B4 ⇒ Data n 充兩顆相鄰子像素，Data 2 從 B1、Data 3 從 G2 起（common/datamap-core.js:590；出處 RApp_TX.h:530-568）。
+- 回歸 `tools/check_datamap_preview.js` 改為 30 項（加 Data 1 錨定、Single／Dual 間距、Dual 上下線歸屬兩種接法）。cache buster `?v=20261007dm141`。
+
+判定依據：`docs/VERSIONING.md` §R3 判準，PATCH：同一張預覽卡的畫法修正（v1.4.0 剛上線的初版），使用者能做的事沒有多一件；寫入值與匯出 code 不變，不帶輸出變更；首頁卡片文字沒變，app 不動。
+
+---
+
 ## Data Mapping (datamap) v1.4.0 — 2026-10-07 ｜ MINOR
 
 **新增「③ 面板排列預覽」卡片（② 調 Data Mapping 的正下方）：依 ② 的設定即時模擬兩列子像素、Gate Line 歸屬與每條 Data 線的 TFT 接線；原 ③ 寫入／匯出順延為 ④**
