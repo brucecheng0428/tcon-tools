@@ -2,6 +2,36 @@
 
 ---
 
+## Data Mapping (datamap) v1.16.0 — 2026-10-07 ｜ MINOR
+
+**③ 的 Driver 方向拆成「Data 線第一圈位置」和「Driver 輸出方向」兩個選項，並顯示等效方向（反＋反＝正）；比較 16 種面板／driver 配置；匯入 EM01 code 時依 iSP REG 的 SHL 自動帶入 Driver 輸出方向；修正 Mirror 名稱的顏色**
+
+### 需求（Bruce 2026-10-07 原話，節錄）
+
+> 還有一個可能，就是 Driver 本身也有反向（也就是從最左邊channel，往最右邊channel傳）的設定。如果是這樣的話也要考慮進去，最好是提供一個選項讓使用者選擇。
+> 把這些可能都匯集以後，再看一下全民的 code 設定，最有可能是哪一種配置（我指的是 driver 與面板的配置）。
+> 你再看一下全民的 code，在 iSP…這邊跟 SHL 相關的設定到底是設定多少？
+
+### 變更
+
+- **③ 硬體模擬改成四個設定**：輸出對調、Data 線第一圈位置（最左／最右）、Driver 輸出方向（正向 ch1→N／反向 chN→1）、子像素排列（RGB／BGR）。
+  - 第一圈位置和 Driver 輸出方向疊加（XOR），畫面顯示等效方向。例如「第一圈最右＋Driver 反向」顯示為「反＋反＝正，D1 在最左」。
+  - 畫面註明這四項是面板／driver 硬體行為，與 TCON code 無關。
+- **16 種組合比較表**：每一種都列出顏色是否全對、最長 drain、左右不均、畫面方向（依 Mirror）、是否和 iSP SHL 相符，並把畫出來相同的組合合併成等效群組。建議依證據挑出最可能的一個。
+- **iSP SHL 自動帶入**（EM01 flash code）：
+  - 先看 0x0F00[6:4]，等於 1 表示 TX 是 iSP。
+  - 再讀各 port 的 0x1000＋4×port＋1，也就是 sdset01＝EPD9173B REG_1；其中 bit2 就是 SHL。
+  - 依據 VCL_TV_TCON_EM01_Tool：RApp_TX.cpp:1291-1303、:4591，RApp_Common.h:73-74。
+  - 畫面註明「依 code 的 iSP REG 帶入」；使用者仍可手動改，改了會標示。
+- **Mirror 名稱改回原廠 Pixel mapping 的命名**：資料顏色＝code 的顏色，全民 code 的 D1～D6＝B2 G2 R2 B1 G1 R1。
+  - 原因：v1.15.0 把名稱照送出順序重編（R1 G1 B1…），顏色和 code 相反。
+  - 全民 Checklist「初版Code基本信息」寫正面（CF 朝上）是 RGB（E8）、CH1 在右（E12），code 的 SHL＝1 ⇒ D1 在右、從 D1 看是 B G R，只有 code 本身的顏色才對得上。
+- **測試**：check_datamap_kickoff 增為 23 項，新增 iSP SHL 帶入、16 組合與 8 個等效群組、反＋反＝正、等效組合畫出來相同。
+
+判定依據：`docs/VERSIONING.md` §R3，MINOR：③ 新增與修改模擬設定、比較表與自動帶入；② 的值、匯出 script 與寫入都不變；app 不動。
+
+---
+
 ## Data Mapping (datamap) v1.15.0 — 2026-10-07 ｜ MINOR
 
 **吸收 RM81010 Kick Off「Data hand mode」：修正 Mirror＝1 的解碼、Single 改標 Line 1～N、NB Single 改依 Excel 公式；③ 新增「Driver 傳遞方向」與「面板子像素排列」模擬，並會建議合適的組合**
