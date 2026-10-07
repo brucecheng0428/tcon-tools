@@ -133,9 +133,25 @@ console.log('── code 表（D2:R31）＝網頁 T 表解碼');
     ok(d.querySelector('#dm-pv-tft [data-flip]') && +T.getAttribute('data-mis') === 0 && QA('[data-misk]').length === 0 && $('dm-pv-sugbtn').classList.contains('hidden') && JSON.stringify(a2) === JSON.stringify(a) && /CH1 在最右/.test($('dm-pv-eq').textContent) && /SHL 正向/.test($('dm-pv-eq').textContent),
       'CH1 在最右＋正向＋RGB：主循環置左、資料顏色＝玻璃顏色 24/24、不再出建議');
     const posR = dlPos(), cellR = cells(1) + '/' + cells(2);
+    ok(QA('text[data-dof]').filter(f => f.getAttribute('x') === QA('text[data-dlab="Dn+6"]')[0].getAttribute('x'))[0].getAttribute('data-dof') === '6', 'SHL 正向：Dn+6 那條的小字是 Data 6（對應 ② 表格 Data 6）');
     fire($('dm-pv-drv'), 'r');
     ok(dlPos() === posR && cells(1) + '/' + cells(2) !== cellR && T.getAttribute('data-dir') === 'rl' && +T.getAttribute('data-mis') > 0 && /SHL 反向/.test($('dm-pv-eq').textContent) && !/反＋反|等效/.test($('dm-pv-eq').textContent),
       'v1.17.2 切換 SHL（CH1 在右）：Data 線位置與標號完全不變，只有格內收到的資料改變（' + cellR + ' → ' + cells(1) + '/' + cells(2) + '）、顏色不符 ' + T.getAttribute('data-mis') + ' 格');
+    { const dof = lab => { const e = QA('text[data-dlab="' + lab + '"]')[0]; const x = e && e.getAttribute('x'); const sm = QA('text[data-dof]').filter(f => f.getAttribute('x') === x)[0]; return sm ? sm.getAttribute('data-dof') : null; };
+      const cellOf = dl => { const r = QA('rect[data-pv^="1:"][data-tier="main"]').filter(e => (e.getAttribute('data-in') || '').split(',').indexOf(dl + 'u') >= 0)[0]; return r ? r.getAttribute('data-dn') : null; };
+      ok(dof('Dn+6') === '1' && dof('Dn+1') === '6' && cellOf('D12') === gridTxt(0)[0] && cellOf('D7') === gridTxt(0)[5],
+        'v1.17.4 SHL 反向：大字位置不變，小字跟著倒過來（Dn+6 那條收 Data 1、Dn+1 收 Data 6），且格內資料＝② 表格同一個 Data k（Data 1＝' + gridTxt(0)[0] + '）'); }
+    ok(QA('[data-rowhead="sd"] title').length === 1 && QA('[data-rowhead="tc"] title').length === 1 && /SD Out/.test(Q('[data-rowhead="sd"]').textContent) && /TCON Out/.test(Q('[data-rowhead="tc"]').textContent) && /② Data Mapping 表格/.test(Q('[data-rowhead="tc"] title').textContent),
+      'TFT 接線圖上方兩列有英文列頭「SD Out」「TCON Out」，滑鼠提示寫完整說明');
+    { fire($('dm-pv-drv'), 'f');
+      const sd = () => QA('text[data-dlab]').map(e => e.getAttribute('data-dlab') + '@' + e.getAttribute('x')).join(','), tc = () => QA('text[data-dof]').map(e => e.getAttribute('data-dof')).join(','), pth = () => QA('path[data-dl]').map(p => p.getAttribute('d')).join('|');
+      const sd0 = sd(), tc0 = tc(), p0 = pth(), scS = w.dmBuildScript().text;
+      fire($('dm-pv-swap'), true);
+      const m = { 1: 3, 3: 1, 4: 6, 6: 4, 2: 2, 5: 5 };
+      ok(sd() === sd0 && pth() === p0 && tc() === tc0.split(',').map(k => String(m[k])).join(',') && w.dmBuildScript().text === scS,
+        'v1.17.4 勾「輸出對調」⇒ SD Out 列（亮字、線位置）完全不變，TCON Out 列 1↔3、4↔6 對調（' + tc0 + ' → ' + tc() + '），匯出 script 不變');
+      fire($('dm-pv-swap'), false);
+      ok(tc() === tc0 && sd() === sd0, '取消對調 ⇒ TCON Out 回原樣'); }
     fire($('dm-pv-first'), 'l');
     ok(dlPos() !== posR && T.getAttribute('data-dir') === 'lr' && !d.querySelector('#dm-pv-tft [data-flip]') && QA('text[data-dlab="D1"]').length === 1, 'v1.17.2 切換 CH1 位置：Data 線位置與標號改變（D1…D6 從左排）');
     fire($('dm-pv-drv'), 'f'); fire($('dm-pv-first'), 'r'); fire($('dm-pv-stripe'), 'bgr');
