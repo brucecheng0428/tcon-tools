@@ -145,6 +145,13 @@
   var CKS_DUAL = [1,118,3,117,5,116,113,8,114,10,115,12,6,112,4,111,2,110,107,11,108,9,109,7];   // :2865
   var CKS_SINGLE = [1,118,3,117,5,116,0,0,0,0,0,0,6,112,4,111,2,110,0,0,0,0,0,0];   // :2872
 
+  /* v1.10.0 SUB_PANEL_MODE 位址（Python UI 字典沒有；出處＝~/TCON/WorkSoftware/I2C_UI/E503_E501/Raydium_RomCodeProcessUI_V5.0.3_Release/*.model）：
+       DAZ6111_for_FAE_20240509_20240830.model:531-539  0x32[6:4]（MAIN_PANEL_MODE 0x32[1:0]）
+       DAZ7353_20190418.model:711-719                    0xC9[7:4]（4 bit；MAIN_PANEL_MODE 0xC9[1:0]）
+       DAZ6138_20230309.model:7440-7449                  0x180[6:4]
+       RM81010_for_FAE_20240509_20241127.model:9748-9765 0x3F0[6:4]（E501A／E501B 同；RM81011 model:9605 相同）
+       RM8100x_for_FAE_20240925_20250311.model:8522-8540 0x320[6:4]（E503） */
+  var SUB_PANEL_REG = { DAZ6111: [0x032, 6, 4], DAZ7353: [0x0C9, 7, 4], DAZ6138: [0x180, 6, 4], RM81010: [0x3F0, 6, 4], RM81000: [0x320, 6, 4] };
   /* ── 型號 ─────────────────────────────────────────────────────────────── */
   /* kind：'nb' ＝ Python UI 型號（暫存器＝3E 位址）；'mnt' ＝ EM01／EM02／E512。
      sem：表格規則（'daz7353'／'daz6111'／'e50x'）；mnt 套 e50x 規則（同一組 GN1／GN2 與 Gate 判準）。 */
@@ -186,6 +193,8 @@
         f.push({ id: 'deSel', parts: [P(T.hand2[0], 7, 4)], name: 'FORCE_DE_SEL' });
       }
       f.push({ id: 'panel', parts: [T.panel], name: 'PANEL_MODE' });
+      /* v1.10.0：Auto Mode（Hand Mode 關）的 Type ＝ PANEL_MODE＋SUB_PANEL_MODE（各型號 .model 檔，見 SUB_PANEL_REG） */
+      if (SUB_PANEL_REG[m.tbl]) f.push({ id: 'subPanel', parts: [SUB_PANEL_REG[m.tbl]], name: 'SUB_PANEL_MODE' });
       if (T.rd) f.push({ id: 'rd', parts: [T.rd], name: 'RD_MODE' });
       if (T.lineType) for (var i = 0; i < 8; i++) f.push({ id: 'lt' + i, parts: [T.lineType[i]], name: 'LINE' + i + '_TYPE_SEL' });
       for (var k = 0; k < 24; k++) {
@@ -944,7 +953,7 @@
   var API = {
     MODELS: MODELS, MODEL_KEYS: MODEL_KEYS, MNT_KEYS: MNT_KEYS, PY_TO_KEY: PY_TO_KEY, PY_TABLES: PY_TABLES,
     GN1: GN1, GN2: GN2, D6111: D6111, D7353: D7353, CKS_W: CKS_W, GATE_ITEMS: GATE_ITEMS, RD_MODE_REG: RD_MODE_REG,
-    PANEL_MODES: PANEL_MODES, SUB_PANEL: SUB_PANEL, RD_MODES: RD_MODES, PRESETS: PRESETS, CH_NAMES: CH_NAMES,
+    PANEL_MODES: PANEL_MODES, SUB_PANEL: SUB_PANEL, SUB_PANEL_REG: SUB_PANEL_REG, RD_MODES: RD_MODES, PRESETS: PRESETS, CH_NAMES: CH_NAMES,
     fieldsOf: fieldsOf, fieldById: fieldById, readField: readField, splitField: splitField,
     emptyState: emptyState, cloneState: cloneState, decode: decode, encode: encode, encodeFields: encodeFields,
     changedIds: changedIds, diffRegs: diffRegs, regsOf: regsOf, maskedMerge: maskedMerge,

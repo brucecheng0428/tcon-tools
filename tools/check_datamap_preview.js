@@ -62,7 +62,7 @@ const ok = (c, m) => { if (c) pass++; else { fail++; console.log('  ✗ ' + m); 
   console.log('── 版面');
   const cards = Array.from(d.querySelectorAll('.card.stp')).map(c => c.id);
   ok(cards.join(',') === 'card-src,card-dm,card-pv,card-out', '卡片順序 ①②③④：' + cards.join(','));
-  ok(/^v1\.[4-9]\./.test(w.TOOL_VERSIONS.datamap), 'datamap 版號 v1.4～v1.9：' + w.TOOL_VERSIONS.datamap);
+  ok(/^v1\.([4-9]|1\d)\./.test(w.TOOL_VERSIONS.datamap), 'datamap 版號 v1.4 以上：' + w.TOOL_VERSIONS.datamap);
   ok(!$('dm-pv-rows') && $('card-pv').querySelectorAll('svg').length === 1 + $('dm-pv-legend').querySelectorAll('svg').length, '卡內只有一張 TFT 圖');
 
   console.log('── Auto');
@@ -142,7 +142,9 @@ const ok = (c, m) => { if (c) pass++; else { fail++; console.log('  ✗ ' + m); 
   fire($('dm-gate'), 'Tri-Gate');
   ok($('dm-pvbody').classList.contains('hidden') && /Tri-Gate/.test($('dm-pvnote').textContent), 'Tri ⇒ 預覽顯示不支援');
   fire($('dm-model'), 'DAZ7353');
-  ok($('dm-model').value === 'DAZ7353' && npre() === 0 && QA('rect[data-pv^="1:"]').length === 12, '切 DAZ7353（全 0＝R1）⇒ 前循環收起');
+  ok($('dm-model').value === 'DAZ7353' && /沒有可用的架構對照/.test($('dm-pvnote').textContent), 'v1.10.0：切 DAZ7353（Hand 關）⇒ Auto Type Normal 沒有架構圖，③ 不畫');
+  fire($('dm-hand'), true);
+  ok(npre() === 0 && QA('rect[data-pv^="1:"]').length === 12, 'DAZ7353 Hand 開（全 0＝R1）⇒ 前循環收起');
 
   if (EM02) {
     console.log('── 真實 EM02 code：' + path.basename(EM02));
