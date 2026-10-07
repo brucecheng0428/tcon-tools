@@ -164,7 +164,7 @@
     E501B:   { key: 'E501B', label: 'E501B (RM81011)', kind: 'nb', py: 'RM81011', tbl: 'RM81010', sem: 'e50x', mbus: true },
     E503:    { key: 'E503', label: 'E503 (RM81000~RM81004)', kind: 'nb', py: 'RM81000', tbl: 'RM81000', sem: 'e50x', mbus: true, e503: true },
     EM01: { key: 'EM01', label: 'EM01', kind: 'mnt', sem: 'e50x', rt7: 0x0400, icId: [0x01, 0xEF, 0xA0], deSel: { off: 0x45, shift: 0, bits: 6 } },
-    EM02: { key: 'EM02', label: 'EM02', kind: 'mnt', sem: 'e50x', rt7: 0x0480, icId: [0x02, 0xEF, 0xA0], deSel: { off: 0x45, shift: 0, bits: 6 } },
+    EM02: { key: 'EM02', label: 'EM02', kind: 'mnt', sem: 'e50x', rt7: 0x0480, icId: [0x02, 0xEF, 0xA0], deSel: { off: 0x45, shift: 0, bits: 6 }, lod: 0x0900 },
     E512: { key: 'E512', label: 'E512', kind: 'mnt', sem: 'e50x', rt7: 0x0480, icId: [0x12, 0xE5, 0xA0], deSel: { off: 0x02, shift: 4, bits: 4 } }
   };
   /* 下拉順序照 PY list_tcon（:3516），MNT 接在後面 */
@@ -225,6 +225,17 @@
       f.push({ id: 'deSel', parts: [P(b + ds.off, ds.shift + ds.bits - 1, ds.shift)], name: 'force_de_sel' });
       f.push({ id: 'rvsL', parts: [P(b + 0x46, 7, 0)], name: 'read_rvs[7:0]' });
       f.push({ id: 'rvsH', parts: [P(b + 0x47, 7, 0)], name: 'read_rvs[15:8]' });
+      /* v1.11.0（Bruce 10/7「以 RT7 為主…實際上應該要將 RT7 跟 LineOD 設成是一樣的才對」）：Line OD Mapping 暫存器（EM02 BK_LOD＝0x0900，
+         Table_LOD_Reg_st RApp_Table.h:1185-1436；de／spec_line＝+0xC7、line／pix＝+0xC8、map r_0..b_15＝+0xC9..+0xF8，蘇坤 code 實測解出 Type 32）。
+         EM01（0x0C00、欄位寬度與 48 值排法不同）與 E512（bin 表頭沒有 lod1_addr）暫不支援。 */
+      if (m.lod) {
+        var lb = m.lod, CHL = ['r', 'g', 'b'];
+        f.push({ id: 'lodDe', parts: [P(lb + 0xC7, 2, 0)], name: 'reg_lod_map_de' });
+        f.push({ id: 'lodSpec', parts: [P(lb + 0xC7, 5, 4)], name: 'reg_lod_map_spec_line' });
+        f.push({ id: 'lodLine', parts: [P(lb + 0xC8, 3, 0)], name: 'reg_lod_map_line' });
+        f.push({ id: 'lodPix', parts: [P(lb + 0xC8, 6, 4)], name: 'reg_lod_map_pix' });
+        for (var q = 0; q < 48; q++) f.push({ id: 'lodM' + q, parts: [P(lb + 0xC9 + q, 5, 0)], name: 'reg_lod_map_' + CHL[Math.floor(q / 16)] + '_' + (q % 16) });
+      }
     }
     f.forEach(function (x) { x.bits = x.parts.reduce(function (a, p) { return a + p[1] - p[2] + 1; }, 0); });
     _fcache[key] = f;
@@ -689,7 +700,7 @@
   /* ── MNT .bin 定位（v1.0.0，未改）──────────────────────────────────────── */
   function u16(b, o) { return (o + 1 < b.length) ? (b[o] | (b[o + 1] << 8)) : -1; }
   var LOCATORS = [
-    { model: 'EM02', medium: 'eeprom', hdr7: 0x31, hdr8: 0x33, bankBase: 0x0400, gap: 0x102 },
+    { model: 'EM02', medium: 'eeprom', hdr7: 0x31, hdr8: 0x33, bankBase: 0x0400, gap: 0x102, lodHdr: 0x3B, lodBase: 0x0900 },   // lod1_addr＝BK_SYS+0x3B（EM02 RApp_BIN_Header.h:669）
     { model: 'E512', medium: 'eeprom', hdr7: 0x43, hdr8: 0x45, bankBase: 0x0400, gap: 0xF9 },
     { model: 'EM01', medium: 'eeprom', hdr7: 0x46, hdr8: 0x48, bankBase: 0x0400, gap: 0xFF }
   ];
@@ -711,8 +722,10 @@
       if (o8 + 8 > bytes.length) return;
       var m = MODELS[L.model];
       if (o7 + (m.rt7 - L.bankBase) + 0x76 > bytes.length) return;
-      hits.push({ model: L.model, medium: L.medium, rt7Bank: o7, rt8: o8,
+      var oL = L.lodHdr ? u16(bytes, L.lodHdr) : 0; if (oL <= 0 || oL + 0x100 > bytes.length) oL = 0;
+      hits.push({ model: L.model, medium: L.medium, rt7Bank: o7, rt8: o8, lodBank: oL,
         fileOf: function (reg) {
+          if (oL && reg >= L.lodBase && reg < L.lodBase + 0x100) return oL + (reg - L.lodBase);
           if (reg >= 0x0500 && reg < 0x0600) return o8 + (reg - 0x0500);
           if (reg >= L.bankBase && reg < 0x0500) return o7 + (reg - L.bankBase);
           return -1;

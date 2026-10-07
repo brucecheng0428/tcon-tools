@@ -36,6 +36,19 @@ ok(A.list('EM02').every(e => DM.PRESETS[e.preset].set.hand === 0), 'MNT 清單�
 { const i29 = DM.PRESETS.findIndex(p => p.name.startsWith('(29)')); let s = DM.applyPreset('EM02', DM.emptyState('EM02'), i29); const r = A.manualMatch('EM02', s);
   ok(r && r.preset === i29 && r.diff.length === 0, 'Manual：套 (29) 後 force_sel 比對回 (29)、Panel Mode 全相同');
   s.subPanel = 0; const r2 = A.manualMatch('EM02', s); ok(r2 && r2.diff.join() === 'subPanel', 'Manual：(29) 的 force_sel 但 sub_panel 改成 0 ⇒ 指出 sub_panel_mode 應為 4'); }
+console.log('── v1.11.0 Line OD 跟著 RT7');
+ok(LOD.TYPES.every((t, i) => LOD.typeOfReg(LOD.autoReg(t)) === i), '由接線反推 Line OD（de／line／pix＋48 值）：原廠 33 個 Type 全部重算相同');
+{ const WANT = { 30: 31, 31: 30 }; let good = 0, total = 0, det = [];
+  DM.PRESETS.forEach((p, i) => { const m = /^\((\d+)\)/.exec(p.name); if (!m) return; total++; const n = +m[1], want = WANT[n] !== undefined ? WANT[n] : n;
+    const s = DM.applyPreset('EM02', DM.emptyState('EM02'), i), e = A.expectedLod('EM02', s);
+    if (e.ok && e.type === want && LOD.sameReg(e.reg, LOD.TYPES[want].reg)) good++; else det.push(p.name); });
+  ok(good === total, '原廠 RT7 每個樣式算出的 Line OD＝對應 Line OD Type 的 52 個值（' + good + '/' + total + '；(30)(31) 照接線交叉、(32) 依 driver 對調後接線）' + (det.length ? ' ✗ ' + det.join(',') : '')); }
+{ const i32 = DM.PRESETS.findIndex(p => p.name.startsWith('(32)')), s = DM.applyPreset('EM02', DM.emptyState('EM02'), i32), e = A.expectedLod('EM02', s), w = A.wiringFromState('EM02', s, false);
+  ok(e.swap && e.type === 32 && LOD.typeOfReg(LOD.autoReg(w.t)) === 32, '(32)：依 driver 對調後的實際接線算出 Line OD 32；不對調算出來也是 32（Line OD 只看同一條 Data 線上前後送的子像素，整條線對調不影響）'); }
+{ let s = Object.assign(DM.emptyState('EM02'), { hand: 1, panel: 2, rd: 1 }); const e = A.expectedLod('EM02', s);
+  ok(e.ok && e.src === 'wiring', 'Hand 手填（全 0，不屬原廠樣式）也能由接線反推 Line OD：' + (e.ok ? (e.type >= 0 ? 'Type ' + e.type : '非原廠值 de=' + e.reg.de) : e.why));
+  s = Object.assign(s, { panel: 3, rd: 1 }); ok(!A.expectedLod('EM02', s).ok, 'Gate 組合不符（panel 3＋rd 1）⇒ 無法自動對應、不寫'); }
+ok(!A.lodSupported('EM01') && !A.lodSupported('E512') && A.lodSupported('EM02'), 'Line OD 只支援 EM02（EM01 格式不同、E512 bin 位置未確認）');
 console.log('── 隱藏表填錯修正（依表格邏輯＋Pixel Structure 圖）');
 const nf = id => (A.FIXES[id] || []).length;
 ok(nf('6') === 40 && nf('7') === 40 && nf('27') === 38 && nf('28') === 38 && ['23', '24', '25', '26'].every(i => nf(i) === 2) && ['2', '3', '4', '5', '8', '9'].every(i => !nf(i)), '填錯格數：zz5／zz6 各 40、mirror zz5／zz6 各 38、mirror zz1~4 各 2（g2 欄）；其他 zigzag 列 0');
@@ -119,6 +132,31 @@ ok(A.wiring(A.list('E503').find(e => e.name === 'LTPS Type 1 Z-Zag MUX3')).g ===
     console.log('   Hand：' + mm.textContent);
     ok(+mm.getAttribute('data-preset') === mi && /panel_mode＝2/.test(mm.textContent) && /rd_mode＝1/.test(mm.textContent), '蘇坤 code（Hand 開）：force_sel＝原廠 Manual 樣式 (32)，顯示 Panel Mode 應設值（panel_mode＝2、rd_mode＝1…），差異 ' + mm.getAttribute('data-diff') + ' 項');
     ok(s.hand === 1 && sel.disabled && sel.value === String(i) && i >= 0 && sel.options[sel.selectedIndex].textContent.startsWith(A.list('EM02')[i].name), '匯入後 Auto 下拉自動選到 ' + (i >= 0 ? A.list('EM02')[i].name : '?') + '（Hand 開 ⇒ 停用、只顯示）');
+  }
+  console.log('── v1.11.0 ② Line OD 狀態（網頁）');
+  if (w.dmClearImport) w.dmClearImport();
+  fire($('dm-model'), 'EM02'); if (w.dmState.cur.hand) fire($('dm-hand'), false);
+  fire($('dm-auto'), String(A.list('EM02').findIndex(e => e.name === '(5) ZZ+LRRL')));
+  { const t = w.dmBuildScript().text, l7 = t.split('\n').find(x => x.startsWith('write -m 09C7')), l9 = t.split('\n').find(x => x.startsWith('write -m 09C9'));
+    ok($('dm-lodrow').getAttribute('data-state') === 'ok' && +$('dm-lodrow').getAttribute('data-cur') === 5 && !!l7 && !!l9 && parseInt(l9.split(' ')[3], 16) === LOD.TYPES[5].reg.r[0],
+      'Auto 選 (5) ⇒ Line OD 自動寫成 Type 5、狀態一致；匯出 script 含 0x09C7、0x09C9（r_0＝' + LOD.TYPES[5].reg.r[0] + '）'); }
+  fire($('dm-model'), 'EM01');
+  ok($('dm-lodrow').getAttribute('data-state') === 'na' && /尚未支援/.test($('dm-lodstat').textContent), 'EM01：Line OD 尚未支援，請手動確認');
+  fire($('dm-model'), 'E503');
+  ok($('dm-lodrow').classList.contains('hidden'), 'NB 型號不顯示 Line OD');
+  if (EM02) {
+    console.log('── 蘇坤 code：一致／故意改壞／修正');
+    fire($('dm-model'), 'EM02');
+    const raw = new Uint8Array(fs.readFileSync(EM02));
+    w.dmImportBytes(raw, path.basename(EM02)); await new Promise(r => setTimeout(r, 50));
+    ok($('dm-lodrow').getAttribute('data-state') === 'ok' && +$('dm-lodrow').getAttribute('data-cur') === 32 && /一致（Type 32/.test($('dm-lodstat').textContent) && /對調/.test($('dm-loddiff').textContent), '蘇坤 code：✓ Line OD 與 RT7 一致（Type 32，依 driver 對調後接線）');
+    const bad = raw.slice(), oL = bad[0x3B] | (bad[0x3C] << 8); bad[oL + 0xC9] = 8; bad[oL + 0xC8] = (bad[oL + 0xC8] & 0xF0) | 3;
+    w.dmImportBytes(bad, 'broken_' + path.basename(EM02)); await new Promise(r => setTimeout(r, 50));
+    ok($('dm-lodrow').getAttribute('data-state') === 'diff' && !$('dm-lodfix').classList.contains('hidden') && /不一致/.test($('dm-lodstat').textContent) && /r_0 8→25/.test($('dm-loddiff').textContent) && /line 3→1/.test($('dm-loddiff').textContent), '故意改壞 r_0 與 line ⇒ 醒目警示、列出差異（r_0 8→25、line 3→1）、出現修正按鈕');
+    ok(w.dmState.cur.lodM0 === 8 && w.dmState.cur.lodLine === 3, '匯入時不自動改（code 裡的 Line OD 原樣保留，按了才改）');
+    $('dm-lodfix').click();
+    const t2 = w.dmBuildScript().text, l9 = t2.split('\n').find(x => x.startsWith('write -m 09C9')), l8 = t2.split('\n').find(x => x.startsWith('write -m 09C8'));
+    ok($('dm-lodrow').getAttribute('data-state') === 'ok' && w.dmState.cur.lodM0 === 25 && w.dmState.cur.lodLine === 1 && parseInt(l9.split(' ')[3], 16) === 25 && (parseInt(l8.split(' ')[3], 16) & 0x0F) === 1, '按「依 RT7 修正 Line OD」⇒ 恢復一致，匯出 script 的 0x09C8／0x09C9 是修正後的值');
   }
   console.log((fail ? '✗ ' : '✓ ') + 'check_datamap_auto ' + pass + ' pass / ' + fail + ' fail');
   process.exit(fail ? 1 : 0);

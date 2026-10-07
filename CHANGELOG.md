@@ -2,6 +2,37 @@
 
 ---
 
+## Data Mapping (datamap) v1.11.0 — 2026-10-07 ｜ MINOR
+
+**EM02：Line OD 跟著 RT7 自動連動寫入 code，匯入時檢查一致性，不一致可一鍵「依 RT7 修正 Line OD」**
+
+### 需求（Bruce 2026-10-07 原話）
+
+> 對，這就是原廠UI 一直被詬病的地方，就是 LineOD跟 RT7 的data mapping是兩個不同的設定。我也希望可以靠這個網頁做到兩個可以檢查，如果不一樣的話，儘量讓它連動一樣，以 RT7 為主。實際上應該要將 RT7 跟 LineOD 設成是一樣的才對
+
+### 依據
+
+- Line OD 暫存器在 code 裡：EM02 bin 表頭 lod1_addr（BK_SYS+0x3B，原廠 RApp_BIN_Header.h:669）指向 0x0900 bank；Table_LOD_Reg_st 推算 0x09C7[2:0] de、[5:4] spec_line、0x09C8[3:0] line、[6:4] pix、0x09C9~0x09F8 map r_0..b_15。蘇坤 code（02B10A）lod1 bank 在檔案 0x7E9，解出 Line OD Type 32、和 RT7 (32) 成對，位址推算獲實證。
+- 由接線反推 Line OD（`datamap-lod.js autoReg`）：line＝列數−1；pix＝不衝突的最小 pixel 循環；de＝所有值合法的最小延遲（Dual 至少 1）。原廠 33 個 Type 重算 52 個值全部相同。
+- Line OD 只描述「同一條 Data 線上前後送的子像素」，整條 Data 線對調（driver D1↔D3、D4↔D6）不影響結果；(32) 依對調後實際接線算＝不對調算＝Type 32。
+
+### 改了什麼
+
+- `datamap-core.js`：EM02 加 Line OD 欄位（lodDe／lodSpec／lodLine／lodPix／lodM0~47），定位器讀 lod1_addr 對到 bin；隨匯入、匯出 script、I2C 寫入、Data Mapping Code 表一起處理。EM01（0x0C00、格式不同）、E512（表頭沒有 lod1_addr）不加。
+- `datamap-auto.js`：`expectedLod`（Hand 關＝Auto Type 對應的 Line OD；Hand 開＝由 force_sel 解出接線再反推，原廠 (30)(31) 名稱對調自動照接線交叉、Tri+ZZ 寫 31 的 B-1 依同列等距補上、算不出來回報原因不寫）、`lodCheck`、`lodApply`。
+- ②：「Line OD」狀態列：✓ 一致（Type n）／⚠ 不一致（目前、應有、差哪幾格）＋「依 RT7 修正 Line OD」按鈕／⚠ 無法自動對應（不寫 LOD）；EM01／E512 顯示「尚未支援，請在原廠 UI 手動確認」；NB 不顯示。
+- RT7 有改（Auto 下拉、Hand 表格、預設樣式等）⇒ Line OD 自動跟著寫；匯入 code 不自動改，只檢查。
+- ③「測試：Line OD Type」保留：它只換預覽、不碰 code，用來對照原廠 33 種 Type；code 裡的 Line OD 狀態在 ② 看。
+
+### 回歸
+
+- `tools/check_datamap_auto.js` 69/0（加 `--em02`）：33 Type autoReg 重算相同；原廠 RT7 34 個樣式算出的 Line OD＝對應 Type（(30)(31) 交叉、(32) 對調）；Hand 手填可反推、Gate 不符拒絕；Auto 選 (5) 自動寫 Type 5 且匯出含 0x09C7／0x09C9；蘇坤 code 一致（Type 32）；故意改壞 r_0、line 被抓到、按修正後一致且匯出值正確；EM01 未支援、NB 不顯示。
+- `check_datamap` 282/0（EM02 合成映像加 lod1_addr）；`check_datamap_preview` 46/0（加真實 EM02 code 61/0）；`check_datamap_lod` 196/0。cache buster `?v=20261007dm1110`。
+
+判定依據：`docs/VERSIONING.md` §R3，MINOR：② 多一個 Line OD 狀態與修正按鈕；EM02 匯出 script／寫入多 Line OD 暫存器（依 Bruce 決定以 RT7 為主連動），既有 RT7 欄位與表格行為不變（回歸比對）；app 不動。
+
+---
+
 ## Data Mapping (datamap) v1.10.0 — 2026-10-07 ｜ MINOR
 
 **② 新增「Auto Mode：Data Mapping Type」下拉（Hand Mode 關時依 PANEL_MODE＋SUB_PANEL_MODE 選 Type，與 TCON code 連動）；③ 依 Type 畫 Pixel 架構；EM01／EM02 原廠 UI 手動輸入對照**

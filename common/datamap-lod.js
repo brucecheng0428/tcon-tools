@@ -255,7 +255,32 @@
     });
     return { ok: !bad.length, bad: bad };
   }
-  var API = { TYPES: T, XLSX_CASES: XLSX_CASES, tName: tName, xlsxRows: xlsxRows, xlsxCheck: xlsxCheck, lin: lin, name: name, at: at, lines12: lines12, linesN: linesN, deriveReg: deriveReg, nameSeq: nameSeq, sides: sides, expectSides: expectSides, nameCheck: nameCheck, period: period, BK_LOD: 0x0900,
+  /* v1.11.0：由接線反推 Line OD 暫存器（de／line／pix＋48 值）。line＝列數−1；pix＝最小的 pixel 循環（1~8）使同一格不出現兩種值；
+     de＝最小的延遲使所有值合法（前一列 0~17、同一列 18~62）；Dual 至少 1（原廠 HSD 全部 de≥1）。原廠 33 個 Type 逐一重算全部相同（check_datamap_lod）。 */
+  function regValid(t, r) {
+    var G = t.rows[0].length, Lr = r.line + 1, px = function (l) { var p = Math.floor(l / 3); return t.mir ? -p : p; };
+    for (var li = 0; li < Lr; li++) for (var gi = 0; gi < G; gi++) for (var c = 4 * t.P; c < 8 * t.P; c++) {
+      var x = at(t, li, gi, c); if (x === null) continue;
+      var y = gi > 0 ? at(t, li, gi - 1, c) : at(t, (li - 1 + Lr) % Lr, G - 1, c); if (y === null) continue;
+      var dx = px(y) - px(x);
+      if (gi > 0) { var p1 = r.de + 1 - dx; if (p1 < 0 || 18 + 3 * p1 + 2 > 62) return false; }
+      else { var p0 = r.de - dx; if (p0 < 0 || p0 > 5) return false; }
+    }
+    return true;
+  }
+  function autoReg(t) {
+    var L = t.rows.length;
+    for (var X = 1; X <= 8 && L * X <= 16; X++) for (var de = (t.g === 'dual' ? 1 : 0); de < 8; de++) {
+      var r = { de: de, spec: 0, line: L - 1, pix: X - 1 };
+      var d = deriveReg({ rows: t.rows, P: t.P, A: t.A, g: t.g, mir: t.mir, reg: r });
+      if (d.clash.length || !regValid(t, r)) continue;
+      r.r = d.reg.r; r.g = d.reg.g; r.b = d.reg.b; return r;
+    }
+    return null;
+  }
+  function sameReg(a, b) { return !!a && !!b && a.de === b.de && a.line === b.line && a.pix === b.pix && (a.spec | 0) === (b.spec | 0) && ['r', 'g', 'b'].every(function (c) { return a[c].every(function (v, i) { return v === b[c][i]; }); }); }
+  function typeOfReg(r) { for (var i = 0; i < T.length; i++) if (sameReg(T[i].reg, r)) return i; return -1; }
+  var API = { TYPES: T, autoReg: autoReg, sameReg: sameReg, typeOfReg: typeOfReg, XLSX_CASES: XLSX_CASES, tName: tName, xlsxRows: xlsxRows, xlsxCheck: xlsxCheck, lin: lin, name: name, at: at, lines12: lines12, linesN: linesN, deriveReg: deriveReg, nameSeq: nameSeq, sides: sides, expectSides: expectSides, nameCheck: nameCheck, period: period, BK_LOD: 0x0900,
     REGS: { de: '0x09C7[2:0]', spec: '0x09C7[5:4]', line: '0x09C8[3:0]', pix: '0x09C8[6:4]', rgb: '0x09C9~0x09F8（r_0..r_15、g_0..g_15、b_0..b_15，各 6 bit）' } };
   if (typeof module === 'object' && module.exports) module.exports = API; else root.TCONDataMapLOD = API;
 })(typeof window !== 'undefined' ? window : this);
