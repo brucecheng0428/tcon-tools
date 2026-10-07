@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Data Mapping — TCON FAE Toolbox</title>
-<link rel="stylesheet" href="common/common.css?v=20261007dm121">
-<link rel="stylesheet" href="common/site-ui.css?v=20261007dm121">
+<link rel="stylesheet" href="common/common.css?v=20261007dm130">
+<link rel="stylesheet" href="common/site-ui.css?v=20261007dm130">
 <!--
   Data Mapping 分頁 v1.2.0（Bruce 2026-10-07）
   ・Bruce 10/7：「我其實沒有要你把它做得跟原生 UI 一模一樣，你還是要兼顧到網頁的風格，現在這個有點太突兀了。
@@ -37,6 +37,7 @@
   .sbtn.wr { background: #9a3412; border-color: #f97316; } .sbtn.wr:hover { background: #c2410c; }
   .sbtn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
   .dm-chk { display: inline-flex; align-items: center; gap: 6px; font-size: 13.5px; color: var(--text); margin: 0; font-weight: 500; text-transform: none; letter-spacing: 0; cursor: pointer; }
+  .dm-chk.off { opacity: .45; cursor: not-allowed; }
   .dm-chk input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
   .dm-sub { font-size: 12.5px; color: var(--sub); }
   .dm-src { font-size: 12.5px; color: var(--sub); word-break: break-all; }
@@ -108,6 +109,12 @@
   .dm-toast.e { background: #2a0b0b; border-color: #f87171; color: #fecaca; }
   .dm-toast.n { background: #0b1d33; border-color: #38bdf8; color: #e0f2fe; }
 
+  /* v1.3.0 匯入型號不符時的詢問框（站內深色主題；按鈕沿用 .sbtn） */
+  .dm-ask { position: fixed; inset: 0; z-index: 120; display: flex; align-items: center; justify-content: center; background: rgba(2,6,23,.62); padding: 16px; }
+  .dm-ask-box { width: min(92vw, 460px); background: var(--card, #111827); border: 2px solid var(--accent); border-radius: 10px; padding: 16px 18px 14px; box-shadow: 0 10px 30px rgba(0,0,0,.6); }
+  .dm-ask-t { font-size: 16px; font-weight: 700; color: var(--text); line-height: 1.5; }
+  .dm-ask-d { font-size: 13.5px; color: var(--sub); line-height: 1.6; margin-top: 8px; }
+  .dm-ask-btns { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; }
   @media (pointer: coarse) { .dm-cell { height: 44px; font-size: 15px; } .dm-sel, .dm-in, .sbtn { min-height: 40px; height: auto; } }
   @media (max-width: 640px) { .dm-push { margin-left: 0; } .dm-grid tbody th { width: 76px; } table.dm-grid { min-width: 520px; } }
 </style>
@@ -143,6 +150,7 @@
       <span class="dm-k" data-i18n="dm.model">T-CON 型號</span>
       <select id="dm-model" class="dm-sel"></select>
       <button class="sbtn pri" id="dm-import" data-i18n-title="dm.importTitle" title="匯入 code（.bin／.hex／.rom／.txt／.dat）"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v8"></path><path d="M4.5 7 8 10.5 11.5 7"></path><path d="M2 12.5V14h12v-1.5"></path></svg><span data-i18n="dm.importCode">匯入 code</span></button>
+      <button class="sbtn" id="dm-clear" data-i18n-title="dm.clearImpTitle" title="清除匯入的 code，回到目前型號的預設值"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4.5h11"></path><path d="M6.5 4.5V2.8h3v1.7"></path><path d="M4 4.5v8.2a1.3 1.3 0 0 0 1.3 1.3h5.4a1.3 1.3 0 0 0 1.3-1.3V4.5"></path><path d="M6.7 7v4.5"></path><path d="M9.3 7v4.5"></path></svg><span data-i18n="dm.clearImp">清除匯入</span></button>
       <span class="dm-src" id="dm-src-text"></span>
       <input type="file" id="dm-file" accept=".bin,.BIN,.hex,.HEX,.rom,.ROM,.txt,.dat" class="hidden">
       <input type="file" id="dm-xfile" accept=".xlsx" class="hidden">
@@ -157,7 +165,7 @@
         <option value="104">0x68</option><option value="105">0x69</option>
         <option value="96">0x60</option><option value="97">0x61</option>
       </select>
-      <label class="dm-chk"><input type="checkbox" id="dm-live" checked> <span data-i18n="dm.live">改值立即寫入</span></label>
+      <label class="dm-chk" id="dm-live-lbl"><input type="checkbox" id="dm-live" checked> <span data-i18n="dm.live">改值立即寫入</span></label>
     </div>
     <div class="stp-note" id="dm-ic"></div>
   </div>
@@ -248,10 +256,14 @@
     <a href="index.html" class="back-btn-footer" data-i18n="common.backToHome">← 返回首頁</a>
   </div>
 </div>
+<div id="dm-ask" class="dm-ask hidden" role="dialog" aria-modal="true" aria-labelledby="dm-ask-t">
+  <div class="dm-ask-box"><div class="dm-ask-t" id="dm-ask-t"></div><div class="dm-ask-d" id="dm-ask-d"></div>
+    <div class="dm-ask-btns"><button class="sbtn" id="dm-ask-no"></button><button class="sbtn pri" id="dm-ask-yes"></button></div></div>
+</div>
 <div class="dm-toasts" id="dm-toasts" aria-live="polite"></div>
 
-<script src="common/version.js?v=20261007dm121"></script>
-<script src="common/i18n.js?v=20261007dm121"></script>
+<script src="common/version.js?v=20261007dm130"></script>
+<script src="common/i18n.js?v=20261007dm130"></script>
 <script>
 (function () {
   /* [zh-TW, en, zh-CN] */
@@ -337,6 +349,19 @@
     'dm.rNoMatch': ['檔名看不出型號，也不是 EM01／EM02／E512 的 code；請先選型號再匯入', 'model not found in the file name and not an EM01/EM02/E512 code; select the model first', '文件名看不出型号，也不是 EM01／EM02／E512 的 code；请先选型号再导入'],
     'dm.rShort': ['{m} 的 code 至少要 {n} bytes，這份只有 {g}', 'a {m} code needs at least {n} bytes, this one has {g}', '{m} 的 code 至少要 {n} bytes，这份只有 {g}'],
     'dm.rMismatch': ['這份是 {f} 的 code，與選的型號不同', 'this is a {f} code, not the selected model', '这份是 {f} 的 code，与选的型号不同'],
+    'dm.clearImp': ['清除匯入', 'Clear import', '清除导入'],
+    'dm.clearImpTitle': ['清除匯入的 code，回到目前型號的預設值', 'Drop the imported code and go back to the defaults of the selected model', '清除导入的 code，回到目前型号的默认值'],
+    'dm.cleared': ['已清除匯入的 {f}；{m} 回到預設值', 'Cleared {f}; {m} is back to defaults', '已清除导入的 {f}；{m} 回到默认值'],
+    'dm.nothingClear': ['目前沒有匯入的 code', 'No code is imported', '目前没有导入的 code'],
+    'dm.askSwitch': ['這份 code 看起來是 {f}，要切換到 {f} 嗎？', 'This code looks like {f}. Switch to {f}?', '这份 code 看起来是 {f}，要切换到 {f} 吗？'],
+    'dm.askSwitchD': ['目前選的是 {m}。「切換」：型號改成 {f} 並重新匯入 {n}。「取消」：不匯入，維持匯入前的狀態。', 'Selected: {m}. Switch: change the model to {f} and import {n} again. Cancel: do not import and keep the page as it was.', '目前选的是 {m}。「切换」：型号改成 {f} 并重新导入 {n}。「取消」：不导入，维持导入前的状态。'],
+    'dm.askYes': ['切換', 'Switch', '切换'],
+    'dm.askNo': ['取消', 'Cancel', '取消'],
+    'dm.impCanceled': ['已取消匯入 {f}，維持匯入前的狀態', 'Import of {f} cancelled; nothing changed', '已取消导入 {f}，维持导入前的状态'],
+    'dm.askDrop': ['切換到 {m} 會清除匯入的 {f}', 'Switching to {m} drops the imported {f}', '切换到 {m} 会清除导入的 {f}'],
+    'dm.askDropD': ['{f} 不是 {m} 的 code（{r}）。有尚未匯出的修改，切換後會一起清除。', '{f} is not a {m} code ({r}). Unsaved edits will be dropped too.', '{f} 不是 {m} 的 code（{r}）。有尚未导出的修改，切换后会一起清除。'],
+    'dm.modelDropped': ['已切到 {m}；{f} 不是 {m} 的 code，已清除匯入（{r}）', 'Switched to {m}; {f} is not a {m} code, so the import was cleared ({r})', '已切到 {m}；{f} 不是 {m} 的 code，已清除导入（{r}）'],
+    'dm.needI2c': ['需先開啟 I2C（在 ① 按「連線」）', 'Turn on I2C first (Connect in ①)', '需先开启 I2C（在 ① 按「连接」）'],
     'dm.rAmbig': ['同時像 {f}，請先選對型號再匯入', 'looks like {f}; select the model first', '同时像 {f}，请先选对型号再导入'],
     'dm.impLinked': ['I2C 連線中：匯入的值只帶進頁面，要寫進 TCON 請按「Write to TCON」。', 'I2C is connected: imported values stay on the page. Press "Write to TCON" to write them.', 'I2C 连接中：导入的值只带进页面，要写进 TCON 请按「Write to TCON」。'],
     'dm.expScript': ['已匯出 {f}（{n} 列）', 'Exported {f} ({n} rows)', '已导出 {f}（{n} 列）'],
@@ -368,9 +393,9 @@
 })();
 </script>
 <script src="common/common.js?v=20260523"></script>
-<script src="common/subpix-colors.js?v=20261007dm121"></script>
-<script src="common/xlsx.js?v=20261007dm121"></script>
-<script src="common/datamap-core.js?v=20261007dm121"></script>
+<script src="common/subpix-colors.js?v=20261007dm130"></script>
+<script src="common/xlsx.js?v=20261007dm130"></script>
+<script src="common/datamap-core.js?v=20261007dm130"></script>
 <script>
 (function () {
   'use strict';
@@ -609,9 +634,9 @@
     var sl = isNb() ? '0x3E' : '0x' + hex(S.slave, 2);
     $('dm-write').textContent = 'Write to TCON(' + sl + ')'; $('dm-bar-write').textContent = 'Write to TCON(' + sl + ')';
     $('dm-load').textContent = 'Load from TCON(' + sl + ')';
-    $('dm-write').disabled = S.busy || ro; $('dm-load').disabled = S.busy;
+    $('dm-write').disabled = S.busy || ro || !S.linked; $('dm-load').disabled = S.busy || !S.linked; $('dm-bar-write').disabled = S.busy || ro || !S.linked;
     $('dm-export').disabled = ro; $('dm-bar-export').disabled = ro;
-    $('dm-import').disabled = S.busy;
+    $('dm-import').disabled = S.busy; $('dm-clear').disabled = S.busy;
     renderLink();
     renderSteps();
   }
@@ -670,6 +695,12 @@
     b.textContent = S.linked ? tt('dm.connected') : tt('dm.connect');
     b.disabled = S.busy;
     $('dm-check').disabled = !S.linked || S.busy;
+    $('dm-live').disabled = !S.linked; $('dm-live-lbl').classList.toggle('off', !S.linked);
+    /* 需要 I2C 的控制項：沒連線時滑鼠移上去說明原因；連線後還原原本的提示 */
+    ['dm-write', 'dm-load', 'dm-bar-write', 'dm-check', 'dm-live-lbl'].forEach(function (id) {
+      var el = $(id); if (!('t0' in el.dataset)) el.dataset.t0 = el.getAttribute('title') || '';
+      if (!S.linked) el.title = tt('dm.needI2c'); else if (el.dataset.t0) el.title = el.dataset.t0; else el.removeAttribute('title');
+    });
     var st = $('dm-src-text');
     if (S.src.kind === 'file') st.textContent = S.src.name + '  (' + DM.MODELS[S.src.model].label + ', CKS 0x' + hex(S.src.cks, 6) + ')';
     else if (S.src.kind === 'tcon') st.textContent = tt('dm.srcTcon', { m: DM.MODELS[S.src.model].label, s: hex(S.src.slave, 2) });
@@ -891,9 +922,52 @@
     S.src = { kind: 'file', name: name, model: r.model, cks: r.cks };
     afterLoad(r.v512);
   }
+  /* v1.3.0（Bruce 10/7 卡死回報）：回到「這個型號、沒有匯入」的狀態。型號選單、匯入、清除匯入任何時候都不鎖。 */
+  function resetToModel(k) {
+    S.model = k; S.cur = DM.emptyState(k); S.img = {}; S.baseImg = null; S.savedImg = null; S.src = { kind: 'none' };
+    S.ro = null; S.last = ''; S.e503ok = false; S.raw = null; S.rawName = ''; resetX();
+  }
+  function clearImport() {
+    if (S.busy) return;
+    if (!S.raw && S.src.kind !== 'file') { toast('n', tt('dm.nothingClear')); render(); return; }
+    var f = S.rawName || (S.src.name || '');
+    resetToModel(S.model);
+    toast('ok', tt('dm.cleared', { f: f, m: DM.MODELS[S.model].label }));
+    render();
+  }
+  window.dmClearImport = clearImport;
+  /* 詢問框：yes／no 回呼；Esc＝取消。同時只開一個。 */
+  var askCb = null;
+  function ask(title, desc, yesTxt, noTxt, onYes, onNo) {
+    askCb = { yes: onYes, no: onNo };
+    $('dm-ask-t').textContent = title; $('dm-ask-d').textContent = desc;
+    $('dm-ask-yes').textContent = yesTxt; $('dm-ask-no').textContent = noTxt;
+    $('dm-ask').classList.remove('hidden'); $('dm-ask-yes').focus();
+  }
+  function askDone(yes) {
+    var cb = askCb; askCb = null; $('dm-ask').classList.add('hidden');
+    if (cb) (yes ? cb.yes : cb.no)();
+  }
+  window.dmAskAnswer = askDone;
   function importBytes(raw, name) {
     var r = DM.parseCode(raw, S.model, name);
-    if (!r.ok) { toast('e', tt('dm.impFail', { f: name, r: reasonText(r) })); return false; }
+    if (!r.ok && r.reason === 'modelMismatch' && r.found.length === 1 && DM.MODELS[r.found[0]]) {
+      /* 型號不符且認得出是哪一顆：先問，不動任何狀態（取消＝維持匯入前） */
+      var fk = r.found[0], fl = DM.MODELS[fk].label;
+      log('e', tt('dm.impFail', { f: name, r: reasonText(r) }));
+      ask(tt('dm.askSwitch', { f: fl }), tt('dm.askSwitchD', { m: DM.MODELS[S.model].label, f: fl, n: name }), tt('dm.askYes'), tt('dm.askNo'),
+        function () {
+          var r2 = DM.parseCode(raw, fk, name);
+          if (!r2.ok) { toast('e', tt('dm.impFail', { f: name, r: reasonText(r2) })); render(); return; }
+          applyImport(r2, raw, name);
+        },
+        function () { toast('n', tt('dm.impCanceled', { f: name })); render(); });
+      return false;
+    }
+    if (!r.ok) { toast('e', tt('dm.impFail', { f: name, r: reasonText(r) })); render(); return false; }
+    return applyImport(r, raw, name);
+  }
+  function applyImport(r, raw, name) {
     S.raw = raw; S.rawName = name;
     useParsed(r, name, DM.loadCodeBytes(name, raw));
     var how = r.medium === 'rom' ? (r.byName ? tt('dm.howName') : tt('dm.howPick')) : tt('dm.howBin');
@@ -977,12 +1051,25 @@
       if (S.raw && S.src.kind === 'file') {
         var ext = (/\.[^.]+$/.exec(S.rawName) || ['.bin'])[0];
         var r = DM.parseCode(S.raw, k, 'x' + ext);
-        if (!r.ok) { toast('e', reasonText(r)); this.value = S.model; return; }
+        /* 選 NB 型號（DAZ／E501／E503）時 parseCode 會依內容自動認成 MNT ⇒ 回來的型號不是使用者選的，也算不符（舊版會因此被改回去） */
+        if (r.ok && r.model !== k) r = { ok: false, reason: 'modelMismatch', found: [r.model] };
+        if (!r.ok) {
+          /* v1.3.0：舊版在這裡 `this.value = S.model; return;` ⇒ 匯入的 code 屬於別顆時，選單永遠被改回去（Bruce 10/7 卡死）。
+             改成：使用者選的型號優先，匯入的 code 清掉；有尚未匯出的修改才先問。 */
+          var sel = this, f = S.rawName, why = reasonText(r), ml = DM.MODELS[k].label;
+          var go = function () { resetToModel(k); toast('n', tt('dm.modelDropped', { m: ml, f: f, r: why })); render(); };
+          if (dirtyRegs().length) { sel.value = S.model; ask(tt('dm.askDrop', { m: ml, f: f }), tt('dm.askDropD', { m: ml, f: f, r: why }), tt('dm.askYes'), tt('dm.askNo'), go, function () { render(); }); return; }
+          go(); return;
+        }
         useParsed(r, S.rawName, DM.loadCodeBytes(S.rawName, S.raw));
-      } else { S.model = k; S.cur = DM.emptyState(k); S.img = {}; S.baseImg = null; S.savedImg = null; S.src = { kind: 'none' }; S.ro = null; S.last = ''; resetX(); }
+      } else { resetToModel(k); }
       render();
     });
     $('dm-import').addEventListener('click', function () { $('dm-file').value = ''; $('dm-file').click(); });
+    $('dm-clear').addEventListener('click', clearImport);
+    $('dm-ask-yes').addEventListener('click', function () { askDone(true); });
+    $('dm-ask-no').addEventListener('click', function () { askDone(false); });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && askCb) askDone(false); });
     $('dm-file').addEventListener('change', function () {
       var f = this.files && this.files[0]; if (!f) return;
       var rd = new FileReader(); rd.onload = function (e) { importBytes(new Uint8Array(e.target.result), f.name); }; rd.readAsArrayBuffer(f);

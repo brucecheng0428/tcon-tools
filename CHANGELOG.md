@@ -2,6 +2,42 @@
 
 ---
 
+## Data Mapping (datamap) v1.3.0 — 2026-10-07 ｜ MINOR
+
+**匯入的 code 與型號不符後不再卡死；新增「清除匯入」；型號不符時問要不要切換；I2C 沒連線時相關按鈕停用**
+
+### 需求（Bruce 2026-10-07 原話）
+
+> 如果我一開始匯入的 Code 假設是其他顆 T-con em002，然後 T-Con 型號卻選擇 Em01，那它會跳出錯誤。可是我這時候要再去修改 T-Con 型號，它卻不讓我修改，也沒有辦法再清除我匯入的 Code。它就卡在這個 State 裡面，請趕快修正。
+
+> 另外，如果 I2C 沒有打開，那一切下方跟 I2C 有關的按鈕應該就是要變成不顯示或不能按，這樣子才會比較清楚。
+
+### 根因
+
+- `datamap.html`（v1.2.1）:974-981 型號選單 change：只要有匯入過檔案，換型號就用新型號重新解析同一份 code；解析失敗時 `this.value = S.model; return;`（:980）把選單改回去 ⇒ 匯入 EM02 後選任何別的型號都被改回 EM02。
+- 選 NB 型號（DAZ／E501／E503）時 `parseCode` 會依內容自動認回 MNT（`common/datamap-core.js`:735），選單一樣被改回去。
+- `importBytes`（:894-896）以目前型號（被鎖在 EM02）解析新檔 ⇒ 匯入別顆的 code 也一律被拒；頁面沒有任何清掉 `S.raw` 的入口 ⇒ 只能重新整理。
+
+### 改了什麼
+
+- 換型號時匯入的 code 不屬於新型號：以使用者選的型號為準，清除匯入、回到該型號預設值（toast 說明）；有尚未匯出的修改先問（切換／取消）。
+- 新增「清除匯入」按鈕（垃圾桶圖示，與 WFG「清除」同款線稿；只在 I2C 讀寫中停用）。
+- 匯入時型號不符且認得出是哪一顆：詢問框「這份 code 看起來是 XX，要切換到 XX 嗎？」——「切換」換型號並重新匯入；「取消」不動任何狀態（維持匯入前）。認不出（多顆都像、格式錯誤、空檔）只顯示錯誤，畫面可操作。
+- I2C 未連線：Write to TCON、Load from TCON、Check T-CON、改值立即寫入一律停用＋灰色，滑鼠移上去提示「需先開啟 I2C」；連線後立即恢復。匯入、匯出 script、清除匯入、型號選單、Slave 選擇不受影響。
+- cache buster：datamap.html `?v=20261007dm130`；index.html 的 version.js／i18n.js `?v=20261007dm130`。
+
+### 驗證
+
+- `tools/check_datamap_import_lock.js`（jsdom，真檔 EM01／EM02 code）：v1.2.1 重現卡死；v1.3.0 全部通過（Bruce 順序、提示→取消、提示→切換、清除匯入、先匯入 EM01 再匯入 EM02 取消、帶匯入改選 E503、格式錯誤、空檔、Gate Type 切換後改型號、I2C 未連線停用）。
+- `node tools/check_datamap.js` 282／0。
+- WFG 分頁查過：型號在匯入確認框選、`wfgCodeOnTconChange` 不重新解析也不改回選單、`wfgCodeImportFail` 會清檔名、已有「清除」按鈕 ⇒ 沒有同類鎖死，不改。
+
+### 版號判定
+
+判定依據：`docs/VERSIONING.md` §1，取最高者 MINOR：修卡死屬 PATCH，但新增「清除匯入」按鈕與型號不符詢問框是新能力（判定表第 1 列）；I2C 未連線停用是既有按鈕的狀態顯示（PATCH）。沒有移除功能、輸出不變，不到 MAJOR；首頁卡片文字沒變，app 不動。
+
+---
+
 ## Data Mapping (datamap) v1.2.1 — 2026-10-07 ｜ PATCH
 
 **MNT 第二組 r2..b3：Zigzag type7／type8 改為長循環（line 5~8），開放 24 格第二組下拉。**
