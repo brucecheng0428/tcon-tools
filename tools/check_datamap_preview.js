@@ -62,7 +62,7 @@ const ok = (c, m) => { if (c) pass++; else { fail++; console.log('  ✗ ' + m); 
   console.log('── 版面');
   const cards = Array.from(d.querySelectorAll('.card.stp')).map(c => c.id);
   ok(cards.join(',') === 'card-src,card-dm,card-pv,card-out', '卡片順序 ①②③④：' + cards.join(','));
-  ok(/^v1\.[4-7]\./.test(w.TOOL_VERSIONS.datamap), 'datamap 版號 v1.4～v1.7：' + w.TOOL_VERSIONS.datamap);
+  ok(/^v1\.[4-8]\./.test(w.TOOL_VERSIONS.datamap), 'datamap 版號 v1.4～v1.8：' + w.TOOL_VERSIONS.datamap);
   ok(!$('dm-pv-rows') && $('card-pv').querySelectorAll('svg').length === 1 + $('dm-pv-legend').querySelectorAll('svg').length, '卡內只有一張 TFT 圖');
 
   console.log('── Auto');

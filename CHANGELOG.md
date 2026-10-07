@@ -2,6 +2,34 @@
 
 ---
 
+## Data Mapping (datamap) v1.8.0 — 2026-10-07 ｜ MINOR
+
+**③ 面板排列預覽：依設計者說明的 L／R 命名原理逐 Type 檢查；Tri-Gate 畫出完整 TFT 圖（每列三條 Gate）；重複週期改依接線自動判斷（6 或 12 條 Data 線），② 依 code 的模式也套用**
+
+### 需求（Bruce 2026-10-07 原話，節錄）
+
+> 以名稱來說，舉 Type 5 為例，它是 ZZ + LRRL。其中「LRRL」的意思是：假設我們以第一條 R1 這一排（也就是這一行）來看，總共有四列：1. 第一列的 R1：接左邊的 data line（D1），所以寫 L 2. 第二列的 R1：接右邊的 data line（D2），所以寫 R…另外像是 Type 19，它是 Tri-gate，也就是一列的 pixel 是由三條 gate 決定的。例如 line 1-1、1-2 跟 1-3…就按照 19 那邊寫的 LLLRRR 這種接法。另外還有重複性的問題，像是選到 Type 29…是不是就不是 D1 到 D6 重複，而是 D1 到 D12 重複？…31好像也是 4 個 pixel…你再幫忙檢查一下。所以你這邊還要考慮到 Tri-gate 的設計。
+
+### 檢查結果
+
+- 命名原理（L＝同一直行那一列接左側 Data 線、R＝接右側；Single／Dual 一個字母一條 line，Tri 一個字母一條 gate 列，不夠長就循環）：31 個 Type 名稱推出的 L／R 序列＝接線＝暫存器（48 值），全部一致。27、29 名稱尾的「2RRRL」不是逐列序列，無法直接比對；實際接線是每條 line R、L 交替（RL），待設計者確認寫法。
+- 先前不確定的 Type 重新判定：5、6 名稱＝接線＝暫存器，原廠圖各列位置也對，只是兩列的文字誤用 Mirror 名稱（圖的標字錯）；19＝LLLRRR（Line 1-1~1-3 接左、2-1~2-3 接右）與設計者說明一致；20 依名稱推出 RRRLLL＝暫存器，原廠 19、20 共用同一張圖（20 的圖錯）；29 週期 12；31 週期 6（Dual 每條 Data 線管 2 顆，6 條＝12 顆＝4 pixel，D7＝D1＋4 pixel）。
+- 重複週期（Data 線數，最小的 6 的倍數使 D(n+p)＝D(n) 平移固定格數）：29＝12 條（8 pixel），其餘 32 個＝6 條（Single 2 pixel、Dual 4 pixel、Tri 6 pixel）。
+- ② 第二組（r2..b3）的意義實證：HSD 8-pixel（sub 4）第二組＋4 pixel＝D7~D12（預設樣式 (29) 與 Line OD 29，24/24）；HSD 4line,4pixel（sub 5）第二組＝Line 3、4（預設樣式 (30)(31) 與 Line OD 31／30，各 24/24，再次證實 (30)(31) 值與名稱對調）。
+
+### 改了什麼
+
+- 預覽模型一般化：每列子像素 1／2／3 條 Gate（Single／Dual／Tri），Data 線間距＝每條管幾顆；Tri 的 Line k-1（外）、k-2（內）在上、k-3 在下，外側 drain 跨內側 gate 畫跳線；Source Driver 對調在 Tri 下照常（每 6 條一組）。
+- 週期：主循環＝D1~D(週期)、重複組＝D(週期+1)~D(2×週期)，三級亮度依週期判斷；29 畫到 D24。
+- ② 依 code 的模式：依 secondSetRule 自動判斷——pix58 ⇒ 週期 12、D7~D12＝第二組＋4 pixel；row34 ⇒ 畫 4 條 line、Line 3、4＝第二組；其他維持週期 6。② 選 Tri-Gate 仍不畫（Python UI 沒有 Tri 表格，原廠 Tri 碼 19~29 不在 GN1／GN2 名稱表），提示改用測試 Type 17~21。
+- 測試 Type 資訊多兩行：命名原理檢查（✓／△）與重複週期；反推接線表多一欄 L／R、依週期畫到 D24、重複組淡色。
+- datamap-lod.js：nameSeq／sides／expectSides／nameCheck／period／linesN；各 Type 說明改用 L／R 原理描述。
+- 回歸：`tools/check_datamap_lod.js` 176/0（新增 33 Type 命名原理、反例、週期、Tri TFT 圖與跳線、Tri 對調、② 第二組 pix58／row34、② Tri 提示）；`check_datamap_preview` 45/0（加真實 EM02 code 60/0）；`check_datamap` 282/0。cache buster `?v=20261007dm180`。
+
+判定依據：`docs/VERSIONING.md` §R3，MINOR：預覽多了 Tri-Gate 圖與依週期的重複組（使用者多能看的東西），既有操作不變；寫入值與匯出 code 不變（回歸比對），不帶輸出變更；首頁卡片文字沒變，app 不動。
+
+---
+
 ## Data Mapping (datamap) v1.7.0 — 2026-10-07 ｜ MINOR
 
 **③ 面板排列預覽：新增「測試：Line OD Type」下拉（EM02 原廠 Line OD → Mapping 的 Type 0~32，接線由原廠圖＋暫存器值反推；不與 code 連動）**
