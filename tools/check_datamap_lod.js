@@ -126,14 +126,14 @@ if (SRC) {
   const tg = $('dm-pv-tft').getAttribute('data-gaps').split(',').map(Number);
   ok(tg.length === 12 && tg.every((g, i) => !i || g - tg[i - 1] === 3), 'Tri：Data 線間距 3 顆（每條管 3 顆）：' + tg.join(','));
   fire($('dm-pv-swap'), true);
-  ok(/D3\(1-1\)/.test(Q('rect[data-pv="1:R1"]').parentNode.getAttribute('data-tip')) && Q('path[data-dl="1"]').getAttribute('data-src') === '3', 'Tri＋Source Driver 對調：R1 改由 D3 送（D1 送 D3 的資料）');
+  ok(/D1\(1-1\)＝TCON Data 3/.test(Q('rect[data-pv="1:R1"]').parentNode.getAttribute('data-tip')) && Q('path[data-dl="1"]').getAttribute('data-src') === '3', 'v1.17.4 Tri＋Source Driver 對調：R1 位置仍由 D1 接，D1 改收 TCON Data 3');
   fire($('dm-pv-swap'), false);
   fire(sel, '21');
   ok(!!Q('path[data-w="1:D1:g1:R1"]') && !!Q('path[data-w="1:D1:g2:R3"]') && !!Q('path[data-w="1:D1:g3:R5"]') && !Q('[data-bad]'), 'Type 21 BOE Tri：D1 經三條 gate 接 R1、R3、R5，沒有衝突');
   fire(sel, '32');
   ok(!!Q('path[data-w="1:D1:u:G1"]') && /D1↑/.test(Q('rect[data-pv="1:G1"]').parentNode.getAttribute('data-tip')), 'Type 32：D1 上→G1');
   fire($('dm-pv-swap'), true);
-  ok(/D3↑/.test(Q('rect[data-pv="1:G1"]').parentNode.getAttribute('data-tip')) && JSON.stringify(w.dmBuildScript()) === sc0, 'Type 32＋對調：G1 改由 D3 送；匯出不變');
+  ok(/D1↑＝TCON Data 3/.test(Q('rect[data-pv="1:G1"]').parentNode.getAttribute('data-tip')) && JSON.stringify(w.dmBuildScript()) === sc0, 'v1.17.4 Type 32＋對調：G1 位置仍由 D1 接、改收 TCON Data 3；匯出不變');
   fire($('dm-pv-swap'), false);
   fire(sel, '7');
   ok(QA('text[data-gsub]').map(x => x.textContent.split(' ')[0]).join(',') === 'G1,G2,G3,G4,G5,G6,G7,G8' && !!Q('line[data-gate="8"]'), 'Type 7：Single 8 條 gate G1~G8（G5~G8＝第二組 Line 1-1′~2-2′，同原廠 xlsx Zigzag 圖）');

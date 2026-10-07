@@ -2,6 +2,32 @@
 
 ---
 
+## Data Mapping (datamap) v1.17.4 — 2026-10-08 ｜ PATCH
+
+**TFT 接線圖上方兩列標號分清楚：SD Out（亮字，面板 Data 線位置，只看 CH1 位置）和 TCON Out（暗字，TCON 送出的 Data k，對應 ② 表格，隨 SHL、輸出對調改變）；輸出對調改成只動 TCON Out**
+
+### 需求（Bruce 2026-10-08 原話，節錄）
+
+> 比較暗、字比較小的是寫 data6、data5、data4……應該要配合 driver 的 SHL 去改變…跟第二部分的 data mapping 表格是一致的。
+> 在 TFT 接線圖剛才說的「亮字」跟「暗字」那兩列的左邊，再註明亮字的是 source output 的實際輸出，暗字的是 TCON 丟出來的順序。
+> 那兩個字要不要也改成都是英文？就是 SD Out
+> source driver 輸出對調…應該是在 TCON out 那邊將 D1 跟 D3 對調…實際上的SD Out輸出應該還是D1~D6這樣排下去。
+
+### 變更
+
+- **兩列標號**：
+  - 亮字（SD Out）＝面板 Data 線的實體位置，只由 Driver CH1 位置決定。
+  - 暗字（TCON Out）＝這條線收到的 TCON Data k，和 ② 表格一致。SHL 反向時同一組內倒過來，勾輸出對調時 1↔3、4↔6，順序是 TCON Out → 輸出對調 → SHL → SD Out。和預設不同的暗字改用琥珀色標示。
+- **列頭**：最左邊加英文列頭「SD Out」「TCON Out」（三種語言介面相同），滑鼠移上去顯示各語言的完整說明。CH1 在右、整張圖翻轉時，列頭仍固定在最左。
+- **輸出對調只改 TCON Out**：根因在 `datamap.html` 的 pvWiresSpec，原本照對調後的名稱決定接線，會移動線的位置並把亮字改成琥珀色「送 Dn」。現在接線（SD Out）一律照第 p 條線，收到的資料＝TCON Data swap(rev(p))；格內寫收到的資料，顏色比對也照收到的資料算。格子的 data-pv 維持位置名稱，data-dn 是收到的資料。
+- ⓘ 與說明改成一句話定義，加上套用順序。
+- **長檔名超出卡片**（Bruce）：④ 標題列的「上次：匯入 …」改成在卡片內換行，滑鼠移上去顯示完整文字。① 的 code 檔名取消單行省略，也改成換行。卡片標題狀態、待寫入列、說明、記錄、③ 標示等長字串都加上 overflow-wrap:anywhere。用全民的長檔名在桌面和手機（390px）都確認過沒有超出卡片。
+- **測試**：check_datamap_kickoff 55/0（SHL 切換時大字不變、小字倒過來並和 ② 表格的 Data k 對得上；勾對調前後 SD Out 列與線位置完全不變、TCON Out 1↔3、4↔6、匯出不變；英文列頭與滑鼠提示）。check_datamap_preview 46/0（EM02 61/0）與 check_datamap_lod 196/0 的對調測試改成新定義：線位置不變、收到的資料改變。check_datamap_auto 101/0、check_datamap 282/0。
+
+判定依據：`docs/VERSIONING.md` §R3，PATCH：③ 預覽標號與對調定義修正；② 的值、匯出 script 與寫入都不變；app 不動。
+
+---
+
 ## Data Mapping (datamap) v1.17.3 — 2026-10-08 ｜ PATCH
 
 **匯入 code 時 ③ 硬體模擬一律回到預設，不再自動改 CH1 位置；建議改成「套用建議」按鈕；CH1 位置標籤改為「Driver CH1 位置」；刪除已作廢的等效方向字串**
