@@ -84,15 +84,22 @@ console.log('── code 表（D2:R31）＝網頁 T 表解碼');
     const a = slots(1), b = slots(2);
     ok([1, 2, 3, 4, 5, 6].every(n => a['D' + n + 'u'] === a.D1u + n - 1), 'Line 1：D1~D6 直下（每條接正下方）：' + JSON.stringify(a));
     ok([1, 2, 3, 4, 5, 6].every(n => b['D' + n + 'u'] === a['D' + n + 'u'] + 1), 'Line 2：整排往右錯一條（Zigzag LR）：' + JSON.stringify(b));
-    ok(['R1', 'G1', 'B1', 'R2', 'G2', 'B2'].every((x, i) => !!Q('path[data-w="1:D' + (i + 1) + ':u:' + x + '"]')), 'Mirror 解碼後 D1~D6＝R1 G1 B1 R2 G2 B2（送出順序；不再是 B-1 G-1 R-1 B-2 G-2 R-2）');
-    ok(+$('dm-pv-tft').getAttribute('data-mis') === 0 && $('dm-pv-tft').getAttribute('data-sug') === 'rl+bgr' && !$('dm-pv-sugbtn').classList.contains('hidden'), '預設（由左往右＋RGB）顏色相符但 Mirror＝1 畫面方向反 ⇒ 建議 Driver 由右往左＋BGR');
-    fire($('dm-pv-dir'), 'rl'); fire($('dm-pv-stripe'), 'bgr');
+    ok(['B2', 'G2', 'R2', 'B1', 'G1', 'R1'].every((x, i) => !!Q('path[data-w="1:D' + (i + 1) + ':u:' + x + '"]')), 'Mirror 解碼後 D1~D6＝B2 G2 R2 B1 G1 R1（資料顏色＝code 的顏色，同原廠 Pixel mapping；不再是 B-1 G-1 R-1 B-2 G-2 R-2）');
+    const T = $('dm-pv-tft');
+    ok(/0x67/.test($('dm-pv-shlsrc').textContent) && /SHL＝1/.test($('dm-pv-shlsrc').textContent) && $('dm-pv-drv').value === 'f', 'iSP REG 自動帶入：0x1001＝0x67 ⇒ EPD9173B SHL＝1 ⇒ Driver 輸出正向（channel 1→N）');
+    ok(QA('[data-misk]').length > 0 && T.getAttribute('data-sug') === 'rl+rgb' && T.getAttribute('data-sugcombo') === 'rfgn' && !$('dm-pv-sugbtn').classList.contains('hidden'), '預設（第一圈最左＋正向＋RGB）顏色不符 ⇒ 建議：第一圈最右＋正向＋RGB＋無對調（等效 D1 在最右）');
+    ok(d.querySelectorAll('#dm-pv-combotbl tbody tr').length === 16 && new Set(Array.from(d.querySelectorAll('#dm-pv-combotbl tbody tr')).map(r => r.getAttribute('data-group'))).size === 8, '16 種組合列表、8 個等效群組');
+    fire($('dm-pv-first'), 'r');
     const a2 = slots(1);
-    ok(d.querySelector('#dm-pv-tft [data-flip]') && +$('dm-pv-tft').getAttribute('data-mis') === 0 && QA('[data-misk]').length === 0 && $('dm-pv-sugbtn').classList.contains('hidden') && JSON.stringify(a2) === JSON.stringify(a),
-      '由右往左＋BGR：D1 在最右、整張左右翻，每條 Data 線仍接正下方（接法不變）、資料顏色＝玻璃顏色（R 在最右）、不再出建議');
-    fire($('dm-pv-stripe'), 'rgb');
-    ok(+$('dm-pv-tft').getAttribute('data-mis') > 0 && QA('[data-misk]').length > 0, '由右往左＋RGB：顏色不符的格子標 ≠（' + $('dm-pv-tft').getAttribute('data-mis') + ' 格）');
-    fire($('dm-pv-dir'), 'lr'); fire($('dm-pv-stripe'), 'rgb');
+    ok(d.querySelector('#dm-pv-tft [data-flip]') && +T.getAttribute('data-mis') === 0 && QA('[data-misk]').length === 0 && $('dm-pv-sugbtn').classList.contains('hidden') && JSON.stringify(a2) === JSON.stringify(a) && /等效：D1 在最右/.test($('dm-pv-eq').textContent),
+      '第一圈最右＋正向＋RGB：D1 在最右、整張左右翻，接法不變、資料顏色＝玻璃顏色、不再出建議、顯示等效方向');
+    fire($('dm-pv-drv'), 'r');
+    ok(T.getAttribute('data-dir') === 'lr' && /反＋反＝正/.test($('dm-pv-eq').textContent) && /等效：D1 在最左/.test($('dm-pv-eq').textContent), '第一圈最右＋Driver 反向 ⇒ 反＋反＝正，等效 D1 在最左（由左往右）');
+    fire($('dm-pv-first'), 'l');
+    ok(T.getAttribute('data-dir') === 'rl' && +T.getAttribute('data-mis') === 0, '第一圈最左＋Driver 反向 ⇒ 等效 D1 在最右，和「第一圈最右＋正向」畫出來相同');
+    fire($('dm-pv-stripe'), 'bgr');
+    ok(+T.getAttribute('data-mis') > 0, '等效由右往左＋BGR：顏色不符（' + T.getAttribute('data-mis') + ' 格）');
+    fire($('dm-pv-drv'), 'f'); fire($('dm-pv-stripe'), 'rgb');
     ok([0, 1, 2, 3].map(r => $('dm-rh' + r).textContent).join('|') === 'Line 1（_0）|Line 2（_1）|Line 3（_2）|Line 4（_3）' && $('dm-c1-5').value !== $('dm-c0-5').value, '② 列名 Line 1~4，Line 2 顯示 _1 原值（不是 Line 1 的複本）');
   }
   console.log((fail ? '✗ ' : '✓ ') + 'check_datamap_kickoff ' + pass + ' pass / ' + fail + ' fail');

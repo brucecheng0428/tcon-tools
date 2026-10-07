@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Data Mapping — TCON FAE Toolbox</title>
-<link rel="stylesheet" href="common/common.css?v=20261007dm1150">
-<link rel="stylesheet" href="common/site-ui.css?v=20261007dm1150">
+<link rel="stylesheet" href="common/common.css?v=20261007dm1160">
+<link rel="stylesheet" href="common/site-ui.css?v=20261007dm1160">
 <!--
   Data Mapping 分頁 v1.2.0（Bruce 2026-10-07）
   ・Bruce 10/7：「我其實沒有要你把它做得跟原生 UI 一模一樣，你還是要兼顧到網頁的風格，現在這個有點太突兀了。
@@ -312,12 +312,17 @@
       <!-- v1.5.0：只影響預覽，不改 ②、不改匯出、不寫入 TCON -->
       <div class="dm-row" style="margin-top:10px"><label class="dm-chk dm-hand" id="dm-pv-swapbox"><input type="checkbox" id="dm-pv-swap"> <span data-i18n="dm.pvSwap">模擬 Source Driver 輸出對調（D1↔D3、D4↔D6、D7↔D9、D10↔D12）</span></label>
         <span class="dm-sub" data-i18n="dm.pvSwapNote">只模擬 source driver 的輸出行為，與 T-CON code 無關；不會改變 ② 的值、匯出 script 或寫入 TCON。</span></div>
-      <div class="dm-row" id="dm-pv-physrow"><span class="dm-k" data-i18n="dm.pvDir">Driver 傳遞方向</span>
-        <select id="dm-pv-dir" class="dm-sel"><option value="lr" data-i18n="dm.pvDirLR">由左往右（D1 在最左）</option><option value="rl" data-i18n="dm.pvDirRL">由右往左（D1 在最右）</option></select>
+      <div class="dm-row" id="dm-pv-physrow">
+        <span class="dm-k" data-i18n="dm.pvFirst">Data 線第一圈位置（玻璃佈線）</span>
+        <select id="dm-pv-first" class="dm-sel"><option value="l" data-i18n="dm.pvFirstL">最左（預設）</option><option value="r" data-i18n="dm.pvFirstR">最右</option></select>
+        <span class="dm-k" data-i18n="dm.pvDrv">Driver 輸出方向（driver IC 的 SHL 等設定）</span>
+        <select id="dm-pv-drv" class="dm-sel"><option value="f" data-i18n="dm.pvDrvF">正向（channel 1→N，預設）</option><option value="r" data-i18n="dm.pvDrvR">反向（channel N→1）</option></select>
         <span class="dm-k" data-i18n="dm.pvStripe">面板子像素排列</span>
-        <select id="dm-pv-stripe" class="dm-sel"><option value="rgb">RGB（由左往右 R G B）</option><option value="bgr">BGR（由左往右 B G R，R 在最右）</option></select>
-        <button class="sbtn hidden" id="dm-pv-sugbtn"></button></div>
-      <div class="dm-sub" id="dm-pv-physnote" data-i18n="dm.pvPhysNote">套用順序：① T-CON code（含 Mirror 解碼）決定每條 Data 線送哪個資料 → ② Source Driver 輸出對調 → ③ Driver 傳遞方向決定 D1 在左或右 → ④ 子像素排列決定每格的實體顏色；②～④ 是面板／driver 硬體，只影響預覽。資料顏色和實體顏色不符的格子標「≠」。</div>
+        <select id="dm-pv-stripe" class="dm-sel"><option value="rgb">RGB（由左往右 R G B）</option><option value="bgr">BGR（由左往右 B G R，R 在最右）</option></select></div>
+      <div class="dm-sub" id="dm-pv-shlsrc"></div>
+      <div class="dm-row"><b class="dm-k" id="dm-pv-eq"></b><button class="sbtn hidden" id="dm-pv-sugbtn"></button></div>
+      <div class="dm-sub" id="dm-pv-physnote" data-i18n="dm.pvPhysNote"></div>
+      <details class="stp-more" id="dm-pv-combos"><summary data-i18n="dm.pvCombosSum">16 種面板／driver 配置比較（第一圈 × 輸出方向 × 子像素排列 × 輸出對調）</summary><div class="dm-gridwrap"><table class="dm-code" id="dm-pv-combotbl"></table></div></details>
       <div class="dm-pvh"><span data-i18n="dm.pvTftH">子像素兩列的 TFT 接線</span><span class="dm-sub" id="dm-pv-tftd"></span><span class="dm-pvexp" id="dm-pv-exp"></span></div>
       <div class="dm-pvwrap dm-pvdrag" id="dm-pv-wrap"><svg id="dm-pv-tft" xmlns="http://www.w3.org/2000/svg"></svg></div>
       <div class="dm-sub" id="dm-pv-pos" style="margin-top:6px"></div>
@@ -356,8 +361,8 @@
 </div>
 <div class="dm-toasts" id="dm-toasts" aria-live="polite"></div>
 
-<script src="common/version.js?v=20261007dm1150"></script>
-<script src="common/i18n.js?v=20261007dm1150"></script>
+<script src="common/version.js?v=20261007dm1160"></script>
+<script src="common/i18n.js?v=20261007dm1160"></script>
 <script>
 (function () {
   /* [zh-TW, en, zh-CN] */
@@ -386,15 +391,36 @@
     'dm.pvTipFrom': ['：{s}', ': {s}', '：{s}'],
     'dm.pvTipNone': ['：沒有 Data 線接到（dummy）', ': not driven (dummy)', '：没有 Data 线接到（dummy）'],
     'dm.pvTipConflict': ['（衝突：被兩條以上接到）', ' (conflict: driven by two or more)', '（冲突：被两条以上接到）'],
-    'dm.pvDir': ['Driver 傳遞方向', 'Driver direction', 'Driver 传递方向'],
-    'dm.pvDirLR': ['由左往右（D1 在最左）', 'Left to right (D1 leftmost)', '由左往右（D1 在最左）'],
-    'dm.pvDirRL': ['由右往左（D1 在最右）', 'Right to left (D1 rightmost)', '由右往左（D1 在最右）'],
     'dm.pvStripe': ['面板子像素排列', 'Panel sub-pixel order', '面板子像素排列'],
-    'dm.pvPhysNote': ['套用順序：① T-CON code（含 Mirror 解碼）決定每條 Data 線送哪個資料 → ② Source Driver 輸出對調 → ③ Driver 傳遞方向決定 D1 在左或右 → ④ 子像素排列決定每格的實體顏色；②～④ 是面板／driver 硬體，只影響預覽。資料顏色和實體顏色不符的格子標「≠」。', 'Order: (1) the T-CON code (incl. Mirror decoding) sets what each Data line carries → (2) source-driver output swap → (3) driver direction puts D1 on the left or right → (4) the sub-pixel order sets each box\'s physical colour; (2)–(4) are panel/driver hardware and only affect the preview. Boxes whose data colour differs from the physical colour are marked "≠".', '套用顺序：① T-CON code（含 Mirror 解码）决定每条 Data 线送哪个资料 → ② Source Driver 输出对调 → ③ Driver 传递方向决定 D1 在左或右 → ④ 子像素排列决定每格的实体颜色；②～④ 是面板／driver 硬件，只影响预览。资料颜色和实体颜色不符的格子标「≠」。'],
+    'dm.pvPhysNote': ['以上四項（輸出對調、第一圈位置、Driver 輸出方向、子像素排列）是面板／driver 硬體行為，與 TCON code 無關，只影響預覽。套用順序：① T-CON code（含 Mirror 解碼）決定每條 Data 線送哪個資料 → ② 輸出對調 → ③ 第一圈位置 ⊕ Driver 輸出方向＝等效方向（兩個都反＝不反）→ ④ 子像素排列決定每格的實體顏色；資料顏色和實體顏色不符的格子標「≠」。', 'The four settings above (output swap, first-line position, driver output direction, sub-pixel order) are panel/driver hardware behaviour, unrelated to the TCON code, and only affect the preview. Order: (1) the T-CON code (incl. Mirror) sets what each Data line carries → (2) output swap → (3) first-line position ⊕ driver direction = effective direction (two reversals cancel) → (4) the sub-pixel order sets each box\'s physical colour; boxes whose data colour differs are marked "≠".', '以上四项（输出对调、第一圈位置、Driver 输出方向、子像素排列）是面板／driver 硬件行为，与 TCON code 无关，只影响预览。套用顺序：① T-CON code（含 Mirror 解码）决定每条 Data 线送哪个资料 → ② 输出对调 → ③ 第一圈位置 ⊕ Driver 输出方向＝等效方向（两个都反＝不反）→ ④ 子像素排列决定每格的实体颜色；资料颜色和实体颜色不符的格子标「≠」。'],
+    'dm.pvFirst': ['Data 線第一圈位置（玻璃佈線）', 'First data line position (glass routing)', 'Data 线第一圈位置（玻璃布线）'],
+    'dm.pvFirstL': ['最左（預設）', 'Leftmost (default)', '最左（默认）'],
+    'dm.pvFirstR': ['最右', 'Rightmost', '最右'],
+    'dm.pvDrv': ['Driver 輸出方向（driver IC 的 SHL 等設定）', 'Driver output direction (driver IC SHL etc.)', 'Driver 输出方向（driver IC 的 SHL 等设定）'],
+    'dm.pvDrvF': ['正向（channel 1→N，預設）', 'Forward (channel 1→N, default)', '正向（channel 1→N，默认）'],
+    'dm.pvDrvR': ['反向（channel N→1）', 'Reverse (channel N→1)', '反向（channel N→1）'],
+    'dm.pvEq': ['等效：D1 在最{s}，由{a}往{b}（{why}）', 'Effective: D1 on the {s}, running {a} to {b} ({why})', '等效：D1 在最{s}，由{a}往{b}（{why}）'],
+    'dm.pvCombosSum': ['16 種面板／driver 配置比較（第一圈 × 輸出方向 × 子像素排列 × 輸出對調）', '16 panel/driver configurations (first line × driver direction × sub-pixel order × output swap)', '16 种面板／driver 配置比较（第一圈 × 输出方向 × 子像素排列 × 输出对调）'],
     'dm.pvTipPhys': ['（玻璃上這格是 {c}）', ' (this glass sub-pixel is {c})', '（玻璃上这格是 {c}）'],
     'dm.pvOriM1': ['Mirror＝1 ⇒ Driver 由右往左才是正向', 'Mirror = 1 ⇒ right-to-left driver gives the upright image', 'Mirror＝1 ⇒ Driver 由右往左才是正向'],
     'dm.pvOriM0': ['Mirror＝0 ⇒ Driver 由左往右才是正向', 'Mirror = 0 ⇒ left-to-right driver gives the upright image', 'Mirror＝0 ⇒ Driver 由左往右才是正向'],
     'dm.pvSugWhy': ['顏色相符 {a}/{t}，目前 {c} 格不符；{o}', 'colours match {a}/{t}, {c} mismatched now; {o}', '颜色相符 {a}/{t}，目前 {c} 格不符；{o}'],
+    'dm.pvSug2': ['建議：{c}（等效：{eq}；{why}）', 'Suggested: {c} (equivalent: {eq}; {why})', '建议：{c}（等效：{eq}；{why}）'],
+    'dm.pvSugOk2': ['目前設定在最佳等效群組（{eq}）；{o}', 'Current setting is in the best equivalent group ({eq}); {o}', '目前设定在最佳等效群组（{eq}）；{o}'],
+    'dm.pvEqNone': ['第一圈最左＋正向', 'first line left + forward', '第一圈最左＋正向'],
+    'dm.pvEqFirst': ['第一圈最右', 'first line on the right', '第一圈最右'],
+    'dm.pvEqDrv': ['Driver 反向', 'driver reversed', 'Driver 反向'],
+    'dm.pvEqBoth': ['第一圈最右＋Driver 反向，反＋反＝正', 'first line right + driver reversed: two reversals cancel', '第一圈最右＋Driver 反向，反＋反＝正'],
+    'dm.pvSwapS': ['輸出對調', 'output swap', '输出对调'],
+    'dm.pvCGroup': ['等效群組', 'Equivalent group', '等效群组'],
+    'dm.pvCG': ['第 {n} 組（等效 {d}）', 'Group {n} (effective {d})', '第 {n} 组（等效 {d}）'],
+    'dm.pvCColor': ['顏色全對', 'Colours match', '颜色全对'],
+    'dm.pvCMax': ['最長 drain（格）', 'Longest drain (cells)', '最长 drain（格）'],
+    'dm.pvCBal': ['左右不均', 'Left/right imbalance', '左右不均'],
+    'dm.pvCOri': ['畫面方向（依 Mirror）', 'Image orientation (per Mirror)', '画面方向（依 Mirror）'],
+    'dm.pvShlSrc': ['Driver 輸出方向依 code 的 iSP REG 帶入：{r}＝0x{v}（EPD9173B REG_1 bit2 SHL＝{shl}：{d}；{n} 個 port 一致）。仍可手動改。', 'Driver output direction taken from the code\'s iSP REG: {r} = 0x{v} (EPD9173B REG_1 bit2 SHL = {shl}: {d}; {n} ports agree). You can still change it.', 'Driver 输出方向依 code 的 iSP REG 带入：{r}＝0x{v}（EPD9173B REG_1 bit2 SHL＝{shl}：{d}；{n} 个 port 一致）。仍可手动改。'],
+    'dm.pvShlManual': ['（目前已手動改成和 code 不同的方向）', ' (currently overridden by hand)', '（目前已手动改成和 code 不同的方向）'],
+    'dm.pvShlNa': ['這份 code 沒有可讀的 iSP 驅動方向設定（非 iSP 或沒匯入 code），Driver 輸出方向維持手動設定。', 'No readable iSP direction setting in this code (not iSP or no code imported); driver direction stays manual.', '这份 code 没有可读的 iSP 驱动方向设定（非 iSP 或没导入 code），Driver 输出方向维持手动设定。'],
     'dm.pvSug': ['建議：Driver {d}＋{s}（{why}）', 'Suggested: driver {d} + {s} ({why})', '建议：Driver {d}＋{s}（{why}）'],
     'dm.pvSugOk': ['目前設定：資料顏色和實體顏色全部相符，畫面方向{o}', 'Current setting: all data colours match the physical colours; image orientation {o}', '目前设定：资料颜色和实体颜色全部相符，画面方向{o}'],
     'dm.pvSwap': ['模擬 Source Driver 輸出對調（D1↔D3、D4↔D6、D7↔D9、D10↔D12）', 'Simulate source-driver output swap (D1↔D3, D4↔D6, D7↔D9, D10↔D12)', '模拟 Source Driver 输出对调（D1↔D3、D4↔D6、D7↔D9、D10↔D12）'],
@@ -417,7 +443,7 @@
     'dm.autoLoose': ['推定：目前 panel {p}／sub {sp}／mirror {mi}／chrb {rb} 不是原廠清單裡的組合，依 panel／sub 比照「{n}」畫。', 'Inferred: panel {p} / sub {sp} / mirror {mi} / chrb {rb} is not a vendor combination; drawn per panel/sub as "{n}". ', '推定：目前 panel {p}／sub {sp}／mirror {mi}／chrb {rb} 不是原厂清单里的组合，依 panel／sub 比照「{n}」画。'],
     'dm.autoRb': ['chrb 不同 ⇒ R、B 對換（依據：RT7 (25)→(26) RB_chg 只差 chrb，Line OD 25／26 接線正好 R↔B）。', 'chrb differs ⇒ R and B swapped (RT7 (25)→(26) RB_chg differ only in chrb; Line OD 25/26 wiring is exactly R↔B). ', 'chrb 不同 ⇒ R、B 对换（依据：RT7 (25)→(26) RB_chg 只差 chrb，Line OD 25／26 接线正好 R↔B）。'],
     'dm.autoMir': ['mirror 不影響接線（只是輸入資料左右反向）。', 'Mirror does not change wiring (input data is left-right reversed only).', 'mirror 不影响接线（只是输入资料左右反向）。'],
-    'dm.pvMirror': ['Mirror＝1（T-CON code 的行為）：TCON 從一行的另一端開始送資料，code 解出的位置 k 實際送到 D1 起第 −1−k 顆（依 Kick Off「Data hand mode」mirror 範例、EM01 原廠 Pixel mapping）；② 仍顯示暫存器原值。面板端的 Driver 方向／子像素排列請用下方模擬設定。', 'Mirror = 1 (T-CON code behaviour): the TCON sends the line from the other end, so position k decoded from a code goes to the (−1−k)-th sub-pixel from D1 (Kick Off "Data hand mode" mirror example, EM01 vendor Pixel mapping); step 2 still shows raw register names. Use the settings below for the panel-side driver direction / sub-pixel order.', 'Mirror＝1（T-CON code 的行为）：TCON 从一行的另一端开始送资料，code 解出的位置 k 实际送到 D1 起第 −1−k 颗（依 Kick Off「Data hand mode」mirror 范例、EM01 原厂 Pixel mapping）；② 仍显示寄存器原值。面板端的 Driver 方向／子像素排列请用下方模拟设定。'],
+    'dm.pvMirror': ['Mirror＝1（T-CON code 的行為）：TCON 從一行的另一端開始送資料，code 解出的位置 k 實際送到 D1 起第 −1−k 顆；名稱照原廠 Pixel mapping 檢視（每組左右反轉，資料顏色＝code 的顏色）。② 仍顯示暫存器原值。面板端的配置請用下方模擬設定。', 'Mirror = 1 (T-CON code behaviour): the TCON sends the line from the other end, so position k decoded from a code goes to the (−1−k)-th sub-pixel from D1; names follow the vendor Pixel mapping view (each group reversed, data colour = code colour). Step 2 still shows raw register names. Use the settings below for the panel side.', 'Mirror＝1（T-CON code 的行为）：TCON 从一行的另一端开始送资料，code 解出的位置 k 实际送到 D1 起第 −1−k 颗；名称照原厂 Pixel mapping 检视（每组左右反转，资料颜色＝code 的颜色）。② 仍显示寄存器原值。面板端的配置请用下方模拟设定。'],
     'dm.pvNbAlt': ['Kick Off「Data hand mode」公式：每組 6 條 Data 線輪流用 _0／_1（Line 2 用 _2／_3）；這份 code 的 _1≠_0，所以 D7~D12 用 _1。', 'Kick Off "Data hand mode" formula: successive 6-line groups alternate _0/_1 (_2/_3 for Line 2); _1 differs from _0 here, so D7–D12 use _1.', 'Kick Off「Data hand mode」公式：每组 6 条 Data 线轮流用 _0／_1（Line 2 用 _2／_3）；这份 code 的 _1≠_0，所以 D7~D12 用 _1。'],
     'dm.autoNoPic': ['此型號（{m}）Auto Type「{n}」尚無架構定義，③ 無法畫圖。原因：{why}', 'No structure definition yet for {m} Auto Type "{n}"; nothing can be drawn. Reason: {why}', '此型号（{m}）Auto Type「{n}」尚无架构定义，③ 无法画图。原因：{why}'],
     'dm.autoUnk': ['Auto Mode：PANEL_MODE／SUB_PANEL_MODE（0x{v}）不在 Type 清單內，③ 不畫', 'Auto Mode: PANEL_MODE / SUB_PANEL_MODE (0x{v}) is not in the type list; nothing drawn', 'Auto Mode：PANEL_MODE／SUB_PANEL_MODE（0x{v}）不在 Type 清单内，③ 不画'],
@@ -576,11 +602,11 @@
 })();
 </script>
 <script src="common/common.js?v=20260523"></script>
-<script src="common/subpix-colors.js?v=20261007dm1150"></script>
-<script src="common/xlsx.js?v=20261007dm1150"></script>
-<script src="common/datamap-core.js?v=20261007dm1150"></script>
-<script src="common/datamap-lod.js?v=20261007dm1150"></script>
-<script src="common/datamap-auto.js?v=20261007dm1150"></script>
+<script src="common/subpix-colors.js?v=20261007dm1160"></script>
+<script src="common/xlsx.js?v=20261007dm1160"></script>
+<script src="common/datamap-core.js?v=20261007dm1160"></script>
+<script src="common/datamap-lod.js?v=20261007dm1160"></script>
+<script src="common/datamap-auto.js?v=20261007dm1160"></script>
 <script>
 (function () {
   'use strict';
@@ -1054,10 +1080,14 @@
      依據二：EM01 原廠工具 Pixel mapping（VCL_TV_TCON_EM01_Tool/App/TX/RApp_TX.cpp）：不勾 mirror ⇒ pixel 1／2＝6~8／9~11（:7465）；
        勾 mirror ⇒ 改用 12~17、前後 3 條對調（:7430 au8Line0_1[i-3]＝12+3+色、:7434 au8Line0_1[i+3]＝12+色），HSD 上 gate 18、21…（:7604 起）。
      依據三：全民 TCON_RomCode_Setting_Checklist「附1.Data Mapping」：S1 在最右（Data 由右往左）、玻璃上 R 在最右 B 在最左。
-     ⇒ 換算：code 解出位置 k（Single 用 T2、Dual 下 gate 用 T3，code 0~29 全範圍），mirror 時改送 D1 起算第 p＝−1−k 顆（整行反向），
-       名稱照送出順序（R1 G1 B1…＝送出的第 1 個 pixel）。全民 code（Zigzag、mirror 1、_0＝17..12、_1＝16..12,23）⇒ Line 1＝R1 G1 B1 R2 G2 B2 直下、
-       Line 2 往右錯一條（Zigzag LR）；Excel mirror＝1 範例 ⇒ 每條 Data 線接正下方相鄰兩顆的 Dual 接法（回歸測試）。② 照原廠 StringGrid 顯示暫存器原值。 */
+     ⇒ 換算：code 解出位置 k（Single 用 T2、Dual 下 gate 用 T3，code 0~29 全範圍），mirror 時改送 D1 起算第 p＝−1−k 顆（整行反向）；
+       名稱照原廠 Pixel mapping 檢視（每組 6×gate 數顆左右反轉）⇒ 資料顏色＝code 的顏色（原廠產生 code 時顏色不變，:7430/7434 的 +色）。
+       全民 code（Zigzag、mirror 1、_0＝17..12、_1＝16..12,23）⇒ Line 1＝B2 G2 R2 B1 G1 R1 直下、Line 2 往右錯一條（Zigzag LR）；
+       Excel mirror＝1 範例 ⇒ 每條 Data 線接正下方相鄰兩顆的 Dual 接法（回歸測試）。② 照原廠 StringGrid 顯示暫存器原值。
+     v1.16.0 修正 v1.15.0：v1.15.0 把名稱照送出順序重編（D1＝R1），顏色和 code 相反；全民 Checklist「初版Code基本信息」E8 寫正面（CF 朝上）RGB、
+       E12 寫 CH1 在右、code 的 iSP sdset REG_1＝0x67（EPD9173B SHL＝1 正向）⇒ D1 在右、從 D1 看是 B G R，資料顏色必須是 code 本身的顏色。 */
   function pvRawIdx(T, code) { code = code | 0; if (code > 29) return null; return 3 * (2 * (T - 1) - 2 * Math.floor(code / 6)) + code % 6; }
+  function pvSpanRev(P, t) { var S2 = P.mirror, b = Math.floor(t / S2) * S2; return b + (S2 - 1 - (t - b)); }
   function pvMirror(P, s) {
     if (!P.ok || P.auto || !s || !(s.mirror | 0) || !DM.fieldById(P.m, 'mirror') || DM.MODELS[P.m].kind !== 'mnt' || P.second === 'pix58') return P;
     var S2 = 6 * P.NG, per = P.period, sh = P.shift;
@@ -1071,7 +1101,7 @@
       r.names = r.names.map(function (cv, j) {
         var t0 = base[j % per]; if (t0 === null || t0 === undefined) return { name: 'X', off: true };
         var t = t0 + sh * Math.floor(j / per);
-        return { name: pvName(t), off: false, t: t, raw: cv.name };
+        return { name: pvName(pvSpanRev(P, t)), off: false, t: t, raw: cv.name };
       });
     });
     return P;
@@ -1203,7 +1233,10 @@
   /* v1.15.0（Bruce 10/7 全民 TCON_RomCode_Setting_Checklist「附1.Data Mapping」：S1 在最右、Data 由右往左；玻璃上 R 在最右、B 在最左）：
      面板／driver 硬體的兩個模擬設定（只影響 ③）：Driver 傳遞方向（lr／rl）、子像素排列（rgb／bgr）。
      實體顏色：D1 側第 s 顆在玻璃上的位置 x＝s（lr）或從右數第 s 顆（rl）；整列寬是 3 的倍數 ⇒ 由右數第 s 顆的顏色序號＝(2−s) mod 3。 */
-  var pvDirRL = false, pvBGR = false, pvFlipNow = false;
+  var pvFirstRight = false, pvDrvRev = false, pvBGR = false, pvFlipNow = false, pvDrvAuto = null;
+  /* v1.16.0（Bruce 10/7「Driver 本身也有反向…最好是提供一個選項」）：第一圈位置（玻璃）與 Driver 輸出方向（IC SHL）各自獨立，疊加＝XOR（反＋反＝正）。 */
+  function pvRLOf(first, rev) { return first !== rev; }
+  function pvRL() { return pvRLOf(pvFirstRight, pvDrvRev); }
   function pvPhysCh(s, rl, bgr) { var m = ((s % 3) + 3) % 3, i = rl ? 2 - m : m; return (bgr ? 'BGR' : 'RGB')[i]; }
   var PV_DUMMY = '#262c36';
   function pvSwapIdx(p) { return 6 * Math.floor(p / 6) + PV_SWAP[p % 6]; }
@@ -1249,30 +1282,67 @@
     if (P.legacy || P.nl === 2) return { main: 'Line ' + (k + 1), sub: 'G' + (k + 1) };
     return { main: 'Line ' + (k + 1), sub: 'G' + (k + 1) + (k >= 4 ? ' ' + tt('dm.pv2nd') : '') };
   }
-  /* v1.15.0 建議組合：4 種（Driver 方向 × 子像素排列）逐一算「資料顏色≠玻璃顏色」的格數（主循環有接到的格），
-     再看畫面方向：Mirror（T-CON code 的行為）＝1 時資料從另一側開始送，Driver 也要由右往左畫面才是正向；Mirror＝0 則由左往右。
-     線長與左右對稱在 4 種組合下相同（只是整張圖左右翻、顏色換名），所以不列入；Source Driver 對調另由線長判斷（v1.5.0）。 */
-  function pvPhysMis(P, rl, bgr) {
+  /* v1.16.0 建議組合：16 種（第一圈 l/r × Driver 輸出 f/r × 子像素 RGB/BGR × 輸出對調 有/無）逐一算
+       ・顏色：主循環有接到的格，資料顏色（code 的顏色）≠ 玻璃顏色的格數；
+       ・線長：該組合的最長 drain 與左右不均（pvPlace，只和輸出對調有關；方向／排列只是左右翻、換顏色名）；
+       ・等效群組：（第一圈 ⊕ 輸出方向, 排列, 對調）相同 ⇒ 畫出來完全相同（例：第一圈最右＋正向 ≡ 第一圈最左＋反向）。
+     排序：顏色全對 → 畫面方向（Mirror＝1 ⇒ 等效由右往左、Mirror＝0 ⇒ 由左往右，以正面看）→ 最長 drain → 左右不均。
+     Driver 輸出方向若匯入的 code 有 iSP 設定（EM01：BK_TX_DTOP_P2P 0x0F00[6:4]＝1 ⇒ iSP；BK_TX_SD_SETTING 0x1000＋4×port＋1＝EPD9173B REG_1，
+     bit2＝SHL：H＝OUT1→OUT966 正向、L＝OUT966→OUT1 反向；VCL_TV_TCON_EM01_Tool RApp_TX.cpp:1291-1303、:4591、RApp_Common.h:73-74），自動帶入。 */
+  function pvPhysMis(P, rl, bgr, swap) {
     var n = 0, tot = 0;
-    pvWiresSpec(P, pvSwapOn).forEach(function (w) { if (w.off || w.rep || w.t === null || w.t < 0) return; tot++; if (pvPhysCh(w.t, rl, bgr) !== w.name.charAt(0)) n++; });
+    pvWiresSpec(P, swap).forEach(function (w) { if (w.off || w.rep || w.t === null || w.t < 0) return; tot++; if (pvPhysCh(w.t, rl, bgr) !== w.name.charAt(0)) n++; });
     return { n: n, tot: tot };
   }
+  function pvCombos(P) {
+    var mir = !!(S.cur && (S.cur.mirror | 0) && DM.fieldById(S.model, 'mirror')), out = [], cost = {};
+    [false, true].forEach(function (sw) { var sp = pvWiresSpec(P, sw), n = P.period, smin = -pvPreCount(P), mm = Math.max(11, n * P.NG - 1), pl = pvPlace(sp, smin, mm, P.NG, n); cost[sw] = pl.cost; });
+    [false, true].forEach(function (fr) { [false, true].forEach(function (rv) { [false, true].forEach(function (bg) { [false, true].forEach(function (sw) {
+      var rl = pvRLOf(fr, rv), r = pvPhysMis(P, rl, bg, sw);
+      out.push({ first: fr, rev: rv, bgr: bg, swap: sw, rl: rl, mis: r.n, tot: r.tot, ori: rl === mir, mx: cost[sw][0], bal: cost[sw][1], key: (rl ? 'rl' : 'lr') + '+' + (bg ? 'bgr' : 'rgb') + (sw ? '+swap' : '') });
+    }); }); }); });
+    var rank = function (c) { return [c.mis, c.ori ? 0 : 1, c.mx, c.bal]; };
+    var groups = {}; out.forEach(function (c) { (groups[c.key] = groups[c.key] || []).push(c); });
+    var keys = Object.keys(groups).sort(function (a, b) { var x = rank(groups[a][0]), y = rank(groups[b][0]); for (var i = 0; i < 4; i++) if (x[i] !== y[i]) return x[i] - y[i]; return 0; });
+    return { list: out, groups: groups, order: keys, mir: mir };
+  }
+  function pvComboName(c) { return (c.first ? '第一圈最右' : '第一圈最左') + '＋' + (c.rev ? '反向' : '正向') + '＋' + (c.bgr ? 'BGR' : 'RGB') + (c.swap ? '＋' + tt('dm.pvSwapS') : ''); }
   function renderPvSug(P) {
-    var btn = $('dm-pv-sugbtn'), note = $('dm-pv-physnote'), mir = !!(S.cur && (S.cur.mirror | 0) && DM.fieldById(S.model, 'mirror'));
-    var combos = [[false, false], [false, true], [true, false], [true, true]].map(function (c) { var r = pvPhysMis(P, c[0], c[1]); return { rl: c[0], bgr: c[1], mis: r.n, tot: r.tot, ori: c[0] === mir }; });
-    var best = combos.filter(function (c) { return c.mis === 0 && c.ori; })[0] || combos.slice().sort(function (a, b) { return (a.mis + (a.ori ? 0 : 1000)) - (b.mis + (b.ori ? 0 : 1000)); })[0];
-    var cur = combos.filter(function (c) { return c.rl === pvDirRL && c.bgr === pvBGR; })[0];
-    var dTxt = function (rl) { return tt(rl ? 'dm.pvDirRL' : 'dm.pvDirLR'); }, sTxt = function (b) { return b ? 'BGR' : 'RGB'; };
-    var ori = tt(mir ? 'dm.pvOriM1' : 'dm.pvOriM0');
-    $('dm-pv-tft').setAttribute('data-mis', cur.mis); $('dm-pv-tft').setAttribute('data-sug', (best.rl ? 'rl' : 'lr') + '+' + (best.bgr ? 'bgr' : 'rgb'));
-    if (best === cur) { btn.classList.add('hidden'); note.textContent = tt('dm.pvPhysNote') + ' ' + tt('dm.pvSugOk', { o: ori }); return; }
+    var btn = $('dm-pv-sugbtn'), note = $('dm-pv-physnote'), C = pvCombos(P), rl = pvRL();
+    var eqWhy = pvFirstRight && pvDrvRev ? tt('dm.pvEqBoth') : (pvFirstRight ? tt('dm.pvEqFirst') : (pvDrvRev ? tt('dm.pvEqDrv') : tt('dm.pvEqNone')));
+    $('dm-pv-eq').textContent = tt('dm.pvEq', { s: rl ? '右' : '左', a: rl ? '右' : '左', b: rl ? '左' : '右', why: eqWhy });
+    var isp = S.isp;
+    $('dm-pv-shlsrc').textContent = isp ? tt('dm.pvShlSrc', { r: isp.reg, v: hex(isp.v, 2), shl: isp.shl, d: isp.shl ? tt('dm.pvDrvF') : tt('dm.pvDrvR'), n: isp.n }) + (pvDrvRev !== (isp.shl === 0) ? tt('dm.pvShlManual') : '') : tt('dm.pvShlNa');
+    var cur = C.list.filter(function (c) { return c.first === pvFirstRight && c.rev === pvDrvRev && c.bgr === pvBGR && c.swap === pvSwapOn; })[0];
+    /* 有 iSP SHL 證據時，同一等效群組裡優先挑和 SHL 一致的那一個 */
+    var bestKey = C.order[0], best = C.groups[bestKey], want = isp ? isp.shl === 0 : false;
+    var b0 = best.filter(function (c) { return c.rev === want; })[0] || best[0];
+    var tft = $('dm-pv-tft'); tft.setAttribute('data-mis', cur.mis); tft.setAttribute('data-sug', bestKey); tft.setAttribute('data-eq', rl ? 'rl' : 'lr'); tft.setAttribute('data-sugcombo', (b0.first ? 'r' : 'l') + (b0.rev ? 'r' : 'f') + (b0.bgr ? 'b' : 'g') + (b0.swap ? 's' : 'n'));
+    var ori = tt(C.mir ? 'dm.pvOriM1' : 'dm.pvOriM0');
+    var h = '<thead><tr><th>' + ['#', tt('dm.pvCGroup'), '第一圈', 'Driver 輸出', tt('dm.pvStripe'), tt('dm.pvSwapS'), tt('dm.pvCColor'), tt('dm.pvCMax'), tt('dm.pvCBal'), tt('dm.pvCOri'), 'iSP SHL'].join('</th><th>') + '</th></tr></thead><tbody>';
+    var idx = 0;
+    C.order.forEach(function (k, gi) { C.groups[k].forEach(function (c) { idx++;
+      var shlOk = isp ? (c.rev === (isp.shl === 0) ? '✓' : '✗') : '—';
+      h += '<tr data-combo="' + (c.first ? 'r' : 'l') + (c.rev ? 'r' : 'f') + (c.bgr ? 'b' : 'g') + (c.swap ? 's' : 'n') + '" data-group="' + (gi + 1) + '"' + (c === cur ? ' style="outline:2px solid #38bdf8"' : '') + '><td>' + idx + '</td><td>' + tt('dm.pvCG', { n: gi + 1, d: c.rl ? '右→左' : '左→右' }) + '</td><td>' + (c.first ? '最右' : '最左') + '</td><td>' + (c.rev ? '反向' : '正向') + '</td><td>' + (c.bgr ? 'BGR' : 'RGB') + '</td><td>' + (c.swap ? '有' : '無') + '</td><td>' + (c.mis ? '✗ ' + c.mis + '/' + c.tot : '✓ ' + c.tot + '/' + c.tot) + '</td><td>' + c.mx + '</td><td>' + c.bal + '</td><td>' + (c.ori ? '✓' : '✗') + '</td><td>' + shlOk + '</td></tr>';
+    }); });
+    $('dm-pv-combotbl').innerHTML = h + '</tbody>';
+    if (bestKey === cur.key) { btn.classList.add('hidden'); note.textContent = tt('dm.pvPhysNote') + ' ' + tt('dm.pvSugOk2', { o: ori, eq: best.map(pvComboName).join('／') }); return; }
     btn.classList.remove('hidden');
-    btn.textContent = tt('dm.pvSug', { d: dTxt(best.rl), s: sTxt(best.bgr), why: tt('dm.pvSugWhy', { a: best.tot - best.mis, t: best.tot, c: cur.mis, o: ori }) });
-    btn.onclick = function () { pvDirRL = best.rl; pvBGR = best.bgr; $('dm-pv-dir').value = best.rl ? 'rl' : 'lr'; $('dm-pv-stripe').value = best.bgr ? 'bgr' : 'rgb'; renderPreview(); };
+    btn.textContent = tt('dm.pvSug2', { c: pvComboName(b0), eq: best.map(pvComboName).join('／'), why: tt('dm.pvSugWhy', { a: b0.tot - b0.mis, t: b0.tot, c: cur.mis, o: ori }) });
+    btn.onclick = function () { pvFirstRight = b0.first; pvDrvRev = b0.rev; pvBGR = b0.bgr; pvSwapOn = b0.swap; $('dm-pv-first').value = b0.first ? 'r' : 'l'; $('dm-pv-drv').value = b0.rev ? 'r' : 'f'; $('dm-pv-stripe').value = b0.bgr ? 'bgr' : 'rgb'; $('dm-pv-swap').checked = b0.swap; $('dm-pv-swapbox').classList.toggle('on', b0.swap); renderPreview(); };
     note.textContent = tt('dm.pvPhysNote');
   }
+  /* iSP 驅動方向（EM01 flash code，暫存器＝檔案位址）：0x0F00[6:4]＝1（E_TX_TYPE_ISP）時讀 16 個 lane 的 REG_1（0x1001＋4i），SHL＝bit2 */
+  function readIsp(model, fileOf, bytes) {
+    if (!DM.MODELS[model] || DM.MODELS[model].kind !== 'mnt') return null;
+    var at = function (a) { var o = fileOf(a); return o >= 0 && o < bytes.length ? bytes[o] : null; };
+    var t = at(0x0F00); if (t === null || ((t >> 4) & 7) !== 1) return null;
+    var v0 = at(0x1001); if (v0 === null) return null;
+    var n = 0; for (var i = 0; i < 16; i++) if (at(0x1001 + 4 * i) === v0) n++;
+    return { reg: 'BK_TX_SD_SETTING 0x1001（port 0 sdset01＝EPD9173B REG_1）', v: v0, shl: (v0 >> 2) & 1, n: n, rbc: (v0 >> 4) & 1, polc: (v0 >> 3) & 1 };
+  }
   function renderPvTft(P) {
-    pvFlipNow = pvDirRL;
+    pvFlipNow = pvRL();
     try { return renderPvTft0(P); } finally { pvFlipNow = false; }
   }
   function renderPvTft0(P) {
@@ -1357,7 +1427,7 @@
     rowsG.forEach(function (g, k) {
       o2 += svgEl('text', { x: 4, y: g.bxY + CH / 2 + 4, fill: '#64748b', 'font-size': 11 }, tt('dm.pvRow', { n: k + 1 }));
       for (var s = smin; s <= smax; s++) {
-        var bx = boxX(s), phys = pvName(s), physCh = pvPhysCh(s, pvDirRL, pvBGR), pc = pvFill(physCh + '1'), ins = g.hit[s] || [], st = ins.length > 1 ? 'conflict' : (ins.length ? 'ok' : 'none');
+        var bx = boxX(s), phys = pvName(P.mirror ? pvSpanRev(P, s) : s), physCh = pvPhysCh(s, pvRL(), pvBGR), pc = pvFill(physCh + '1'), ins = g.hit[s] || [], st = ins.length > 1 ? 'conflict' : (ins.length ? 'ok' : 'none');
         var tier = s >= 0 && ins.some(function (w) { return !w.rep; }) ? 'main' : (ins.length ? 'rep' : 'dummy');
         var tip = phys + (physCh !== phys.charAt(0) ? tt('dm.pvTipPhys', { c: physCh }) : '') + (ins.length ? tt('dm.pvTipFrom', { s: ins.map(tagOf).join('、') }) : tt('dm.pvTipNone')) + (st === 'conflict' ? tt('dm.pvTipConflict') : '');
         o2 += '<g data-tip="' + esc(tip) + '"><title>' + esc(tip) + '</title>';
@@ -1418,8 +1488,8 @@
     svg.setAttribute('data-bal', pl.cost[1]); svg.setAttribute('data-bal0', c0[1]); svg.setAttribute('data-swap', swap ? 1 : 0); svg.setAttribute('data-period', pSub); svg.setAttribute('data-plines', n); svg.setAttribute('data-ng', NG); svg.setAttribute('data-smax', smax);
     svg.setAttribute('width', W); svg.setAttribute('height', H); svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
     var body = o + '<g opacity="0.45" data-rep="1">' + oR + '</g>' + o2;
-    svg.innerHTML = pvDirRL ? '<g transform="translate(' + W + ',0) scale(-1,1)" data-flip="1">' + body + '</g>' : body;
-    svg.setAttribute('data-dir', pvDirRL ? 'rl' : 'lr'); svg.setAttribute('data-stripe', pvBGR ? 'bgr' : 'rgb');
+    svg.innerHTML = pvRL() ? '<g transform="translate(' + W + ',0) scale(-1,1)" data-flip="1">' + body + '</g>' : body;
+    svg.setAttribute('data-dir', pvRL() ? 'rl' : 'lr'); svg.setAttribute('data-first', pvFirstRight ? 'r' : 'l'); svg.setAttribute('data-drv', pvDrvRev ? 'r' : 'f'); svg.setAttribute('data-stripe', pvBGR ? 'bgr' : 'rgb');
     /* 位置規則與線長比較（文字） */
     $('dm-pv-pos').textContent = tt('dm.pvPos', {
       g: Gm.map(function (g, i) { return 'D' + (i + 1) + '＝' + (g <= smax ? pvName(g) + tt('dm.pvLeft') : pvName(smax) + tt('dm.pvRight')); }).join('、'),
@@ -1684,12 +1754,14 @@
     S.model = r.model; S.cur = r.state; S.e503ok = false;
     S.img = {}; imgAddrs().forEach(function (a) { var o = r.fileOf(a); S.img[a] = (o >= 0 && o < bytes.length) ? bytes[o] : 0; });
     S.baseImg = clone(S.img); markSaved(tt('dm.whatImport', { f: name }));
+    S.isp = readIsp(r.model, r.fileOf, bytes);
+    if (S.isp) { pvDrvRev = S.isp.shl === 0; pvDrvAuto = S.isp; $('dm-pv-drv').value = pvDrvRev ? 'r' : 'f'; }
     S.src = { kind: 'file', name: name, model: r.model, cks: r.cks };
     afterLoad(r.v512);
   }
   /* v1.3.0（Bruce 10/7 卡死回報）：回到「這個型號、沒有匯入」的狀態。型號選單、匯入、清除匯入任何時候都不鎖。 */
   function resetToModel(k) {
-    S.model = k; S.cur = DM.emptyState(k); S.img = {}; S.baseImg = null; S.savedImg = null; S.src = { kind: 'none' };
+    S.model = k; S.cur = DM.emptyState(k); S.img = {}; S.baseImg = null; S.savedImg = null; S.src = { kind: 'none' }; S.isp = null;
     S.ro = null; S.last = ''; S.e503ok = false; S.raw = null; S.rawName = ''; resetX();
   }
   function clearImport() {
@@ -1862,7 +1934,8 @@
       wr.addEventListener('click', function (e) { if (moved) { e.stopPropagation(); e.preventDefault(); moved = false; } }, true);
       wr.addEventListener('dragstart', function (e) { e.preventDefault(); });
     })();
-    $('dm-pv-dir').addEventListener('change', function () { pvDirRL = this.value === 'rl'; renderPreview(); });
+    $('dm-pv-first').addEventListener('change', function () { pvFirstRight = this.value === 'r'; renderPreview(); });
+    $('dm-pv-drv').addEventListener('change', function () { pvDrvRev = this.value === 'r'; pvDrvAuto = null; renderPreview(); });
     $('dm-pv-stripe').addEventListener('change', function () { pvBGR = this.value === 'bgr'; renderPreview(); });
     $('dm-pv-swap').addEventListener('change', function () { pvSwapOn = this.checked; $('dm-pv-swapbox').classList.toggle('on', pvSwapOn); renderPreview(); });   // v1.5.0：只重畫預覽
     $('dm-pv-lod').addEventListener('change', function () { var v = parseInt(this.value, 10); pvLod = isNaN(v) ? -1 : v; renderPreview(); });   // v1.7.0：只重畫預覽，不碰 S.cur
