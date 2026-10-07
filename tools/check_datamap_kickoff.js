@@ -80,8 +80,11 @@ console.log('── code 表（D2:R31）＝網頁 T 表解碼');
     await new Promise(r => setTimeout(r, 80));
     const s = w.dmState.cur;
     ok(s.hand === 1 && s.panel === 1 && s.mirror === 1 && [17, 16, 15, 14, 13, 12].every((v, i) => s['c' + i] === v), '匯入：Hand 開、Zigzag、mirror 1、_0＝17,16,15,14,13,12');
-    ok($('dm-pv-first').value === 'r' && $('dm-pv-drv').value === 'f' && $('dm-pv-stripe').value === 'rgb' && +$('dm-pv-tft').getAttribute('data-mis') === 0 && /自動帶入/.test($('dm-pv-sugok').textContent) && $('dm-pv-sugbtn').classList.contains('hidden'),
-      'v1.17.1 匯入全民 code ⇒ ③ 自動帶入 CH1 最右＋正向（SHL＝1）＋RGB＋不對調，24/24 顏色相符（Bruce 10/8 確認 Excel E8 RGB、E12 CH1 在右）：' + $('dm-pv-sugok').textContent);
+    ok($('dm-pv-first').value === 'l' && $('dm-pv-drv').value === 'f' && $('dm-pv-stripe').value === 'rgb' && !$('dm-pv-swap').checked && +$('dm-pv-tft').getAttribute('data-mis') > 0
+      && !$('dm-pv-sugbtn').classList.contains('hidden') && /建議：CH1 在最右＋正向＋RGB/.test($('dm-pv-sugbtn').textContent),
+      'v1.17.3 匯入全民 code ⇒ ③ 回預設（不對調、CH1 在最左、RGB），Driver 方向照 code SHL＝1 帶入正向；不自動改 CH1，建議區顯示：' + $('dm-pv-sugbtn').textContent);
+    $('dm-pv-sugbtn').click();
+    ok($('dm-pv-first').value === 'r' && +$('dm-pv-tft').getAttribute('data-mis') === 0 && $('dm-pv-sugbtn').classList.contains('hidden'), '按「套用建議」⇒ CH1 在最右＋正向＋RGB，24/24 相符');
     ok(QA('text[data-dlab="Dn+6"]').length === 1 && QA('text[data-dlab="Dn+1"]').length === 1 && QA('text[data-dlab="Dn"]').length === 1 && QA('text[data-dlab="Dn−5"]').length === 1
       && Q('path[data-dl="7"]').getAttribute('data-rep') === '0' && Q('path[data-dl="1"]').getAttribute('data-rep') === '1' && QA('text[data-dof]').length === 12,
       'v1.17.1 CH1 在右：主循環畫在最左（標 Dn+6…Dn+1、亮），右邊靠 CH1 的一組是重複組（Dn…Dn−5、暗），每條線下方小字標對應 code 的 Data k');
@@ -166,6 +169,13 @@ console.log('── code 表（D2:R31）＝網頁 T 表解碼');
       ok(svg() === v0 && [0, 1, 2, 3].map(gridTxt).join('|') === g0, 'Mirror 改回 1 ⇒ ②③ 回到原樣'); }
     fire($('dm-pv-stripe'), 'rgb');
     ok([0, 1, 2, 3].map(r => $('dm-rh' + r).textContent).join('|') === 'Line 1（_0）|Line 2（_1）|Line 3（_2）|Line 4（_3）' && $('dm-c1-5').value !== $('dm-c0-5').value, '② 列名 Line 1~4，Line 2 顯示 _1 原值（不是 Line 1 的複本）');
+    /* v1.17.3：匯入 A 後手動改 ③，再匯入 B ⇒ ③ 回預設、SHL 依 B 帶入（B＝全民 code 去掉 iSP 設定，0x0F00＝0 ⇒ 沒有 SHL ⇒ 正向） */
+    fire($('dm-pv-swap'), true); fire($('dm-pv-first'), 'r'); fire($('dm-pv-stripe'), 'bgr'); fire($('dm-pv-drv'), 'r');
+    { const b = new Uint8Array(fs.readFileSync(QM)); b[0x0F00] = 0; w.dmImportBytes(b, 'B_noISP_' + path.basename(QM)); await new Promise(r => setTimeout(r, 80)); }
+    ok(!$('dm-pv-swap').checked && $('dm-pv-first').value === 'l' && $('dm-pv-stripe').value === 'rgb' && $('dm-pv-drv').value === 'f' && /沒有可讀的 iSP/.test($('dm-pv-shlsrc').textContent), 'v1.17.3 改過 ③ 後匯入 B（沒有 iSP SHL）⇒ ③ 全部回預設、Driver 方向用預設正向');
+    fire($('dm-pv-drv'), 'r'); fire($('dm-pv-first'), 'r');
+    w.dmImportBytes(new Uint8Array(fs.readFileSync(QM)), path.basename(QM)); await new Promise(r => setTimeout(r, 80));
+    ok($('dm-pv-first').value === 'l' && $('dm-pv-drv').value === 'f' && /SHL＝1/.test($('dm-pv-shlsrc').textContent), '再匯入全民 code ⇒ ③ 回預設，Driver 方向依 code SHL＝1 帶入正向');
   }
   console.log((fail ? '✗ ' : '✓ ') + 'check_datamap_kickoff ' + pass + ' pass / ' + fail + ' fail');
   process.exit(fail ? 1 : 0);
