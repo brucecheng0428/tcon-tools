@@ -2,6 +2,25 @@
 
 ---
 
+## Data Mapping (datamap) v1.3.1 — 2026-10-07 ｜ PATCH
+
+**Hand Mode 手動切到 Single Gate 時，Line 1-2／Line 2-2（複本列、硬體不用）淡化加深到接近黑色**
+
+### 需求（Bruce 2026-10-07 原話）
+
+> 如果手動切到 Single Gate 的時候，Line 1-2 跟 Line 2-2 要變得比較不明顯。目前的情況還是太明顯了，還要再深一點、再黑一點。
+
+### 改了什麼
+
+- 改前（v1.3.0）：`.dm-cell.copy { opacity: .38; border-style: dashed; }`（格子仍是原本的 R/G/B 彩色底，只降透明度）、`tr.dm-copyrow th { opacity: .75; }`。
+- 改後：`tr.dm-copyrow .dm-cell` 背景 `#04070d`（近黑）、文字 `#263040`（低對比）、`filter: grayscale(1)`、邊框 `1px dashed #1a2232`；列標題文字 `#334155`。
+- 只作用在 `tr.dm-copyrow`（renderGrid 只在 Single Gate 的複本列加這個 class）⇒ Dual Gate 與 r2..b3 第二組表格不受影響。頁面只有深色主題。
+- cache buster：datamap.html、index.html `?v=20261007dm131`。
+
+判定依據：`docs/VERSIONING.md` §1，PATCH：只調整既有停用列（Single Gate 複本列）的顯示深淺，使用者能做的事沒有多也沒有少；寫入值與匯出 code 不變，不帶輸出變更；首頁卡片文字沒變，app 不動。
+
+---
+
 ## Data Mapping (datamap) v1.3.0 — 2026-10-07 ｜ MINOR
 
 **匯入的 code 與型號不符後不再卡死；新增「清除匯入」；型號不符時問要不要切換；I2C 沒連線時相關按鈕停用**
