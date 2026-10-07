@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Data Mapping — TCON FAE Toolbox</title>
-<link rel="stylesheet" href="common/common.css?v=20261007dm160">
-<link rel="stylesheet" href="common/site-ui.css?v=20261007dm160">
+<link rel="stylesheet" href="common/common.css?v=20261007dm161">
+<link rel="stylesheet" href="common/site-ui.css?v=20261007dm161">
 <!--
   Data Mapping 分頁 v1.2.0（Bruce 2026-10-07）
   ・Bruce 10/7：「我其實沒有要你把它做得跟原生 UI 一模一樣，你還是要兼顧到網頁的風格，現在這個有點太突兀了。
@@ -299,8 +299,8 @@
 </div>
 <div class="dm-toasts" id="dm-toasts" aria-live="polite"></div>
 
-<script src="common/version.js?v=20261007dm160"></script>
-<script src="common/i18n.js?v=20261007dm160"></script>
+<script src="common/version.js?v=20261007dm161"></script>
+<script src="common/i18n.js?v=20261007dm161"></script>
 <script>
 (function () {
   /* [zh-TW, en, zh-CN] */
@@ -456,9 +456,9 @@
 })();
 </script>
 <script src="common/common.js?v=20260523"></script>
-<script src="common/subpix-colors.js?v=20261007dm160"></script>
-<script src="common/xlsx.js?v=20261007dm160"></script>
-<script src="common/datamap-core.js?v=20261007dm160"></script>
+<script src="common/subpix-colors.js?v=20261007dm161"></script>
+<script src="common/xlsx.js?v=20261007dm161"></script>
+<script src="common/datamap-core.js?v=20261007dm161"></script>
 <script>
 (function () {
   'use strict';
@@ -874,10 +874,12 @@
   }
   function pvBetter(a, b) { for (var i = 0; i < 3; i++) { if (a[i] < b[i] - 1e-9) return true; if (a[i] > b[i] + 1e-9) return false; } return false; }
   /* v1.5.1：相鄰 Data 線至少隔 minGap 格（Dual 2、Single 1）。v1.5.0 線上截圖：Dual 讓 D1~D3 擠在相鄰的縫，TFT 與標籤疊在一起 */
-  function pvPlace(spec, smin, smax, minGap) {
+  /* v1.6.1：D7~D12 是 D1~D6 平移一個週期 ⇒ D1~D6 的跨度不能超過「週期 − 最小間距」，否則複製出來的 D7 會和 D4 落在同一個縫
+     （v1.6.0 線上截圖：Single 時 D7 與 D4 同縫、G3／B3／G4 被兩條接到）。結果：Single 只能連續 6 縫、Dual 只能每 2 縫一條，可調的只剩整組的起點。 */
+  function pvPlace(spec, smin, smax, minGap, period) {
     var lo = smin, hi = smax + 1, best = null, bestC = null, G = [0, 0, 0, 0, 0, 0];
     (function rec(i, from) {
-      if (i === 6) { var c = pvCost(G, spec, smin, smax); if (!bestC || pvBetter(c, bestC)) { bestC = c; best = G.slice(); } return; }
+      if (i === 6) { if (G[5] - G[0] > period - minGap) return; var c = pvCost(G, spec, smin, smax); if (!bestC || pvBetter(c, bestC)) { bestC = c; best = G.slice(); } return; }
       for (var g = from; g <= hi - (5 - i) * minGap; g++) { G[i] = g; rec(i + 1, g + minGap); }
     })(0, lo);
     return { G: best, cost: bestC };
@@ -886,7 +888,7 @@
     var npre = pvPreCount(P), smin = -npre, per = dual ? 2 : 1, period = 6 * per, swap = pvSwapOn;
     var spec = pvWiresSpec(P, dual, swap);
     var G0 = [0, 1, 2, 3, 4, 5].map(function (p) { return p * per; }), c0 = pvCost(G0, spec, smin, 11);
-    var pl = pvPlace(spec, smin, 11, per), G6 = pl.G, labs = {};
+    var pl = pvPlace(spec, smin, 11, per, period), G6 = pl.G, labs = {};
     var G = G6.concat(G6.map(function (g) { return g + period; }));
     /* 右界：D12 的縫與所有接線目標的最右邊 */
     var smax = Math.max(11, G[11]);
