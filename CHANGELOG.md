@@ -2,6 +2,41 @@
 
 ---
 
+## Data Mapping (datamap) v1.7.0 — 2026-10-07 ｜ MINOR
+
+**③ 面板排列預覽：新增「測試：Line OD Type」下拉（EM02 原廠 Line OD → Mapping 的 Type 0~32，接線由原廠圖＋暫存器值反推；不與 code 連動）**
+
+### 需求（Bruce 2026-10-07 原話）
+
+> EM02 在 Line OD 的 Mapping 分頁裡面有 Type Select，有 0 到 32 個選項，然後還有一個 User Define。點選以後，在右邊它的 Register Table 裡面都會填寫對應的設定值。請由它的設定值跟它貼出來的圖片，去反推實際的 Data Mapping，看實際的面板排列預覽架構到底是怎麼樣。這個先不用跟 code 連動…所以這個選項可以先擺在「面板排列預覽」的卡片裡面，多一個測試的下拉選單，可以選擇 Line OD 這邊各個不同的設定。先不要跟 code 連動
+
+### 出處（原廠檔只讀）
+
+- 選項與值：`VCL_TV_TCON_EM02_Tool/App/Table/RApp_Table.h:933-1018` `stLOD_DataType[]`（de／spec_line／line／pix／r_0..b_15，33 筆；`LOD_DATA_MAPPTING_TYPE_MAX`＝33 在 :62）。
+- UI：`SDIMAIN.dfm:6622` `TabSheet_Line_OD_Mapping`、`:6802` `ListBox_LOD_mapping_type`、`Image4`；清單 `RApp_Table.cpp:11880-11884`（最後加 "User define"）；點選 `RApp_Table.cpp:10937` `RApp_Table_LOD_ListBox_onClick`（畫 `VirtualImageList1` 第 idx 張、把 `stLOD_DataType[idx]` 填進 Register Table）。
+- 示意圖：`Image/LineOD/*.png`（34 張，含 33.User_def）。
+- 暫存器：BK_LOD＝0x0900；`Table_LOD_Reg_st` 以 gcc 位元欄位排法推算 0x09C7[2:0] de、[5:4] spec_line、0x09C8[3:0] line、[6:4] pix、0x09C9~0x09F8 r_0..b_15（各 6 bit）。
+
+### 反推方法與驗證
+
+- 原廠圖：每欄＝一條 Data 線（CH0＝D1）、每列＝一條 gate 列。Line OD 表的值＝「這顆子像素所在的 Data 線，上一條 gate 列送的是誰」：上一條在前一條 line ⇒ `3×(de−dx)＋色`（0~17），在同一 line ⇒ `18＋3×(de＋1−dx)＋色`；索引＝line 相位×(pix＋1)＋pixel 相位。
+- `common/datamap-lod.js` 寫下每個 Type 從圖讀出的接線；`tools/check_datamap_lod.js` 用接線算回 48 個值，**33 個 Type 全部與原廠表逐格一致**；反例（兩列對調、D1↔D3、拿掉 Mirror、30/31 互換）都會被抓到；`--src` 時名稱與 52 個值和原廠原始碼逐字比對。
+- 原廠圖的問題（以暫存器值為準，畫面上有 ⚠ 註明）：5、6 有兩列誤用 Mirror 名稱；19、20 是同一張圖；29 欄寬錯位、少一格 B5。
+- Bruce 追加查證（Line OD 與 System → TX → RT7 Data Mapping 是否連動）：**不連動**。兩邊各有清單、事件、預設表與暫存器（Line OD：RApp_Table.cpp:10937 → BK_LOD 0x0900／BK_LOD_2 0x0A80；RT7：RApp_TX.cpp:10873 → BK_RT7_DATA_PROC 0x0480＋0x0504[7:6]），互不呼叫，只共用 Type 名稱與示意圖（VirtualImageList1）。② 對應 RT7；③ 的測試下拉本來就只換預覽，不需調整。
+- 附帶發現：原廠「預設樣式」（RApp_TX.h）(30)／(31) 兩筆的值與名稱對調；(32) 的 ② 值＝Line OD 圖 32 再做 D1↔D3、D4↔D6（即需要 driver 對調，與蘇坤 code 結論相同）。② 的預設樣式行為本版不動。
+
+### 改了什麼
+
+- ③ 卡片多一列「測試：Line OD Type」下拉：（不使用，依 ② 設定）＋ Type 0~32（名稱照原廠）＋ User define（停用：值由使用者自填、沒有原廠圖）；旁註「測試用：依原廠 Line OD Type 反推，不與 code 連動」。
+- 選了 Type：預覽改畫反推接線（Single／Dual，4／8 條 line 的 Type 會畫 Line 1-1~8-1；D7~D12 直接用反推表，不是 D1~D6＋週期）；顯示原廠 Register Table 值、驗算結果（✓ 48 值一致）、Mirror／⚠ 說明，以及「反推接線表（仿原廠圖）」方便和原廠圖逐格對照。Tri-Gate（17~21）不畫 TFT，只畫反推表。
+- 不讀寫 `S.cur`：② 的值、匯出 script、寫入 TCON 都不變；選回「不使用」⇒ 預覽與切換前逐字相同。Source Driver 對調核取方塊照常可用。
+- 原廠圖片不放上公開網站（原廠內部工具資源）；改用網頁自己畫的反推接線表對照。
+- 回歸：新增 `tools/check_datamap_lod.js`（124 項，含原廠原始碼比對）；`check_datamap_preview.js` 版號條件放寬到 v1.7（60/0 含真實 EM02 code）；`check_datamap` 282/0。cache buster `?v=20261007dm170`。
+
+判定依據：`docs/VERSIONING.md` §R3／案例 1，MINOR：③ 多了一個使用者可操作的測試選項，既有操作不變；寫入值與匯出 code 不變（回歸比對），不帶輸出變更；首頁卡片文字沒變，app 不動。
+
+---
+
 ## Data Mapping (datamap) v1.6.2 — 2026-10-07 ｜ PATCH
 
 **③ 面板排列預覽：前循環一律不高亮；方格只寫實體名稱（來源改放滑鼠提示）；預覽圖可按住左右拖曳**
