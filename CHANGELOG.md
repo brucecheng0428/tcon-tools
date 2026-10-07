@@ -2,6 +2,26 @@
 
 ---
 
+## Data Mapping (datamap) v1.6.0 — 2026-10-07 ｜ MINOR
+
+**③ 面板排列預覽延伸到 D7~D12（重複 D1~D6）、子像素亮度分三級、真 dummy 改暗灰；拿掉 TFT 旁的「→名稱」標籤**
+
+### 需求（Bruce 2026-10-07 原話）
+> 目前的 data line 只有 D1 到 D6，我還需要看到 D7 到 D12…D1 到 D6 接出來的 subpixel 用高亮…D7 到 D12 因為是重複 D1 到 D6 的，所以連接的 subpixel 亮度用目前像 dummy 的這種亮度…現在 dummy 的部分…請用 RGB 都是暗灰色的。
+> TFT 的端點到 Subpixel 那邊…會寫一個箭頭，再寫這個是 R1、B1、G1…這個文字應該可以拿掉吧？
+
+### 改了什麼
+- D7~D12：D(n+6) 送 ② Data n 的資料，目標子像素與 Data 線位置都往右平移一個週期（Single 6 格＝2 pixel、Dual 12 格＝4 pixel，與 v1.4.x 推論的重複組平移量一致）；TFT、drain、跳線照畫。主循環往右畫到 D12 的縫與所有接線目標的最右邊（依接線而定；蘇坤 EM02 code 的 Dual 畫到 B8）。
+- 線長均衡：D1~D6 照 v1.5.x 規則排好後整組複製（不把 D7~D12 納入搜尋），保持週期性，每組的線長、左右均衡與 D1~D6 相同。
+- Source Driver 對調延伸到 D7↔D9、D10↔D12，勾選說明一併更新。
+- 亮度三級：有 D1~D6 接到＝高亮；只有 D7~D12 接到＝暗色（看得出 RGB）；沒有 Data 線接到＝暗灰 dummy（#262c36，R/G/B 同色，只留名稱小字）。D7~D12 的 Data 線、TFT、drain 一併調暗（opacity 0.45）。前循環同規則。
+- TFT 旁「→G2」這類目標標籤拿掉；只留「X」（不接線）與「!R5」（指向畫面外）。方格內「D1↑」小字保留（看得出由哪條 Data、哪條 Gate 充，衝突時列出兩條來源）。
+- 回歸 `tools/check_datamap_preview.js`：合成 38、加 `--em02` 52（D7~D12 目標＝D1~D6 平移、縫＝縫＋週期、三級亮度分類、dummy 灰、對調延伸、無「→」標籤、② 與匯出 script 不變）。cache buster `?v=20261007dm160`。
+
+判定依據：`docs/VERSIONING.md` §R3，MINOR：預覽多了 D7~D12 與亮度分級可看（使用者多一件能看的事），既有操作不變；寫入值與匯出 code 不變（回歸比對），不帶輸出變更；app 不動。
+
+---
+
 ## Data Mapping (datamap) v1.5.1 — 2026-10-07 ｜ PATCH
 
 **③ 面板排列預覽：相鄰 Data 線至少隔 2 格（Dual）／1 格（Single）；TFT 標籤重疊時不畫**
