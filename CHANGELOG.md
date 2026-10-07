@@ -2,6 +2,24 @@
 
 ---
 
+## Data Mapping (datamap) v1.13.1 — 2026-10-07 ｜ PATCH
+
+**修正提示文字：② Manual 樣式差異提示改指向「RT7 Type Select」（「原廠預設樣式」選單已在 v1.12.0 移除）**
+
+### 需求（Dispatch QA 2026-10-07）
+
+> 線上 datamap.html 的 i18n 字串 'dm.autoManBad' 還寫「⚠ 目前不同：{d}（可用下方「原廠預設樣式」一次套用）」，但「原廠預設樣式」選單在 v1.12.0 已經併入 RT7 Type Select 並移除了。
+
+### 變更
+
+- `dm.autoManBad` 繁中、英文、簡中都改成「可在上方「RT7 Type Select」重選此樣式，一次套用全部欄位」。
+- 移除已沒有元件使用的 i18n 字串：`dm.preset`、`dm.presetPick`、`dm.presetNow`、`dm.presetNone`、`dm.presetNote`。
+- 程式註解中「預設樣式」改稱「原廠 RT7 樣式」。全站 grep 後，畫面字串已沒有指向舊選單的文字；只剩 v1.12.0 說明「舊選單已併入」的程式註解和測試裡「舊元件不存在」的斷言，屬刻意保留。
+
+判定依據：`docs/VERSIONING.md` §R3，PATCH：只修正畫面提示文字、刪除沒有元件使用的字串，功能與輸出不變；app 不動。
+
+---
+
 ## Data Mapping (datamap) v1.13.0 — 2026-10-07 ｜ MINOR
 
 **Hand Mode 關時，③ 依 Auto Type 畫出實際 Data Mapping 架構：EM01 的實際 code、LTPS MUX2、DAZ6111／DAZ7353 補上；畫不出來的寫明原因，不再空白**
