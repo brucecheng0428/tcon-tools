@@ -2,6 +2,37 @@
 
 ---
 
+## Data Mapping (datamap) v1.17.1 — 2026-10-08 ｜ PATCH
+
+**全民改回 RGB（CH1 在最右＋正向＋RGB，匯入時自動帶入）；Mirror 名稱改成整行反轉（全民 0x17＝B-1）；T 表判定拿掉「預設 T2」，依 code 實際值與 Excel 公式；CH1 在右時 ③ 主循環畫在最左（Dn+k 標號）**
+
+### 需求（Bruce 2026-10-08 原話，節錄）
+
+> 喔，對，Excel 應該是左邊 R、中間 G、右邊 B 才對。這個應該沒有問題，是我之前看錯了。
+> Data 6 那邊…理論上 Data 6 那邊應該不是 B4，而是 B-1，這樣子的順序似乎比較合理。
+> 你上面寫 Kickoff 預設 0010 等於 T2，問題是 code 明明就可以設定…你不能都用 T2 喔。
+> 去看一下之前跟 Data Mapping 有關計算的那幾個 Excel，看一下裡面的公式到底是要怎麼去判斷要用 T 幾的。
+> 如果 SHL 選擇 1，第一圈在最右邊…主循環，我建議用 DN+6、DN+5…放在最左邊。
+> 不同顆 T-con…主軸應該是大同小異，但是細節可能會隨著不同 T-con 而有一點不一樣，這個要小心。
+
+### 變更
+
+- **撤回 v1.17.0 的 BGR 結論**：全民正確配置是 CH1 在最右（Checklist E12）＋Driver 正向（code SHL＝1）＋RGB（E8）＋不對調，24/24 相符。匯入有 iSP SHL 的 code 時，若預設的 CH1 位置顏色不符，而最佳組合的 SHL、子像素排列都相同，就自動帶入 CH1 位置一次，並在畫面註明。③ 的 CH1 位置與子像素排列都標上同一個視角：Checklist 的「CF 朝上、X-PCB 朝下」。
+- **Mirror 名稱改成整行反轉**：根因在 `common/datamap-core.js` 的 mntName 與 `datamap.html` 的 pvSpanRev，兩者原本每 6×gate 一組各自反轉，跨組的 code（全民 0x17）因此被丟到另一端，顯示成 B4。改成整行反轉後組內結果不變，0x17＝B-1，和 D5 的 R1 相鄰；接線位置不變。
+- **T 表判定（各 Excel 公式重讀）**：
+  - Kick Off「Data hand mode」：E36:R51 全部是 `=INDIRECT(ADDRESS($C36+2,COLUMN(E36)))`。code 表 T1~T15 欄＝沿一行的第幾組 6 條 Data 線（每往右一欄＝往右 2 pixel）。FORCE_DE_SEL（A1、D1:G1、AQ7）與 mirror（H33／Y33）都沒有被公式引用。
+  - DAZ6138 Kick Off 的同名分頁相同。DAZ6111／7353 只有一張 15 個 code 的固定表。E512_V512 圖解、查詢表與 Checklist 都沒有相關公式。
+  - 新規則：FORCE_DE_EN＝1 且只設一個 bit ⇒ T＝bit＋1。多 bit ⇒ 標「基準未確定」，依已點亮 code 反推，取有設的 bit 中 24 格全在 code 表範圍內的最低那張，並列出各候選的超出格數。FORCE_DE_EN＝0（auto）⇒ 標「基準未確定」，依 EM02 原廠 RT7 清單 33 型與 Line OD 的對應反推為 T2，EM01／E512 比照推定。
+  - ② 的 T 標示改成「基準＋相對位置」（上 gate／下 gate），未確定時加「?」。超出 code 表範圍的格子標虛線。總結列出型號依據（EM01／EM02 原始碼加實際 code 驗證；E512 只有圖解，沒有已點亮的 Hand code）。
+  - 已驗證：全民 0x1F＋Mirror ⇒ T2，24 格全在範圍內；蘇坤 0x0E ⇒ T2，Line OD Type 32 不變。
+- **CH1 在右（等效由右往左）時的 ③**：主循環畫在最左邊，標 Dn+6…Dn+1（亮）；右邊靠 CH1 的一組是重複組，標 Dn…Dn−5（暗）。每條線下方用小字標出對應 code 的 Data k。CH1 在左時維持 D1…D12。
+- **說法更正**：ⓘ、說明表、測試敘述中的「預設 T2」「多 bit 當 T2」「實際接線與 T2 一致」全部移除。Kick Off AP7「0010(default)」改註明只是表單範例值。補上量產常見值：NB E503／E501 1110、EM01 iSP 0x1F、EM02 0x0E。
+- **測試**：check_datamap_kickoff 45/0（新增全民自動帶入 RGB 配置、Data 6＝B-1 且相鄰、24 格在範圍內、基準未確定與候選、Dn+k 標號）；check_datamap_preview 46/0（EM02 61/0；Single 假設改 T3 時名稱平移的敘述）；check_datamap_auto 101/0；check_datamap 282/0；check_datamap_lod 196/0。匯出 script 和 v1.17.0 逐字相同。
+
+判定依據：`docs/VERSIONING.md` §R3，PATCH：修正 v1.17.0 的錯誤結論、名稱解讀與預覽標號；暫存器值、匯出 script 與寫入都不變；app 不動。
+
+---
+
 ## Data Mapping (datamap) v1.17.0 — 2026-10-07 ｜ MINOR
 
 **② 的 Mirror／CHRB／CHWB／FORCE_DE／T 表／READ_RVS 提到和 Hand Mode 同層並附原廠出處說明；② 依 Mirror 與 T 表 register 正確解讀（全民 code 24 格沒有前循環、沒有非標準）；勾 CHRB 時 ③ 和 Line OD 即時反映 R↔B；①～④ 版面整理成「欄位名｜控制項」表單，「圈」改為 CH**

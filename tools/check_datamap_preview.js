@@ -167,7 +167,9 @@ const ok = (c, m) => { if (c) pass++; else { fail++; console.log('  ✗ ' + m); 
     ok(sidesOk() && balOk() && gapsOk(), '勾選後重排：TFT 側正確、最長 drain ' + svgA('maxlen0') + '→' + svgA('maxlen') + ' 格、左右不均 ' + svgA('bal0') + '→' + svgA('bal') + '、位置 ' + svgA('gaps'));
     console.log('   勾選：' + $('dm-pv-pos').textContent);
     fire($('dm-gate'), 'Single-Gate');
-    ok(sidesOk() && balOk() && gapsOk() && repOk() && tierOk() && /D3u/.test(rect(1, 'G2').getAttribute('data-in')), 'Single＋勾選：G2 由 D3、D1~D12 各占一縫（不重疊）、TFT 側正確、最長 ' + svgA('maxlen0') + '→' + svgA('maxlen') + '、位置 ' + svgA('gaps'));
+    /* v1.17.1：改成 Single 後 0x0E 有設的 bit 中 24 格全在範圍內的最低那張是 T3（T2 時 0x17 超出），名稱整體往右 2 pixel（G2→G4） */
+    const g2s = $('dm-c0-0').getAttribute('data-t') === '3' ? 'G4' : 'G2';
+    ok(sidesOk() && balOk() && gapsOk() && repOk() && tierOk() && /D3u/.test(rect(1, g2s).getAttribute('data-in')), 'Single＋勾選：' + g2s + '（原 G2）由 D3、D1~D12 各占一縫（不重疊）、TFT 側正確、最長 ' + svgA('maxlen0') + '→' + svgA('maxlen') + '、位置 ' + svgA('gaps'));
     console.log('   Single 勾選：' + $('dm-pv-pos').textContent);
     fire($('dm-pv-swap'), false); fire($('dm-gate'), 'Dual-Gate');
     ok(/D1u/.test(rect(1, 'G2').getAttribute('data-in')) && JSON.stringify(w.dmBuildScript()) === sc0, '取消勾選 ⇒ 回到 D1 送 G2，匯出仍相同');

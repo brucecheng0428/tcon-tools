@@ -434,19 +434,50 @@
      AN7:AQ7「FORCE_DE_SEL 3F2h[7:4]｜FORCE_DE_SEL：0010(default) NOTE:FORCE_DE_EN=1｜2」⇒ FORCE_DE_EN＝1 時 FORCE_DE_SEL 的 one-hot 位元選 D1~D6 用哪張 T 表；
      預設 0010＝T2（輸出公式 E36 從 E 欄＝T2 開始）。MNT：force_de_en＝rt7+0x02[0]、force_de_sel＝rt7+0x45[5:0]（EM02A1_RegisterBank.model:18200／18905，
      6 bit「[0]~[5]: de phase 0~5」）。多位元值（Python UI 一律寫 0xE：PY pyNormalize；蘇坤 0x0E、全民 0x1F）原廠資料未定義，
-     實際接線（33 個 Line OD Type 逐格驗算、全民 code 每條 Data 線直下）都和 T2 一致 ⇒ 只有 one-hot 時換表，其他一律 T2。Dual 下 gate＝下一張（＋1）。 */
-  function mntBaseT(s) {
-    if (!s || !(s.deEn | 0)) return { t: 2, why: 'auto' };
-    var v = (s.deSel | 0) & 0x3F;
-    for (var b = 0; b < 6; b++) if (v === (1 << b)) return { t: b + 1, why: 'onehot' };
-    return { t: 2, why: v ? 'multi' : 'zero' };
+     v1.17.1（Bruce 10/8「不能都用 T2」）：不再有預設 T2。Kick Off「Data hand mode」的公式（E36＝INDIRECT(ADDRESS($C36+2,COLUMN(E36)))）
+     沒有引用 FORCE_DE_SEL（D1:G1、AQ7 只是表頭／範例值）：code 表每一欄 T1~T15＝沿著一行的第幾組 6 條 Data 線（每往右一欄＝往右 2 pixel），
+     同一組內的相對接線和 T 無關，T 只決定整體編號（以及一行開頭往左參照不到的 code）。
+     ⇒ 基準 T：FORCE_DE_EN＝1 且 one-hot ⇒ T＝bit＋1（原廠「[n]: de phase n」＋Kick Off D1:G1）；
+       其他原廠未定義 ⇒「基準未確定」，依已點亮 code／原廠表反推（見 mntBaseT 內註解）；code 表範圍＝T 欄只到 code＜6×(T＋1)，
+       Mirror＝1 時名稱整行反轉，範圍照往後 gate 數張表。 */
+  function mntGateOfS(s) { return (s && (s.panel | 0) === 2) ? 'dual' : 'single'; }
+  function mntFitT(s, gate, only) {
+    var mo = mntMirT(s, gate), best = null;
+    for (var T = 1; T <= 6; T++) {
+      if (only && !(only & (1 << (T - 1)))) continue;
+      var n = 0; for (var i = 0; i < 24; i++) if (!mntInRange(T + mo + mntRel(gate, Math.floor(i / 6)), s['c' + i])) n++;
+      if (!best || n < best.out) best = { t: T, out: n };
+      if (!n) break;
+    }
+    return best;
   }
-  function mntTOf(s, gate, row) { return mntBaseT(s).t + (gate === 'dual' && (row & 1) ? 1 : 0); }
+  function mntBaseT(s, gate) {
+    if (!s) return { t: 2, why: 'none' };
+    var v = (s.deSel | 0) & 0x3F;
+    if (s.deEn | 0) for (var b = 0; b < 6; b++) if (v === (1 << b)) return { t: b + 1, why: 'onehot' };
+    /* FORCE_DE_EN＝0（auto de phase）：EM02 原廠 RT7 清單 33 型（de_en＝0）算出的 Line OD 只有以 T2 解碼才和原廠 Line OD Type 一致
+       （tools/check_datamap_auto.js；EM02 RApp_TX.h:533-566 ⇔ RApp_Table.h Line OD）⇒ auto 時以 T2 解讀（依 EM02 反推；EM01／E512 比照推定）。 */
+    if (!(s.deEn | 0)) return { t: 2, why: 'auto' };
+    /* 多 bit：在有設的 bit 裡，取 24 格全在 code 表範圍內的最低那張（全民 0x1F ⇒ T2、蘇坤 0x0E ⇒ T2，依已點亮 code 反推）；值 0 ⇒ T1~T6 全部試 */
+    var f = mntFitT(s, gate || mntGateOfS(s), v || 0);
+    return { t: f.t, why: v ? 'multi' : 'zero', fit: f.out };
+  }
+  function mntTOf(s, gate, row) { return mntBaseT(s, gate).t + (gate === 'dual' && (row & 1) ? 1 : 0); }
+  /* v1.17.1：code 表有定義的範圍（Kick Off「Data hand mode」D2:R31／E512_V512 圖解 code 表：T 欄只列到 code＜6×(T＋1)，再往左＝空白），
+     多 bit FORCE_DE_SEL 時逐一列出候選基準 T 的超出格數（原廠未定義多 bit 用哪張；換基準只會整體平移 2 pixel 的倍數） */
+  function mntInRange(T, code) { code = code | 0; return code === 31 || (code >= 0 && code < Math.min(30, 6 * (T + 1))); }
+  function mntRel(gate, row) { return gate === 'dual' && (row & 1) ? 1 : 0; }
+  /* Mirror＝1：名稱整行反轉後＝Kick Off 命名往後 gate 數張表（Single＋1、Dual＋2），範圍也照那張表判斷 */
+  function mntMirT(s, gate) { return (s && (s.mirror | 0)) ? (gate === 'dual' ? 2 : 1) : 0; }
+  function mntCands(s, gate) {
+    var v = (s.deSel | 0) & 0x3F, ts = [], mo = mntMirT(s, gate); for (var b = 0; b < 6; b++) if (v & (1 << b)) ts.push(b + 1);
+    return ts.map(function (T) { var n = 0; for (var i = 0; i < 24; i++) if (!mntInRange(T + mo + mntRel(gate, Math.floor(i / 6)), s['c' + i])) n++; return { t: T, out: n }; });
+  }
   function mntName(gate, row, code, mirror, base) {
     if (code === 31) return 'X';
     if (code < 0 || code > 29) return null;
     var dual = gate === 'dual', T = (base || 2) + (dual && (row & 1) ? 1 : 0), k = mntIdx(T, code);
-    if (mirror) { var S2 = dual ? 12 : 6, p = -1 - k, b = Math.floor(p / S2) * S2; k = b + (S2 - 1 - (p - b)); }
+    if (mirror) { var S2 = dual ? 12 : 6, p = -1 - k; k = S2 - 1 - p; }   /* v1.17.1：整行反轉（不再每 6×gate 一組各自反轉）⇒ 跨組的 code 落在相鄰位置（全民 0x17＝B-1，Bruce 10/8）；等同 Kick Off 命名的「基準＋gate 數」那張 T */
     return linName(k);
   }
   var _mntDicts = {};
@@ -458,7 +489,7 @@
   }
   function rowDict(key, row, gate, s) {
     var se = semOf(key);
-    if (MODELS[key].kind === 'mnt' && (gate === 'single' || gate === 'dual')) return mntDict(gate, row, !!(s && (s.mirror | 0)), mntBaseT(s).t);
+    if (MODELS[key].kind === 'mnt' && (gate === 'single' || gate === 'dual')) return mntDict(gate, row, !!(s && (s.mirror | 0)), mntBaseT(s, gate).t);
     if (se === 'daz7353') return D7353;
     if (se === 'daz6111') return D6111;
     return (gate === 'dual' && (row & 1)) ? GN2 : GN1;
@@ -1013,7 +1044,7 @@
     emptyState: emptyState, cloneState: cloneState, decode: decode, encode: encode, encodeFields: encodeFields,
     changedIds: changedIds, diffRegs: diffRegs, regsOf: regsOf, maskedMerge: maskedMerge,
     gateOf: gateOf, gateText: gateText, cellView: cellView, editCell: editCell, applyNames: applyNames, allSame: allSame,
-    mntName: mntName, mntIdx: mntIdx, linName: linName, mntBaseT: mntBaseT, mntTOf: mntTOf,
+    mntName: mntName, mntIdx: mntIdx, linName: linName, mntBaseT: mntBaseT, mntTOf: mntTOf, mntInRange: mntInRange, mntRel: mntRel, mntCands: mntCands, mntMirT: mntMirT,
     setGate: setGate, setHand: setHand, pyNormalize: pyNormalize, pyNames: pyNames, cks: cks, preLabels: preLabels,
     inputDict: inputDict, colorOfName: colorOfName, codeAddrs: codeAddrs, byteOf: byteOf, regNote: regNote, fieldsAt: fieldsAt,
     applyPreset: applyPreset, matchPreset: matchPreset, PRESET_SECOND: PRESET_SECOND, presetHasSecond: presetHasSecond,
