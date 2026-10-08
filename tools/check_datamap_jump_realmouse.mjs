@@ -51,13 +51,16 @@ try {
   }
   // 拖曳：按在 Data 1 上、移 40px、放開 ⇒ 不跳；接線圖有捲動
   { const c = await center('#dm-pv-tft text[data-dof="1"]'); const sl0 = await ev(`document.getElementById('dm-pv-wrap').scrollLeft`);
-    await ev(`document.getElementById('dm-pv-wrap').scrollLeft=200`); const slA = await ev(`document.getElementById('dm-pv-wrap').scrollLeft`); const c2 = await center('#dm-pv-tft text[data-dof="1"]');
+    await ev(`document.getElementById('dm-pv-wrap').scrollLeft=200`); const slA = await ev(`document.getElementById('dm-pv-wrap').scrollLeft`);
+    /* v1.18.24：24 條線後圖變寬，scrollLeft＝200 時 Data 1 可能捲出可視範圍 ⇒ 改按在「目前看得到的那個 Data k」上（data-dragpick 標記），測試意圖不變 */
+    await ev(`(function(){var w=document.getElementById('dm-pv-wrap').getBoundingClientRect();Array.prototype.forEach.call(document.querySelectorAll('#dm-pv-tft text[data-dof]'),function(t){t.removeAttribute('data-dragpick')});var e=Array.prototype.filter.call(document.querySelectorAll('#dm-pv-tft text[data-dof]'),function(t){var r=t.getBoundingClientRect(),x=r.left+r.width/2;return x>w.left+60&&x<w.right-60})[0];if(e)e.setAttribute('data-dragpick','1');return !!e})()`);
+    const c2 = await center('#dm-pv-tft text[data-dragpick]');
     await mouse('mouseMoved', c2.x, c2.y, { buttons: 0 }); await mouse('mousePressed', c2.x, c2.y);
     for (let dx = 10; dx <= 40; dx += 10) { await mouse('mouseMoved', c2.x + dx, c2.y); await sleep(20); }
     await mouse('mouseReleased', c2.x + 40, c2.y); await sleep(250);
     const r = JSON.parse(await ev('JSON.stringify({sc:window.__sc,sl:document.getElementById("dm-pv-wrap").scrollLeft})'));
     ok(r.sc.length === 0 && r.sl !== slA, '拖曳 40px：接線圖捲動（scrollLeft ' + slA + ' → ' + r.sl + '），不跳轉');
-    const r2 = await realClick('#dm-pv-tft text[data-dof="1"]'); ok(r2 && r2.sc[0] === 'dm-gridbox', '拖曳之後再點一下：正常跳轉'); }
+    const r2 = await realClick('#dm-pv-tft text[data-dragpick]'); ok(r2 && r2.sc[0] === 'dm-gridbox', '拖曳之後再點一下：正常跳轉'); }
   // 一般點擊（沒拖）不能讓接線圖亂捲：按下放開同一點
   ok(errs.length === 0, 'console 沒有錯誤' + (errs.length ? '：' + errs.slice(0, 3).join(' | ') : ''));
 } catch (e) { ok(false, 'exception ' + (e.stack || e)); }
