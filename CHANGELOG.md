@@ -2,6 +2,49 @@
 
 ---
 
+## Data Mapping (datamap) v1.18.5 — 2026-10-08 ｜ PATCH
+
+**修正兩個問題：(1) Auto Mode（Hand 關）按接線鎖定後 ③ 變灰；(2) Driver 輸出方向和 code 脫鉤，預設一律正向（CH1→CHn），只由使用者手動改。**
+
+判定依據：`docs/VERSIONING.md` §R3：修正錯誤，加上預覽預設值調整；② 與匯出不變，版號 PATCH。
+
+### 需求（Bruce 2026-10-08）
+
+> 匯入 code 以後，如果不是用 Hand Mode（例如 RT7 是 1D1G Normal），按接線鎖定以後居然全部都是灰的。
+> Driver 的輸出方向如果沒有特別設定，預設應該是正向，也就是 CH1 到 CHn。
+> Driver 的輸出方向不能去看 code，因為不同顆 driver 的 SHL 設定位置可能不一樣……所以 driver 的設定不能連動 code。
+
+### 原因
+
+- **鎖定變灰**（v1.18.4 datamap.html:1068）：按鎖定時，Auto 狀態被 `DM.setHand(…, true)` 強制改成 Hand。但 Auto 時 force_sel 表不是實際接法（多半是 0 或殘值），所以鎖定基準變成一張空表：EM02 (0) 1D1G Normal 有 52 格裡 44 格變灰。v1.18.1 起所有 Auto Type 都有這個問題。
+- **SHL 預設**：
+  - 匯入時依 code 的 iSP REG_1 bit2 帶入 SHL（:2066）。
+  - 換型號和清除匯入（resetToModel，:2073）沒有重設，會沿用上一份 code 或手動選的反向。
+  - 自動建議排序也用了「SHL 和 code 一致」這個條件（:1577）。
+
+### 變更
+
+- **Auto Mode 鎖定**：照原樣凍結目前狀態，用 Auto Type 推出的接線和資料當鎖定基準。Auto 不做 T 表平移比對。鎖定後切 Mirror 等設定，行為和 Hand 相同（接線不動，格內「末」編號）。
+- **Driver 輸出方向**：
+  - 拿掉 code iSP REG_1（0x1001 起 16 個 lane）讀取與帶入；匯入 code、換型號、清除匯入都重設為正向。
+  - 拿掉「依 code 帶入：REG_1＝0x67、SHL＝1」的說明。iSP 值也不另外顯示，避免被當成會連動。
+  - ⓘ 加上：「Driver 設定依實際使用的 source driver 手動設定，不從 TCON code 讀取（不同 driver 的 SHL 位置不同）」。
+  - 建議排序和 16 種組合比較拿掉「iSP SHL」條件和欄位；同分時保留目前選的 SHL。
+
+### 驗證
+
+- check_datamap_kickoff 69/0，新增：
+  - Auto 鎖定：EM01／EM02／E512／E503／DAZ6138／DAZ6111／DAZ7353 的所有 Auto Type，鎖定瞬間 ③ 逐字不變、不變灰。
+  - EM02 Auto 鎖定後切 Mirror：接線不動、格內「末」。
+  - SHL：匯入 iSP SHL＝0 的 code、清除匯入、換型號後，SHL 都是正向；ⓘ 有新說明。
+- 另外用 headless Chrome 跑 9 個型號共 214 種 Auto Type：鎖定前後 ③ 全部逐字相同（v1.18.4 有灰化）。
+- 未鎖定時，tools/check_datamap_svg_vs_tag.js 96 組和 datamap-v1.17.5 逐字相同。測試資料（全民 SHL＝1、蘇坤非 iSP、Kick Off 範例）匯入後原本就是正向，所以沒有因 SHL 改動而不同。只有 iSP SHL＝0 的 code，匯入後的預設會從反向變成正向。
+- 匯出 script 7 組相同。
+- auto 104/0、core 282/0、preview 46/0（EM02 61/0）、lod 196/0。
+- cache buster 20261008dm1185。
+
+---
+
 ## Data Mapping (datamap) v1.18.4 — 2026-10-08 ｜ PATCH
 
 **鎖定後切換 Mirror 改採方案 A：套 v1.17.5 的 Mirror 置換（推定的 TCON 內部演算法）。接線、TCON Out 的 Data k、亮的主循環都不動；格內寫「顏色＋末＋② 的 pixel 編號」（例 B末2＝從行尾數第 2 顆的 B）。取代 v1.18.2／v1.18.3 的畫面範圍反射。**
