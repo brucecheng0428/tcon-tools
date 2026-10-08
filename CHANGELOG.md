@@ -2,6 +2,73 @@
 
 ---
 
+## Data Mapping (datamap) v1.18.14 — 2026-10-08 ｜ PATCH
+
+**TCON Out 改亮紫、SD Out 維持亮藍，各自和設定區用同色連起來：② 表格用紫框，Source Driver 設定用藍框。③ 的 SD Out／TCON Out（含每欄文字）可點，跳到對應設定。**
+
+判定依據：`docs/VERSIONING.md` §R3：只改顏色、框線與跳轉；② 編碼、③ 接線、匯出 script 都不變，版號 PATCH。
+
+### 需求（Bruce 2026-10-08）
+
+> TCON out 其實也很重要……顏色可不可以用例如像紫色？
+> 最好讓 T-CON Out 的顏色想辦法跟 Data Mapping 表格去做連接……
+> SD Out 的顏色跟 Source Driver 設定那邊做連結，最好外框的顏色也用得一樣。
+> 點選 T-CON Out 就跳到 Data Mapping 的卡片；點選 Source SD Out 就跳到 Source Driver 設定的位置。
+
+### 變更
+
+- **共用色票**（`:root`，改色只改這裡）
+  - `--dm-tcon-out: #c084fc`（紫）＝TCON Out
+  - `--dm-tcon-out-sw: #e9d5ff`（淡紫）＝對調／反向後收到別條線的資料
+  - `--dm-sd-out: #7dd3fc`（藍）＝SD Out，沿用原本的亮藍
+- **紫只代表 TCON Out**
+  - ③：「TCON Out」列標題與每欄 Data k 都用紫色。
+  - ②：Data Mapping 表格（含第二組）用紫框，表頭 Data 1–6 也用紫色。
+  - 「TCON 層」標籤原本是藍色，改成紫色。
+- **藍只代表 SD Out**
+  - ③：「SD Out」列標題與 D1…Dn。
+  - Source Driver 設定區塊：藍框＋藍色標題。
+  - 「Driver 層」標籤原本是琥珀色，改成藍色。
+  - 鎖定時：Driver 區內容照舊灰化＋鎖頭，藍框保留。
+- **不變**：面板區、鎖定橘框、錯誤紅虛框。
+- **TCON Out 的層次**
+  - 主循環：亮紫粗體。
+  - 經輸出對調或 SHL 反向、收到別條線資料的欄：淡紫（原本是琥珀色）。
+  - 前後循環（重複組）：同色、60% 透明度。原本放在 45% 暗組裡又是灰字，現在拉出暗組，看得清楚。
+- **短標籤**（同色、可點）
+  - ③ TFT 標題旁：「SD Out＝Source Driver 設定」「TCON Out＝② 表格」。
+  - ② 表格標題旁：「＝③ TCON Out」。
+  - Source Driver 標題旁：「＝③ SD Out」。
+- **點擊跳轉**
+  - SD Out 標題或任一 D 標號：平滑捲到 Source Driver 設定，藍框閃一下。
+  - TCON Out 標題或任一 Data k：捲到 ② 表格；點 Data k 時，該欄（k 超過 6 時取 ((k−1) mod 6)+1）閃爍約 1.5 秒。
+  - ② 與 Driver 區的短標籤：跳回 ③ 接線圖。
+  - 操作提示：手形游標、滑鼠移上去出現底線、title 提示；可 Tab，按 Enter 或空白鍵跳轉。
+  - 拖曳不誤觸：拖曳接線圖時沿用 v1.6.2 的判斷，位移超過 3px 就算拖曳並吃掉放開時的 click。
+  - 鎖定時也能跳；Driver 區雖停用，仍可捲過去看。
+
+### 比對（Dispatch 要求：正規化後與 v1.17.5 相同）
+
+- `tools/check_datamap_svg_vs_tag.js` 加 `--norm`，兩邊都做同樣的正規化：
+  - 拿掉 TCON Out 每欄文字，另外把（x、y、data-dof、transform、文字、主循環／前後循環）排序比對。舊版的前後循環在 45% 暗組內，新版是 opacity 0.6。
+  - 拿掉 class、data-jump、tabindex、role。
+  - 拿掉 D 標號與兩個列標題的 fill、font-weight。
+  - 列標題的 title 去掉「 — 跳到…」。
+- 結果：96/96 相同，所以除了顏色與連結屬性，線、格、文字、位置都逐字相同。匯出 script 7 組完全相同。
+
+### 測試
+
+- tcon_gate 46/0，新增 12 項：
+  - 色票、兩個框。
+  - 每欄文字的 class、data-jump、tabindex；前後循環不在暗組內。
+  - 點 SD Out 標題、D 標號、TCON Out 標題、Data k 各一次，scrollIntoView 的目標正確；Data k 對應的欄會高亮。
+  - Enter 鍵可跳。
+  - 兩個短標籤可跳回 ③。
+  - 拖曳 40px 後放開不跳；之後再點一次正常跳。
+- 其他回歸：kickoff 85/0、auto 104/0、core 282/0、preview 46/0 與 61/0、lod 196/0、import_lock ALL PASS。
+
+---
+
 ## Data Mapping (datamap) v1.18.13 — 2026-10-08 ｜ PATCH
 
 **暫存器表獨立成「TCON Register 確認」卡（③ 與 ④ 之間）：一律列出全部相關暫存器，預設展開、可收合。移除「只看有變動的位址」。全頁說明文字精簡。**
