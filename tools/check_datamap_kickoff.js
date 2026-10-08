@@ -185,28 +185,22 @@ console.log('── code 表（D2:R31）＝網頁 T 表解碼');
       ok(svg() === v0 && [0, 1, 2, 3].map(gridTxt).join('|') === g0, 'Mirror 改回 1 ⇒ ②③ 回到原樣'); }
     fire($('dm-pv-stripe'), 'rgb');
     ok([0, 1, 2, 3].map(r => $('dm-rh' + r).textContent).join('|') === 'Line 1（_0）|Line 2（_1）|Line 3（_2）|Line 4（_3）' && $('dm-c1-5').value !== $('dm-c0-5').value, '② 列名 Line 1~4，Line 2 顯示 _1 原值（不是 Line 1 的複本）');
-    /* v1.18.0 面板接線（玻璃接線）驗證：全民 code 複製到面板接線 ⇒ 全部一致；② Mirror 改 0 ⇒ 一堆不一致；改回 1 ⇒ 全部一致；建議＋套用 */
-    { const sum = () => $('dm-gl-sum').getAttribute('data-ok');
-      ok($('dm-gl-body').classList.contains('hidden') && QA('[data-glne]').length === 0, '面板接線預設不啟用：卡片內容收起、③ 沒有任何面板比對標示');
-      const svgU = $('dm-pv-tft').innerHTML;
+    /* v1.18.1 ③「確定此架構（鎖定接線）」：Mirror＝1 鎖定 ⇒ 改 Mirror＝0：接線不動、格內資料變、出現 ≠ ⇒ 改回 1 全部一致 ⇒ 解除鎖定回到原行為；匯入新 code 自動解除 */
+    { const sum = () => $('dm-pv-lockst').getAttribute('data-ok'), svgU = $('dm-pv-tft').innerHTML, scU = w.dmBuildScript().text;
+      ok($('dm-pv-lock').getAttribute('data-locked') === '0' && /未鎖定/.test($('dm-pv-lockst').textContent) && QA('[data-glne]').length === 0, '預設未鎖定：③ 照 v1.17.5 畫法，卡片標「未鎖定」');
       $('dm-pv-lock').click();
-      ok(sum() === '24/24' && $('dm-gl-on').checked && /已鎖定（來源：③ 確認於/.test($('dm-gl-lockinfo').textContent), 'v1.18.0 ③「確認此 TFT 接線正確 → 存為面板接線」⇒ 面板接線鎖定，顯示來源與時間：' + $('dm-gl-lockinfo').textContent);
       const wires = () => QA('path[data-w]').map(p => p.getAttribute('data-w') + '|' + p.getAttribute('d')).join('\n'), wire0 = wires(), dn0 = QA('rect[data-dn]').map(r => r.getAttribute('data-dn')).join(',');
-      ok(sum() === '24/24' && QA('[data-glne]').length === 0 && QA2('#dm-ggrid select.dm-gne').length === 0, '全民 code 複製到面板接線 ⇒ 一致 24/24：' + $('dm-gl-sum').textContent);
+      ok($('dm-pv-lock').getAttribute('data-locked') === '1' && /已鎖定/.test($('dm-pv-lockst').textContent) && sum() === '24/24' && $('dm-pv-tft').innerHTML === svgU && $('dm-pv-lock').textContent === '解除鎖定',
+        'v1.18.1 按「確定此架構（鎖定接線）」⇒ 卡片標「🔒 已鎖定」、和 ② 一致 24/24，③ 畫面和鎖定前逐字相同：' + $('dm-pv-lockst').textContent);
       fire($('f-mirror'), false);
-      const s0 = sum(), ne = QA2('#dm-ggrid select.dm-gne').length;
-      ok(wires() === wire0 && QA('rect[data-dn]').map(r => r.getAttribute('data-dn')).join(',') !== dn0 && QA('[data-glne]').length > 0 && /面板要 .+、收到 /.test(Q('[data-glne]').parentNode.getAttribute('data-tip') || ''),
-        'v1.18.0 鎖定後 Mirror 改 0 ⇒ ③ 的線位置與 drain 目標完全不動，只有格內收到的資料改變，對不上的格子標「≠面板」並寫「面板要 X、收到 Y」');
-      ok(s0 !== '24/24' && ne > 0 && QA('[data-glne]').length > 0 && /面板要 .+，② 目前送 /.test($('dm-gl-diff').textContent), '② Mirror 改 0 ⇒ 面板接線不一致（' + s0 + '，' + ne + ' 格紅框），③ 標「≠面板」，並寫出「面板要 X，② 目前送 Y」');
-      $('dm-gl-sug').click();
-      ok(+$('dm-gl-sugres').getAttribute('data-changed') > 0 && !$('dm-gl-apply').classList.contains('hidden') && w.dmState.cur.mirror === 0, '依面板接線建議 ② 設定：只產生建議（' + $('dm-gl-sugres').textContent.slice(0, 40) + '…），② 還沒改');
-      const scB = w.dmBuildScript().text; $('dm-gl-apply').click();
-      ok(sum() === '24/24' && w.dmState.cur.mirror === 0 && w.dmBuildScript().text !== scB, '按「套用到 ②」⇒ 在 Mirror＝0 下改 force_sel，面板接線一致 24/24：' + sum() + ' ' + $('dm-gl-sugres').textContent + ' | ' + $('dm-gl-diff').textContent);
-      w.dmImportBytes(new Uint8Array(fs.readFileSync(QM)), path.basename(QM)); await new Promise(r => setTimeout(r, 80));
-      ok(sum() === '24/24', '重新匯入全民（同型號）⇒ 面板接線保留，Mirror＝1 全部一致');
-      fire($('dm-gl-on'), false);
-      const svgOff = $('dm-pv-tft').innerHTML; $('dm-gl-clear').click();
-      ok($('dm-gl-body').classList.contains('hidden') && QA('[data-glne]').length === 0 && svgU.length > 0 && $('dm-pv-tft').innerHTML === svgOff, '解除鎖定 ⇒ ③ 回到 v1.17.5 的畫法（和完全沒有面板接線時逐字相同）'); }
+      ok(wires() === wire0 && QA('rect[data-dn]').map(r => r.getAttribute('data-dn')).join(',') !== dn0 && QA('[data-glne]').length > 0 && sum() !== '24/24' && /面板要 .+、收到 /.test(Q('[data-glne]').parentNode.getAttribute('data-tip') || '') && w.dmBuildScript().text !== scU,
+        '鎖定後 Mirror 改 0 ⇒ 線位置與 drain 目標完全不動，只有格內收到的資料改變，' + QA('[data-glne]').length + ' 格標「≠鎖定」並寫「面板要 X、收到 Y」（' + sum() + '）；匯出照 ② 改變（鎖定不影響匯出）');
+      fire($('f-mirror'), true);
+      ok(sum() === '24/24' && QA('[data-glne]').length === 0 && w.dmBuildScript().text === scU, 'Mirror 改回 1 ⇒ 全部一致，匯出和鎖定前逐字相同');
+      $('dm-pv-lock').click();
+      ok($('dm-pv-lock').getAttribute('data-locked') === '0' && $('dm-pv-tft').innerHTML === svgU, '解除鎖定 ⇒ 回到 v1.17.5 畫法（和鎖定前逐字相同）');
+      $('dm-pv-lock').click(); w.dmImportBytes(new Uint8Array(fs.readFileSync(QM)), path.basename(QM)); await new Promise(r => setTimeout(r, 80));
+      ok($('dm-pv-lock').getAttribute('data-locked') === '0' && /未鎖定/.test($('dm-pv-lockst').textContent), '匯入新的 code ⇒ 自動解除鎖定'); }
     /* v1.17.3：匯入 A 後手動改 ③，再匯入 B ⇒ ③ 回預設、SHL 依 B 帶入（B＝全民 code 去掉 iSP 設定，0x0F00＝0 ⇒ 沒有 SHL ⇒ 正向） */
     fire($('dm-pv-swap'), true); fire($('dm-pv-first'), 'r'); fire($('dm-pv-stripe'), 'bgr'); fire($('dm-pv-drv'), 'r');
     { const b = new Uint8Array(fs.readFileSync(QM)); b[0x0F00] = 0; w.dmImportBytes(b, 'B_noISP_' + path.basename(QM)); await new Promise(r => setTimeout(r, 80)); }
