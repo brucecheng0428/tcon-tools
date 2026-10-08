@@ -2,6 +2,73 @@
 
 ---
 
+## Data Mapping (datamap) v1.18.16 — 2026-10-08 ｜ PATCH
+
+**Slave 手選改成 0x68～0x6F（原本是 0x68／0x69／0x60／0x61）。欄位標籤、選項、區塊標題後面的括號說明全部拿掉，必要的移到 ⓘ。**
+
+判定依據：`docs/VERSIONING.md` §R3：選單選項與文字調整；② 編碼、③ 接線、匯出 script 都不變，版號 PATCH。
+
+### 需求（Bruce 2026-10-08）
+
+> Slave address 為什麼在 Monitor 的 T-CON 會是有選擇 68、69、60 跟 61，而不是 68 到 6F……查一下 EM01 的 UI 跟 EM02 的 UI。
+> 像是 driver CH1 位置後面括號一大堆內容，其實都可以不用寫。還有面板那邊的子像素排列，後面括號的內容其實也都可以不用寫。
+
+### Slave 調查
+
+- **網頁原本**：`datamap.html:297–298`（v1.0.0，46fcc3d）手選 0x68／0x69／0x60／0x61；`checkTcon()` 的「自動」掃 `[0x60, 0x61, 0x68, 0x69]`。
+- **四個值的來源**：PQ Tool `ICCommonFunction.CheckICID` 的 IC-ID 自動掃描順序 0x60→0x61→0x68→0x69（本檔 CHANGELOG「B 段」與「slave 掃描順序改為照抄 PQ Tool」兩段；`i2c.html:5748` `I2CT_CK_ICID_SLAVES` 同一份）。v1.0.0 把這張掃描清單同時拿來當手選清單；它不是原廠 EM01／EM02 UI 的選項。
+- **原廠 EM01**（`VCL_TV_TCON_EM01_Tool`，唯讀）：
+  - `Edit_Slave_Addr` 是自由輸入的 TEdit，預設 `'68'`（SDIMAIN.dfm:719–731）。
+  - 離開時檢查 00–FF（SDIMAIN.cpp:13568–13583），按鍵只收 hex、限 2 字（cpp:13586–13604）。
+  - 各功能都用 `("0x" + Edit_Slave_Addr->Text).ToInt()`（例 cpp:403、600、752）。
+- **原廠 EM02**：同名 TEdit，預設 `'68'`，沒有任何檢查事件（SDIMAIN.dfm:637–647）。
+- **i2c.html 現況**（這版不改，是否統一由 Dispatch 決定）：
+  - 一般 slave 是自由輸入框＋常用清單 0x68／0x50／0x3E／0x7C／0x7D（i2c.html:977–985）。
+  - Check T-CON 掃 0x60／0x61／0x68／0x69（:5748）。
+  - 外部 Flash 的 EM01 主 slave 下拉 0x68～0x6F（:1187–1188，Bruce 2026-10-06 決定）。
+- **這版的做法**：
+  - 手選改成 0x68～0x6F。原廠沒有限制範圍（00–FF 都能打），0x68 起連續 8 個與原廠預設和 i2c.html 的 Bruce 決定一致。
+  - 0x60／0x61 不再出現在手選清單，但「自動」仍照 PQ Tool 順序掃 0x60→0x61→0x68→0x69，沒有擴充。
+
+### 括號說明刪除清單（繁中；英、簡同步改）
+
+| 位置 | 改前 | 改後 |
+|---|---|---|
+| ① 列名 | 或直接連 TCON（I2C） | 或 I2C 連線 |
+| ② FORCE_DE_SEL 下拉第一項 | 基準未確定（依 code 反推） | 基準未確定 |
+| ② 進階 | 原廠 UI 手動輸入對照（script 出錯時用） | 原廠 UI 手動輸入對照 |
+| ② RT7 Type 選項 | (33) User define（自訂） | (33) User define |
+| ② Auto Type 選項 | Hand Mode 開（選一個 Auto Type 會自動關 Hand） | Hand Mode 開 |
+| ② Mirror 反轉單位 | 完整 pixel（末1、末2…依序，預設）／2 pixel 一組（末1／末2 組內對調） | 完整 pixel／2 pixel 一組 |
+| ③ Line OD 測試選項 | （不使用，依 ② 設定）／User define（不適用：值由使用者自填，沒有原廠圖） | 不使用／User define |
+| ③ 輸出對調選項 | D1↔D3、D4↔D6（每 6 個 CH 一組） | D1↔D3、D4↔D6… |
+| ③ Driver CH1 位置 | Driver CH1 位置（Source Driver 的 Channel 1 在面板最左或最右；Checklist 視角：CF 朝上、X-PCB 朝下） | Driver CH1 位置（說明原本就在 ⓘ） |
+| ③ CH1 位置選項 | CH1 在最左（預設） | CH1 在最左 |
+| ③ SHL 選項 | 正向（CH1→CHn，預設）／反向（CHn→CH1） | 正向／反向 |
+| ③ 子像素排列 | 子像素排列（Checklist 視角：CF 朝上、X-PCB 朝下，由左往右） | 子像素排列＋ⓘ「由左往右看，Checklist 視角：CF 朝上、X-PCB 朝下。只影響預覽。」 |
+| ③ TFT 標題 | TFT 接線圖（子像素兩列） | TFT 接線圖 |
+| ③ 畫面樣式旁註 | …亮的格子用這顆實體子像素本身的顏色（鎖定的面板排列） | …亮的格子用該子像素本身的顏色 |
+| ③ 說明與進階 | 16 種配置比較（CH1 位置 × Driver 輸出方向 × 子像素排列 × 輸出對調） | 16 種配置比較 |
+| ③ Line OD 反推表標題 | 反推接線表（仿原廠圖：欄＝Data 線，列＝gate 列） | 反推接線表 |
+
+**保留**：括號裡是名稱或數值、不是解釋的，例如「Driver 輸出方向（SHL）」「Data Mapping 表格（force_sel）」「T1（0x01）」「(33)」。狀態列、提示訊息、ⓘ 內文不在這次範圍。
+
+### 跳轉體驗（真實 Chrome 驗證 v1.18.15 時發現）
+
+- 頁面很長，平滑捲動約要 1 秒，而高亮只有 1.5 秒；捲到置中時，表格上緣會被固定頁首蓋住。
+- 改成：跳轉目標 `scroll-margin-top: 64px`、`block: 'start'`（停在頁首下方、整塊可見）；欄高亮與外框閃改為 2.4 秒。
+
+### 測試
+
+- tcon_gate 49/0，新增 3 項：
+  - 手選清單＝自動＋0x68～0x6F。
+  - 「自動」依序掃 0x60→0x61→0x68，認到就停。
+  - 手選 0x6A 時只讀 0x6A。
+- 其他回歸：kickoff 85/0、auto 104/0、core 282/0、preview 48/0 與 63/0、lod 196/0、import_lock ALL PASS、jump_realmouse 16/0。
+- 比對：SVG 語意比對與 v1.17.5 相同 96/96；匯出 script 7 組完全相同。
+
+---
+
 ## Data Mapping (datamap) v1.18.15 — 2026-10-08 ｜ PATCH
 
 **修正 v1.18.14：圖內的 SD Out／TCON Out（含每欄 Dn、Data k）用真的滑鼠點不會跳。表頭依訊號方向改成上 TCON Out、下 SD Out。移除圖上方那排跳轉文字。**
