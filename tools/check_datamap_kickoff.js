@@ -310,6 +310,20 @@ console.log('── code 表（D2:R31）＝網頁 T 表解碼');
     ok(sZ === 2 && (w.dmState.cur.subPanel | 0) === 0 && sb.value === '0' && /0400 /.test(w.dmBuildScript().text) , 'v1.18.8 Zigzag type3 → 換 HSD ⇒ sub 回第一項 type1（照原廠 ItemIndex＝0），匯出寫 rt7+0x00');
     fire($('dm-model'), 'EM02'); if ($('dm-hand').checked) fire($('dm-hand'), false);
     ok($('dm-em01box').classList.contains('hidden') && !$('dm-auto').classList.contains('hidden'), 'v1.18.8 EM02 Auto 仍是單一 RT7 Type Select 清單（不變）'); }
+  /* v1.18.9（Bruce 10/8）：EM01 Auto 1D1G 鎖定 ⇒ 改 Zigzag type1~8 再只送紅：每列依 L（不錯位⇒R 資料在 R 位置亮紅）／R（錯一條⇒R 資料在 G 位置亮綠）；列數要畫滿該 Type 的週期 */
+  console.log('── v1.18.9 EM01 Auto 1D1G 鎖定後改 Zigzag');
+  { fire($('dm-model'), 'EM01'); if ($('dm-hand').checked) fire($('dm-hand'), false); fire($('dm-em01pm'), '0');
+    $('dm-pv-lock').click(); fire($('dm-em01pm'), '1');
+    const PAT = ['LR', 'RL', 'LLRR', 'RRLL', 'LRRL', 'RLLR', 'LLLLRRRR', 'RRRRLLLL'], got = [];
+    let good = $('dm-pv-lock').getAttribute('data-locked') === '1';
+    for (let i = 0; i < 8; i++) {
+      fire($('dm-em01sub'), String(i)); d.querySelector('#dm-pv-colmode button[data-col="R"]').click();
+      const rows = {}; QA('rect[data-pv][data-tier="main"]').forEach(r => { const k = r.getAttribute('data-pv').split(':')[0]; (rows[k] = rows[k] || []).push(r); });
+      const ks = Object.keys(rows).sort((a, b) => a - b), pat = ks.map(k => { const on = rows[k].filter(r => r.getAttribute('data-col') === 'on'); const ph = [...new Set(on.map(r => r.getAttribute('data-phys')))].join(''); return ph === 'R' ? 'L' : (ph === 'G' ? 'R' : '?' + ph); }).join('');
+      got.push('type' + (i + 1) + '=' + pat); good = good && pat === PAT[i];
+    }
+    ok(good, 'v1.18.9 1D1G 鎖定後 Zigzag type1~8 只送紅，每列亮紅（L）／亮綠（R）照 LR、RL、LLRR、RRLL、LRRL、RLLR、LLLLRRRR、RRRRLLLL，列數畫滿：' + got.join('、'));
+    $('dm-pv-lock').click(); }
   console.log((fail ? '✗ ' : '✓ ') + 'check_datamap_kickoff ' + pass + ' pass / ' + fail + ' fail');
   process.exit(fail ? 1 : 0);
 })().catch(e => { console.log('✗ ', e && e.stack || e); process.exit(1); });
