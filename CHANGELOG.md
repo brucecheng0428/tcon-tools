@@ -2,6 +2,54 @@
 
 ---
 
+## Data Mapping (datamap) v1.18.12 — 2026-10-08 ｜ PATCH
+
+**離線（匯入 code／Excel）與線上（I2C）互斥：頂端狀態列標示目前模式；連線中匯入要先斷線，有匯入時連線要先清除匯入。取消 v1.18.11 的「匯入後問要不要寫入 TCON」。**
+
+判定依據：`docs/VERSIONING.md` §R3：釐清資料來源、移除容易誤寫的流程；② 與匯出 script 不變，版號 PATCH。
+
+### 需求（Bruce／Dispatch 2026-10-08）
+
+> 匯入 Code 就是在離線作業……i2c 要連線的話，匯入庫的資料應該就要重新歸零。
+
+### 變更
+
+- **模式狀態列**（頁面頂端）：
+  - 離線：「離線　匯入 <檔名>（不會寫入 TCON；可匯出 script）」。
+  - 線上：「線上　I2C <型號>（Check T-CON 已確認，改值即時寫入）」；還沒確認時顯示「尚未 Check T-CON」。
+- **連線中匯入 code／Excel**：先問「匯入會中斷 I2C 連線並進入離線模式，確定？」。
+  - 確定：關閉 I2C Bridge 通道、斷線，再匯入。
+  - 取消：不動。
+  - 匯入一律不寫 TCON。
+- **有匯入時按連線**：先問「連線會清除匯入的資料，改讀 TCON 實際值，確定？」。
+  - 確定：等同「清除匯入」（檔名清掉、TCON 值回預設、Driver SHL 回正向）→ 連線 → 自動 Check T-CON → 成功才回讀。
+  - 取消：維持離線。
+  - 沒有匯入時直接連線，不問。
+- **接線鎖定**：鎖定時記下型號；清除匯入並連線後，若 Check 認到的型號和鎖定時的型號不同，自動解鎖並提示；型號相同就保留鎖定。
+- **移除**：v1.18.11 的「要把匯入的值寫入 TCON 嗎？」確認框、整批寫入＋回讀核對、「頁面值與 T-CON 不同」狀態。
+- **保留**：即時寫入仍要 tconOk()（本次連線 Check T-CON 成功且型號一致）。
+- **匯出 script**：兩種模式都能用。
+- ② 下方提示改成「調好到 ④ 匯出 script（要寫入 TCON 請連線並 Check T-CON 成功）」；原本寫「或寫入 TCON」，離線時不成立。
+
+### 測試
+
+- `tools/check_datamap_tcon_gate.js` 改寫，25 項全過：
+  - 沒有匯入時直接連線，不問。
+  - 連線中匯入：取消／確定（會送 close、斷線、不寫入）。
+  - 有匯入時連線：取消／確定（清除匯入→Check→回讀）。
+  - 鎖定：型號不同自動解鎖、型號相同保留。
+  - Check 失敗、斷線都會清掉確認。
+- 其他回歸：kickoff 85/0、auto 104/0、core 282/0、preview 46/0 與 61/0、lod 196/0、import_lock ALL PASS。
+- 未鎖定畫面與 v1.17.5 比對 96/96 相同；匯出 7 組相同。
+
+### import_lock 調查（Dispatch 要求）
+
+- 之前回報的「check_datamap_import_lock.js 3 項失敗」是我傳錯參數：測試用檔名判斷型號，檔名必須含 `em01_code`／`em02_code`。
+- 改用 /tmp/em01_code.bin、/tmp/em02_code.bin 後，v1.18.9（f817de9）、v1.18.10（4d1fe6d）、v1.18.11（fc00952）與 v1.18.12 全部 ALL PASS。
+- 結論：不是回歸，沒有版本弄壞它。
+
+---
+
 ## Data Mapping (datamap) v1.18.11 — 2026-10-08 ｜ PATCH
 
 **讀寫 T-CON 前一定要先 Check T-CON：本次連線 Check T-CON 成功，而且認到的型號＝目前型號（S.checked === S.model）。④ 移除 Write to TCON／Load from TCON，只留匯出 script；連線中改值即時寫入，要重讀就按 Check T-CON。**
