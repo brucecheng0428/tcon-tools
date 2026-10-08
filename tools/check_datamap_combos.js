@@ -54,6 +54,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   const tr2 = $('dm-pv-combotbl').querySelector('tr[data-combo="lfbn"]');
   tr2.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); await sleep(30);
   ok($('dm-pv-first').value === 'l' && $('dm-pv-stripe').value === 'bgr', '鍵盤 Enter 也能套用（CH1 最左＋BGR）');
+  ok($('dm-pv-sugbtn').classList.contains('hidden') && /資料與顏色全對（第 2 名）/.test($('dm-pv-sugok').textContent), 'v1.18.18：套用第 2 名（也全對）⇒ 不再出現「套用建議」，顯示「✓ 資料與顏色全對（第 2 名）」');
   console.log('展開／收合');
   ok($('dm-pv-combos').open && $('dm-pv-combos').closest('section').querySelector('#dm-pv-physrow'), '未鎖定：預設展開，位置在「比對結果」（Driver／面板下方）');
   $('dm-pv-lock').click(); await sleep(50);
