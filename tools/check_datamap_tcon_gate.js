@@ -154,10 +154,10 @@ const connect = async a => { a.$('dm-link').click(); await wait(() => a.w.dmStat
     ok(QA('text[data-dlab]').every(e => /dm-sdo/.test(e.getAttribute('class')) && e.getAttribute('data-jump') === 'sd'), 'SD Out 每欄 D 標號：藍色 class、可點');
     const click = el => el.dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
     scrolled.length = 0; click(Q('[data-rowhead="sd"] text')); ok(scrolled[0] === 'dm-drv-sec' && w.dmState.lastJump.kind === 'sd', '點 SD Out 標題 ⇒ 捲到 Source Driver 設定');
-    scrolled.length = 0; click(Q('text[data-dlab]')); ok(scrolled[0] === 'dm-drv-sec' && $('dm-drv-sec').classList.contains('dm-flash'), '點 D 標號 ⇒ 捲到 Source Driver 設定，外框閃一下');
+    scrolled.length = 0; click(Q('text[data-dlab]')); await wait(() => $('dm-drv-sec').classList.contains('dm-flash'), 1600); ok(scrolled[0] === 'dm-drv-sec' && $('dm-drv-sec').classList.contains('dm-flash'), '點 D 標號 ⇒ 捲到 Source Driver 設定，外框閃一下');
     scrolled.length = 0; click(Q('[data-rowhead="tc"] text')); ok(scrolled[0] === 'dm-gridbox' && w.dmState.lastJump.kind === 'tc', '點 TCON Out 標題 ⇒ 捲到 ② Data Mapping 表格');
     const t5 = QA('text[data-dof]').find(e => e.getAttribute('data-dof') === '5') || QA('text[data-dof]')[0], k5 = +t5.getAttribute('data-dof'), col = ((k5 - 1) % 6) + 1;
-    scrolled.length = 0; click(t5);
+    scrolled.length = 0; click(t5); await wait(() => $('dm-grid').rows[0].cells[col].classList.contains('dm-flashcol'), 1600);
     ok(scrolled[0] === 'dm-gridbox' && w.dmState.lastJump.col === col && $('dm-grid').rows[0].cells[col].classList.contains('dm-flashcol') && $('dm-grid').rows[1].cells[col].classList.contains('dm-flashcol'), '點 Data ' + k5 + ' ⇒ 捲到 ② 表格，Data ' + col + ' 欄高亮');
     scrolled.length = 0; Q('[data-rowhead="tc"]').dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); ok(scrolled[0] === 'dm-gridbox', '鍵盤 Enter 也能跳');
     scrolled.length = 0; click(d.querySelector('#card-dm [data-jump="pvtc"]')); click(d.querySelector('#dm-drv-sec [data-jump="pvsd"]')); ok(scrolled.join(',') === 'dm-pv-tfth,dm-pv-tfth', '② 與 Source Driver 區的短標籤可跳回 ③ 接線圖');

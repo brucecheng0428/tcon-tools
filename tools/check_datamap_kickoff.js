@@ -154,9 +154,10 @@ console.log('── code 表（D2:R31）＝網頁 T 表解碼');
     fire($('dm-pv-first'), 'l');
     ok(dlPos() !== posR && T.getAttribute('data-dir') === 'lr' && !d.querySelector('#dm-pv-tft [data-flip]') && QA('text[data-dlab="D1"]').length === 1, 'v1.17.2 切換 CH1 位置：Data 線位置與標號改變（D1…D6 從左排）');
     fire($('dm-pv-drv'), 'f'); fire($('dm-pv-first'), 'r'); fire($('dm-pv-stripe'), 'bgr');
-    ok(+T.getAttribute('data-mis') > 0 && T.getAttribute('data-sugcombo') === 'lfbn', '子像素選 BGR ⇒ 顏色不符，建議 CH1 在最左＋正向＋BGR（＝RGB 正解的鏡像，僅驗證計算）');
+    /* v1.18.17：排序不再看目前選的子像素排列（同分固定 RGB 先）⇒ 選 BGR 時建議仍是第 1 名 CH1 最右＋正向＋RGB；鏡像 lfbn 也全對、排第 2 */
+    ok(+T.getAttribute('data-mis') > 0 && T.getAttribute('data-sugcombo') === 'rfgn' && $('dm-pv-combotbl').querySelector('tr[data-combo="lfbn"]').getAttribute('data-ok') === '1', '子像素選 BGR ⇒ 顏色不符；建議固定是第 1 名 CH1 最右＋正向＋RGB，鏡像 CH1 最左＋正向＋BGR 也全對（排第 2）');
     fire($('dm-pv-first'), 'l');
-    ok(+T.getAttribute('data-mis') === 0 && QA('[data-misk]').length === 0 && $('dm-pv-sugbtn').classList.contains('hidden'), 'CH1 在最左＋正向＋BGR：鏡像組合也 24/24（計算驗證）');
+    ok(+T.getAttribute('data-mis') === 0 && QA('[data-misk]').length === 0 && $('dm-pv-combotbl').querySelector('tr.dm-ccur').getAttribute('data-combo') === 'lfbn' && $('dm-pv-combotbl').querySelector('tr.dm-ccur').getAttribute('data-group') === '2', 'CH1 在最左＋正向＋BGR：鏡像組合也全對（計算驗證），固定排第 2');
     fire($('dm-pv-stripe'), 'rgb'); fire($('dm-pv-first'), 'r'); fire($('dm-pv-drv'), 'f');
     ok(+T.getAttribute('data-mis') === 0, '回到全民正確配置 CH1 最右＋正向＋RGB：24/24');
     /* v1.17.0 Panel mode 欄位逐一切換 ⇒ ③ 是否反應（Bruce 10/7「把 CHRB 打勾，③ 沒有任何變化」） */
