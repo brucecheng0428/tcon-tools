@@ -98,11 +98,10 @@ console.log('── code 表（D2:R31）＝網頁 T 表解碼');
       'v1.17.1 ②：Mirror＝1 名稱整行反轉，Line 2／4 的 Data 6（0x17）＝B-1（和 D5 的 R1 相鄰，Bruce 10/8），不再是 B4：' + gridTxt(1).join(' '));
     ok(!!Q('path[data-w="2:D6:u:B-1"]') && !Q('path[data-w="2:D6:u:B4"]') && slots(2).D6u === slots(2).D5u + 1, '③ TFT 接線圖：Line 2 的 D6 接 B-1，位置緊鄰 D5（相鄰、Zigzag 錯一條）');
     ok(QA2('.dm-grid select.dm-oor').length === 0, '全民 24 格都在 code 表定義範圍內（Mirror 名稱整行反轉後，範圍照基準＋1 張表）');
-    ok([0, 1, 2, 3].every(r => [0, 1, 2, 3, 4, 5].every(c => $('dm-c' + r + '-' + c).getAttribute('data-t') === '2')) && /0x1F/.test($('dm-tsum').textContent)
-      && /基準未確定/.test($('dm-tsum').textContent) && /依已點亮 code 反推/.test($('dm-tsum').textContent) && /最低那張/.test($('dm-tsum').textContent) && /T1 2 格超出、T2 全在範圍內、T3 全在範圍內、T4 全在範圍內、T5 全在範圍內/.test($('dm-tsum').textContent)
-      && !/預設|當 T2|暫以 T2|與 T2 一致/.test($('dm-tsum').textContent) && /依據：EM01 原始碼/.test($('dm-tsum').textContent)
+    ok([0, 1, 2, 3].every(r => [0, 1, 2, 3, 4, 5].every(c => $('dm-c' + r + '-' + c).getAttribute('data-t') === '2')) && /基準未確定/.test($('dm-tsum').textContent) && /最低那張/.test($('dm-tsum').textContent) && /T1 2 格超出、T2 全在範圍內、T3 全在範圍內、T4 全在範圍內、T5 全在範圍內/.test($('dm-tsum').textContent)
+      && !/預設|當 T2|暫以 T2|與 T2 一致/.test($('dm-tsum').textContent)
       && QA2('.dm-tt').every(e => e.textContent === 'T2?'),
-      'v1.17.1：0x1F 多 bit ⇒ 標「基準未確定」，依已點亮 code 反推（有設的 bit 中 24 格全在範圍內的最低那張＝T2），列出候選 T1~T5；不再說預設 T2；標示型號依據：' + $('dm-tsum').textContent);
+      'v1.17.1：0x1F 多 bit ⇒ 標「基準未確定」，依已點亮 code 反推（有設的 bit 中 24 格全在範圍內的最低那張＝T2），列出候選 T1~T5；不再說預設 T2（v1.18.13 起不列依據出處）：' + $('dm-tsum').textContent);
     ok(!$('dm-pmrow').classList.contains('hidden') && $('f-mirror').checked && !$('f-chrb').checked && $('dm-pvflags').textContent.indexOf('Mirror＝1') === 0, 'Mirror／CHRB 等設定在 ② 上方（和 Hand Mode 同層）可見；③ 標示 Mirror＝1');
     const sc0 = w.dmBuildScript().text;
     fire($('f-mirror'), false);
@@ -207,7 +206,7 @@ console.log('── code 表（D2:R31）＝網頁 T 表解碼');
       ok(mainLines().every(dl => mainCellOf(dl) === endNm(g0[kOf(dl) - 1], 2)) && wires() === wire0 && dofs() === dof0 && /2 pixel 一組/.test($('dm-mir-unit').selectedOptions[0].textContent),
         'v1.18.4 反轉單位選「2 pixel 一組」⇒ 末1／末2 組內對調（' + mainLines().map(dl => mainCellOf(dl)).join(' ') + '），接線與 TCON Out 不動');
       fire($('dm-mir-unit'), '1');
-      ok(QA('rect[data-glne]').length === QA('[data-glne]').length && QA('rect[data-glne][stroke-dasharray]').length > 0 && !/≠鎖定/.test($('dm-pv-tft').textContent) && $('card-pv').classList.contains('dm-locked') && /接線已鎖定/.test($('dm-pv-wrap').getAttribute('data-locktag')) && /紅虛框的判斷條件/.test(d.querySelector('[data-i18n-title="dm.hLockT"]').getAttribute('title')),
+      ok(QA('rect[data-glne]').length === QA('[data-glne]').length && QA('rect[data-glne][stroke-dasharray]').length > 0 && !/≠鎖定/.test($('dm-pv-tft').textContent) && $('card-pv').classList.contains('dm-locked') && /接線已鎖定/.test($('dm-pv-wrap').getAttribute('data-locktag')) && /和鎖定時不同就標紅虛框/.test(d.querySelector('[data-i18n-title="dm.hLockT"]').getAttribute('title')),
         'v1.18.2 鎖定提示：TFT 接線圖外框 highlight＋「🔒 接線已鎖定」標籤；不一致的格子保留紅虛框（字縮成「≠」），ⓘ 寫出判斷條件');
       fire($('f-mirror'), true);
       ok(sum() === '24/24' && QA('[data-glne]').length === 0 && w.dmBuildScript().text === scU, 'Mirror 改回 1 ⇒ 全部一致，匯出和鎖定前逐字相同');
