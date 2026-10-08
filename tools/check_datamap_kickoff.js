@@ -192,17 +192,20 @@ console.log('── code 表（D2:R31）＝網頁 T 表解碼');
       const wires = () => QA('path[data-w]').map(p => p.getAttribute('data-w') + '|' + p.getAttribute('d')).join('\n'), wire0 = wires(), dn0 = QA('rect[data-dn]').map(r => r.getAttribute('data-dn')).join(',');
       ok($('dm-pv-lock').getAttribute('data-locked') === '1' && /已鎖定/.test($('dm-pv-lockst').textContent) && sum() === '24/24' && $('dm-pv-tft').innerHTML === svgU && $('dm-pv-lock').textContent === '解除鎖定',
         'v1.18.1 按「確定此架構（鎖定接線）」⇒ 卡片標「🔒 已鎖定」、和 ② 一致 24/24，③ 畫面和鎖定前逐字相同：' + $('dm-pv-lockst').textContent);
-      const row1 = () => QA('rect[data-pv^="1:"]').map(r => r.getAttribute('data-dn')), r1M1 = row1();
-      const lin = n => { const m = /^([RGB])(-?\d+)$/.exec(n || ''); if (!m) return null; const p = +m[2]; return { c: m[1], z: p > 0 ? p - 1 : p }; }, nm = (c, z) => c + (z >= 0 ? z + 1 : z);
-      const zs = r1M1.map(lin).filter(Boolean).map(x => x.z), z0 = Math.min(...zs), z1 = Math.max(...zs);
-      const expect = (u) => r1M1.map(n => { const l = lin(n); if (!l) return n; if (u === 2) { const g0 = Math.floor(z0 / 2), g1 = Math.floor(z1 / 2), g = Math.floor(l.z / 2); return nm(l.c, (g0 + g1 - g) * 2 + (l.z - g * 2)); } return nm(l.c, z0 + z1 - l.z); });
+      const dofs = () => QA('text[data-dof]').map(e => e.getAttribute('data-dof')).join(','), reps = () => QA('path[data-dl]').map(p => p.getAttribute('data-rep')).join(','), dof0 = dofs(), rep0 = reps();
+      const mainCellOf = dl => { const r = QA('rect[data-pv^="1:"]').filter(e => (e.getAttribute('data-in') || '').split(',').indexOf('D' + dl + 'u') >= 0)[0]; return r ? r.getAttribute('data-dn') : null; };
+      const mainLines = () => QA('path[data-dl][data-rep="0"]').map(p => +p.getAttribute('data-dl'));
+      const kOf = dl => +QA('text[data-dof]')[dl - 1].getAttribute('data-dof');
+      const endNm = (n, u) => { const m = /^([RGB])(-?\d+)$/.exec(n); let p = +m[2]; if (u === 2) { const z = p > 0 ? p - 1 : p, g = Math.floor(z / 2), z2 = 2 * g + (1 - (z - 2 * g)); p = z2 >= 0 ? z2 + 1 : z2; } return m[1] + '末' + p; };
       fire($('f-mirror'), false);
+      const g0 = gridTxt(0), cellsM0 = mainLines().map(dl => mainCellOf(dl)).join(' ');
       ok(wires() === wire0 && QA('rect[data-dn]').map(r => r.getAttribute('data-dn')).join(',') !== dn0 && QA('[data-glne]').length > 0 && sum() !== '24/24' && /面板要 .+、收到 /.test(Q('[data-glne]').parentNode.getAttribute('data-tip') || '') && w.dmBuildScript().text !== scU,
         '鎖定後 Mirror 改 0 ⇒ 線位置與 drain 目標完全不動，只有格內收到的資料改變，' + QA('[data-glne]').length + ' 格標紅虛框＋「≠」並寫「面板要 X、收到 Y」（' + sum() + '）；匯出照 ② 改變（鎖定不影響匯出）');
-      ok(row1().join(' ') === expect(1).join(' ') && row1().map(n => n[0]).join('') === r1M1.map(n => n[0]).join(''),
-        'v1.18.3 鎖定後 Mirror 改 0（Bruce pixel 級模型）：第 1 列每格顏色不變，pixel 編號整排左右鏡像（' + r1M1.join(' ') + ' → ' + row1().join(' ') + '）');
+      ok(dofs() === dof0 && reps() === rep0 && mainLines().length === 6 && mainLines().every(dl => mainCellOf(dl) === endNm(g0[kOf(dl) - 1], 1)) && /^Data \d・P末/.test(Q('[data-glne]').parentNode.getAttribute('data-tip') || ''),
+        'v1.18.4 方案 A：鎖定後 Mirror 改 0 ⇒ TCON Out 小字與亮的主循環不變；主循環每條線格內＝「末」＋② 同一個 Data k 的名稱（' + cellsM0 + '），提示寫 Data k・P末j');
       fire($('dm-mir-unit'), '2');
-      ok(row1().join(' ') === expect(2).join(' ') && wires() === wire0 && /2 pixel 一組/.test($('dm-mir-unit').selectedOptions[0].textContent), 'v1.18.3 反轉單位選「2 pixel 一組」⇒ 兩兩一組鏡像、組內順序不變、顏色不變（' + row1().join(' ') + '），接線不動');
+      ok(mainLines().every(dl => mainCellOf(dl) === endNm(g0[kOf(dl) - 1], 2)) && wires() === wire0 && dofs() === dof0 && /2 pixel 一組/.test($('dm-mir-unit').selectedOptions[0].textContent),
+        'v1.18.4 反轉單位選「2 pixel 一組」⇒ 末1／末2 組內對調（' + mainLines().map(dl => mainCellOf(dl)).join(' ') + '），接線與 TCON Out 不動');
       fire($('dm-mir-unit'), '1');
       ok(QA('rect[data-glne]').length === QA('[data-glne]').length && QA('rect[data-glne][stroke-dasharray]').length > 0 && !/≠鎖定/.test($('dm-pv-tft').textContent) && $('card-pv').classList.contains('dm-locked') && /接線已鎖定/.test($('dm-pv-wrap').getAttribute('data-locktag')) && /紅虛框的判斷條件/.test(d.querySelector('[data-i18n-title="dm.hLockT"]').getAttribute('title')),
         'v1.18.2 鎖定提示：TFT 接線圖外框 highlight＋「🔒 接線已鎖定」標籤；不一致的格子保留紅虛框（字縮成「≠」），ⓘ 寫出判斷條件');
