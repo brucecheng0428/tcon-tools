@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Data Mapping — TCON FAE Toolbox</title>
-<link rel="stylesheet" href="common/common.css?v=20261008dm1175">
-<link rel="stylesheet" href="common/site-ui.css?v=20261008dm1175">
+<link rel="stylesheet" href="common/common.css?v=20261008dm1180">
+<link rel="stylesheet" href="common/site-ui.css?v=20261008dm1180">
 <!--
   Data Mapping 分頁 v1.2.0（Bruce 2026-10-07）
   ・Bruce 10/7：「我其實沒有要你把它做得跟原生 UI 一模一樣，你還是要兼顧到網頁的風格，現在這個有點太突兀了。
@@ -80,6 +80,17 @@
   .stp-st { min-width: 0; white-space: normal; overflow-wrap: anywhere; word-break: break-word; }
   .dm-pend, .dm-pend *, .stp-note, .dm-sub, .dm-pvnote, .dm-lodinfo, .dm-lodst, .dm-alert, .dm-pvtag, #dm-dirtytext, .dm-fc { min-width: 0; overflow-wrap: anywhere; }
   .dm-log { overflow-wrap: anywhere; }
+  /* v1.18.0 面板接線卡片 */
+  .dm-layerchip { font-size: 11px; font-weight: 700; padding: 1px 8px; border-radius: 10px; border: 1px solid; margin-left: 8px; white-space: nowrap; }
+  .dm-layerchip.tcon { color: #7dd3fc; border-color: #0369a1; background: rgba(14,165,233,.12); }
+  .dm-layerchip.drv { color: #fcd34d; border-color: #b45309; background: rgba(245,158,11,.12); }
+  .dm-layerchip.pan { color: #86efac; border-color: #15803d; background: rgba(34,197,94,.12); }
+  .dm-glh { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 10px; gap: 6px 14px; }
+
+  .dm-glcard .dm-push { margin-left: auto; }
+  .dm-gl-sum { margin: 8px 0 0; font-weight: 700; }
+  .dm-gl-sum.ok { color: #86efac; } .dm-gl-sum.ng { color: #fca5a5; }
+  .dm-grid select.dm-gne { outline: 3px solid #ef4444; outline-offset: -3px; }
   /* 警示框（V512 只讀、r2..b3 不同） */
   .dm-alert { margin: 10px 0 0; padding: 8px 12px; border-radius: 8px; font-size: 13px; line-height: 1.6; border: 1px solid #92400e; background: #2a1a06; color: #fde68a; }
   .dm-alert.err { border-color: #7f1d1d; background: #2a0b0b; color: #fecaca; }
@@ -248,10 +259,38 @@
     <div class="stp-note" id="dm-ic"></div>
   </div>
 
+  <!-- v1.18.0（Bruce 10/8）面板接線：依客戶 Data Mapping 架構圖填寫「玻璃上每條 Data 線經每條 Line 接到哪顆子像素」，再去 ② 調設定直到比對一致。
+       只存在網頁裡（不寫入 code、不匯出、不送 I2C）；不啟用時整頁行為和 v1.17.5 相同。 -->
+  <div class="card dm-glcard" id="card-glass">
+    <div class="stp-hd"><span class="stp-tick">◇</span><span class="stp-t" data-i18n="dm.panT">面板設定（玻璃本身）</span><span class="dm-layerchip pan" data-i18n="dm.layerPan">面板層</span><span class="stp-st" id="st-glass"></span>
+</div>
+    <section class="dm-sec dm-sec1">
+      <div class="dm-form">
+        <div class="dm-frow"><span class="dm-fl"><span data-i18n="dm.pvStripe">子像素排列（正面由左往右）</span></span><span class="dm-fc"><select id="dm-pv-stripe" class="dm-sel"><option value="rgb">RGB</option><option value="bgr">BGR</option></select></span></div>
+      </div>
+    </section>
+    <div class="dm-sech dm-glh"><span data-i18n="dm.glT">面板接線（依客戶 Data Mapping 架構圖填寫，驗證用）</span><label class="dm-chk dm-hand" id="dm-gl-onbox"><input type="checkbox" id="dm-gl-on"> <span data-i18n="dm.glOn">鎖定面板接線（③ 依面板接線畫）</span></label><span class="dm-sub" id="dm-gl-lockinfo"></span></div>
+    <div class="hidden" id="dm-gl-body">
+      <div class="dm-sub" data-i18n="dm.glIntro">流程：照客戶給的面板架構圖填下表 → 到 ② 調設定 → ③ 與這裡會標出不一致 → 全部一致再匯出。這張表只存在網頁裡，不寫入 code、不匯出、不送 I2C。</div>
+      <section class="dm-sec">
+        <div class="dm-form">
+          <div class="dm-frow"><span class="dm-fl" data-i18n="dm.glStart">起點</span><span class="dm-fc"><button class="sbtn" id="dm-gl-copy" data-i18n="dm.glCopy">存入 ③ 目前的接線</button> <select id="dm-gl-preset" class="dm-sel"></select> <button class="sbtn" id="dm-gl-clear" data-i18n="dm.glClear">清除</button></span></div>
+          <div class="dm-frow"><span class="dm-fl">Gate Type</span><span class="dm-fc"><select id="dm-gl-gate" class="dm-sel"></select></span></div>
+        </div>
+        <div class="dm-gl-sum" id="dm-gl-sum"></div>
+        <div class="dm-gridwrap"><table class="dm-grid" id="dm-ggrid"></table></div>
+        <div class="dm-sub" id="dm-gl-diff"></div>
+        <div class="dm-row" style="margin-top:8px"><button class="sbtn" id="dm-gl-sug" data-i18n="dm.glSug">依面板接線建議 ② 設定</button><button class="sbtn pri hidden" id="dm-gl-apply" data-i18n="dm.glApply">套用到 ②</button></div>
+        <div class="dm-sub" id="dm-gl-sugres"></div>
+        <details class="stp-more"><summary data-i18n="dm.glHelpSum">說明：怎麼比對</summary><div class="dm-sub" data-i18n="dm.glHelp">比對的是實體接線：用 ③ 現有演算法，分別由 ② 的設定和這張表推出「第 p 條 Data 線經 Line x 接到哪個子像素位置」，逐格比位置（「位置」＝子像素在 ③ 接線圖中的序號；T 表只決定整體編號，所以允許整體平移 2 pixel 的倍數）。Mirror、T 表（FORCE_DE）、Hand、Gate Type 會影響；Driver CH1 位置、SHL、輸出對調只改畫法和收到的資料，不影響這個比對。這張表的名稱照「建立時」的設定解讀（從 ② 複製或套樣式時一併記下），之後改 ② 不會改到它。</div></details>
+      </section>
+    </div>
+  </div>
+
   <!-- ② 調 Data Mapping（v1.17.0 版面：Bruce 10/7「排列實在是太亂了…請有條理地把它們列清楚」⇒ 分「Panel mode 設定／Data Mapping 表格（force_sel）／工具／進階與說明」四區；
        設定一律「欄位名｜控制項」一列一個；說明只留一行，細節放 ⓘ 或最下面收合的「說明」。元素 id 不變（JS／測試照舊） -->
   <div class="card stp" id="card-dm">
-    <div class="stp-hd"><span class="stp-tick" id="tk-dm">○</span><span class="stp-t" data-i18n="dm.stp2">② 調 Data Mapping</span><span class="stp-st" id="st-dm"></span>
+    <div class="stp-hd"><span class="stp-tick" id="tk-dm">○</span><span class="stp-t" data-i18n="dm.stp2">② 調 Data Mapping</span><span class="dm-layerchip tcon" data-i18n="dm.layerTcon">TCON 層</span><span class="stp-st" id="st-dm"></span>
       <span class="dm-chip dm-push" data-i18n-title="dm.cksTip" title="Python UI 的 DM CKS（Hand Mode 開才有）">DM CKS <b id="dm-cks">—</b></span></div>
     <div class="dm-alert err hidden" id="dm-ro"></div>
     <section class="dm-sec">
@@ -334,6 +373,18 @@
     </section>
   </div>
 
+  <!-- v1.18.0（Bruce 10/8「把面板 Driver 硬體模擬獨立出來」）：Driver 層設定獨立成卡片（只影響 ③ 預覽，與 TCON code 無關；元素 id 不變） -->
+  <div class="card dm-layer" id="card-drv">
+    <div class="stp-hd"><span class="stp-tick">◇</span><span class="stp-t" data-i18n="dm.drvT">Source Driver 設定</span><span class="dm-layerchip drv" data-i18n="dm.layerDrv">Driver 層</span><span class="stp-st" data-i18n="dm.secHwNote">只影響預覽，與 TCON code 無關</span></div>
+    <section class="dm-sec dm-sec1">
+      <div class="dm-form" id="dm-drv-form">
+        <div class="dm-frow"><span class="dm-fl"><span data-i18n="dm.pvSwapK">Source Driver 輸出對調</span> <i class="dm-i" data-i18n-title="dm.hSwapT" title="">ⓘ</i></span><span class="dm-fc"><label class="dm-chk dm-hand" id="dm-pv-swapbox"><input type="checkbox" id="dm-pv-swap"> <span data-i18n="dm.pvSwap">D1↔D3、D4↔D6（每 6 個 CH 一組）</span></label></span></div>
+        <div class="dm-frow"><span class="dm-fl"><span data-i18n="dm.pvFirst">Driver CH1 位置</span> <i class="dm-i" data-i18n-title="dm.hFirstT" title="">ⓘ</i></span><span class="dm-fc"><select id="dm-pv-first" class="dm-sel"><option value="l" data-i18n="dm.pvFirstL">CH1 在最左（預設）</option><option value="r" data-i18n="dm.pvFirstR">CH1 在最右</option></select></span></div>
+        <div class="dm-frow"><span class="dm-fl"><span data-i18n="dm.pvDrv">Driver 輸出方向（SHL）</span> <i class="dm-i" data-i18n-title="dm.hDrvT" title="">ⓘ</i></span><span class="dm-fc"><select id="dm-pv-drv" class="dm-sel"><option value="f" data-i18n="dm.pvDrvF">正向（CH1→CHn，預設）</option><option value="r" data-i18n="dm.pvDrvR">反向（CHn→CH1）</option></select><span class="dm-sub dm-one" id="dm-pv-shlsrc"></span></span></div>
+      </div>
+    </section>
+  </div>
+
   <!-- ③ 面板排列預覽（v1.17.0 版面：預覽來源／面板・Driver 硬體模擬（一列一項，最後一列結果）／TFT 接線圖／收合說明；只影響預覽） -->
   <div class="card stp" id="card-pv">
     <div class="stp-hd"><span class="stp-tick" id="tk-pv">◇</span><span class="stp-t" data-i18n="dm.stpPv">③ 面板排列預覽</span><span class="stp-st" id="st-pv"></span></div>
@@ -349,13 +400,9 @@
     </section>
     <div id="dm-pvbody">
       <section class="dm-sec">
-        <h3 class="dm-sech"><span data-i18n="dm.secHw">面板／Driver 硬體模擬</span><span class="dm-sechn" data-i18n="dm.secHwNote">只影響預覽，與 TCON code 無關</span></h3>
+        <h3 class="dm-sech"><span data-i18n="dm.secRes">比對結果</span><span class="dm-sechn" data-i18n="dm.secResNote">依 ② TCON、Source Driver、面板三層設定算出</span></h3>
         <div class="dm-form" id="dm-pv-physrow">
-        <div class="dm-frow"><span class="dm-fl"><span data-i18n="dm.pvSwapK">Source Driver 輸出對調</span> <i class="dm-i" data-i18n-title="dm.hSwapT" title="">ⓘ</i></span><span class="dm-fc"><label class="dm-chk dm-hand" id="dm-pv-swapbox"><input type="checkbox" id="dm-pv-swap"> <span data-i18n="dm.pvSwap">D1↔D3、D4↔D6（每 6 個 CH 一組）</span></label></span></div>
-        <div class="dm-frow"><span class="dm-fl"><span data-i18n="dm.pvFirst">Driver CH1 位置</span> <i class="dm-i" data-i18n-title="dm.hFirstT" title="">ⓘ</i></span><span class="dm-fc"><select id="dm-pv-first" class="dm-sel"><option value="l" data-i18n="dm.pvFirstL">CH1 在最左（預設）</option><option value="r" data-i18n="dm.pvFirstR">CH1 在最右</option></select></span></div>
-        <div class="dm-frow"><span class="dm-fl"><span data-i18n="dm.pvDrv">Driver 輸出方向（SHL）</span> <i class="dm-i" data-i18n-title="dm.hDrvT" title="">ⓘ</i></span><span class="dm-fc"><select id="dm-pv-drv" class="dm-sel"><option value="f" data-i18n="dm.pvDrvF">正向（CH1→CHn，預設）</option><option value="r" data-i18n="dm.pvDrvR">反向（CHn→CH1）</option></select><span class="dm-sub dm-one" id="dm-pv-shlsrc"></span></span></div>
-        <div class="dm-frow"><span class="dm-fl"><span data-i18n="dm.pvStripe">子像素排列（正面由左往右）</span></span><span class="dm-fc"><select id="dm-pv-stripe" class="dm-sel"><option value="rgb">RGB</option><option value="bgr">BGR</option></select></span></div>
-        <div class="dm-frow dm-freq"><span class="dm-fl"><span data-i18n="dm.pvEqK">結果</span></span><span class="dm-fc"><b id="dm-pv-eq"></b><span class="dm-sub dm-one" id="dm-pv-sugok"></span><button class="sbtn hidden" id="dm-pv-sugbtn"></button></span></div>
+        <div class="dm-frow dm-freq"><span class="dm-fl"><span data-i18n="dm.pvEqK">結果</span></span><span class="dm-fc"><b id="dm-pv-eq"></b><span class="dm-sub dm-one" id="dm-pv-sugok"></span><button class="sbtn" id="dm-pv-lock" data-i18n="dm.pvLock">確認此 TFT 接線正確 → 存為面板接線</button><button class="sbtn hidden" id="dm-pv-sugbtn"></button></span></div>
         </div>
       </section>
       <section class="dm-sec">
@@ -406,8 +453,8 @@
 </div>
 <div class="dm-toasts" id="dm-toasts" aria-live="polite"></div>
 
-<script src="common/version.js?v=20261008dm1175"></script>
-<script src="common/i18n.js?v=20261008dm1175"></script>
+<script src="common/version.js?v=20261008dm1180"></script>
+<script src="common/i18n.js?v=20261008dm1180"></script>
 <script>
 (function () {
   /* [zh-TW, en, zh-CN] */
@@ -514,6 +561,42 @@
     'dm.pvRhTc': ['TCON Out', 'TCON Out', 'TCON Out'],
     'dm.pvRhSdT': ['亮字＝Source Driver 實際輸出到面板的 Data 線位置（只由 Driver CH1 位置決定，SHL 不影響）', 'Bright labels = the data lines the source driver actually drives on the panel (set by the driver CH1 position only)', '亮字＝Source Driver 实际输出到面板的 Data 线位置'],
     'dm.pvRhSd': ['SD Out', 'SD Out', 'SD Out'],
+    'dm.pvGlNe': ['≠面板', '≠panel', '≠面板'],
+    'dm.glApplied': ['已套用到 ②。', 'Applied to ②.', '已套用到 ②。'],
+    'dm.glSugNone': ['不用改：② 已經和面板接線一致。', 'Nothing to change: ② already matches the panel wiring.', '不用改：② 已和面板接线一致。'],
+    'dm.glSugN': ['建議改 {n} 格（照 ② 目前的 Mirror／T 表等設定），按「套用到 ②」才會寫入。', '{n} cells to change (keeping the current ② Mirror/T settings); press Apply to write them to ②.', '建议改 {n} 格，按「套用到 ②」才写入。'],
+    'dm.glNone': ['② 目前的設定下沒有任何選項能接到面板要的位置（可能要改 Mirror、T 表或 Gate Type）', 'no option reaches the required position under the current ② settings (Mirror, T table or Gate Type may need to change)', '② 目前设定下没有选项能接到面板要的位置'],
+    'dm.glMulti': ['有多個選項都符合（{l}），已取第一個', 'several options match ({l}); the first is used', '多个选项符合（{l}），取第一个'],
+    'dm.glSumNg': ['✗ 和 ② 一致 {a}/{n}（紅框格子不一致）', '✗ matches ② {a}/{n} (red cells differ)', '✗ 和 ② 一致 {a}/{n}（红框格子不一致）'],
+    'dm.glSumOk': ['✓ 和 ② 一致 {a}/{n}', '✓ matches ② {a}/{n}', '✓ 和 ② 一致 {a}/{n}'],
+    'dm.glEmpty': ['尚未設定：按「從目前 ② 複製」或套用樣式，再照面板架構圖逐格修改。', 'Not set yet: copy from ② or apply a style, then edit cell by cell from the panel drawing.', '尚未设定：从 ② 复制或套用样式，再逐格修改。'],
+    'dm.glCellNe': ['面板要 {w}（位置 {a}），② 目前送 {n}（位置 {b}）', 'panel needs {w} (position {a}), ② sends {n} (position {b})', '面板要 {w}（位置 {a}），② 目前送 {n}（位置 {b}）'],
+    'dm.glHelp': ['比對的是實體接線：用 ③ 現有演算法，分別由 ② 的設定和這張表推出「第 p 條 Data 線經 Line x 接到哪個子像素位置」，逐格比位置。Mirror、T 表（FORCE_DE）、Hand、Gate Type 會影響；Driver CH1 位置、SHL、輸出對調只改畫法和收到的資料，不影響這個比對。這張表的名稱照建立時的設定解讀（從 ② 複製或套樣式時一併記下），之後改 ② 不會改到它。', 'The check compares physical wiring: the existing step-3 algorithm derives, from ② and from this table, which sub-pixel position each data line reaches through each line, and compares them cell by cell. Mirror, T table (FORCE_DE), Hand and Gate Type matter; driver CH1 position, SHL and output swap only change the drawing and the received data. Names in this table are read with the settings captured when it was created.', '比对实体接线：用 ③ 现有算法分别推出位置逐格比。Mirror、T 表、Hand、Gate 会影响；CH1 位置、SHL、对调不影响。'],
+    'dm.glHelpSum': ['說明：怎麼比對', 'How the check works', '说明：怎么比对'],
+    'dm.glApply': ['套用到 ②', 'Apply to ②', '套用到 ②'],
+    'dm.glSug': ['依面板接線建議 ② 設定', 'Suggest ② settings from the panel wiring', '依面板接线建议 ② 设定'],
+    'dm.glPreset': ['套用原廠 RT7 樣式（Manual）…', 'Apply a vendor RT7 style (Manual)…', '套用原厂 RT7 样式（Manual）…'],
+    'dm.glClear': ['清除', 'Clear', '清除'],
+    'dm.glCopy': ['存入 ③ 目前的接線', 'Store the current ③ wiring', '存入 ③ 目前的接线'],
+    'dm.glStart': ['起點', 'Start from', '起点'],
+    'dm.glIntro': ['兩種用法：(1) 照客戶給的面板架構圖填下表；(2) ③ 畫出的 TFT 接線看起來正確時，按「確認此 TFT 接線正確 → 存為面板接線」。鎖定後 ③ 的線位置固定照這張表畫，② 和 Mirror 等設定只改變每條線收到的資料，對不上的格子標「≠面板」。這張表只存在網頁裡，不寫入 code、不匯出、不送 I2C；取消鎖定就回到原本的畫法。', 'Two ways: (1) fill this table from the customer panel drawing; (2) when the ③ TFT wiring looks right, press "save as panel wiring". While locked, ③ draws the wires from this table and ② / Mirror only change the data each line receives; mismatches are marked. Page-only: not written to the code, exported or sent over I2C. Unlock to return to the normal drawing.', '两种用法：照客户架构图填，或在 ③ 确认后存入。锁定后 ③ 依这张表画线，② 只改收到的资料。'],
+    'dm.glOn': ['鎖定面板接線（③ 依面板接線畫）', 'Lock panel wiring (③ draws from it)', '锁定面板接线（③ 依面板接线画）'],
+    'dm.glT': ['面板接線（依客戶 Data Mapping 架構圖填寫，驗證用）', 'Panel wiring (from the customer data-mapping drawing, for verification)', '面板接线（依客户 Data Mapping 架构图填写，验证用）'],
+    'dm.glSugT': ['另外要把 FORCE_DE_SEL 改成 T{t}（one-hot），目前的 T 表接不到面板要的位置。', 'FORCE_DE_SEL must also become T{t} (one-hot); the current T table cannot reach the required positions.', '另外要把 FORCE_DE_SEL 改成 T{t}。'],
+    'dm.secResNote': ['依 ② TCON、Source Driver、面板三層設定算出', 'computed from the TCON (②), source-driver and panel settings', '依 TCON、Driver、面板三层设定算出'],
+    'dm.secRes': ['比對結果', 'Result', '比对结果'],
+    'dm.panT': ['面板設定（玻璃本身）', 'Panel settings (the glass itself)', '面板设定（玻璃本身）'],
+    'dm.layerTcon': ['TCON 層', 'TCON layer', 'TCON 层'],
+    'dm.layerPan': ['面板層', 'Panel layer', '面板层'],
+    'dm.layerDrv': ['Driver 層', 'Driver layer', 'Driver 层'],
+    'dm.drvT': ['Source Driver 設定', 'Source driver settings', 'Source Driver 设定'],
+    'dm.pvLockNe': ['面板要 {w}、收到 {n}', 'panel needs {w}, receives {n}', '面板要 {w}、收到 {n}'],
+    'dm.glManual': ['已鎖定（已手動修改）', 'Locked (edited by hand)', '已锁定（已手动修改）'],
+    'dm.glSrc3': ['③ 確認於 ', '③ confirmed at ', '③ 确认于 '],
+    'dm.glLocked': ['已鎖定（來源：{s}{t}）', 'Locked (source: {s} {t})', '已锁定（来源：{s}{t}）'],
+    'dm.pvLock': ['確認此 TFT 接線正確 → 存為面板接線', 'This TFT wiring is correct → save as panel wiring', '确认此 TFT 接线正确 → 存为面板接线'],
+    'dm.glSrcOn': ['開啟時 ③ 的接線', 'the ③ wiring when enabled', '开启时 ③ 的接线'],
+    'dm.pvLockedNote': ['面板接線已鎖定：③ 的線位置照面板接線畫；② 的設定（含 Mirror、T 表）只改變每條線收到的資料，對不上的格子標「≠面板」。', 'Panel wiring locked: ③ draws the wires from the panel wiring; ② settings (incl. Mirror, T table) only change the data each line receives; mismatches are marked.', '面板接线已锁定：③ 依面板接线画线；② 只改变收到的资料。'],
     'dm.tSum': ['T 表：FORCE_DE_EN＝{de}、FORCE_DE_SEL＝{sel} ⇒ 基準 T{t}（{why}）；{rows}；D7~D12 依序用下一張；Mirror＝{m}（Mirror 不換表，名稱整行反轉）。', 'T table: FORCE_DE_EN = {de}, FORCE_DE_SEL = {sel} ⇒ base T{t} ({why}); {rows}; D7–D12 use the next tables; Mirror = {m} (names reversed along the whole line).', 'T 表：FORCE_DE_EN＝{de}、FORCE_DE_SEL＝{sel} ⇒ 基准 T{t}（{why}）；{rows}；Mirror＝{m}。'],
     'dm.tWhy_auto': ['FORCE_DE_EN＝0（auto de phase），原廠未說明硬體選哪張 ⇒ 基準未確定；依 EM02 原廠 RT7 清單 33 型的 Line OD 反推為 T2（EM01／E512 比照推定）', 'FORCE_DE_EN = 0 (auto de phase): not defined by the vendor ⇒ base not determined; T2 inferred from the 33 EM02 vendor RT7 types vs their Line OD (EM01/E512 by analogy)', 'FORCE_DE_EN＝0（auto），基准未确定；依 EM02 原厂 RT7 33 型的 Line OD 反推为 T2'],
     'dm.tWhy_onehot': ['one-hot，依 Kick Off D1:G1', 'one-hot per Kick Off D1:G1', 'one-hot，依 Kick Off D1:G1'],
@@ -701,11 +784,11 @@
 })();
 </script>
 <script src="common/common.js?v=20260523"></script>
-<script src="common/subpix-colors.js?v=20261008dm1175"></script>
-<script src="common/xlsx.js?v=20261008dm1175"></script>
-<script src="common/datamap-core.js?v=20261008dm1175"></script>
-<script src="common/datamap-lod.js?v=20261008dm1175"></script>
-<script src="common/datamap-auto.js?v=20261008dm1175"></script>
+<script src="common/subpix-colors.js?v=20261008dm1180"></script>
+<script src="common/xlsx.js?v=20261008dm1180"></script>
+<script src="common/datamap-core.js?v=20261008dm1180"></script>
+<script src="common/datamap-lod.js?v=20261008dm1180"></script>
+<script src="common/datamap-auto.js?v=20261008dm1180"></script>
 <script>
 (function () {
   'use strict';
@@ -961,7 +1044,7 @@
     if (ro) $('dm-ro').textContent = tt('dm.v512', { a: S.ro.slice(0, 4).map(function (a) { return '0x' + hex(a, 4); }).join(', ') + (S.ro.length > 4 ? '…' : '') });
     $('dm-glass').disabled = !s.hand || ro;
     $('dm-expx').disabled = !s.hand || ro; $('dm-impx').disabled = !s.hand || ro;
-    renderGrid(); renderLegend(); renderSame(); renderCode(); renderX(); renderMnt(); renderAuto(); renderLod(); renderManual(); renderPreview();
+    renderGrid(); renderLegend(); renderSame(); renderCode(); renderX(); renderMnt(); renderAuto(); renderLod(); renderManual(); renderPreview(); renderGlass();
     var sl = isNb() ? '0x3E' : '0x' + hex(S.slave, 2);
     $('dm-write').textContent = 'Write to TCON(' + sl + ')'; $('dm-bar-write').textContent = 'Write to TCON(' + sl + ')';
     $('dm-load').textContent = 'Load from TCON(' + sl + ')';
@@ -970,6 +1053,132 @@
     $('dm-import').disabled = S.busy; $('dm-clear').disabled = S.busy;
     renderLink();
     renderSteps();
+  }
+
+  /* ── v1.18.0 面板接線（玻璃接線，驗證用）────────────────────────────────
+     S.glass＝和 ② 同格式的 state（照建立時的設定解讀名稱）；比對時用 ③ 的 pvModel 分別推出兩邊的實體接線位置 t，逐格比。 */
+  var GL = { on: false, sug: null };
+  function pvModelState(st) {
+    var keepC = S.cur, keepL = pvLod; S.cur = st; pvLod = -1;
+    try { return pvModel(); } finally { S.cur = keepC; pvLod = keepL; }
+  }
+  function glCellKey(P, r, c) {
+    if (P.NG === 2) return (r >> 1) + ':' + (r & 1) + ':' + c;
+    if (DM.MODELS[P.m].kind !== 'mnt' && P.nl === 2) return (r >> 1) + ':0:' + (c + ((r & 1) ? 6 : 0));
+    return r + ':0:' + c;
+  }
+  function glTMap(P) { var m = {}; if (!P || !P.ok) return m; pvWiresSpec(P, false, false).forEach(function (w) { m[w.k + ':' + w.gi + ':' + w.p] = w.off ? null : w.t; }); return m; }
+  /* 比對：兩邊各自推出位置 t；T 表只決定整體編號（每換一張表整體平移 2 pixel＝6 個子像素），所以允許整體平移 6 的倍數（取出現最多的那個位移）再逐格比 */
+  function glCompareStates(Gs, Cs) {
+    var Pg = pvModelState(Gs), Pc = pvModelState(Cs), tg = glTMap(Pg), tc = glTMap(Pc), raw = [], cnt = {};
+    for (var r = 0; r < 4; r++) for (var c = 0; c < 6; c++) {
+      var vg = DM.cellView(S.model, Gs, r, c); if (vg.blank) continue;
+      var a = tg[glCellKey(Pg, r, c)], kc = glCellKey(Pc, r, c), b = tc[kc]; if (a === undefined) continue;
+      var dd = (a === null || b === null || b === undefined || Pg.NG !== Pc.NG) ? null : b - a;
+      if (dd !== null && dd % 6 === 0) cnt[dd] = (cnt[dd] || 0) + 1;
+      raw.push({ r: r, c: c, d: dd, k: kc, a: a, b: b, want: vg.std ? vg.txt : '0x' + hex(vg.raw, 2) });
+    }
+    var best = 0, bn = -1; Object.keys(cnt).forEach(function (k) { if (cnt[k] > bn || (cnt[k] === bn && Math.abs(+k) < Math.abs(best))) { bn = cnt[k]; best = +k; } });
+    var keys = {}, ok = 0, cells = raw.map(function (x) { var vc = DM.cellView(S.model, Cs, x.r, x.c), same = x.d === best; if (same) ok++; else keys[x.k] = 1;
+      return { r: x.r, c: x.c, same: same, want: x.want, now: vc.blank ? '—' : (vc.std ? vc.txt : '0x' + hex(vc.raw, 2)), k: x.k, pa: x.a, pb: x.b === null || x.b === undefined ? '—' : x.b - best }; });
+    return { n: raw.length, ok: ok, cells: cells, keys: keys, shift: best };
+  }
+  function glCompare() { return GL.on && S.glass ? glCompareStates(S.glass, S.cur) : null; }
+  function buildGlassGrid() {
+    var h = '<thead><tr><th></th>'; for (var c = 1; c <= 6; c++) h += '<th>Data ' + c + '</th>'; h += '</tr></thead><tbody>';
+    for (var r = 0; r < 4; r++) { h += '<tr><th id="dm-grh' + r + '">' + ROWS[r] + '</th>'; for (var c2 = 0; c2 < 6; c2++) h += '<td><select class="dm-cell" id="dm-g' + r + '-' + c2 + '" data-r="' + r + '" data-c="' + c2 + '"></select></td>'; h += '</tr>'; }
+    $('dm-ggrid').innerHTML = h + '</tbody>';
+  }
+  function renderGlass() {
+    $('dm-gl-on').checked = GL.on; $('dm-gl-onbox').classList.toggle('on', GL.on);
+    $('dm-gl-body').classList.toggle('hidden', !GL.on);
+    $('dm-gl-lockinfo').textContent = GL.on && S.glass ? (GL.info || '') : '';
+    if (!GL.on) { $('st-glass').textContent = ''; return; }
+    var m = S.model, G = S.glass;
+    var ps = $('dm-gl-preset'); ps.innerHTML = ''; ps.appendChild(optEl('', tt('dm.glPreset')));
+    if (DM.MODELS[m].kind === 'mnt') DM.PRESETS.forEach(function (p, k) { if (p.set.hand) ps.appendChild(optEl('p' + k, p.name)); });
+    ps.value = '';
+    var gs = $('dm-gl-gate'); gs.innerHTML = $('dm-gate').innerHTML; gs.disabled = !G; if (G) gs.value = DM.gateText(m, G);
+    var cmp = glCompare();
+    for (var r = 0; r < 4; r++) {
+      $('dm-grh' + r).textContent = G ? rowLabel(m, DM.gateOf(m, G), r) : ROWS[r];
+      for (var c = 0; c < 6; c++) {
+        var sel = $('dm-g' + r + '-' + c); sel.innerHTML = ''; sel.className = 'dm-cell';
+        if (!G) { sel.appendChild(optEl('', '—')); sel.disabled = true; paintSel(sel, null); continue; }
+        var v = DM.cellView(m, G, r, c), opts = DM.cellOptions(m, G, r, c);
+        if (v.blank) { sel.appendChild(optEl('', '—')); sel.disabled = true; paintSel(sel, null); continue; }
+        if (!v.std) { sel.appendChild(optEl('__ns', tt('dm.nsOpt', { v: hex(v.raw, 2) }), 'ns')); }
+        opts.forEach(function (o) { sel.appendChild(optEl(o.name, o.name, colorKeyOf(o.name))); });
+        sel.value = v.std ? v.txt : '__ns'; sel.disabled = !opts.length;
+        paintSel(sel, v.std ? colorKeyOf(v.txt) : 'ns');
+        var ce = cmp && cmp.cells.filter(function (x) { return x.r === r && x.c === c; })[0];
+        sel.classList.toggle('dm-gne', !!(ce && !ce.same)); sel.setAttribute('data-gne', ce && !ce.same ? 1 : 0);
+        sel.title = ce && !ce.same ? tt('dm.glCellNe', { w: ce.want, n: ce.now, a: ce.pa, b: ce.pb }) : '';
+      }
+    }
+    var sum = $('dm-gl-sum');
+    if (!G) { sum.className = 'dm-gl-sum'; sum.textContent = tt('dm.glEmpty'); $('dm-gl-diff').textContent = ''; $('st-glass').textContent = ''; sum.setAttribute('data-ok', ''); }
+    else { var all = cmp.ok === cmp.n; sum.className = 'dm-gl-sum ' + (all ? 'ok' : 'ng'); sum.textContent = tt(all ? 'dm.glSumOk' : 'dm.glSumNg', { a: cmp.ok, n: cmp.n });
+      sum.setAttribute('data-ok', cmp.ok + '/' + cmp.n); $('st-glass').textContent = cmp.ok + '/' + cmp.n;
+      $('dm-gl-diff').textContent = cmp.cells.filter(function (x) { return !x.same; }).slice(0, 12).map(function (x) { return rowLabel(m, DM.gateOf(m, G), x.r) + ' Data ' + (x.c + 1) + '：' + tt('dm.glCellNe', { w: x.want, n: x.now, a: x.pa, b: x.pb }); }).join('；'); }
+    $('dm-gl-sug').disabled = !G || !!S.ro;
+  }
+  /* 對每個整體位移（6 的倍數）分別逐格挑「推出位置＝面板位置＋位移」的選項，取一致最多的位移 */
+  function glGreedy(G, start) {
+    var m = S.model, Pg = pvModelState(G), tg = glTMap(Pg), cells = [], best = null;
+    for (var r = 0; r < 4; r++) for (var c = 0; c < 6; c++) { var vg = DM.cellView(m, G, r, c); if (vg.blank) continue; var a = tg[glCellKey(Pg, r, c)]; if (a === undefined || a === null) continue; cells.push({ r: r, c: c, a: a }); }
+    var optT = cells.map(function (x) { return DM.cellOptions(m, start, x.r, x.c).map(function (o) { var t = DM.pickCell(m, start, x.r, x.c, o.name); if (!t) return null; var Pt = pvModelState(t.state); return { name: o.name, t: glTMap(Pt)[glCellKey(Pt, x.r, x.c)] }; }).filter(Boolean); });
+    [0, -6, 6, -12, 12, -18, 18].forEach(function (sh) {
+      var cand = start, changed = 0, ties = {};
+      cells.forEach(function (x, i) { var hit = optT[i].filter(function (o) { return o.t === x.a + sh; }); if (!hit.length) return;
+        var v = DM.cellView(m, cand, x.r, x.c); if (v.std && v.txt === hit[0].name) return;
+        var t2 = DM.pickCell(m, cand, x.r, x.c, hit[0].name); if (t2) { cand = t2.state; changed++; if (hit.length > 1) ties[x.r + ':' + x.c] = hit.map(function (h) { return h.name; }); } });
+      var cmp = glCompareStates(G, cand);
+      if (!best || cmp.ok > best.cmp.ok || (cmp.ok === best.cmp.ok && changed < best.changed)) best = { st: cand, changed: changed, ties: ties, cmp: cmp };
+    });
+    return best;
+  }
+
+  /* 依面板接線建議 ② 設定：先照 ② 目前的 Mirror／T 表等設定逐格挑 force_sel；還有不一致時，再試 FORCE_DE_SEL 換成 T1~T6（one-hot）各跑一次，取一致最多的 */
+  function glSuggest() {
+    var m = S.model, G = S.glass, base = DM.cloneState(S.cur), notes = [];
+    if (!base.hand) base = DM.setHand(m, base, true);
+    if (DM.gateText(m, base) !== DM.gateText(m, G)) { var gg = DM.setGate(m, base, DM.gateText(m, G)); if (gg) base = gg; }
+    /* 多 bit／auto 的基準 T 會隨 code 改變（依 code 反推），逐格試選項時先把基準釘在目前這張（one-hot），挑完再還原原本的 FORCE_DE 值 */
+    var pin = DM.cloneState(base), mnt = DM.MODELS[m].kind === 'mnt' && DM.fieldById(m, 'deSel'), bt0 = mnt ? DM.mntBaseT(base, DM.gateOf(m, base)) : null;
+    if (mnt && bt0.why !== 'onehot') { pin.deEn = 1; pin.deSel = 1 << (bt0.t - 1); }
+    var tUsed = 0, best = glGreedy(G, pin);
+    if (mnt && bt0.why !== 'onehot') { var rs = DM.cloneState(best.st); rs.deEn = base.deEn; rs.deSel = base.deSel; var rc = glCompareStates(G, rs);
+      if (rc.ok >= best.cmp.ok) { best.st = rs; best.cmp = rc; } else tUsed = bt0.t; }
+    if (best.cmp.ok < best.cmp.n && DM.MODELS[m].kind === 'mnt' && DM.fieldById(m, 'deSel')) for (var b = 0; b < 6; b++) {
+      var st = DM.cloneState(base); st.deEn = 1; st.deSel = 1 << b; var r2 = glGreedy(G, st);
+      if (r2.cmp.ok > best.cmp.ok) { best = r2; tUsed = b + 1; }
+    }
+    var gl = DM.gateOf(m, G);
+    Object.keys(best.ties).forEach(function (k) { var tl = best.ties[k]; if (tl.length > 1) { var p = k.split(':'); notes.push(rowLabel(m, gl, +p[0]) + ' Data ' + (+p[1] + 1) + '：' + tt('dm.glMulti', { l: tl.join('／') })); } });
+    best.cmp.cells.filter(function (x) { return !x.same; }).forEach(function (x) { notes.push(rowLabel(m, gl, x.r) + ' Data ' + (x.c + 1) + '：' + tt('dm.glNone')); });
+    var changed = best.changed + (tUsed ? 1 : 0);
+    GL.sug = changed ? best.st : null;
+    $('dm-gl-apply').classList.toggle('hidden', !changed);
+    $('dm-gl-sugres').textContent = changed ? tt('dm.glSugN', { n: best.changed }) + (tUsed ? ' ' + tt('dm.glSugT', { t: tUsed }) : '') + '（' + best.cmp.ok + '/' + best.cmp.n + '）' + (notes.length ? ' ' + notes.join('；') : '') : (notes.length ? notes.join('；') : tt('dm.glSugNone'));
+    $('dm-gl-sugres').setAttribute('data-changed', changed); $('dm-gl-sugres').setAttribute('data-result', best.cmp.ok + '/' + best.cmp.n);
+  }
+  function bindGlass() {
+    buildGlassGrid();
+    $('dm-gl-on').addEventListener('change', function () { GL.on = this.checked; if (GL.on && !S.glass) { S.glass = DM.setHand(S.model, DM.cloneState(S.cur), true); GL.info = tt('dm.glLocked', { s: tt('dm.glSrcOn'), t: '' }); } render(); });
+    /* 存入：把 ③ 目前畫出的實體接線存成面板接線並鎖定。存的是「當下的 ② 值＋Mirror／T 表等設定」整份凍結的 state，用同一個演算法推出來的接線＝③ 當下畫出的接線（CH1／SHL／對調不影響接線） */
+    var glStore = function (src) { S.glass = DM.cloneState(S.cur); if (!S.glass.hand) S.glass = DM.setHand(S.model, S.glass, true); GL.on = true;
+      var d = new Date(); GL.info = tt('dm.glLocked', { s: src, t: ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2) }); log('n', '面板接線 ← ' + src); render(); };
+    $('dm-gl-copy').addEventListener('click', function () { glStore(tt('dm.glSrc3')); });
+    $('dm-pv-lock').addEventListener('click', function () { glStore(tt('dm.glSrc3')); });
+    $('dm-gl-clear').addEventListener('click', function () { S.glass = null; GL.sug = null; $('dm-gl-apply').classList.add('hidden'); $('dm-gl-sugres').textContent = ''; render(); });
+    $('dm-gl-preset').addEventListener('change', function () { var v = this.value; if (v.charAt(0) !== 'p') return; var k = +v.slice(1), base = S.glass || DM.cloneState(S.cur);
+      var ns = DM.pyNormalize ? DM.pyNormalize(S.model, DM.applyPreset(S.model, base, k)) : DM.applyPreset(S.model, base, k); S.glass = ns; GL.info = tt('dm.glLocked', { s: DM.PRESETS[k].name, t: '' }); log('n', '面板接線 ← 樣式 ' + DM.PRESETS[k].name); render(); });
+    $('dm-gl-gate').addEventListener('change', function () { if (!S.glass) return; var ns = DM.setGate(S.model, S.glass, this.value); if (ns) S.glass = ns; render(); });
+    $('dm-ggrid').addEventListener('change', function (e) { var t = e.target; if (!t.matches('select') || !S.glass || t.value === '__ns') return;
+      var res = DM.pickCell(S.model, S.glass, +t.getAttribute('data-r'), +t.getAttribute('data-c'), t.value); if (res) { S.glass = res.state; GL.info = tt('dm.glManual'); } render(); });
+    $('dm-gl-sug').addEventListener('click', function () { if (S.glass) glSuggest(); });
+    $('dm-gl-apply').addEventListener('click', function () { if (!GL.sug) return; var ns = GL.sug; GL.sug = null; $('dm-gl-apply').classList.add('hidden'); $('dm-gl-sugres').textContent = tt('dm.glApplied'); commit(ns, '面板接線建議'); });
   }
   function renderSteps() {
     var s = S.cur, g = DM.gateOf(S.model, s), loaded = S.src.kind !== 'none', dn = dirtyRegs().length;
@@ -1253,7 +1462,12 @@
   var PV_LBL = { r: '#fca5a5', g: '#86efac', b: '#93c5fd' };
   var GT = { single: 'Single Gate', dual: 'Dual Gate', tri: 'Tri-Gate' };
   function renderPreview() {
-    var P = pvModel(), ok = P.ok, NG = P.NG;
+    var P = pvModel();
+    /* v1.18.0（Bruce 10/8）：面板接線鎖定時，③ 的線位置與 drain 目標改用面板接線（S.glass 照存入當時的設定推出），
+       ② 和 Mirror 等設定只決定每條線「收到的資料」（P.recv）；沒鎖定時完全照 v1.17.5 */
+    if (GL.on && S.glass && pvLod < 0 && P.ok) { var Pc0 = P, Pg0 = pvModelState(S.glass);
+      if (Pg0.ok && Pg0.NG === Pc0.NG && Pg0.period === Pc0.period) { Pg0.recv = {}; Pc0.rows.forEach(function (r) { Pg0.recv[r.k + ':' + r.gi] = r.names; }); Pg0.recvP = Pc0; Pg0.recvShift = glCompareStates(S.glass, S.cur).shift; Pg0.locked = true; P = Pg0; } }
+    var ok = P.ok, NG = P.NG;
     if (P.lod) {
       $('dm-pvtag').textContent = tt('dm.lodTag', { n: P.lod.no }) + ' · ' + GT[P.lod.g];
       $('dm-pvtag').className = 'dm-pvtag auto';
@@ -1270,7 +1484,8 @@
     if (AE && AE.hid && /mux2$/.test((AUTO.HIDDEN[AE.hid] || {}).name || '')) src += '（MUX2 兩時槽 T3／T4 解碼，12 顆各一次已驗證）';
     var note = $('dm-pvnote'), nt = autoMode ? (ok ? tt('dm.autoPv', { n: AE.name, src: src }) : (AE ? tt('dm.autoNoPic', { m: P.m, n: AE.name, why: AE.why || 'model 檔只有 Type 編號、沒有架構圖' }) : tt('dm.autoUnk', { v: hex(P.autoRaw | 0, 2) })))
       : (!ok ? tt('dm.pvTri') : (P.auto ? tt('dm.pvAuto') : ''));
-    if (!autoMode && P.mirror) nt = (nt ? nt + '\n' : '') + tt('dm.pvMirror');
+    if (P.recv) nt = (nt ? nt + '\n' : '') + tt('dm.pvLockedNote');
+    else if (!autoMode && P.mirror) nt = (nt ? nt + '\n' : '') + tt('dm.pvMirror');
     if (!autoMode && P.nbAlt) nt = (nt ? nt + '\n' : '') + tt('dm.pvNbAlt');
     if (autoMode && AE && AE.est) nt += '\n' + AE.est;
     if (autoMode && AE && AUTO.fam(P.m) === 'mnt' && P.m !== 'EM02') nt += '\n' + tt('dm.autoEm02Def', { m: P.m });
@@ -1391,7 +1606,8 @@
         var cv = r.names[p]; if (!cv) continue;
         var t = cv.off ? null : (cv.t !== undefined ? cv.t : pvLin(cv.name));
         var dq = rev ? pvRevIdx(P, p) : p; if (swap) dq = pvSwapIdx(dq);
-        var sq = dq, rc = r.names[dq], rt = rc && !rc.off ? (rc.t !== undefined ? rc.t : pvLin(rc.name)) : null;
+        var srcN = P.recv ? (P.recv[r.k + ':' + r.gi] || []) : r.names;
+        var sq = dq, rc = srcN[dq], rt = rc && !rc.off ? (rc.t !== undefined ? rc.t : pvLin(rc.name)) : null;
         out.push({ k: r.k, gi: r.gi, up: P.NG === 1 || r.gi < P.NG - 1, outer: P.NG === 3 && r.gi === 0, p: p, rep: p >= P.period, src: sq, name: cv.name, off: cv.off, t: t,
           rname: rc && !rc.off ? rc.name : null, rt: rt });
       }
@@ -1498,12 +1714,12 @@
     var spec = pvWiresSpec(P, swap, pvDrvRev), mainMax = Math.max(11, pSub - 1);
     /* v1.17.1（Bruce 10/8）：CH1 在右（整張圖左右翻）時，主循環改畫在最左邊：左邊那組（原 D(n+1)~D(2n)）當主循環、標 Dn+k，
        右邊靠 CH1 那組當重複組、標 Dn、Dn−1…；兩組接法相同（重複組＝主循環平移一個週期），只換亮暗、標號與格內名稱（往回平移一個週期） */
-    var FL = pvFlipNow;
+    var FL = pvFlipNow, GLC = glCompare();
     if (FL) spec.forEach(function (w) { w.rep = w.p < n; });
     var dLab = function (p) { if (!FL) return 'D' + (p + 1); var k = p >= n ? p - n + 1 : p - n + 1; return 'Dn' + (k > 0 ? '+' + k : (k < 0 ? '−' + (-k) : '')); };
     var shownPos = function (s0) { return FL ? s0 - pSub : s0; };
     var dofOf = function (p) { var d0 = pvDrvRev ? pvRevIdx(P, p) : p; if (swap) d0 = pvSwapIdx(d0); return (d0 % n) + 1; };
-    var DX = swap || pvDrvRev;   // 格內寫收到的資料、接線圖標 TCON Data
+    var DX = swap || pvDrvRev || !!P.recv, PR = P.recvP || P, RSH = P.recvShift || 0;   // 格內寫收到的資料、接線圖標 TCON Data
     var G0 = []; for (var i0 = 0; i0 < n; i0++) G0.push(i0 * per);
     var c0 = pvCost(G0, spec, smin, mainMax, n), pl = pvPlace(spec, smin, mainMax, per, n), Gm = pl.G, labs = {};
     var G = Gm.concat(Gm.map(function (g) { return g + pSub; }));
@@ -1594,11 +1810,13 @@
         var tier = s >= 0 && ins.some(function (w) { return !w.rep; }) ? 'main' : (ins.length ? 'rep' : 'dummy');
         /* v1.17.2：SHL 反向時格內寫「這顆實際收到的資料」（同一組內對稱那條線的資料） */
         var dwR = ins.filter(function (w) { return !w.rep; })[0] || ins[0];
-        if (DX && dwR) phys = dwR.rt === null || dwR.rt === undefined ? 'X' : pvName(P.mirror ? pvSpanRev(P, shownPos(dwR.rt)) : shownPos(dwR.rt));
+        var posNm = phys;
+        if (DX && dwR) phys = dwR.rt === null || dwR.rt === undefined ? 'X' : pvName(PR.mirror ? pvSpanRev(PR, shownPos(dwR.rt - RSH)) : shownPos(dwR.rt - RSH));
         /* v1.17.0：格內寫「這顆實際收到的資料」（CHRB＝1 時 R↔B 後的名稱）；沒有 CHRB 時＝位置名稱，畫面和舊版相同 */
         var dn = P.chrb && ins.length ? phys.replace(/^[RB]/, function (x) { return x === 'R' ? 'B' : 'R'; }) : phys, rbx = dn !== phys;
         phys = dn;
-        var tip = (rbx ? tt('dm.pvTipRb', { p: pvName(P.mirror ? pvSpanRev(P, shownPos(s)) : shownPos(s)), d: dn }) : '') + phys + (physCh !== phys.charAt(0) ? tt('dm.pvTipPhys', { c: physCh }) : '') + (ins.length ? tt('dm.pvTipFrom', { s: ins.map(tagOf).join('、') }) : tt('dm.pvTipNone')) + (st === 'conflict' ? tt('dm.pvTipConflict') : '');
+        var lockNe = P.recv && GLC && ins.some(function (w) { return GLC.keys[w.k + ':' + w.gi + ':' + w.p]; });
+        var tip = (lockNe ? tt('dm.pvLockNe', { w: posNm, n: phys }) + '；' : '') + (rbx ? tt('dm.pvTipRb', { p: pvName(P.mirror ? pvSpanRev(P, shownPos(s)) : shownPos(s)), d: dn }) : '') + phys + (physCh !== phys.charAt(0) ? tt('dm.pvTipPhys', { c: physCh }) : '') + (ins.length ? tt('dm.pvTipFrom', { s: ins.map(tagOf).join('、') }) : tt('dm.pvTipNone')) + (st === 'conflict' ? tt('dm.pvTipConflict') : '');
         o2 += '<g data-tip="' + esc(tip) + '"><title>' + esc(tip) + '</title>';
         var fill = tier === 'dummy' ? PV_DUMMY : rgbCss(pc), fo = tier === 'rep' ? .3 : 1;
         o2 += svgEl('rect', { x: bx, y: g.bxY, width: CW, height: CH, rx: 5, fill: fill, 'fill-opacity': fo,
@@ -1607,6 +1825,8 @@
         var ptc = tier === 'main' ? SP.textOn(pc[0], pc[1], pc[2]) : (tier === 'rep' ? (PV_LBL[colorKeyOf(phys)] || '#94a3b8') : '#5b6474');
         o2 += svgEl('text', { x: bx + CW / 2, y: g.bxY + 25, 'text-anchor': 'middle', fill: ptc, 'font-size': tier === 'dummy' ? 10.5 : 12, 'font-weight': tier === 'dummy' ? 600 : 700, opacity: tier === 'rep' ? .8 : 1, 'data-name': 1 }, phys);
         if (ins.length && physCh !== phys.charAt(0)) o2 += svgEl('text', { x: bx + 3, y: g.bxY + 12, fill: '#fde68a', 'font-size': 11, 'font-weight': 800, 'text-anchor': 'start', 'data-misk': 1 }, '≠' + physCh);
+        /* v1.18.0：和面板接線不一致的格子（這格的接線來自 ② 但面板接線不是這樣接）紅框＋「≠面板」 */
+        if (GLC && ins.some(function (w) { return GLC.keys[w.k + ':' + w.gi + ':' + w.p]; })) { o2 += svgEl('rect', { x: bx - 3, y: g.bxY - 3, width: CW + 6, height: CH + 6, rx: 6, fill: 'none', stroke: '#ef4444', 'stroke-width': 2.5, 'stroke-dasharray': '5 3', 'data-glne': 1 }); o2 += svgEl('text', { x: bx + CW / 2, y: g.bxY + CH + 11, 'text-anchor': 'middle', fill: '#fca5a5', 'font-size': 9.5, 'font-weight': 700 }, tt('dm.pvGlNe')); }
         if (st === 'conflict') o2 += svgEl('circle', { cx: bx + CW, cy: g.bxY, r: 7, fill: PV_BAD, 'data-bad': 1 }) + svgEl('text', { x: bx + CW, y: g.bxY + 4, 'text-anchor': 'middle', fill: '#1c0a00', 'font-size': 11, 'font-weight': 800 }, '!');
         o2 += '</g>';
       }
@@ -1920,6 +2140,7 @@
     return tt('dm.rNoMatch');
   }
   function useParsed(r, name, bytes) {
+    if (S.glass && r.model !== S.model) S.glass = null;   // v1.18.0：換型號才清面板接線，同型號保留（匯入已點亮 code 來比對）
     S.model = r.model; S.cur = r.state; S.e503ok = false;
     S.img = {}; imgAddrs().forEach(function (a) { var o = r.fileOf(a); S.img[a] = (o >= 0 && o < bytes.length) ? bytes[o] : 0; });
     S.baseImg = clone(S.img); markSaved(tt('dm.whatImport', { f: name }));
@@ -1933,7 +2154,7 @@
   }
   /* v1.3.0（Bruce 10/7 卡死回報）：回到「這個型號、沒有匯入」的狀態。型號選單、匯入、清除匯入任何時候都不鎖。 */
   function resetToModel(k) {
-    S.model = k; S.cur = DM.emptyState(k); S.img = {}; S.baseImg = null; S.savedImg = null; S.src = { kind: 'none' }; S.isp = null;
+    S.glass = null; S.model = k; S.cur = DM.emptyState(k); S.img = {}; S.baseImg = null; S.savedImg = null; S.src = { kind: 'none' }; S.isp = null;
     S.ro = null; S.last = ''; S.e503ok = false; S.raw = null; S.rawName = ''; resetX();
   }
   function clearImport() {
@@ -2162,7 +2383,7 @@
     });
   }
   window._onLangChange = function () { buildModelSelect(); buildLod(); render(); };
-  buildModelSelect(); buildGate(); buildGrid(); buildLod(); bind(); render();
+  buildModelSelect(); buildGate(); buildGrid(); buildLod(); bind(); bindGlass(); render();
 })();
 </script>
 </body>
