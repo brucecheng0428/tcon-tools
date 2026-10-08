@@ -13,7 +13,8 @@
 const path = require('path'), fs = require('fs');
 const SEM = process.argv.includes('--sem');   // v1.18.15：表頭兩列上下對調（TCON Out 上、SD Out 下）⇒ y 不同，改語意比對（隱含 --norm）
 const NORM = SEM || process.argv.includes('--norm');
-const [BASE, NEW, KT, SK] = process.argv.slice(2).filter(x => x !== '--norm' && x !== '--sem').map((x, i) => i < 2 ? path.resolve(x) : x);
+const LEGACY = process.argv.includes('--legacy');   // v1.18.24：新版切回 v1.17.5 幾何（dmPvGeom(0,0)）後逐項比對；新幾何另由 check_datamap_svg_rep.js 驗證
+const [BASE, NEW, KT, SK] = process.argv.slice(2).filter(x => !/^--/.test(x)).map((x, i) => i < 2 ? path.resolve(x) : x);
 function normSvg(T) {
   const c = T.cloneNode(true);
   const dof = Array.from(c.querySelectorAll('text[data-dof]')).map(e => [e.getAttribute('x'), SEM ? '' : e.getAttribute('y'), e.getAttribute('data-dof'), e.getAttribute('transform') || '', Array.from(e.childNodes).filter(n => n.nodeType === 3).map(n => n.textContent).join(''),
@@ -40,6 +41,7 @@ async function run(ROOT) {
   const dom = await JSDOM.fromFile(path.join(ROOT, 'datamap.html'), { runScripts: 'dangerously', resources: 'usable', pretendToBeVisual: true, beforeParse(w) { w.WebSocket = function () { throw 1; }; } });
   await new Promise(r => dom.window.addEventListener('load', r));
   const w = dom.window, d = w.document, DM = w.DM || w.DMCore || null, out = {};
+  if (LEGACY && w.dmPvGeom) w.dmPvGeom(0, 0);
   const $ = id => d.getElementById(id);
   const fire = (el, v) => { if (el.type === 'checkbox') el.checked = v; else el.value = v; el.dispatchEvent(new w.Event('change')); };
   const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -66,5 +68,5 @@ async function run(ROOT) {
   const a = await run(BASE), b = await run(NEW); let same = 0, diff = 0;
   for (const k in a) { if (a[k] === b[k]) same++; else { diff++; if (diff <= 5) { let i = 0; while (a[k][i] === b[k][i]) i++; console.log('DIFF', k, '@' + i, '\n  old:', a[k].slice(Math.max(0, i - 80), i + 120), '\n  new:', b[k].slice(Math.max(0, i - 80), i + 120)); } } }
   const mirCases = Object.keys(a).filter(k => / M1 /.test(k)).length, rCases = Object.keys(a).filter(k => / M\d r/.test(k)).length;
-  console.log((diff ? '✗ ' : '✓ ') + 'SVGCMP' + (SEM ? '(sem)' : NORM ? '(norm)' : ''), same, 'SAME /', diff, 'DIFF of', Object.keys(a).length, '(Mirror=1 cases', mirCases, ', CH1 right cases', rCases, ')'); process.exit(diff ? 1 : 0);
+  console.log((diff ? '✗ ' : '✓ ') + 'SVGCMP' + (SEM ? '(sem)' : NORM ? '(norm)' : '') + (LEGACY ? '(legacy geom)' : ''), same, 'SAME /', diff, 'DIFF of', Object.keys(a).length, '(Mirror=1 cases', mirCases, ', CH1 right cases', rCases, ')'); process.exit(diff ? 1 : 0);
 })();

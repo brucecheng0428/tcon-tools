@@ -22,6 +22,7 @@ const ok = (c, m) => { if (c) pass++; else { fail++; console.log('  ✗ ' + m); 
   const dom = await JSDOM.fromFile(path.join(ROOT, 'datamap.html'), { runScripts: 'dangerously', resources: 'usable', pretendToBeVisual: true, virtualConsole: vc,
     beforeParse(w) { w.WebSocket = function () { throw new Error('no ws'); }; } });
   await new Promise(r => dom.window.addEventListener('load', r));
+  if (dom.window.dmPvGeom) dom.window.dmPvGeom(0, 0);   // v1.18.24：這支測的是 v1.17.5 畫法（每列 2×週期條線、不垂直重複）；新幾何見 check_datamap_svg_rep.js
   const w = dom.window, d = w.document, $ = id => d.getElementById(id);
   const fire = (el, v) => { if (v !== undefined) { if (el.type === 'checkbox') el.checked = v; else el.value = v; } el.dispatchEvent(new w.Event('change')); };
   const Q = s => d.querySelector('#dm-pv-tft ' + s), QA = s => Array.from(d.querySelectorAll('#dm-pv-tft ' + s));
