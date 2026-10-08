@@ -1,5 +1,6 @@
 // 用法：node tools/check_datamap_tcon_gate.js <repo> <EM01 code.bin>
 // v1.18.11（Bruce 10/8）：讀寫 T-CON 要本次連線 Check T-CON 成功且型號＝目前型號；④ 移除 Write／Load，只剩匯出 script
+// v1.18.14（Bruce 10/8）：TCON Out 紫／SD Out 藍（共用色票）＋ ③ 點擊跳到 ② 表格／Source Driver 設定
 // v1.18.13（Bruce 10/8）：TCON Register 確認卡（獨立卡、列全部、預設展開）
 // v1.18.12（Bruce 10/8）：離線（匯入 code／Excel）與線上（I2C）互斥；頂端顯示模式
 // mock I2C Bridge（假的 WebSocket）跑：
@@ -138,6 +139,32 @@ const connect = async a => { a.$('dm-link').click(); await wait(() => a.w.dmStat
     const aa = +inp.getAttribute('data-a'), nv = ((w.dmState.img[aa] | 0) ^ 0x01) & 0xFF;
     inp.dispatchEvent(new w.Event('focus')); inp.value = nv.toString(16).padStart(2, '0'); inp.dispatchEvent(new w.Event('blur')); await sleep(80);
     ok((w.dmState.img[aa] | 0) === nv && $('dm-code').querySelector('tr[data-a="' + aa + '"]').classList.contains('chg'), '直接改 Byte（0x' + aa.toString(16) + '）⇒ 寫進頁面值並標色');
+  }
+
+  console.log('TCON Out／SD Out 配色與點擊跳轉（v1.18.14）');
+  { const a = await open(); const { $, d, w } = a;
+    const scrolled = []; w.Element.prototype.scrollIntoView = function () { scrolled.push(this.id || this.className); };
+    if (CODE) { w.dmImportBytes(new Uint8Array(fs.readFileSync(CODE)), path.basename(CODE)); await sleep(80); }
+    const css = d.querySelector('style').textContent;
+    ok(/--dm-tcon-out: #c084fc/.test(css) && /--dm-sd-out: #7dd3fc/.test(css), '共用色票 --dm-tcon-out（紫）／--dm-sd-out（藍）');
+    ok($('dm-gridbox').classList.contains('dm-tcoframe') && $('dm-drv-sec').classList.contains('dm-sdframe'), '② 表格外框＝紫；Source Driver 設定區外框＝藍');
+    const T = $('dm-pv-tft'), Q = sel => T.querySelector(sel), QA = sel => Array.from(T.querySelectorAll(sel));
+    ok(QA('text[data-dof]').length > 0 && QA('text[data-dof]').every(e => /dm-tco/.test(e.getAttribute('class')) && e.getAttribute('data-jump') === 'tc' && e.getAttribute('tabindex') === '0') && !QA('[data-rep] text[data-dof]').length,
+      'TCON Out 每欄文字：紫色 class、可點、可 Tab；前後循環不在 45% 暗組內（改 60%：' + QA('text[data-dof][opacity="0.6"]').length + ' 個）');
+    ok(QA('text[data-dlab]').every(e => /dm-sdo/.test(e.getAttribute('class')) && e.getAttribute('data-jump') === 'sd'), 'SD Out 每欄 D 標號：藍色 class、可點');
+    const click = el => el.dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+    scrolled.length = 0; click(Q('[data-rowhead="sd"] text')); ok(scrolled[0] === 'dm-drv-sec' && w.dmState.lastJump.kind === 'sd', '點 SD Out 標題 ⇒ 捲到 Source Driver 設定');
+    scrolled.length = 0; click(Q('text[data-dlab]')); ok(scrolled[0] === 'dm-drv-sec' && $('dm-drv-sec').classList.contains('dm-flash'), '點 D 標號 ⇒ 捲到 Source Driver 設定，外框閃一下');
+    scrolled.length = 0; click(Q('[data-rowhead="tc"] text')); ok(scrolled[0] === 'dm-gridbox' && w.dmState.lastJump.kind === 'tc', '點 TCON Out 標題 ⇒ 捲到 ② Data Mapping 表格');
+    const t5 = QA('text[data-dof]').find(e => e.getAttribute('data-dof') === '5') || QA('text[data-dof]')[0], k5 = +t5.getAttribute('data-dof'), col = ((k5 - 1) % 6) + 1;
+    scrolled.length = 0; click(t5);
+    ok(scrolled[0] === 'dm-gridbox' && w.dmState.lastJump.col === col && $('dm-grid').rows[0].cells[col].classList.contains('dm-flashcol') && $('dm-grid').rows[1].cells[col].classList.contains('dm-flashcol'), '點 Data ' + k5 + ' ⇒ 捲到 ② 表格，Data ' + col + ' 欄高亮');
+    scrolled.length = 0; Q('[data-rowhead="tc"]').dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); ok(scrolled[0] === 'dm-gridbox', '鍵盤 Enter 也能跳');
+    scrolled.length = 0; click(d.querySelector('#card-dm [data-jump="pvtc"]')); click(d.querySelector('#dm-drv-sec [data-jump="pvsd"]')); ok(scrolled.join(',') === 'dm-pv-tfth,dm-pv-tfth', '② 與 Source Driver 區的短標籤可跳回 ③ 接線圖');
+    const wr = $('dm-pv-wrap'); scrolled.length = 0;
+    wr.dispatchEvent(new w.MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 100 })); w.dispatchEvent(new w.MouseEvent('mousemove', { clientX: 140 })); w.dispatchEvent(new w.MouseEvent('mouseup', {}));
+    click(t5); ok(scrolled.length === 0, '拖曳接線圖（位移 40px）後放開：不觸發跳轉');
+    click(t5); ok(scrolled.length === 1, '拖曳結束後再點一次：正常跳轉');
   }
   console.log((fail ? '✗ ' : '✓ ') + 'check_datamap_tcon_gate ' + pass + ' pass / ' + fail + ' fail');
   process.exit(fail ? 1 : 0);
