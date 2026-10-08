@@ -2,6 +2,53 @@
 
 ---
 
+## Data Mapping (datamap) v1.18.6 — 2026-10-08 ｜ PATCH
+
+**接線鎖定後，Driver 區、面板區與型號都停用（灰底＋「🔒 已鎖定，解鎖後才能改」），只能改 TCON 設定（② 全部）。**
+
+判定依據：`docs/VERSIONING.md` §R3：只在鎖定狀態下限制可改的欄位；未鎖定畫面、② 與匯出不變，版號 PATCH。
+
+### 需求（Bruce 2026-10-08）
+
+> 「鎖定此架構」按下去以後，應該是 Driver 那邊的設定跟面板那邊的設定都不能再變更了，只能動 T-CON 的設定。
+
+### 分類（原則：實體接線＝鎖、TCON 暫存器＝可改）
+
+- **鎖（Driver）**：Source Driver 輸出對調、Driver CH1 位置、Driver 輸出方向（SHL）。
+- **鎖（面板／實體架構）**：
+  - 子像素排列。
+  - T-CON 型號（換型號＝換整套架構，要先解鎖）。
+  - ③ 的「測試：Line OD Type」：它是預覽來源；選了以後就不畫鎖定接線，所以跟著鎖。
+  - ③ 的「套用建議」按鈕：它會改 Driver／面板設定。
+- **可改（TCON）**：Hand Mode Enable、Gate Type、RT7 Type Select／Auto Type、Mirror（含反轉單位）、CHRB、CHWB、FORCE_DE_EN／SEL、T 表、READ_RVS、force_sel 表格、All Same Pixel、Excel 匯入匯出、匯入 code、清除匯入。
+- **邊界**：
+  - Gate Type 是 TCON 暫存器（panel_mode／rd_mode），照原則可改。改到和鎖定架構的 gate 數或週期不同時，③ 會顯示「⚠ 目前 TCON 的 Gate 類型／週期和鎖定的架構不同，無法套用鎖定接線」，暫時照目前設定畫。
+  - 「輸出 swap」：網頁唯一的輸出對調是 Source Driver 輸出對調，屬於 Driver，所以鎖。
+
+### 鎖定中的匯入、換型號
+
+- 匯入同型號的 code：只改 TCON 值，鎖定和 Driver／面板設定都保留。v1.18.1 起原本是自動解鎖，現在改了。
+- 匯入不同型號的 code（實體架構改變）：自動解鎖，並提示。
+- 清除匯入：TCON 值回預設，鎖定和 Driver／面板設定保留。
+- 換型號：選單停用；強行觸發也會被擋下並提示「解除鎖定後才能改」。
+
+### 其他
+
+- Dispatch 提到 E2 截圖裡 SHL 的 ⓘ 白框：那是我截圖時插進頁面、用來展示提示文字的示意框，不是頁面版面。實際頁面的 ⓘ 是滑鼠移上去的原生提示，版面正常（附圖 F3）。
+
+### 驗證
+
+- check_datamap_kickoff 73/0，新增：
+  - 鎖定後 6 個實體欄位停用、TCON 欄位可改、鎖頭標示。
+  - 強行改 CH1／子像素／型號會被擋下。
+  - 鎖定中匯入同型號 code、清除匯入，鎖定和設定都保留。
+  - 解鎖後恢復可改。
+- 未鎖定時：tools/check_datamap_svg_vs_tag.js 96 組和 datamap-v1.17.5 逐字相同；匯出 script 7 組相同。
+- auto 104/0、core 282/0、preview 46/0（EM02 61/0）、lod 196/0。
+- cache buster 20261008dm1186。
+
+---
+
 ## Data Mapping (datamap) v1.18.5 — 2026-10-08 ｜ PATCH
 
 **修正兩個問題：(1) Auto Mode（Hand 關）按接線鎖定後 ③ 變灰；(2) Driver 輸出方向和 code 脫鉤，預設一律正向（CH1→CHn），只由使用者手動改。**
