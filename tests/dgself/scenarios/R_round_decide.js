@@ -9,8 +9,9 @@
    __rCase：PC／TCON／NOMODE（行為）、SHOT-DECIDE／SHOT-VIEW／SHOT-NEXT（停在要截圖的畫面）。 */
 (async function () {
   try {
-    await __wait(1500);
+    await __boot(1500);
     var C = window.__rCase || 'PC';
+    /* 2026-10-09 去偶發：計算、捲動、量測頁訊息帶入之後，改成等畫面狀態到位（含逾時），不固定等 N ms。 */
     window.postMessage = function () {};
     function send(d) {
       window.dispatchEvent(new MessageEvent('message', { data: d, origin: window.location.origin, source: window }));
@@ -45,11 +46,11 @@
     dgFillDefault();
     await __wait(50);
     dgDoCalc();
-    await __wait(100);
+    await __until(function () { return !!lastLut && (byFile ? vis('dg-btn-lutfile') : confStep() === 'ask'); });
     __ok('R0 round 1 has a result', !!lastLut, dgMissingParts().join(','));
     if (byFile) {
       __ok('R0 file mode: no question yet, output is the step', confStep() === null && vis('dg-btn-lutfile'), confStep());
-      takeLut(); await __wait(50);
+      takeLut(); await __until(function () { return confStep() === 'ask'; });
     }
     __ok('R0 round 1 still asks "confirm?" (with 先不確認)', confStep() === 'ask' && vis('dg-btn-conf-no'), confStep());
     $('dg-btn-conf-no').click();
@@ -59,7 +60,7 @@
     // ② 確認量測帶入第 4 部分 ⇒ 一輪結束的那一步
     DG_LIVE_TASKS[32] = 'conf'; DG_LIVE_TASK_KIND[32] = mode || 'pc';
     send({ type: 'dg-measure-result', mode: 'gray', task: 32, rows: rows(0.95), prim: prim, at: 'r2', cmpAsk: true });
-    await __wait(100);
+    await __until(function () { return vis('dg-conf-decide') && vis('dg-btn-view-result') && vis('dg-btn-next-round'); });
     var box = $('dg-conf-decide');
     var bv = $('dg-btn-view-result'), bn = $('dg-btn-next-round');
     __ok('R1 decide box shown with both buttons side by side', vis('dg-conf-decide') && vis('dg-btn-view-result') && vis('dg-btn-next-round')
@@ -81,15 +82,27 @@
 
     // ③ 查看目前結果：只導覽
     var p4 = DG_P4, lut = lastLut, nSlots = DG_SLOTS.length, inLut = $('dg-in-lut').value, inGray = $('dg-in-gray').value;
+    // 失敗時要看得出是誰捲走的：記下這之後所有程式捲動（只記錄，照常執行）
+    var scrollLog = [], sT0 = Date.now(), oST = window.scrollTo, oSIV = Element.prototype.scrollIntoView;
+    window.scrollTo = function (a, b) { scrollLog.push((Date.now() - sT0) + 'ms to ' + (typeof a === 'object' ? JSON.stringify(a) : a + ',' + b)); return oST.apply(window, arguments); };
+    Element.prototype.scrollIntoView = function (o) { scrollLog.push((Date.now() - sT0) + 'ms into #' + (this.id || this.className)); return oSIV.call(this, o); };
+    var lastSY = -1, onSc = function () { var y = Math.round(window.scrollY); if (Math.abs(y - lastSY) > 300 || y < 100) scrollLog.push((Date.now() - sT0) + 'ms y=' + y); lastSY = y; };
+    window.addEventListener('scroll', onSc);
     window.scrollTo(0, document.body.scrollHeight);
-    await __wait(100);
+    await __still();
+    scrollLog.push((Date.now() - sT0) + 'ms click view');
     bv.click();
-    await __wait(700);
+    // 等結果卡捲進來、捲動停下來才量位置（原本固定等 0.7 秒）
+    await __until(function () { var q = $('dg-card-result').getBoundingClientRect(); return vis('dg-view-note') && q.top > -120 && q.top < window.innerHeight - 120; }, 8000);
+    await __still();
     __ok('R2 view: nothing changed (round, parts 1-4, result, comparison)', DG_ROUND === 1 && DG_P4 === p4 && lastLut === lut
       && DG_SLOTS.length === nSlots && $('dg-in-lut').value === inLut && $('dg-in-gray').value === inGray);
     __ok('R2 view: no modal opened', confStep() === null);
     var rc = $('dg-card-result').getBoundingClientRect();
-    __ok('R2 view: scrolled to the result card', rc.top > -120 && rc.top < window.innerHeight - 120, Math.round(rc.top));
+    var inView = rc.top > -120 && rc.top < window.innerHeight - 120;
+    __ok('R2 view: scrolled to the result card', inView,
+      Math.round(rc.top) + (inView ? '' : ' scrollY=' + Math.round(window.scrollY) + ' log=' + scrollLog.join(' | ')));
+    window.scrollTo = oST; Element.prototype.scrollIntoView = oSIV; window.removeEventListener('scroll', onSc);
     var vn = $('dg-view-note');
     __ok('R2 view note: 停在第一輪 + where to go next', vis('dg-view-note') && vn.textContent.indexOf('停在第一輪') === 0
       && vn.textContent.indexOf('下載新產出 RGB LUT 檔') >= 0 && vn.textContent.indexOf('光學資料比較') >= 0
@@ -108,18 +121,18 @@
     // ④ 換一份確認量測 ⇒「停在第一輪」收掉（它講的是上一份）
     DG_LIVE_TASKS[33] = 'conf'; DG_LIVE_TASK_KIND[33] = mode || 'pc';
     send({ type: 'dg-measure-result', mode: 'gray', task: 33, rows: rows(0.93), prim: prim, at: 'r3', cmpAsk: true });
-    await __wait(100);
+    await __until(function () { return DG_P4 !== p4 && !vis('dg-view-note'); });
     __ok('R3 new confirmation replaces the old ⇒ view note hidden', DG_P4 !== p4 && !vis('dg-view-note'));
     bv.click(); await __wait(50);
     __ok('R3 view again shows it for this one', vis('dg-view-note'));
 
     // ⑤ 之後仍然可以進行下一輪；第 2 輪算完不再問「要不要確認」
     bn.click();
-    await __wait(700);
+    await __until(function () { return DG_ROUND === 2 && !!lastLut && (byFile ? vis('dg-btn-lutfile') : confStep() !== null); });
     __ok('R4 next round started (round 2)', DG_ROUND === 2 && !!lastLut, DG_ROUND);
     if (byFile) {
       __ok('R4 file mode: round 2 stops at the output first (no modal)', confStep() === null && vis('dg-btn-lutfile'), confStep());
-      takeLut(); await __wait(50);
+      takeLut(); await __until(function () { return confStep() !== null; });
     }
     var want = mode === 'tcon' ? 'push' : mode === 'pc' ? 'path' : 'wpick';
     __ok('R4 round 2: no "confirm?" layer, straight to ' + want, confStep() === want, confStep());
@@ -132,7 +145,7 @@
     __ok('R5 closing the modal is still possible', confStep() === null);
     DG_LIVE_TASKS[34] = 'conf'; DG_LIVE_TASK_KIND[34] = mode || 'pc';
     send({ type: 'dg-measure-result', mode: 'gray', task: 34, rows: rows(0.97), prim: prim, at: 'r4', cmpAsk: true });
-    await __wait(100);
+    await __until(function () { return vis('dg-btn-view-result') && bn.textContent === '進行第三輪'; });
     __ok('R5 round 2 end: same two buttons, next says 進行第三輪', vis('dg-btn-view-result') && bn.textContent === '進行第三輪', bn.textContent);
     bv.click(); await __wait(50);
     __ok('R5 view note says 停在第二輪', ($('dg-view-note').textContent || '').indexOf('停在第二輪') === 0);

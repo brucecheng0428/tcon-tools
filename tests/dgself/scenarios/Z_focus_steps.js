@@ -24,7 +24,7 @@
   try {
     window.__lutFill = true;
     if (C === 'EN') applyLang('en');
-    await __wait(500); await __arm(); await __wait(300);
+    await __boot(500); await __arm(); await __settle();
 
     if (C === 'NODG') {
       __ok('Z-NODG no focus mode', !__cls('dst-steps-card', 'dst-focus'));
@@ -35,7 +35,8 @@
     __ok('Z0 focus mode on (from DG)', __cls('dst-steps-card', 'dst-focus'));
 
     if (C === 'R2') {
-      await dstDgAutoThenStep1('connect'); await __wait(3000);
+      await dstDgAutoThenStep1('connect');
+      await __untilIdle(function () { return !!dstStepDone.lut && __cls('dst-group23', 'dst-fs-cur') && __vis('dst-go-gray') && __vis('dst-fs-line-lut'); });
       __ok('Z-R2 ① done automatically (sent to DG part 1)', !!dstStepDone.lut, JSON.stringify(dstStepDone));
       __ok('Z-R2 starts at ②③: ② box is current, its button visible', __cls('dst-group23', 'dst-fs-cur') && __vis('dst-go-gray'));
       __ok('Z-R2 ① shown as a pale done line only', __vis('dst-fs-line-lut') && tx('dst-fs-line-lut') === '✓ ① 讀回目前的 RGB LUT' && !__vis('dst-go-lut'), tx('dst-fs-line-lut'));
@@ -65,7 +66,8 @@
     }
 
     // ── 做完 ① ──
-    await dstStepLut(); await __wait(500);
+    await dstStepLut();
+    await __untilIdle(function () { return !!dstStepDone.lut && __cls('dst-box-lut', 'tc-step-done') && __cls('dst-group23', 'dst-fs-cur') && __vis('dst-go-gray'); });
     __ok('Z2 ① done (sent to DG)', !!dstStepDone.lut);
     __ok('Z2 ① collapsed to a pale "✓ ①" line', __cls('dst-box-lut', 'tc-step-done') && __vis('dst-fs-line-lut') && !__vis('dst-go-lut')
       && (C === 'EN' ? tx('dst-fs-line-lut') === '✓ ' + I18N['dst.stepLut'].en : tx('dst-fs-line-lut') === '✓ ① 讀回目前的 RGB LUT')
@@ -80,8 +82,14 @@
     __ok('Z3 click again ⇒ collapsed again', __cls('dst-box-lut', 'tc-step-done') && !__vis('dst-go-lut'));
 
     // ── 量完 ──
-    await dstRun(); await __wait(200);
-    if (document.getElementById('dst-modal-cmp').classList.contains('open')) { document.getElementById('dst-cmp-cancel').click(); await __wait(1200); }
+    await dstRun();
+    // 2026-10-09 去偶發：等「加入比較」視窗真的開了再按「不加入」，再等 ④ 與資料卡都到位、捲動停下來才量（原本固定 0.2＋1.2 秒）
+    await __until(function () { return document.getElementById('dst-modal-cmp').classList.contains('open') && dstCmpPhase !== 'ask'; }, 5000);
+    if (document.getElementById('dst-modal-cmp').classList.contains('open')) { document.getElementById('dst-cmp-cancel').click(); }
+    await __untilIdle(function () { return __cls('dst-group23', 'tc-step-done') && __cls('dst-box-back', 'dst-fs-hot') && folded().length === 0 && __vis('dst-res-wrap')
+      && (C !== 'CONF' || (__vis('dst-dec') && document.getElementById('dst-box-back').getBoundingClientRect().top >= 0
+        && document.getElementById('dst-dec').getBoundingClientRect().bottom <= window.innerHeight)); });
+    await __still();
     __ok('Z4 ②③ collapsed to a done line', __cls('dst-group23', 'tc-step-done') && __vis('dst-fs-line-g23') && tx('dst-fs-line-g23').indexOf('✓ ') === 0, tx('dst-fs-line-g23'));
     __ok('Z4 ④ shown in full and highlighted (current)', __cls('dst-box-back', 'dst-fs-hot') && __vis('dst-back-warn') && __vis('dst-cmp-row'));
     __ok('Z4 data cards opened automatically once the flow is done', folded().length === 0 && __vis('dst-res-wrap'), folded().join(','));

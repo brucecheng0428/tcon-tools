@@ -14,7 +14,11 @@
 (async function () {
   try {
     var C = window.__cmpCase || 'A';
-    await __wait(800);
+    await __boot(800);
+    /* 2026-10-09 去偶發：假 DG 40ms 後才回覆；原本固定等 150ms 再看結果，CI 卡頓時還沒回就判斷。
+       改成等頁面自己的狀態：replied() ＝ 查詢有回覆（dstCmpPhase 離開 ask）；added() ＝ 加入有回覆（phase＝done）。 */
+    async function replied() { await __until(function () { return dstCmpPhase !== 'ask'; }); }
+    async function added() { await __until(function () { return dstCmpPhase === 'done'; }); }
     if (C === 'EN') applyLang('en');
     if (C === 'CN') applyLang('zh-CN');
     var sent = [], dg = { count: (C === 'FULL') ? 10 : 2, reply: (C !== 'C'), adds: [] };
@@ -81,17 +85,18 @@
     __ok('M1 only OK is solid blue while open (page yields)', bl.length === 1 && bl[0] === 'dst-cmp-ok', bl.join(','));
     __ok('M1 CTA breathing paused while open', getComputedStyle(document.getElementById('dst-back-warn')).animationName === 'none'
       || !document.getElementById('dst-back-warn').classList.contains('dst-back-cta'), getComputedStyle(document.getElementById('dst-back-warn')).animationName);
-    await __wait(150);
+    if (C !== 'C') await replied();
 
     if (C === 'C') {
-      await __wait(1500);
+      // DG 不回 ⇒ 頁面 1.5 秒後自己放棄查詢；等到那一行出現（上限 8 秒）
+      await __until(function () { return tx('dst-cmp-count') === '無法取得目前的筆數，按「確定」仍會送出。'; }, 8000);
       __ok('M-C unknown count text', tx('dst-cmp-count') === '無法取得目前的筆數，按「確定」仍會送出。', tx('dst-cmp-count'));
       __ok('M-C list hidden', __cls('dst-cmp-list', 'dst-hidden'));
       document.getElementById('dst-cmp-ok').click();
       var add = sent.filter(function (m) { return m.type === 'dg-cmp-add'; });
       __ok('M-C OK still sends', add.length === 1 && add[0].rows && add[0].rows.length === R.rows.length && add[0].job === 'main', add.length);
       __ok('M-C sending state', tx('dst-cmp-ok') === '送出中…' && __dis('dst-cmp-ok'));
-      await __wait(2200);
+      await __until(function () { return tx('dst-cmp-res').indexOf('沒有收到 DG 的回覆') >= 0; }, 10000);   // 頁面 2 秒沒回覆才放棄
       __ok('M-C no reply reported honestly', tx('dst-cmp-res').indexOf('沒有收到 DG 的回覆') >= 0 && __cls('dst-cmp-res', 'err'), tx('dst-cmp-res'));
       __ok('M-C close button', tx('dst-cmp-ok') === '關閉');
       document.getElementById('dst-cmp-ok').click();
@@ -109,8 +114,8 @@
       document.getElementById('dst-cmp-cancel').click();
       __ok('M-EN declined (round 1): no button, state + add link', btnGone()
         && tx('dst-cmp-state') === 'This round was not added to the comparison.Add to comparison', tx('dst-cmp-state'));
-      document.getElementById('dst-cmp-addlink').click(); await __wait(150);
-      document.getElementById('dst-cmp-ok').click(); await __wait(150);
+      document.getElementById('dst-cmp-addlink').click(); await replied();
+      document.getElementById('dst-cmp-ok').click(); await added();
       __ok('M-EN added', tx('dst-cmp-res') === 'Added. 3 set(s) now.', tx('dst-cmp-res'));
       __ok('M-EN count + list summary updated', tx('dst-cmp-count') === '"Optical data comparison" has 3 set(s) now (max 10).' && tx('dst-cmp-list-sum') === 'Show all 3', tx('dst-cmp-count') + '|' + tx('dst-cmp-list-sum'));
       document.getElementById('dst-cmp-ok').click();
@@ -126,8 +131,8 @@
       await __wait(150);
       document.getElementById('dst-cmp-cancel').click();
       __ok('M-CN declined (round 1): no button, state + add link', btnGone() && tx('dst-cmp-state') === '这一轮没有加入比较。加入比较', tx('dst-cmp-state'));
-      document.getElementById('dst-cmp-addlink').click(); await __wait(150);
-      document.getElementById('dst-cmp-ok').click(); await __wait(150);
+      document.getElementById('dst-cmp-addlink').click(); await replied();
+      document.getElementById('dst-cmp-ok').click(); await added();
       document.getElementById('dst-cmp-ok').click();
       __ok('M-CN added (round 1): no button, "已加入比较 ✓ · 查看比较"', btnGone() && tx('dst-cmp-state') === '已加入比较 ✓ ·查看比较', tx('dst-cmp-state'));
       __done(); return;
@@ -143,7 +148,7 @@
     if (C === 'FULL') {
       __ok('M-FULL warn', tx('dst-cmp-warn') === '已滿 10 筆，按「確定」也加不進去；請先到 DG 的「光學資料比較」刪掉一筆。', tx('dst-cmp-warn'));
       __ok('M-FULL name prefilled', nm.value === '第二輪確認', nm.value);
-      document.getElementById('dst-cmp-ok').click(); await __wait(150);
+      document.getElementById('dst-cmp-ok').click(); await added();
       var a2 = sent.filter(function (m) { return m.type === 'dg-cmp-add'; });
       __ok('M-FULL add sent with job conf', a2.length === 1 && a2[0].job === 'conf');
       __ok('M-FULL shows DG reason', tx('dst-cmp-res') === '沒有加入：光學量測組已滿 10 組，沒有加入。' && __cls('dst-cmp-res', 'err'), tx('dst-cmp-res'));
@@ -154,7 +159,7 @@
     if (C === 'SAME') {
       __ok('M-SAME warn', tx('dst-cmp-warn') === '這一份與第 1 筆（組1）逐值相同，按「確定」只會更新名稱。', tx('dst-cmp-warn'));
       nm.value = '改過的名字'; nm.dispatchEvent(new Event('input'));
-      document.getElementById('dst-cmp-ok').click(); await __wait(150);
+      document.getElementById('dst-cmp-ok').click(); await added();
       var a3 = sent.filter(function (m) { return m.type === 'dg-cmp-add'; })[0] || {};
       __ok('M-SAME sends edited name', a3.name === '改過的名字' && a3.edited === true);
       __ok('M-SAME updated text', tx('dst-cmp-res') === '已更新第 1 筆（改過的名字），目前共 2 筆。', tx('dst-cmp-res'));
@@ -175,10 +180,10 @@
       var nq = sent.filter(function (m) { return m.type === 'dg-cmp-query'; }).length;
       document.getElementById('dst-cmp-addlink').click();
       __ok('M-B reopen asks DG again', open() && sent.filter(function (m) { return m.type === 'dg-cmp-query'; }).length === nq + 1);
-      await __wait(150);
+      await replied();
       nm.value = '  我的第一輪 '; nm.dispatchEvent(new Event('input'));
       nm.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-      await __wait(150);
+      await added();
       var a1 = sent.filter(function (m) { return m.type === 'dg-cmp-add'; });
       __ok('M-B Enter sends edited name (trimmed)', a1.length === 1 && a1[0].name === '我的第一輪' && a1[0].edited === true, a1[0] && a1[0].name);
       __ok('M-B added', tx('dst-cmp-res') === '已加入，目前共 3 筆。', tx('dst-cmp-res'));
@@ -193,7 +198,7 @@
 
     // A
     document.getElementById('dst-cmp-ok').click();
-    await __wait(150);
+    await added();
     var add = sent.filter(function (m) { return m.type === 'dg-cmp-add'; });
     __ok('M3 one add, default name not marked edited', add.length === 1 && add[0].name === '第一輪' && add[0].edited === false);
     __ok('M3 add carries the round data (fallback for a reloaded DG)', add[0] && add[0].rows.length === R.rows.length && add[0].task === R.task

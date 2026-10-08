@@ -35,22 +35,24 @@
   try {
     window.__lutFill = true;
     if (C === 'EN') applyLang('en');
-    await __wait(500); await __arm(); await __wait(300);
+    await __boot(500); await __arm(); await __settle();
+    /* 2026-10-09 去偶發：讀 LUT／切 DG_EN／匯出都改成等頁面狀態到位（含逾時），不固定等 N ms。 */
+    function haveTable() { return !__busy() && !!dstLut && (C === 'OFF' ? dstLut.src === 'ident' : dstLut.src === 'tcon') && __dis('dst-lut-xlsx') === false; }
     __ok('X0 export disabled before any table', __dis('dst-lut-xlsx') === true);
     __ok('X0 export is an outline button (no .pri / .dst-main)', !__cls('dst-lut-xlsx', 'pri') && !__cls('dst-lut-xlsx', 'dst-main') && getComputedStyle(document.getElementById('dst-lut-xlsx')).backgroundColor !== __BLUE);
     if (C === 'EN') __ok('X-EN button text', tx('dst-lut-xlsx') === 'Export Excel', tx('dst-lut-xlsx'));
     else __ok('X0 button text', tx('dst-lut-xlsx') === '匯出 Excel', tx('dst-lut-xlsx'));
     __ok('X0 button sits next to read', document.getElementById('dst-lut-xlsx').parentNode === document.getElementById('dst-lut-read').parentNode);
 
-    if (C === 'OFF') { __clickSw('off'); await __wait(1500); }
-    document.getElementById('dst-lut-read').click(); await __wait(2500);
+    if (C === 'OFF') { __clickSw('off'); await __untilIdle(function () { return dstDg.state === 'off'; }); }
+    document.getElementById('dst-lut-read').click(); await __until(haveTable, 20000);
     __ok('X1 table on card', !!dstLut && (C === 'OFF' ? dstLut.src === 'ident' : dstLut.src === 'tcon'), dstLut ? dstLut.src : JSON.stringify(dstLutErr));
     __ok('X1 export enabled once a table is shown', __dis('dst-lut-xlsx') === false);
 
     if (C === 'ALT') {
       dstAltIdx = 0;   // EM02A1 撞號的另一顆
       var alt = dstIc.alts[0].name;
-      document.getElementById('dst-lut-xlsx').click(); await __wait(300);
+      document.getElementById('dst-lut-xlsx').click(); await __until(function () { return /沒有確認過/.test(tx('dst-say-lutx') || ''); }, 5000); await __wait(300);
       __ok('X-ALT no download', dl.length === 0, JSON.stringify(dl));
       __ok('X-ALT says no verified format for ' + alt, new RegExp(alt).test(tx('dst-say-lutx')) && /沒有確認過/.test(tx('dst-say-lutx')), tx('dst-say-lutx'));
       __ok('X-ALT no ask modal', !__cls('dst-modal-ask', 'open'));
@@ -58,7 +60,9 @@
     }
 
     var ask0 = __cls('dst-modal-ask', 'open');
-    document.getElementById('dst-lut-xlsx').click(); await __wait(300);
+    document.getElementById('dst-lut-xlsx').click();
+    if (C === 'OFF') await __until(function () { return __cls('dst-modal-ask', 'open'); }, 5000);
+    else await __until(function () { return dl.length >= 1 && /^✔ /.test(tx('dst-say-lutx') || ''); }, 8000);
     if (C === 'OFF') {
       __ok('X-OFF asks first', __cls('dst-modal-ask', 'open') && dl.length === 0);
       __ok('X-OFF ask text', tx('dst-ask-body') === '目前是等間距 LUT（DG_EN OFF），確定要匯出？' && tx('dst-ask-yes') === '匯出' && tx('dst-ask-no') === '取消',
@@ -66,11 +70,11 @@
       var solid = Array.prototype.filter.call(document.querySelectorAll('.dst-btn, .dst-toggle'), function (b) {
         return b.offsetParent && getComputedStyle(b).backgroundColor === __BLUE; }).map(function (b) { return b.id; });
       __ok('X-OFF ask: "export" is the only solid button on the page', solid.length === 1 && solid[0] === 'dst-ask-yes', JSON.stringify(solid));
-      document.getElementById('dst-ask-no').click(); await __wait(300);
+      document.getElementById('dst-ask-no').click(); await __until(function () { return !__cls('dst-modal-ask', 'open'); }, 5000); await __wait(300);
       __ok('X-OFF cancel -> nothing downloaded, no message', dl.length === 0 && !__cls('dst-modal-ask', 'open') && !tx('dst-say-lutx'), tx('dst-say-lutx'));
       __ok('X-OFF closed -> ask styling released', !__cls('dst-ask-yes', 'dst-main') && !document.body.classList.contains('dst-ask-on'));
-      document.getElementById('dst-lut-xlsx').click(); await __wait(300);
-      document.getElementById('dst-ask-yes').click(); await __wait(500);
+      document.getElementById('dst-lut-xlsx').click(); await __until(function () { return __cls('dst-modal-ask', 'open'); }, 5000);
+      document.getElementById('dst-ask-yes').click(); await __until(function () { return dl.length >= 1 && /^✔ /.test(tx('dst-say-lutx') || ''); }, 8000);
     } else {
       __ok('X-ON no ask when DG_EN is on', !ask0 && !__cls('dst-modal-ask', 'open'));
     }
@@ -114,7 +118,7 @@
     __ok('X4 shared format = DG part-3 format (EM02 12-bit: DG_12bit, Index, tail)', f.sheetName === 'DG_12bit' && f.headerCols[0] === 'Index' && f.hasTail && f.titleText === 'DG');
     __ok('X4 E512 10-bit -> DG_10bit; EM01 -> LUT', TCONDgLutFmt.fmtFromTcon('E512', 10, 10, 256).sheetName === 'DG_10bit' && TCONDgLutFmt.fmtFromTcon('EM01', 12, 12, 1024).sheetName === 'LUT');
     // 讀新表 ⇒ 上一張表的「已匯出」那一行收掉
-    document.getElementById('dst-lut-read').click(); await __wait(2500);
+    document.getElementById('dst-lut-read').click(); await __untilIdle(function () { return !tx('dst-say-lutx') && !!dstLut; }, 20000);
     __ok('X5 re-read clears the exported line', !tx('dst-say-lutx'), tx('dst-say-lutx'));
     __checkVersion('X');
   } catch (e) { if (e !== 'done') window.__errs.push('test threw: ' + (e && e.stack || e)); }

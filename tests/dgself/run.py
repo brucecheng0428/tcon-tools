@@ -135,6 +135,7 @@ SCENARIOS = [
     ('R-SHOT-NEXT',   'R_round_decide.js',    '',                     False, {'__rCase': 'SHOT-NEXT'},   False, 'dg.html'),
 ]
 TIMEOUT = 120   # 秒；最長的 H 約 40 秒
+CPU_SLOW = float(os.environ.get('DGSELF_CPU_SLOW') or 0)   # 設了（例如 6）＝每頁 CPU 降速 N 倍，用來驗「慢機器也不偶發」
 SHOTS = os.environ.get('DGSELF_SHOTS')   # 設了就在每個情境跑完時截一張 <名稱>.png 到這個資料夾（停在情境最後的畫面）
 
 
@@ -175,7 +176,8 @@ class CDP:
     def __init__(self, url):
         hp, path = url[len('ws://'):].split('/', 1)
         h, p = hp.split(':')
-        self.s = socket.create_connection((h, int(p)), timeout=30)
+        # 2026-10-09：CI 很慢時單一 CDP 回覆可能超過 30 秒 ⇒ 放寬到 TIMEOUT（整個情境的上限），不是重試
+        self.s = socket.create_connection((h, int(p)), timeout=TIMEOUT)
         key = base64.b64encode(os.urandom(16)).decode()
         self.s.sendall(('GET /%s HTTP/1.1\r\nHost: %s\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n'
                         'Sec-WebSocket-Key: %s\r\nSec-WebSocket-Version: 13\r\n\r\n' % (path, hp, key)).encode())
@@ -225,29 +227,65 @@ def free_port():
     s = socket.socket(); s.bind(('127.0.0.1', 0)); p = s.getsockname()[1]; s.close(); return p
 
 
+def launch_chrome(prof):
+    """開一個自有 profile 的 headless Chrome，等 DevTools 出現 page target（最多約 30 秒）。
+    回傳 (process, page 的 webSocketDebuggerUrl 或 None)。None ＝ Chrome 起不來。"""
+    port = free_port()
+    p = subprocess.Popen([CHROME, '--headless=new', '--remote-debugging-port=%d' % port, '--user-data-dir=' + prof,
+                          '--no-first-run', '--no-default-browser-check', '--disable-gpu', '--hide-scrollbars',
+                          '--window-size=1280,900', 'about:blank'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    for _ in range(150):
+        if p.poll() is not None:   # Chrome 自己結束了 ⇒ 不用再等
+            break
+        try:
+            tabs = json.load(urllib.request.urlopen('http://127.0.0.1:%d/json' % port, timeout=2))
+            pages = [t for t in tabs if t.get('type') == 'page' and t.get('webSocketDebuggerUrl')]
+            if pages:
+                return p, pages[0]['webSocketDebuggerUrl']
+        except Exception:
+            pass
+        time.sleep(0.2)
+    return p, None
+
+
+def stop_chrome(p):
+    if p is None:
+        return
+    try:
+        p.terminate()
+        try: p.wait(10)
+        except Exception: p.kill()
+    except Exception:
+        pass
+
+
 def run_one(tmp, sc, ver):
     name, scen, query, as_dg, extra, rm = sc[:6]
     page = sc[6] if len(sc) > 6 else PAGE
     t0 = time.time()
     html = build(tmp, name, scen, as_dg, extra, ver, page)
-    prof = os.path.join(tmp, 'prof-' + name)
-    port = free_port()
-    p = subprocess.Popen([CHROME, '--headless=new', '--remote-debugging-port=%d' % port, '--user-data-dir=' + prof,
-                          '--no-first-run', '--no-default-browser-check', '--disable-gpu', '--hide-scrollbars',
-                          '--window-size=1280,900', 'about:blank'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     res = {'name': name, 'results': [], 'errs': [], 'error': None}
+    p = None
     try:
-        tabs = None
-        for _ in range(150):
-            try:
-                tabs = json.load(urllib.request.urlopen('http://127.0.0.1:%d/json' % port, timeout=2)); break
-            except Exception:
-                time.sleep(0.2)
-        if not tabs:
-            raise RuntimeError('Chrome did not open DevTools port')
-        ws = CDP([t for t in tabs if t['type'] == 'page'][0]['webSocketDebuggerUrl'])
+        # 2026-10-09（Bruce「整套一次修好」）：Chrome 起不來（DevTools port 沒開）⇒ 換新 profile／port 自動重試一次；
+        # 其他失敗（FAIL、JS 錯誤、逾時）一律不重試。
+        page_ws = None
+        for attempt in (1, 2):
+            p, page_ws = launch_chrome(os.path.join(tmp, 'prof-' + name + ('' if attempt == 1 else '-retry')))
+            if page_ws:
+                if attempt > 1:
+                    res['note'] = 'Chrome 起不來，已自動重試一次後成功'
+                break
+            stop_chrome(p)
+            p = None
+            print('[%s] Chrome 起不來（DevTools port 沒開），第 %d 次%s' % (name, attempt, '，自動重試一次' if attempt == 1 else ''), flush=True)
+        if not page_ws:
+            raise RuntimeError('Chrome did not open DevTools port (tried twice)')
+        ws = CDP(page_ws)
         ws.call('Page.enable'); ws.call('Runtime.enable')
         ws.call('Emulation.setDeviceMetricsOverride', width=1280, height=900, deviceScaleFactor=1, mobile=False)
+        if CPU_SLOW > 1:   # 模擬慢 runner：Chrome 自己把這一頁的 CPU 降速 N 倍（不會拖慢整台機器）
+            ws.call('Emulation.setCPUThrottlingRate', rate=CPU_SLOW)
         if rm:
             ws.call('Emulation.setEmulatedMedia', features=[{'name': 'prefers-reduced-motion', 'value': 'reduce'}])
         ws.call('Page.navigate', url='file://' + html + query)
@@ -273,9 +311,7 @@ def run_one(tmp, sc, ver):
     except Exception as e:
         res['error'] = 'runner: %r' % (e,)
     finally:
-        p.terminate()
-        try: p.wait(10)
-        except Exception: p.kill()
+        stop_chrome(p)
     res['secs'] = round(time.time() - t0, 1)
     return res
 
@@ -306,6 +342,8 @@ def main(argv):
     npass = nfail = 0; bad = []
     for r in results:
         print('\n== %s (%.1fs)' % (r['name'], r['secs']))
+        if r.get('note'):
+            print('NOTE ' + r['note'])
         for x in r['results']:
             ok = x['pass']; npass += ok; nfail += (not ok)
             print('%s %s%s' % ('PASS' if ok else 'FAIL', x['name'], (' | ' + x['info']) if x['info'] else ''))

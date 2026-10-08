@@ -8,7 +8,7 @@
 (async function () {
   try {
     var T = window.__ctaCase || 'A';
-    await __wait(1500);
+    await __boot(1500);
     var bw = document.getElementById('dst-back-warn');
     var orig = document.title;
     function solidBlue() { var n = 0, who = [];
@@ -42,10 +42,19 @@
     __ok('L1 title prefixed', document.title.indexOf('↩ 請回 DG') === 0, document.title);
     var t1 = document.title;
     dstRenderSteps(); __ok('L1 rerender keeps breath/title', bw.classList.contains('dst-back-breath') && document.title === t1);
-    await __wait(1100);
-    var t2 = document.title;   // 標題交替的檢查維持原本 1.1 秒的時點
-    // 2026-10-08（datamap v1.18.25 部署時本機整套跑偶發失敗）：平滑捲動在負載高時 1.1 秒內不一定停 ⇒ 輪詢到捲動停止（連續 3 次 scrollY 相同、每次 100ms，上限 4 秒）再量位置。只放寬時序，不改頁面行為。
-    for (var si = 0, sLast = -1, sSame = 0; si < 40 && sSame < 3; si++) { var sy = scrollY; sSame = sy === sLast ? sSame + 1 : 0; sLast = sy; if (sSame < 3) await __wait(100); }
+    /* 2026-10-09 去偶發：標題每 1 秒輪替一次，原本固定在 1.1 秒取樣 —— CI 卡頓時會取到 0 次或 2 次輪替。
+       改成：一般情況「等到標題換回原標題」（上限 4 秒）＝證明有在輪替；RM 是「不應該輪替」⇒ 保留 1.1 秒觀察期，期間每 50ms 都要是前綴標題。 */
+    var t2, rmStatic = true;
+    if (T === 'RM') {
+      for (var ti = Date.now(); Date.now() - ti < 1100;) { if (document.title !== t1) rmStatic = false; await __wait(50); }
+      t2 = rmStatic ? t1 : document.title;
+    } else {
+      await __until(function () { return document.title === orig; }, 4000);
+      t2 = document.title;
+    }
+    // 2026-10-08：平滑捲動在負載高時不一定停 ⇒ 等提示進到可視範圍、再等捲動完全停下才量位置。只放寬時序，不改頁面行為。
+    await __until(function () { var q = bw.getBoundingClientRect(); return q.top >= 0 && q.bottom <= innerHeight; }, 6000);
+    await __still();
     var r = bw.getBoundingClientRect();
     __ok('L2 scrolled into view', r.top >= 0 && r.bottom <= innerHeight, Math.round(r.top) + '..' + Math.round(r.bottom) + ' / ' + innerHeight + ' scrollY=' + Math.round(scrollY));
     if (T === 'RM') __ok('L2 RM: title static (no alternation)', t2 === t1, t2);
@@ -77,7 +86,8 @@
       __ok('L3 button: opener.focus called', window.__focusCalls === 1, window.__focusCalls);
       __ok('L3 button: breath stops', !bw.classList.contains('dst-back-breath'));
       __ok('L3 button: title restored', document.title === orig, document.title);
-      await __wait(700);
+      // 頁面約 0.4 秒後才判斷「沒切過去」⇒ 等到說明出現（上限 5 秒），不固定等 0.7 秒
+      await __until(function () { var q = document.getElementById('dst-back-sub'); return q && !q.classList.contains('dst-hidden'); }, 5000);
       var sub = document.getElementById('dst-back-sub');
       __ok('L3 button: fallback note shown when still here', sub && !sub.classList.contains('dst-hidden') && sub.textContent.indexOf('瀏覽器沒有讓本頁切換分頁') === 0, sub && sub.textContent);
       dstRenderSteps(); var s2 = document.getElementById('dst-back-sub');

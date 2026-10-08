@@ -45,11 +45,16 @@
   };
   /* DG 第 4 部分「即時更新 T-CON RGB LUT」送來的那張表（EM02A1：主表 256 筆、12-bit，遞增、步距 ≤ 17）。 */
   function dgRows() { var r = []; for (var i = 0; i < 256; i++) { var v = Math.min(4095, i * 16 + (i % 2)); r.push([i, v, v, Math.max(0, v - 1)]); } return r; }
-  async function dgWrite() { await dstDgOnLutWrite({ type: 'dg-lut-write', task: 77, rows: dgRows(), depth: 12 }); await __wait(200); }
+  async function dgWrite() { await dstDgOnLutWrite({ type: 'dg-lut-write', task: 77, rows: dgRows(), depth: 12 }); await __settle(); }
   /* 🔴 假 I2C 是平的 byte 表：頁面寫入用 RApp_Table_SendToMemory 的打包排法（0x40010000 連續 1161 byte），
      讀取用記憶體排法（R／G／B 各隔 chSpan 2048、奇數區 +1024）—— 真的 T-CON 會自己轉，假的不會，所以在這裡
      寫進去再讀回來一定對不上。⇒ 寫入那一條只驗「DG 送來的表有被留下來」（S1），比對用的參考表改成
      「假 T-CON 裡真的放著的那一張」（＝DG 的表確實寫進去了），BAD 再把其中一個值改掉。 */
+  /* 2026-10-09 去偶發：等頁面自己的狀態，不固定等 N ms。popped()＝跑完一輪、視窗開著、DG 的筆數回覆已到；added()＝加入有回覆。 */
+  function popped() { return __until(function () { return !dstRunning && document.getElementById('dst-modal-cmp').classList.contains('open') && dstCmpPhase !== 'ask'; }); }
+  function added() { return __until(function () { return dstCmpPhase === 'done'; }); }
+  function decShown() { return __until(function () { var d = document.getElementById('dst-dec'); if (!__vis('dst-dec')) return false;
+    var q = d.getBoundingClientRect(); return q.top >= 0 && q.bottom <= window.innerHeight; }, 8000).then(function () { return __still(); }); }
   function refFromCard(bump) {
     var L = dstLut; if (!L) return false;
     dstLutSent = { r: L.rgb.r.slice(), g: L.rgb.g.slice(), b: L.rgb.b.slice(), main: 256, icKey: L.icKey };
@@ -61,7 +66,7 @@
     window.__lutFill = true;
     if (C === 'EN') applyLang('en');
     if (C === 'CN') applyLang('zh-CN');
-    await __wait(500); await __arm(); await __wait(300);
+    await __boot(500); await __arm(); await __settle();
     var r2 = (C !== 'R1') && CONF0;
     __ok('S0 confirmation measurement? (dstIsConf) = ' + r2, dstIsConf() === r2, 'round=' + dstDgRound + ' job=' + dstDgJob);
 
@@ -74,7 +79,7 @@
       var nR0 = window.__readAddrs.length;
       dstDgApplyTask({ type: 'dg-measure-task', round: RND, job: 'conf', mode: 'gray', step: 'gray', task: 78 });
       __ok('S1 DG sent a confirmation job ⇒ dstIsConf', dstIsConf(), 'round=' + dstDgRound + ' job=' + dstDgJob);
-      await __wait(4000);
+      await __untilIdle(function () { return !!dstLut && dstLut.src === 'tcon' && window.__readAddrs.length > nR0 && !__cls('dst-lut-chk', 'dst-hidden'); }, 20000);
       __ok('S2 card read back automatically (no click)', !!dstLut && dstLut.src === 'tcon' && window.__readAddrs.length > nR0,
         (dstLut ? dstLut.src : 'null') + ' reads+' + (window.__readAddrs.length - nR0));
       __ok('S2 read button hidden, export kept (card folded until done ⇒ checked by class)', __cls('dst-lut-read', 'dst-hidden') && !__cls('dst-lut-xlsx', 'dst-hidden'));
@@ -84,7 +89,7 @@
         __ok('S2 export enabled', __dis('dst-lut-xlsx') === false);
         // 同一輪再觸發一次 ⇒ 卡上已有表，不重讀
         var nR1 = window.__readAddrs.length;
-        await dstDgAutoThenStep1('probe'); await __wait(800);
+        await dstDgAutoThenStep1('probe'); await __wait(800); await __settle();   // 「不應該再讀」⇒ 固定觀察時間
         __ok('S3 table already there -> no second auto read', window.__readAddrs.length - nR1 < 4, 'reads+' + (window.__readAddrs.length - nR1));
       } else {
         __ok('S-BAD steps card shows the same warning while the LUT card is folded (v2.7.3)', __cls('dst-lut-card', 'dst-fold') && __vis('dst-steps-lutwarn')
@@ -92,11 +97,11 @@
         __ok('S-BAD red warning with first mismatch + count', !__cls('dst-lut-chk', 'dst-hidden') && /^⚠ T-CON 讀回的 LUT 與 DG 送來的不一致：第 5 筆 G 送出 \d+、讀回 \d+（共 1 處）。這張表不能匯出/.test(tx('dst-lut-chk'))
           && !document.getElementById('dst-lut-chk').classList.contains('dst-say-info'), tx('dst-lut-chk'));
         __ok('S-BAD card export disabled', __dis('dst-lut-xlsx') === true);
-        dstLutExport(); await __wait(300);
+        dstLutExport(); await __wait(300); await __until(function () { return /不能匯出/.test(tx('dst-say-lutx')); }, 3000);
         __ok('S-BAD forced export: nothing downloaded, reason shown', dl.length === 0 && /不能匯出/.test(tx('dst-say-lutx')), tx('dst-say-lutx'));
         // 量完 ⇒ 決策框的匯出也是灰的、講原因
-        await dstRun(); await __wait(200);
-        document.getElementById('dst-cmp-cancel').click(); await __wait(300);
+        await dstRun(); await popped();
+        document.getElementById('dst-cmp-cancel').click(); await __until(function () { return __vis('dst-dec') && tx('dst-dec-why').length > 0; });
         __ok('S-BAD decision box shown but export disabled with reason', __vis('dst-dec') && __dis('dst-dec-export') === true
           && tx('dst-dec-why') === '不能匯出：T-CON 讀回的 LUT 與 DG 送來的不一致（見「DG LUT（RGB）檢視」）。', tx('dst-dec-why'));
         __ok('S-BAD no solid button (export cannot be pressed)', blues().length === 0, blues().join(','));
@@ -109,12 +114,13 @@
     refFromCard(false);
     __ok('S1 card has the verified table', !!dstLut && dstLut.src === 'tcon' && !dstLutBlocked());
     __ok('S1 decision box hidden before the run', !__vis('dst-dec'));
-    await dstRun(); await __wait(200);
+    await dstRun(); await popped();
     var modal = document.getElementById('dst-modal-cmp');
     __ok('S1 run ok, sent to DG, popup asked', dstRunOk && dstBackSent() && modal.classList.contains('open'));
 
     if (C === 'R1') {
-      document.getElementById('dst-cmp-cancel').click(); await __wait(300);
+      document.getElementById('dst-cmp-cancel').click(); await __until(function () { return !modal.classList.contains('open') && tx('dst-cmp-state').length > 0; });
+      await __wait(300);   // 「第 1 輪不該出現決策框」⇒ 關掉後再觀察一下
       __ok('S-R1 no decision box in round 1', !__vis('dst-dec'));
       __ok('S-R1 ④ (v2.7.1 applies to round 1 too): declined ⇒ no button, state + add link', !__vis('dst-cmp-open')
         && tx('dst-cmp-state') === '這一輪沒有加入比較。加入比較', tx('dst-cmp-state'));
@@ -129,15 +135,15 @@
     __ok('S1 while popup open: its OK is the only solid', blues().length === 1 && blues()[0] === 'dst-cmp-ok', blues().join(','));
 
     if (C === 'DECL') {
-      document.getElementById('dst-cmp-cancel').click(); await __wait(300);
+      document.getElementById('dst-cmp-cancel').click(); await __until(function () { return !modal.classList.contains('open') && __vis('dst-cmp-addlink'); });
       __ok('S-DECL ④ button removed in round 2', !__vis('dst-cmp-open'));
       __ok('S-DECL state + small add link', tx('dst-cmp-state') === '這一輪沒有加入比較。加入比較' && __vis('dst-cmp-addlink')
         && document.getElementById('dst-cmp-addlink').className === 'dst-link', tx('dst-cmp-state'));
       var nq = sent.filter(function (m) { return m.type === 'dg-cmp-query'; }).length;
-      document.getElementById('dst-cmp-addlink').click(); await __wait(200);
+      document.getElementById('dst-cmp-addlink').click(); await __until(function () { return modal.classList.contains('open') && dstCmpPhase !== 'ask'; });
       __ok('S-DECL link reopens the popup (asks DG again)', modal.classList.contains('open') && sent.filter(function (m) { return m.type === 'dg-cmp-query'; }).length === nq + 1);
-      document.getElementById('dst-cmp-ok').click(); await __wait(200);
-      document.getElementById('dst-cmp-ok').click(); await __wait(200);   // 關閉
+      document.getElementById('dst-cmp-ok').click(); await added();
+      document.getElementById('dst-cmp-ok').click(); await __until(function () { return !modal.classList.contains('open'); });   // 關閉
       __ok('S-DECL after adding: "已加入比較 ✓ · 查看比較", no add link', tx('dst-cmp-state') === '已加入比較 ✓ ·查看比較' && !document.getElementById('dst-cmp-addlink'), tx('dst-cmp-state'));
       document.getElementById('dst-cmp-viewlink').click(); await __wait(100);
       __ok('S-DECL 查看比較 opens dg.html?view=cmp in the shared window', opened.length === 1 && opened[0].u === 'dg.html?view=cmp' && opened[0].n === 'tcon-dg-cmpview', JSON.stringify(opened));
@@ -145,8 +151,9 @@
     }
 
     // 加入 ⇒ 關閉
-    document.getElementById('dst-cmp-ok').click(); await __wait(200);
-    document.getElementById('dst-cmp-ok').click(); await __wait(1500);
+    document.getElementById('dst-cmp-ok').click(); await added();
+    // 關閉 ⇒ 決策框捲進畫面；等它到位、捲動停下來才量（原本固定等 1.5 秒）
+    document.getElementById('dst-cmp-ok').click(); await decShown();
     __ok('S2 ④: added line with view link, no button', !__vis('dst-cmp-open') && __vis('dst-cmp-viewlink')
       && (C === 'EN' ? tx('dst-cmp-state') === 'Added to the comparison ✓ ·View comparison'
         : C === 'CN' ? tx('dst-cmp-state') === '已加入比较 ✓ ·查看比较' : tx('dst-cmp-state') === '已加入比較 ✓ ·查看比較'), tx('dst-cmp-state'));
@@ -179,25 +186,25 @@
 
     if (C === 'NEXT') {
       var f0 = window.__focusCalls;
-      document.getElementById('dst-dec-next').click(); await __wait(600);
+      document.getElementById('dst-dec-next').click(); await __until(function () { return tx('dst-say-dec').length > 0; }, 5000);   // 頁面約 0.4 秒後才判斷
       __ok('S-NEXT asks the browser to focus the DG tab', window.__focusCalls === f0 + 1);
       __ok('S-NEXT still here -> says to click the DG tab', tx('dst-say-dec') === '瀏覽器沒有讓本頁切換分頁，請直接點瀏覽器上方的 DG 分頁。', tx('dst-say-dec'));
       __ok('S-NEXT nothing downloaded', dl.length === 0);
       __checkVersion('S-NEXT'); throw 'done';
     }
     // EXPORT
-    document.getElementById('dst-dec-export').click(); await __wait(500);
+    document.getElementById('dst-dec-export').click(); await __until(function () { return dl.length >= 1 && tx('dst-say-dec').indexOf('✔ 已匯出 ') === 0; }, 8000);
     __ok('S-EXPORT one xlsx, same name rule as the card (…_R' + RND + '.xlsx)', dl.length === 1 && new RegExp('^DG_LUT_EM02A1_\\d{8}_\\d{4}_R' + RND + '\\.xlsx$').test(dl[0]), JSON.stringify(dl));
     __ok('S-EXPORT done line inside the decision box', tx('dst-say-dec').indexOf('✔ 已匯出 ' + dl[0]) === 0, tx('dst-say-dec'));
     // v2.7.2：通知 DG（同一條 postMessage 通道、帶 task／round／檔名）
     var sat = sent.filter(function (m) { return m.type === 'dg-conf-satisfied'; });
     __ok('S-SYNC told DG once (task, round, file)', sat.length === 1 && sat[0].task === dstDgTask && sat[0].round === RND && sat[0].file === dl[0], JSON.stringify(sat));
     if (C === 'NOSYNC') {
-      await __wait(1800);
+      await __until(function () { return /DG 分頁未同步（DG 沒有回應）。$/.test(tx('dst-say-dec')); }, 10000);
       __ok('S-NOSYNC export still done, then "DG 分頁未同步（DG 沒有回應）"', dl.length === 1
         && /DG 分頁未同步（DG 沒有回應）。$/.test(tx('dst-say-dec')) && tx('dst-say-dec').indexOf('✔ 已匯出 ') === 0, tx('dst-say-dec'));
     } else {
-      await __wait(200);
+      await __until(function () { return tx('dst-say-dec').indexOf('已通知 DG 分頁') > 0; }, 8000);
       __ok('S-SYNC DG acked ⇒ "已通知 DG 分頁：第 ' + RND + ' 輪確認滿意"', tx('dst-say-dec').indexOf('已通知 DG 分頁：第 ' + RND + ' 輪確認滿意（DG 已停在「查看目前結果」）。') > 0, tx('dst-say-dec'));
     }
     __checkVersion('S-' + C);

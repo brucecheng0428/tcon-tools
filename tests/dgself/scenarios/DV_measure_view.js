@@ -4,7 +4,7 @@
 (async function () {
   try {
     var C = window.__viewCase || 'OPEN';
-    await __wait(300);
+    await __boot(300);
     var dg = { count: 4 };
     window.opener.postMessage = function (m) {
       if (m.type === 'dg-cmp-query') setTimeout(function () {
@@ -40,11 +40,11 @@
     function solidIn() { return Array.prototype.filter.call(document.querySelectorAll('#dgm-cmp-modal button, #dgm-cmp-go'), function (el) {
       return el.offsetParent !== null && getComputedStyle(el).backgroundColor === BLUE; }).map(function (el) { return el.id; }); }
     await run();
-    await __wait(150);
+    await __until(function () { return dgmCmpPhase !== 'ask'; });   // 2026-10-09 去偶發：等假 DG 回覆，不固定等 150ms
     __ok('DV0 popup open', document.getElementById('dgm-cmp-modal').classList.contains('on'));
     __ok('DV0 view button hidden before OK', !vis('dgm-cmp-view'));
     document.getElementById('dgm-cmp-ok').click();
-    await __wait(150);
+    await __until(function () { return dgmCmpPhase === 'done'; });
     var vb = document.getElementById('dgm-cmp-view');
     __ok('DV1 view button shown after OK', vis('dgm-cmp-view') && vb.textContent === '查看光學資料比較 ↗', vb.textContent);
     __ok('DV1 view button is outline', getComputedStyle(vb).backgroundColor !== BLUE, getComputedStyle(vb).backgroundColor);
