@@ -2,6 +2,39 @@
 
 ---
 
+## Digital Gamma 迭代校正 (dg) v2.4.8 — 2026-10-09 ｜ PATCH ｜ ⚠ 輸出變更
+
+**「查看目前結果」與進下一輪捲回目前這一步：慢機器上不再停在頁頂。**
+
+判定依據：`docs/VERSIONING.md` §2 案例 2（改一個 bug → PATCH）＋R1：回到應有行為（捲到結果卡／目前這一步），沒有新增或移除功能。
+
+- `⚠ 輸出變更`（R1 範圍：同一操作序列結果不同，舊結果為 bug 產物）：只有慢機器上的最終捲動位置不同（舊版偶發停在 y=0／71，新版停在卡片）。正常速度行為不變；計算結果、下載檔案、輪數與第 1～4 部分都不受影響。
+
+### 需求
+
+Bruce 2026-10-09「現在另派一件來修」（回覆 Dispatch「要不要另派一件修 dg.html 捲動 bug」）。DG 自檢全面去偶發任務（#778bf075）在 `DGSELF_CPU_SLOW=4` 下抓到 R2「查看目前結果」偶發沒捲到結果卡。
+
+### 原因
+
+舊寫法：`window.scrollTo({behavior:'smooth'})`，400 ms 後若卡片不在畫面內就 `window.scrollTo(0, y)` 瞬間跳。慢機器上 400 ms 時平滑捲動還在跑，Chrome 把瞬間跳的位移併進進行中的平滑動畫（終點跟著平移），最後停在頁頂。R2 捲動紀錄：點下 scrollY=2251，1258ms 開始平滑捲到 789，1661ms 瞬間跳到 789，1852ms 實際停在 y=0（另一次 y=71）——終點≈789−(跳之前的位置−789) 被夾到 0，與「位移併進動畫」吻合。
+
+`dgNextRound` ⑧（進下一輪捲回目前這一步，v2.4.5 起捲到 `dgFsCurEl()`）是同一套寫法，同樣處理。
+
+### 修改
+
+- 新增 `dgScrollPageTo(getEl, offset)`，兩處共用：先平滑；之後每 80 ms 看一次 `pageYOffset`，連續 4 次不動（捲動停了）才判斷卡片是否在畫面內，沒有才瞬間跳，跳完再等停下來確認（最多 3 次、總上限 5 秒）。平滑捲動還在跑時不插手。
+- 背景分頁一開始就用 `auto`；不用 requestAnimationFrame；仍用 `window.scrollTo`（不用 scrollIntoView）；新的捲動請求讓舊的檢查作廢。
+- `common/version.js` dg v2.4.8；dg.html、dg-measure.html、index.html 的 `version.js?v=` 更新。
+
+### 驗證
+
+- dgself 全套（`--jobs 6`）正常速度：1331 passed, 0 failed（93 情境）。
+- `DGSELF_CPU_SLOW=4` 全套跑 5 次：4 次 1331/1331 全過；1 次 Q-WMODE、Q-FLOW 兩個情境同時 120 秒沒產出（無 JS 錯誤、無斷言 FAIL；Q-WMODE 不經過這次改的程式，當時整機負載高），其餘 R 情境（含 R2 捲到結果卡）該次也全過。
+- 發佈前關卡（strip-comments ＋ verify-site）：38 頁去註解前後表現一致，全過。
+- 改版前同一份 HEAD 降速 4 倍跑 1 次也是全過 —— 舊 bug 是偶發，單次全過不能證明修好；修好的依據是上面「原因」的機制與修正後不再在平滑捲動中途插入瞬間跳。
+
+---
+
 ## Data Mapping (datamap) v1.18.25 — 2026-10-08 ｜ PATCH
 
 **Hand Mode 亮色範圍＝② 表格定義的列；TCON Out／SD Out 字級放大；② 下拉保留原色改加外框；Register 卡只留依名稱、組成位置改「位址[MSB:LSB]」；新增「回到初始設定」。**

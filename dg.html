@@ -2795,7 +2795,7 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20261001dg247"></script>
+<script src="common/version.js?v=20261009dg248"></script>
 <script src="common/done-step.js?v=20261001dg247"></script>
 <script src="common/i18n.js?v=20260923dg1754"></script>
 <!-- v1.68.1：xlsx 產生器（原本在本頁，現在與 dg-selftest.html 共用）。
@@ -13103,7 +13103,58 @@
      🔴 **只導覽、不改資料**：第 1／2／3／4 部分、輪數、比較清單一個都不碰，所以按幾次都一樣，
         「進行第 N+1 輪」隨時還能按（決策框留著，dgNextRound 需要的 lastLut／DG_P4 都還在）。
      🔴 不判達標（本頁既有紀律）：這一支不看曲線、不下評語，只告訴他成果在哪裡。
-     捲動沿用 dgNextRound ⑧ 的做法：先平滑，400 ms 後回頭檢查沒到位就直接跳。 */
+     捲動沿用 dgNextRound ⑧ 的做法（v2.4.8 起兩處共用 dgScrollPageTo：先平滑，等捲動停了才檢查，沒到位才直接跳）。 */
+  /* ═══ v2.4.8：可靠的整頁捲動（「查看目前結果」與進下一輪捲回目前這一步共用）═══════════
+     DG 自檢任務（2026-10-09）抓到：舊做法「先平滑，400 ms 後沒到位就瞬間跳」在慢機器上，
+     瞬間跳會落在平滑捲動**還在跑**的時候；Chrome 會把這一跳的位移併進進行中的平滑動畫
+     （動畫終點跟著平移），最後停在頁頂（R2 紀錄：scrollY 2251 → 平滑往 789 → 1661ms 跳 789
+     → 1852ms 停在 y=0；另一次停在 y=71）。正常速度不發生，CPU 降速 4 倍時偶發。
+     ⇒ 改成：先平滑；之後每 80 ms 看一次捲動位置，**連續 4 次不動（捲動停了）才判斷**有沒有到位，
+        沒到位才瞬間跳，跳完再等停下來確認（最多跳 3 次，總上限 5 秒）。平滑動畫還在跑時絕不插手。
+     🔴 不用 requestAnimationFrame（背景分頁 rAF 會被餓死，既有教訓）；背景分頁一開始就瞬間跳。
+     🔴 仍用 window.scrollTo，不用 scrollIntoView（後者會連 overflow:hidden 的祖先一起捲，既有教訓）。
+     🔴 新的捲動請求會讓舊的檢查作廢（DG_PAGE_SCROLL_SEQ），兩支不會互搶。
+     「捲到那張卡片」是規格，動畫不是。 */
+  var DG_PAGE_SCROLL_SEQ = 0;
+  function dgScrollPageTo(getEl, offset) {
+    var seq = ++DG_PAGE_SCROLL_SEQ;
+    var off = (typeof offset === 'number') ? offset : 90;
+    var targetY = function () {
+      var el = getEl();
+      if (!el || !el.getBoundingClientRect) return null;
+      return Math.max(0, el.getBoundingClientRect().top + window.pageYOffset - off);
+    };
+    var inView = function () {
+      var el = getEl();
+      if (!el || !el.getBoundingClientRect) return true;   // 卡片不見了 ⇒ 不再動
+      var tp = el.getBoundingClientRect().top;
+      return tp >= -120 && tp <= window.innerHeight - 120;
+    };
+    var t0 = targetY();
+    if (t0 === null) return false;
+    var hidden = (typeof document.visibilityState === 'string')
+      ? (document.visibilityState === 'hidden') : !!document.hidden;
+    window.scrollTo({ top: t0, behavior: hidden ? 'auto' : 'smooth' });
+    var start = Date.now(), jumps = 0, lastY = null, same = 0;
+    var tick = function () {
+      if (seq !== DG_PAGE_SCROLL_SEQ) return;              // 有更新的捲動請求 ⇒ 這一支作廢
+      var y = Math.round(window.pageYOffset);
+      same = (y === lastY) ? same + 1 : 0;
+      lastY = y;
+      if (Date.now() - start >= 5000) return;
+      if (same < 4) { setTimeout(tick, 80); return; }      // 還在捲（或剛停）⇒ 不插手
+      if (inView() || jumps >= 3) return;
+      var t1 = targetY();
+      if (t1 === null) return;
+      jumps++;
+      window.scrollTo(0, t1);                               // 捲動已停、沒到位 ⇒ 直接跳
+      same = 0; lastY = null;
+      setTimeout(tick, 80);
+    };
+    setTimeout(tick, 80);
+    return true;
+  }
+
   var DG_VIEW_P4 = null;   // 按「查看目前結果」時的那一份 DG_P4（換掉就收提示）
   function dgViewResult() {
     if (!lastLut || !DG_P4 || !DG_P4.rows || DG_P4.rows.length < 2) {
@@ -13122,22 +13173,7 @@
       vn.style.display = '';
     }
     dgConfSetStatus('已停在' + dgRoundName(DG_ROUND) + '（沒有開始下一輪）。要再修隨時按「' + dgNextRoundBtnText() + '」。', 'ok');
-    var top = function () {
-      var c = $('dg-card-result');
-      if (!c || !c.getBoundingClientRect) return null;
-      return Math.max(0, c.getBoundingClientRect().top + window.pageYOffset - 90);
-    };
-    var t0 = top();
-    if (t0 !== null) window.scrollTo({ top: t0, behavior: 'smooth' });
-    setTimeout(function () {
-      var c = $('dg-card-result');
-      if (!c || !c.getBoundingClientRect) return;
-      var tp = c.getBoundingClientRect().top;
-      if (tp < -120 || tp > window.innerHeight - 120) {
-        var t1 = top();
-        if (t1 !== null) window.scrollTo(0, t1);
-      }
-    }, 400);
+    dgScrollPageTo(function () { return $('dg-card-result'); }, 90);   // v2.4.8：等平滑捲動停了才檢查，見 dgScrollPageTo
     return true;
   }
 
@@ -13324,22 +13360,9 @@
             祖先一起捲，而且使用者捲不回來（既有教訓，v3.x 在 wfg 踩過）。 */
       /* 🔴 v2.4.5：捲到的是**目前這一步**（dgFsCurEl）而不是固定第 1 部分 —— 第 1／2 部分已自動帶入、縮成 ✓，
          自動計算成功就停在第 4 部分；還缺東西就停在缺的那一部分（Bruce 2026-10-01「邏輯是一樣的」）。 */
-      var scrollTop = function () {
-        var p1 = dgFsCurEl();
-        if (!p1 || !p1.getBoundingClientRect) return null;
-        return Math.max(0, p1.getBoundingClientRect().top + window.pageYOffset - 90);
-      };
-      var t0 = scrollTop();
-      if (t0 !== null) window.scrollTo({ top: t0, behavior: 'smooth' });
-      setTimeout(function () {
-        var p1 = dgFsCurEl();
-        if (!p1 || !p1.getBoundingClientRect) return;
-        var tp = p1.getBoundingClientRect().top;
-        if (tp < -120 || tp > window.innerHeight - 120) {
-          var t1 = scrollTop();
-          if (t1 !== null) window.scrollTo(0, t1);   // 沒到位就直接跳
-        }
-      }, 400);
+      /* v2.4.8：舊寫法「400 ms 後沒到位就瞬間跳」在慢機器上會撞上還在跑的平滑捲動、停在頁頂；
+         改走 dgScrollPageTo（等捲動停了才檢查，沒到位才跳）。 */
+      dgScrollPageTo(dgFsCurEl, 90);
     }
 
     /* 已經記錄過 ⇒ 改名，不再問；沒記錄過 ⇒ 問一次。 */
