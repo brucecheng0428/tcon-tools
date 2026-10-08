@@ -265,6 +265,35 @@ console.log('── code 表（D2:R31）＝網頁 T 表解碼');
       fire($('f-mirror'), !$('f-mirror').checked);
       ok(wiresA() === wa && /^(\d+)\/\1$/.test(sa) && QA('rect[data-dn]').some(r => /末/.test(r.getAttribute('data-dn'))), 'v1.18.5 EM02 Auto（' + $('dm-auto').options[0].text.slice(0, 16) + '）鎖定後切 Mirror：接線不動、格內改「末」編號（和 Hand 相同行為）');
       fire($('f-mirror'), !$('f-mirror').checked); $('dm-pv-lock').click(); }
+    /* v1.18.7（Bruce 10/8）：鎖定後的畫面樣式：全白（預設）／只送紅／綠／藍：依收到的資料亮、亮的用實體子像素顏色 */
+    { const cm = $('dm-pv-colmode'), btn = c => cm.querySelector('button[data-col="' + c + '"]'), cells = () => QA('rect[data-tier="main"], rect[data-tier="rep"]');
+      const svgU = $('dm-pv-tft').innerHTML;
+      ok(cm.classList.contains('hidden'), 'v1.18.7 未鎖定時不顯示畫面樣式按鈕');
+      w.dmImportBytes(new Uint8Array(fs.readFileSync(QM)), path.basename(QM)); await new Promise(r => setTimeout(r, 80));
+      $('dm-pv-lock').click();
+      ok(!cm.classList.contains('hidden') && btn('').getAttribute('aria-pressed') === 'true' && QA('[data-col]').length === 0, 'v1.18.7 鎖定後出現「全白／只送紅／只送綠／只送藍」，預設全白（全都送，畫面和鎖定時相同）');
+      const chk = c => { const on = QA('rect[data-col="on"]'), off = QA('rect[data-col="off"]'); return on.length > 0 && off.length > 0 && on.every(r => r.getAttribute('data-dn')[0] === c && r.getAttribute('fill') !== 'none') && off.every(r => r.getAttribute('fill') === 'none' && r.getAttribute('data-dn')[0] !== c); };
+      btn('R').click(); const okR = chk('R'); btn('G').click(); const okG = chk('G'); btn('B').click(); const okB = chk('B');
+      ok(okR && okG && okB && btn('B').getAttribute('aria-pressed') === 'true', 'v1.18.7 Hand（全民）只送紅／綠／藍：收到該色資料的格子亮、其餘透明只留虛框');
+      fire($('f-chrb'), true); btn('R').click();
+      const onR = QA('rect[data-col="on"]'), onB = onR.filter(r => r.getAttribute('data-phys') === 'B');
+      ok(onR.length > 0 && onB.length > 0 && onB.every(r => r.getAttribute('data-dn')[0] === 'R') && onB.every(r => /^rgb\(\s*\d+,\s*\d+,\s*(\d+)\)/.exec(r.getAttribute('fill')) && +/(\d+)\)$/.exec(r.getAttribute('fill'))[1] > 150),
+        'v1.18.7 鎖定後改 CHRB（R↔B）再只送紅：收到 R 資料的格子落在實體 B 位置，亮藍色（實體子像素顏色）：' + onB.length + ' 格');
+      fire($('f-chrb'), false);
+      $('dm-pv-lock').click();
+      ok(cm.classList.contains('hidden') && $('dm-pv-tft').innerHTML === svgU, 'v1.18.7 解鎖 ⇒ 畫面樣式按鈕隱藏並重設，③ 回到未鎖定畫法');
+      $('dm-pv-lock').click();
+      ok(btn('').getAttribute('aria-pressed') === 'true' && QA('[data-col]').length === 0, 'v1.18.7 再次鎖定 ⇒ 回到全白');
+      $('dm-pv-lock').click();
+      /* Auto：EM02 Auto (0) 鎖定後換 RT7 Type 再只送綠：亮的格子＝收到 G 的格子，顏色＝實體子像素顏色 */
+      fire($('dm-model'), 'EM02'); if ($('dm-hand').checked) fire($('dm-hand'), false); $('dm-auto').selectedIndex = 0; $('dm-auto').dispatchEvent(new w.Event('change')); if ($('dm-hand').checked) fire($('dm-hand'), false);
+      $('dm-pv-lock').click();
+      $('dm-auto').selectedIndex = Math.min(2, $('dm-auto').options.length - 1); $('dm-auto').dispatchEvent(new w.Event('change')); if ($('dm-hand').checked) fire($('dm-hand'), false);
+      btn('G').click();
+      const onG = QA('rect[data-col="on"]'), physOf = r => r.getAttribute('data-phys');
+      ok($('dm-pv-lock').getAttribute('data-locked') === '1' && onG.length > 0 && onG.every(r => r.getAttribute('data-dn')[0] === 'G') && onG.every(r => { const f = r.getAttribute('fill'); const m = /(\d+),\s*(\d+),\s*(\d+)/.exec(f); if (!m) return false; const v = [+m[1], +m[2], +m[3]], i = 'RGB'.indexOf(physOf(r)); return v[i] === Math.max(...v); }),
+        'v1.18.7 Auto（EM02，鎖定後換 RT7 Type「' + $('dm-auto').options[$('dm-auto').selectedIndex].text.slice(0, 18) + '」）只送綠：亮 ' + onG.length + ' 格，都是收到 G 的格子，顏色依實體子像素（實體非 G 的有 ' + onG.filter(r => physOf(r) !== 'G').length + ' 格）');
+      $('dm-pv-lock').click(); }
   }
   console.log((fail ? '✗ ' : '✓ ') + 'check_datamap_kickoff ' + pass + ' pass / ' + fail + ' fail');
   process.exit(fail ? 1 : 0);
