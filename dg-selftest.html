@@ -15,7 +15,7 @@
 <link rel="stylesheet" href="common/common.css?v=20260903help">
 <link rel="stylesheet" href="common/done-step.css?v=20261001dst275">
 <!-- 🔴 version.js 必須最先載入（common/version.js 開頭那條規則）。 -->
-<script src="common/version.js?v=20261001dst275"></script>
+<script src="common/version.js?v=20261008dst276"></script>
 <style>
   /* ═══ 本頁專屬樣式 ════════════════════════════════════════════════════════
      只寫這一頁真的需要、而 common.css 沒有的東西。顏色一律走 common.css 的
@@ -1438,6 +1438,7 @@
 </div>
 
 <script src="common/i18n.js?v=20260923dst1190"></script>
+<script src="common/i2c-mbus.js?v=20261008dst276"></script>
 <script src="common/common.js?v=20260923dst1190"></script>
 <!-- v2.6.0：「匯出 Excel」—— 與 DG 第 3 部分「下載新產出 RGB LUT 檔」同一個格式表與同一個產生器 -->
 <script src="common/xlsx.js?v=20260930dst260"></script>
@@ -3189,8 +3190,22 @@ async function dstWriteReg(addr, bytes) {
    四個 slave **逐一探並全部記錄**（哪個有回應、哪個沒有），把 0xFF00 的原始
    三個 byte 顯眼顯示（即使認不出 IC），並把「讀不到」與「讀到了但不認得」
    分成兩件不同的事。 */
+/* v2.7.6（Bruce 2026-10-08）：認 T-CON 前不分型號一律先下 M-Bus 導通 C-Bus（common/i2c-mbus.js，
+   出處 RomCodeProcessUI.py L31839）。連線與「重新偵測」都在任何讀取之前先呼叫這一支。
+   這是本頁 rawwrite 的另一個例外：固定一筆 0x7E:0xAB ← CD，不經 dstWriteReg 的白名單
+   （那份白名單是 ptg／cursor 的 2-byte 位址，管不到 slave 0x7E）。
+   失敗不中止，寫進 log；掃不到 IC 時由 dstScanIdentify 把原因顯示出來。 */
+var dstMbus = { ok: true };
+async function dstMbusOpen() {
+  dstMbus = await TconMbus.open(function (slave, awid, addr, data) {
+    return dstSend({ type: 'rawwrite', slave: slave, addr: addr, data: data, awid: awid });
+  });
+  dstLog(dstMbus.ok ? 'W* 0x7E:0xAB <- CD  (M-Bus to C-Bus)' : '!  M-Bus to C-Bus 0x7E:0xAB <- CD  FAIL  ' + dstMbus.err, dstMbus.ok ? 'w' : 'e');
+  return dstMbus;
+}
 async function dstScanIdentify() {
   var chosen = null, chosenSlave = null, results = [];
+  var mbus = dstMbus;
   dstLog('-- scan slaves: ' + DST_SLAVES.map(function (v) { return '0x' + v.toString(16).toUpperCase(); }).join(' -> '));
   for (var si = 0; si < DST_SLAVES.length; si++) {
     var sl = DST_SLAVES[si];
@@ -3220,6 +3235,7 @@ async function dstScanIdentify() {
   if (!chosen) {
     dstIdRaw = null; dstIc = null; dstAltIdx = -1;
     dstShow('dst-v-ic', dstT('dst.icNone'), false);
+    if (!mbus.ok) dstSay('dst-say-link', dstT('tcon.mbusFail', { err: mbus.err }));
     dstLut = null; dstLutErr = null;
     dstTx = { bits: null, whyKey: 'dst.txWhyNoIc', raw: null, via: '' };   // v1.9.0
     dstRenderAlt(); dstRenderDg(); dstRenderLut();
@@ -6370,6 +6386,7 @@ async function dstConnect() {
     }
     if (!op || !op.ok) throw new Error(dstT('dst.errOpenAllFail', { n: DST_OPEN_RETRIES }));
     dstLinked = true;
+    await dstMbusOpen();        // v2.7.6：任何讀取之前先下 M-Bus 導通 C-Bus（不分型號）
     await dstCommTest();        // 通訊自檢先跑（authoritative，與 IC 識別解耦）
     await dstScanIdentify();    // IC 識別＝附帶資訊，不中止連線
     await dstReadRes();         // 解析度自動帶入（讀而已，失敗靜默）
@@ -8804,7 +8821,7 @@ function dstBind() {
     });
   });
   $('dst-probe').addEventListener('click', function () {
-    dstGuard(async function () { await dstCommTest(); await dstScanIdentify(); await dstReadRes(); })
+    dstGuard(async function () { await dstMbusOpen(); await dstCommTest(); await dstScanIdentify(); await dstReadRes(); })
       .then(function () { dstDgAutoThenStep1('probe'); });
   });
   $('dst-alt').addEventListener('change', function () {

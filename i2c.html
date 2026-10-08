@@ -30,7 +30,7 @@
           出來」。那個前提**早就不成立**：bridge 的靜態檔服務拒絕子資料夾、而且自 v1.7.0
           起預設關閉 —— 詳細依據與行號寫在 body 末端那兩個 <script> 的上面。）
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="common/version.js?v=20261006i2c1340"></script>
+<script src="common/version.js?v=20261008i2c1341"></script>
 <style>
   * { box-sizing: border-box; }
   :root{
@@ -739,7 +739,7 @@
     label.f.sflen{width:100% !important;}
   }
 </style>
-<link rel="stylesheet" href="common/done-step.css?v=20261006i2c1340">
+<link rel="stylesheet" href="common/done-step.css?v=20261008i2c1341">
 </head>
 <body>
 
@@ -1650,10 +1650,11 @@
      🔴 **CSS 沒有跟著載**（見 style 區塊頂端的說明）：common.css 有 `.card`／`.row`／
         無範圍的 `label{}` 等等，與本頁同名而語意完全不同，載進來會整頁走樣。
         頁首那四條宣告是逐字抄過來的，來源行號寫在各自上面。 -->
-<script src="common/i18n.js?v=20261006i2c1340"></script>
-<script src="common/common.js?v=20261006i2c1340"></script>
-<script src="common/i2c-spiflash.js?v=20261006i2c1340"></script>
-<script src="common/done-step.js?v=20261006i2c1340"></script>
+<script src="common/i18n.js?v=20261008i2c1341"></script>
+<script src="common/i2c-mbus.js?v=20261008i2c1341"></script>
+<script src="common/common.js?v=20261008i2c1341"></script>
+<script src="common/i2c-spiflash.js?v=20261008i2c1341"></script>
+<script src="common/done-step.js?v=20261008i2c1341"></script>
 
 <script>
 'use strict';
@@ -5839,7 +5840,7 @@ async function i2ctCkRomSeq(){
    寫在這裡是為了讓下一個拿上游原始碼逐行比對的人知道：**這是裁示過的差異，
    不是抄漏。** 不要「順手補回」那三個條件。 */
 async function i2ctCkMbusToCbus(){
-  var w1 = await i2ctDoWrite(0x7E, 1, 0xAB, [0xCD]);                      /* L31839 */
+  var w1 = await TconMbus.open(i2ctDoWrite);                              /* L31839（common/i2c-mbus.js） */
   if (!w1.ok) return { ok: false, step: 1, err: w1.err };
   var w2 = await i2ctDoWrite(0x3E, 2, 0x0059, [0x1E]);                    /* L31843 */
   if (!w2.ok) return { ok: false, step: 2, err: w2.err };
@@ -5987,7 +5988,7 @@ async function i2ctCkEn01Ver(){
   i2ctCkLog('EN01 IC version 0x3E:0x207E = ' + (v == null ? 'read failed' : '0x' + i2ctHex(v)));
   if (v == null || v === 0xFF) {
     i2ctCkLog('EN01 M-Bus to C-Bus 0x7E:0xAB <- CD, retry 0x207E');
-    var w = await i2ctDoWrite(0x7E, 1, 0xAB, [0xCD]);
+    var w = await TconMbus.open(i2ctDoWrite);
     if (!w.ok) i2ctCkLog('0x7E:0xAB write failed: ' + (w.err || ''));
     v = await rd();
     i2ctCkLog('EN01 IC version 0x3E:0x207E (retry) = ' + (v == null ? 'read failed' : '0x' + i2ctHex(v)));
@@ -6054,7 +6055,7 @@ async function i2ctCkSyE503OrEn01(v){
   i2ctCkLog('SY table: 0x3E:0x207E = ' + (b == null ? 'read failed' : '0x' + i2ctHex(b)));
   if (b == null || b === 0xFF) {
     i2ctCkLog('SY table: M-Bus to C-Bus 0x7E:0xAB <- CD, retry 0x3E:0x207E');
-    var w = await i2ctDoWrite(0x7E, 1, 0xAB, [0xCD]);
+    var w = await TconMbus.open(i2ctDoWrite);
     if (!w.ok) i2ctCkLog('0x7E:0xAB write failed: ' + (w.err || ''));
     b = await i2ctCkSyRead1(V);
     i2ctCkLog('SY table: 0x3E:0x207E (retry) = ' + (b == null ? 'read failed' : '0x' + i2ctHex(b)));
@@ -6084,6 +6085,14 @@ async function i2ctCheckTconRun(){
   i2ctCkResult = null; i2ctCkRender();
   i2ctBanner('topbanner', null, null);
   i2ctCkLog(i2ctT('i2c.logCkStart'));
+
+  /* v1.34.1（Bruce 2026-10-08）：不分型號，辨認前一律先下 M-Bus 導通 C-Bus
+     （common/i2c-mbus.js，出處 RomCodeProcessUI.py L31839；原廠 check_flash L6076 也是先下再讀）。
+     接 E503 的 M-Bus 時沒有這一筆，7C／7D／3E 都讀不到 ⇒ 認不出 E503。
+     失敗不中止（沒有 0x7E 的板子會 NACK），認不出來時才把原因掛到畫面上。 */
+  i2ctCkLog(i2ctT('tcon.mbusLog'));
+  var mbus = await TconMbus.open(i2ctDoWrite);
+  i2ctLog(mbus.ok ? i2ctT('tcon.mbusOk') : i2ctT('tcon.mbusFail', { err: mbus.err }), mbus.ok ? 'o' : 'e');
 
   var rom = null, icid = null, fatal = null;
   try {
@@ -6119,6 +6128,7 @@ async function i2ctCheckTconRun(){
   i2ctCkResult = r;
   i2ctCkRender();
   i2ctLog(i2ctT('i2c.logCkDone', { name: r.name }), 'o');
+  if (r.unknown && !mbus.ok) i2ctBanner('topbanner', 'err', i2ctT('tcon.mbusFail', { err: mbus.err }));
   if (r.en01Ver && !r.en01Ver.fail) i2ctLog(i2ctT('i2c.logCkEn01Ver', { v: r.en01Ver.txt, raw: i2ctHex(r.en01Ver.raw) }), 'o');   /* v1.34.0 */
   i2ctSfOnCk();                   /* v1.31.0：外部 Flash 型號跟著這次結果 */
 

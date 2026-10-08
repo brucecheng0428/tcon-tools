@@ -2,6 +2,82 @@
 
 ---
 
+## I2C 讀寫測試 (i2c) v1.34.1 — 2026-10-08 ｜ PATCH
+
+**修正：Check T-CON 不分型號，辨認前一律先下「M-Bus 導通 C-Bus」（0x7E:0xAB ← CD）。接 E503 的 M-Bus 時，以前按 Check T-CON 認不到 E503。**
+
+判定依據：`docs/VERSIONING.md` §2 案例 2／R1：修 bug，回到應有行為，版號 PATCH。按 Check T-CON 會多送一筆寫入（I2C 序列變了，畫面與匯出不變）。
+
+### 需求（Bruce 2026-10-08）
+
+> 如果我現在接的是 E503 的 Mbus，按下 Check T-CON 會認不到這是 E503，所以應該是按下 Check T-CON 時，不管搭配是哪個 T-CON，都要自動去下 Mbus 導通 Cbus 這個 command。……所有用到 I2C 的部分，要確認 T-CON 都要一起改。
+
+### 根因
+
+- v1.25.0～v1.34.0 的 Check T-CON 是「先讀 7C:95／7C:98／7D:007D（＋3E:207E）認型號，認到 E503 才下 7E:AB←CD、3E:0059←1E」。
+- 接 E503 的 M-Bus 時，還沒下 7E:AB←CD 之前，C-Bus 上的 7C／7D／3E 都讀不到，所以永遠走不到「認到 E503」那一步。
+- 原廠 `check_flash()`（RomCodeProcessUI.py V5.0.4 L6074–6078）是先呼叫 `i2c_open_mbus_to_cbus()`，再進 `i2c_flash_info` 讀 7C:95／98。
+
+### command 出處
+
+- RomCodeProcessUI.py V5.0.4 `i2c_open_mbus_to_cbus()` L31832–31850。
+  - L31834 註解：`# E503適用，由MBUS開啟Mbus控制Cbus`
+  - L31838–31839：`i2c_write_data(0x7E, 1, 0xAB, [0xCD], 32)`
+- 一筆，沒有延遲。同函式後半的 3E:0059←1E（L31841–31846）只給 RM81000～RM81004，仍是認到 E503（或手選 E503）後才下；EN01 照 SY 表不下。
+- 重複下：原廠在 30 多個讀寫入口（L4840、L6076、L7364 … L32759）每次都先呼叫，不判斷是否已導通。依原始碼判斷已導通時再下無害；沒有實機量測。
+
+### 變更
+
+- 新增 `common/i2c-mbus.js`：`TconMbus.open(write)` 下 0x7E:0xAB ← CD，回 `{ok, err}`，不丟例外。三語訊息（`tcon.mbusLog`／`tcon.mbusOk`／`tcon.mbusFail`）在這支裡掛到 I18N，沒有改 `common/i18n.js`。
+- `i2c.html` `i2ctCheckTconRun`：寫 `── Check T-CON ──` 之後、任何讀取之前，先呼叫 `TconMbus.open`。
+  - 寫入失敗不中止辨認（沒有 0x7E 的板子會 NACK），log 記 ✕ 和原因。
+  - 認不出來時，紅色橫幅寫明「M-Bus 導通 C-Bus 寫入失敗」。
+- `i2c.html` 其他三處 7E:AB←CD（E503 兩筆的第一筆、EN01 版本重讀、SY 表重讀）改呼叫同一支。
+- 外部 Flash 的「自動判斷」本來就是同一支 `i2ctCheckTcon`，一起套用。
+
+### 驗證
+
+- `tools/i2c_tool_selftest.js` 1494/0。
+  - 第 80、81 組原本寫「非 E503 ⇒ 完全沒有任何寫入」，依 Bruce 10/8 裁示改成「只有辨認前那一筆 7E:AB←CD，沒有 3E:0059」。
+  - 新增第 82 組：
+    - 假板子 E503 在 M-Bus 上（7E 寫入前 7C／7D／3E 全 NACK）⇒ 第一筆是 W 7E:AB←CD，第二筆才是 R 7C:95，認出 E503A2。
+    - 7E NACK ⇒ 認不出，並掛紅色橫幅。
+    - E501B1／EM01 也先下，之後照常認出。
+    - EM01 遇 7E NACK ⇒ 照常認出，不掛橫幅。
+    - 再按一次 ⇒ 仍先下。
+- `tools/i2c_spiflash_selftest.js` 573/0。
+- 未驗：實機（E503 M-Bus 治具）。
+
+---
+
+## Data Mapping (datamap) v1.18.10 — 2026-10-08 ｜ PATCH
+
+**修正：Check T-CON 不分型號，辨認前先下 M-Bus 導通 C-Bus（與 I2C v1.34.1 同一支 `common/i2c-mbus.js`）。**
+
+判定依據：`docs/VERSIONING.md` §2 案例 2：修 bug，版號 PATCH。
+
+- `checkTcon()` 開頭先呼叫 `TconMbus.open(rawWrite)`，再掃 0xFF00 和 7C／7D／3E。失敗不中止，寫進 log；認不出來時 IC 提示會附上失敗原因。
+- `preamble()`（讀寫前）和 207E 重讀改呼叫同一支。`preamble` 失敗照舊中止寫入，錯誤訊息改成 `tcon.mbusFail`。
+- 驗證（jsdom＋假 I2C Bridge，E503 在 M-Bus 上）：
+  - 修正前（HEAD f817de9）：序列從 R 0x60:0xFF00 開始，結果「認不出 T-CON」。
+  - 修正後：第一筆是 W 0x7E:0xAB←CD，認出「E503 (0x7D:0x007D = 03)」。
+  - 7E NACK 時，IC 提示寫明 M-Bus 導通 C-Bus 寫入失敗。
+
+---
+
+## TCON 自檢畫面量測 (dgself) v2.7.6 — 2026-10-08 ｜ PATCH
+
+**修正：連線和「重新識別」時，任何讀取之前先下 M-Bus 導通 C-Bus（與 I2C v1.34.1 同一支 `common/i2c-mbus.js`）。**
+
+判定依據：`docs/VERSIONING.md` §2 案例 2：依 Bruce 10/8「所有用到 I2C 要確認 T-CON 的都要一起改」，版號 PATCH。
+
+- 新增 `dstMbusOpen()`：用 `rawwrite` 固定送一筆 0x7E:0xAB ← CD。
+  - 這是本頁 rawwrite 的另一個例外。`dstWriteReg` 的白名單只管 ptg／cursor 的 2-byte 位址，管不到 slave 0x7E。
+  - 失敗不中止，交易 log 記 `!  M-Bus to C-Bus … FAIL`；掃不到 IC 時，說話行顯示 `tcon.mbusFail`。
+- 驗證（jsdom＋假 I2C Bridge）：連線和「重新識別」的第一筆都是 W 0x7E:0xAB←CD，之後才讀 0x68:0x0000 和 0xFF00。
+
+---
+
 ## Data Mapping (datamap) v1.18.9 — 2026-10-08 ｜ PATCH
 
 **修正：鎖定架構和目前設定的 gate 列數不同時（例：1D1G 鎖定後改 Zigzag），③ 只畫鎖定架構的列數，Zigzag Type 3／4／7／8 不同的那幾列沒畫出來，看起來「只送紅還是全紅（或全綠）」。**
