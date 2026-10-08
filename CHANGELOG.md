@@ -2,6 +2,48 @@
 
 ---
 
+## Data Mapping (datamap) v1.18.3 — 2026-10-08 ｜ PATCH
+
+**修正 v1.18.2 的錯誤：未鎖定時 ③ 偏離 v1.17.5。v1.18.2 把 Mirror 一律改用 Mirror＝0 解讀，造成全民 code（Mirror＝1）在 CH1 在最右時接線圖混亂。v1.18.3 起，未鎖定時完全恢復 v1.17.5 的 Mirror 解碼；Bruce 的 pixel 級模型只套用在「鎖定後切換 Mirror」。**
+
+判定依據：`docs/VERSIONING.md` §R3：修正上一版的錯誤，回到 v1.17.5 的畫法，版號 PATCH。
+
+### 需求（Bruce 2026-10-08）
+
+> 演算法已經完全跟 1.17.5 不一樣了。匯入全民的 code，在 1.17.5 的 Driver 那邊設定 CH1 在最右邊，光是這個設定，看到的 TFT 接線圖就不一樣了。
+
+### 原因
+
+- v1.18.2 依上一輪指示，把未鎖定時的 Mirror 也改成 pixel 級模型：pvMirror 不再做 v1.17.5 的 −1−k 換算，改用 Mirror＝0 的解讀畫接線。
+- 結果所有 Mirror＝1 的畫面都和 v1.17.5 不同。
+- v1.18.2 只比對了匯出 script（7 組相同），沒有比對 ③ 的畫面，所以沒抓到。回報裡把這個差異寫成「行為變化」，沒有當成違反「未鎖定維持 v1.17.5」的錯誤。
+
+### 變更
+
+- **未鎖定**：pvMirror、pvSpanRev、pvRawIdx、pvPreCount、pvRecvName、格內名稱全部恢復成 v1.18.1（即 v1.17.5）的程式。
+- **鎖定後切換 Mirror**（pixel 級模型唯一套用的地方）：
+  - 接線固定為鎖定當下的 v1.17.5 結果。
+  - 收到的資料先用鎖定當下的 Mirror 解讀（其他設定照目前的）。
+  - 再把 pixel 編號在畫出的範圍內左右鏡像，顏色不變；反轉單位依 ② 的選項。
+- **保留 v1.18.2 的其他改動**：反轉單位選項（說明改成「只用在鎖定後切換 Mirror 的格內顯示」）、鎖定外框 highlight 與鎖定標籤、紅虛框加「≠」、ⓘ 的判斷條件、頁面加寬、dm.glassPh 修正、RD 清單。
+- **說明文字**：Mirror 相關的 ⓘ／說明恢復成 v1.18.1 的文字，hMirT 再補一句「鎖定後切換 Mirror 依 pixel 級模型」。
+
+### 驗證
+
+- **新增畫面比對（tools/check_datamap_svg_vs_tag.js）**：未鎖定時，③ 的 `#dm-pv-tft` 整段 SVG（線端點、格內文字、標號）和 datamap-v1.17.5 逐字比對。
+  - 資料：全民、蘇坤、Kick Off mirror 範例。
+  - 條件：Mirror 0／1 × CH1 左／右 × SHL 正／反 × RGB／BGR × 對調 有／無，共 96 組。
+  - 結果：96 組全部相同（v1.18.2 是 48 組不同，全部是 Mirror＝1 的組合）。
+- **匯出 script**：7 組和 v1.17.5 逐字相同。
+- **check_datamap_kickoff 64/0**：回到 v1.18.1 的期望值，另外新增：
+  - 鎖定後 Mirror 改 0：第 1 列顏色不變、pixel 編號整排鏡像（逐格比對預期值）。
+  - 反轉單位 2：兩兩一組鏡像、接線不動。
+  - 鎖定外框、紅虛框、ⓘ 的判斷條件。
+- check_datamap_auto 104/0、core 282/0、preview 46/0（EM02 61/0）、lod 196/0。
+- cache buster 20261008dm1183。
+
+---
+
 ## Data Mapping (datamap) v1.18.2 — 2026-10-08 ｜ PATCH
 
 **Mirror 改照 Bruce 10/8 的定義：pixel 級左右鏡像，pixel 內 RGB 不變（取代 v1.15.0～v1.18.1 的子像素級反轉）；新增「反轉單位」選項（待 RD 確認）；內容寬度貼滿瀏覽器；鎖定時 TFT 接線圖外框 highlight。**
