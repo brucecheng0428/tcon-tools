@@ -203,10 +203,8 @@ console.log('── code 表（D2:R31）＝網頁 T 表解碼');
         '鎖定後 Mirror 改 0 ⇒ 線位置與 drain 目標完全不動，只有格內收到的資料改變，' + QA('[data-glne]').length + ' 格標紅虛框＋「≠」並寫「面板要 X、收到 Y」（' + sum() + '）；匯出照 ② 改變（鎖定不影響匯出）');
       ok(dofs() === dof0 && reps() === rep0 && mainLines().length === 6 && mainLines().every(dl => mainCellOf(dl) === endNm(g0[kOf(dl) - 1], 1)) && /^Data \d・P末/.test(Q('[data-glne]').parentNode.getAttribute('data-tip') || ''),
         'v1.18.4 方案 A：鎖定後 Mirror 改 0 ⇒ TCON Out 小字與亮的主循環不變；主循環每條線格內＝「末」＋② 同一個 Data k 的名稱（' + cellsM0 + '），提示寫 Data k・P末j');
-      fire($('dm-mir-unit'), '2');
-      ok(mainLines().every(dl => mainCellOf(dl) === endNm(g0[kOf(dl) - 1], 2)) && wires() === wire0 && dofs() === dof0 && /2 pixel 一組/.test($('dm-mir-unit').selectedOptions[0].textContent),
-        'v1.18.4 反轉單位選「2 pixel 一組」⇒ 末1／末2 組內對調（' + mainLines().map(dl => mainCellOf(dl)).join(' ') + '），接線與 TCON Out 不動');
-      fire($('dm-mir-unit'), '1');
+      /* v1.18.23（Bruce 10/8）：Mirror 反轉單位定案為完整 pixel（P8→P1），「2 pixel 一組」選項與其測試移除 */
+      ok(!$('dm-mir-unit') && !d.querySelector('.dm-mirunit'), 'v1.18.23 Mirror 反轉單位固定完整 pixel：② 已沒有「反轉單位」選項');
       ok(QA('rect[data-glne]').length === QA('[data-glne]').length && QA('rect[data-glne][stroke-dasharray]').length > 0 && !/≠鎖定/.test($('dm-pv-tft').textContent) && $('card-pv').classList.contains('dm-locked') && /接線已鎖定/.test($('dm-pv-wrap').getAttribute('data-locktag')) && /和鎖定時不同就標紅虛框/.test(d.querySelector('[data-i18n-title="dm.hLockT"]').getAttribute('title')),
         'v1.18.2 鎖定提示：TFT 接線圖外框 highlight＋「🔒 接線已鎖定」標籤；不一致的格子保留紅虛框（字縮成「≠」），ⓘ 寫出判斷條件');
       fire($('f-mirror'), true);
