@@ -28,9 +28,11 @@ try {
   errs.length = 0;   // 載入時 WebSocket 不可用的錯誤不算
   await ev(`(function(){var e=document.getElementById('dm-model');e.value='EM01';e.dispatchEvent(new Event('change'));return 1})()`); await sleep(200);
   if (CODE) { const b64 = fs.readFileSync(CODE).toString('base64'); await ev(`(function(){var b=atob('${b64}'),u=new Uint8Array(b.length);for(var i=0;i<b.length;i++)u[i]=b.charCodeAt(i);window.dmImportBytes(u,${JSON.stringify(path.basename(CODE))});return 1})()`); await sleep(400); }
-  await ev(`(function(){window.__sc=[];var o=Element.prototype.scrollIntoView;Element.prototype.scrollIntoView=function(a){window.__sc.push(this.id||this.className);return o.call(this,{block:'center'})};return 1})()`);
+  await ev(`(function(){window.__sc=[];var o=Element.prototype.scrollIntoView;Element.prototype.scrollIntoView=function(a){window.__sc.push(this.id||this.className);return o.call(this,a)};return 1})()`);
   // 找元素中心（先把它捲到畫面中間，再清掉這次捲動的紀錄），回傳 viewport 座標
-  const center = async sel => ev(`(function(){var e=document.querySelector(${JSON.stringify(sel)});if(!e)return null;var w=document.getElementById('dm-pv-wrap');var r0=e.getBoundingClientRect();scrollTo(0,scrollY+r0.top-400);var r=e.getBoundingClientRect();window.__sc=[];return {x:r.left+r.width/2,y:r.top+r.height/2}})()`);
+  // 等前一次平滑捲動停下來（scrollY 連續 3 次相同）再算座標，否則座標算完頁面還在動，滑鼠會點空
+  const settle = async () => { let last = -1, same = 0; for (let i = 0; i < 80 && same < 3; i++) { const y = await ev('scrollY'); same = y === last ? same + 1 : 0; last = y; await sleep(50); } };
+  const center = async sel => { await settle(); const c = await ev(`(function(){var e=document.querySelector(${JSON.stringify(sel)});if(!e)return null;var r0=e.getBoundingClientRect();scrollTo({top:scrollY+r0.top-400,behavior:'instant'});var r=e.getBoundingClientRect();window.__sc=[];return {x:r.left+r.width/2,y:r.top+r.height/2}})()`); await settle(); return c; };
   const mouse = async (type, x, y, extra = {}) => cdp('Input.dispatchMouseEvent', Object.assign({ type, x, y, button: 'left', buttons: type === 'mouseReleased' ? 0 : 1, clickCount: 1 }, extra));
   const realClick = async sel => { const c = await center(sel); if (!c) return null; await mouse('mouseMoved', c.x, c.y, { buttons: 0 }); await mouse('mousePressed', c.x, c.y); await sleep(30); await mouse('mouseReleased', c.x, c.y); await sleep(250); return ev('JSON.stringify({sc:window.__sc,lj:window.dmState.lastJump||null})').then(JSON.parse); };
   const cases = [['[data-rowhead="sd"] text', 'dm-drv-sec', 'SD Out 標題'], ['#dm-pv-tft text[data-dlab="D1"]', 'dm-drv-sec', 'D1'],
@@ -40,8 +42,11 @@ try {
     for (const [sel, want, name] of cases) {
       await ev('window.dmState.lastJump=null'); const r = await realClick(sel);
       ok(r && r.sc[0] === want, (locked ? '鎖定' : '未鎖定') + '：真實滑鼠點 ' + name + ' ⇒ 捲到 ' + want + '（實際：' + JSON.stringify(r && r.sc) + '）');
-      if (name === 'Data 1') ok(await ev(`document.getElementById('dm-grid').rows[0].cells[1].classList.contains('dm-flashcol')`), (locked ? '鎖定' : '未鎖定') + '：Data 1 欄高亮');
-      if (name === 'D1') ok(await ev(`document.getElementById('dm-drv-sec').classList.contains('dm-flash')`), (locked ? '鎖定' : '未鎖定') + '：Source Driver 區外框閃');
+      // v1.18.17：高亮在捲動停下來後才開始 ⇒ 最多等 3 秒；同時確認那時目標已停在頁首下方（上緣約 64px）
+      const waitFor = async js => { for (let i = 0; i < 60; i++) { if (await ev(js)) return true; await sleep(50); } return false; };
+      if (name === 'Data 1') ok(await waitFor(`document.getElementById('dm-grid').rows[0].cells[1].classList.contains('dm-flashcol')`) && Math.abs(await ev(`document.getElementById('dm-gridbox').getBoundingClientRect().top`) - 64) < 6, (locked ? '鎖定' : '未鎖定') + '：捲到定位後 Data 1 欄高亮（表格上緣在頁首下方）');
+      if (name === 'D1') { const fl = await waitFor(`document.getElementById('dm-drv-sec').classList.contains('dm-flash')`), top = Math.round(await ev(`document.getElementById('dm-drv-sec').getBoundingClientRect().top`));
+        ok(fl && Math.abs(top - 64) < 6, (locked ? '鎖定' : '未鎖定') + '：捲到定位後 Source Driver 區外框閃（flash=' + fl + '，外框上緣 ' + top + 'px）'); }
     }
   }
   // 拖曳：按在 Data 1 上、移 40px、放開 ⇒ 不跳；接線圖有捲動
