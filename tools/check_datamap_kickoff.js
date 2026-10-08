@@ -123,7 +123,7 @@ console.log('── code 表（D2:R31）＝網頁 T 表解碼');
     w.dmState.cur = Object.assign(DM.cloneState(w.dmState.cur), { deEn: 1, deSel: 31 }); w.dmRender();
     const T = $('dm-pv-tft');
     fire($('dm-pv-first'), 'l');
-    ok(/0x67/.test($('dm-pv-shlsrc').textContent) && /SHL＝1/.test($('dm-pv-shlsrc').textContent) && $('dm-pv-drv').value === 'f', 'iSP REG 自動帶入：0x1001＝0x67 ⇒ EPD9173B SHL＝1 ⇒ Driver 輸出正向（CH1→CHn）');
+    ok(!$('dm-pv-shlsrc') && $('dm-pv-drv').value === 'f' && /不從 TCON code 讀取/.test(d.querySelector('[data-i18n-title="dm.hDrvT"]').getAttribute('title')), 'v1.18.5 Driver 輸出方向不從 code 讀取：匯入全民後預設正向，不顯示 iSP REG 帶入說明，ⓘ 寫明手動設定');
     ok(QA('[data-misk]').length > 0 && T.getAttribute('data-sug') === 'rfgn' && T.getAttribute('data-sugcombo') === 'rfgn' && !$('dm-pv-sugbtn').classList.contains('hidden'), '預設（CH1 在最左＋正向＋RGB）顏色不符 ⇒ 建議：CH1 在最右＋正向（和 code SHL 一致）＋RGB＋無對調');
     ok(d.querySelectorAll('#dm-pv-combotbl tbody tr').length === 16 && new Set(Array.from(d.querySelectorAll('#dm-pv-combotbl tbody tr')).map(r => r.getAttribute('data-group'))).size === 16, 'v1.17.2：16 種組合各自獨立（CH1 位置與 SHL 不再互為等效）');
     const dlPos = () => QA('path[data-dl]').map(p => p.getAttribute('data-dl') + '@' + p.getAttribute('data-x')).join(',') + '|' + QA('text[data-dlab]').map(e => e.getAttribute('data-dlab')).join(',');
@@ -218,10 +218,41 @@ console.log('── code 表（D2:R31）＝網頁 T 表解碼');
     /* v1.17.3：匯入 A 後手動改 ③，再匯入 B ⇒ ③ 回預設、SHL 依 B 帶入（B＝全民 code 去掉 iSP 設定，0x0F00＝0 ⇒ 沒有 SHL ⇒ 正向） */
     fire($('dm-pv-swap'), true); fire($('dm-pv-first'), 'r'); fire($('dm-pv-stripe'), 'bgr'); fire($('dm-pv-drv'), 'r');
     { const b = new Uint8Array(fs.readFileSync(QM)); b[0x0F00] = 0; w.dmImportBytes(b, 'B_noISP_' + path.basename(QM)); await new Promise(r => setTimeout(r, 80)); }
-    ok(!$('dm-pv-swap').checked && $('dm-pv-first').value === 'l' && $('dm-pv-stripe').value === 'rgb' && $('dm-pv-drv').value === 'f' && /沒有可讀的 iSP/.test($('dm-pv-shlsrc').textContent), 'v1.17.3 改過 ③ 後匯入 B（沒有 iSP SHL）⇒ ③ 全部回預設、Driver 方向用預設正向');
+    ok(!$('dm-pv-swap').checked && $('dm-pv-first').value === 'l' && $('dm-pv-stripe').value === 'rgb' && $('dm-pv-drv').value === 'f', 'v1.17.3 改過 ③ 後匯入 B（沒有 iSP SHL）⇒ ③ 全部回預設、Driver 方向用預設正向');
     fire($('dm-pv-drv'), 'r'); fire($('dm-pv-first'), 'r');
     w.dmImportBytes(new Uint8Array(fs.readFileSync(QM)), path.basename(QM)); await new Promise(r => setTimeout(r, 80));
-    ok($('dm-pv-first').value === 'l' && $('dm-pv-drv').value === 'f' && /SHL＝1/.test($('dm-pv-shlsrc').textContent), '再匯入全民 code ⇒ ③ 回預設，Driver 方向依 code SHL＝1 帶入正向');
+    ok($('dm-pv-first').value === 'l' && $('dm-pv-drv').value === 'f', '再匯入全民 code ⇒ ③ 回預設，Driver 方向正向');
+    /* v1.18.5（Bruce 10/8）：Driver 設定和 code 脫鉤：code 的 iSP REG_1 SHL＝0 也不帶入反向；換型號、清除匯入都回正向 */
+    { const b = new Uint8Array(fs.readFileSync(QM)); for (let i = 0; i < 16; i++) b[0x1001 + 4 * i] &= ~4;
+      fire($('dm-pv-drv'), 'r'); w.dmImportBytes(b, 'SHL0_' + path.basename(QM)); await new Promise(r => setTimeout(r, 80));
+      ok($('dm-pv-drv').value === 'f', 'v1.18.5 匯入 iSP REG_1 SHL＝0 的 code ⇒ Driver 仍預設正向（不連動 code）');
+      fire($('dm-pv-drv'), 'r'); if (w.dmClearImport) w.dmClearImport(); else { fire($('dm-model'), 'EM02'); }
+      ok($('dm-pv-drv').value === 'f', 'v1.18.5 手動改反向後清除匯入 ⇒ 回正向');
+      fire($('dm-pv-drv'), 'r'); fire($('dm-model'), 'EM02'); await new Promise(r => setTimeout(r, 30));
+      ok($('dm-pv-drv').value === 'f', 'v1.18.5 手動改反向後換型號 ⇒ 回正向'); }
+    /* v1.18.5（Bruce 10/8「不是 Hand Mode…按接線鎖定以後全部都是灰的」）：Auto Mode 也能鎖定：鎖定瞬間 ③ 逐字不變、沒有變灰；切 Mirror 接線不動 */
+    { let bad = [], n = 0;
+      for (const m of ['EM01', 'EM02', 'E512', 'E503', 'DAZ6138', 'DAZ6111', 'DAZ7353']) {
+        if (![...$('dm-model').options].some(o => o.value === m)) continue;
+        fire($('dm-model'), m); await new Promise(r => setTimeout(r, 20));
+        if ($('dm-hand').checked) fire($('dm-hand'), false);
+        if ($('dm-autorow').classList.contains('hidden')) continue;
+        const A = $('dm-auto');
+        for (let i = 0; i < A.options.length; i++) {
+          A.selectedIndex = i; A.dispatchEvent(new w.Event('change')); if ($('dm-hand').checked) fire($('dm-hand'), false);
+          const T = $('dm-pv-tft'), svg0 = T.innerHTML, dum0 = QA('rect[data-tier="dummy"]').length;
+          $('dm-pv-lock').click(); n++;
+          if (T.innerHTML !== svg0 || QA('rect[data-tier="dummy"]').length !== dum0 || $('dm-pv-lock').getAttribute('data-locked') !== '1') bad.push(m + ':' + A.options[i].text.slice(0, 20));
+          $('dm-pv-lock').click();
+        }
+      }
+      ok(n > 50 && bad.length === 0, 'v1.18.5 Auto Mode 鎖定：' + n + ' 種 Auto Type（各型號）鎖定瞬間 ③ 逐字不變、不變灰' + (bad.length ? '；有問題：' + bad.slice(0, 5).join('、') : ''));
+      fire($('dm-model'), 'EM02'); if ($('dm-hand').checked) fire($('dm-hand'), false); $('dm-auto').selectedIndex = 0; $('dm-auto').dispatchEvent(new w.Event('change')); if ($('dm-hand').checked) fire($('dm-hand'), false);
+      const wiresA = () => QA('path[data-w]').map(p => p.getAttribute('data-w') + '|' + p.getAttribute('d')).join('\n');
+      $('dm-pv-lock').click(); const wa = wiresA(), sa = $('dm-pv-lockst').getAttribute('data-ok');
+      fire($('f-mirror'), !$('f-mirror').checked);
+      ok(wiresA() === wa && /^(\d+)\/\1$/.test(sa) && QA('rect[data-dn]').some(r => /末/.test(r.getAttribute('data-dn'))), 'v1.18.5 EM02 Auto（' + $('dm-auto').options[0].text.slice(0, 16) + '）鎖定後切 Mirror：接線不動、格內改「末」編號（和 Hand 相同行為）');
+      fire($('f-mirror'), !$('f-mirror').checked); $('dm-pv-lock').click(); }
   }
   console.log((fail ? '✗ ' : '✓ ') + 'check_datamap_kickoff ' + pass + ' pass / ' + fail + ' fail');
   process.exit(fail ? 1 : 0);
