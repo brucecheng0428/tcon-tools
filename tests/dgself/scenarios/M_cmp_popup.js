@@ -67,7 +67,9 @@
     var zh = (C !== 'EN' && C !== 'CN');
     if (C === 'FULL') __ok('M1 this line (round 2 · conf · DG_EN)', tx('dst-cmp-this') === '這一筆：第 2 輪 · 確認結果 · DG_EN ON', tx('dst-cmp-this'));
     else if (zh) __ok('M1 this line (round 1 · main · DG_EN)', tx('dst-cmp-this') === '這一筆：第 1 輪 · 主量測 · DG_EN ON', tx('dst-cmp-this'));
-    if (zh && C !== 'C') __ok('M1 asking state first', tx('dst-cmp-count').indexOf('查詢') >= 0, tx('dst-cmp-count'));
+    // 2026-10-08（datamap v1.18.25 部署時 CI run #77 偶發失敗）：DG 的回覆可能在這一行檢查前就到 ⇒ 「正在向 DG 查詢…」或已回覆（目前已有 n 筆）兩種狀態都算對；
+    // 回覆後的內容由下面 M2 逐項檢查。只放寬時序，不改頁面行為。
+    if (zh && C !== 'C') __ok('M1 asking state first (or DG already answered)', tx('dst-cmp-count').indexOf('查詢') >= 0 || /目前已有 \d+ 筆/.test(tx('dst-cmp-count')), tx('dst-cmp-count'));
     var box = modal.querySelector('.dst-modal-box');
     __ok('M1 quiet style: neutral border, box ≤ 440px', getComputedStyle(box).borderTopColor === 'rgb(51, 65, 85)' && box.getBoundingClientRect().width <= 440,
       getComputedStyle(box).borderTopColor + ' w=' + Math.round(box.getBoundingClientRect().width));

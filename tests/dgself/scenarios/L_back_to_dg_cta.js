@@ -43,9 +43,11 @@
     var t1 = document.title;
     dstRenderSteps(); __ok('L1 rerender keeps breath/title', bw.classList.contains('dst-back-breath') && document.title === t1);
     await __wait(1100);
+    var t2 = document.title;   // 標題交替的檢查維持原本 1.1 秒的時點
+    // 2026-10-08（datamap v1.18.25 部署時本機整套跑偶發失敗）：平滑捲動在負載高時 1.1 秒內不一定停 ⇒ 輪詢到捲動停止（連續 3 次 scrollY 相同、每次 100ms，上限 4 秒）再量位置。只放寬時序，不改頁面行為。
+    for (var si = 0, sLast = -1, sSame = 0; si < 40 && sSame < 3; si++) { var sy = scrollY; sSame = sy === sLast ? sSame + 1 : 0; sLast = sy; if (sSame < 3) await __wait(100); }
     var r = bw.getBoundingClientRect();
     __ok('L2 scrolled into view', r.top >= 0 && r.bottom <= innerHeight, Math.round(r.top) + '..' + Math.round(r.bottom) + ' / ' + innerHeight + ' scrollY=' + Math.round(scrollY));
-    var t2 = document.title;
     if (T === 'RM') __ok('L2 RM: title static (no alternation)', t2 === t1, t2);
     else __ok('L2 title alternates', t2 === orig, t2);
     if (T === 'A' || T === 'RM') {
