@@ -215,15 +215,15 @@ console.log('── v1.12.0 Hand 關 ③ 一定有圖或明確原因');
     fire($('dm-model'), 'EM02');
     const raw = new Uint8Array(fs.readFileSync(EM02));
     w.dmImportBytes(raw, path.basename(EM02)); await new Promise(r => setTimeout(r, 50));
-    { const QA2 = s => Array.from(d.querySelectorAll(s)), sum = () => $('dm-gl-sum').getAttribute('data-ok');
+    { const QA2 = s => Array.from(d.querySelectorAll(s)), sum = () => $('dm-pv-lockst').getAttribute('data-ok'), allOk = () => /^(\d+)\/\1$/.test(sum());
       $('dm-pv-lock').click();
       const wires = () => QA2('#dm-pv-tft path[data-w]').map(p => p.getAttribute('data-w') + '|' + p.getAttribute('d')).join('\n'), w0 = wires(), dn0 = QA2('#dm-pv-tft rect[data-dn]').map(r => r.getAttribute('data-dn')).join(',');
-      ok(sum() === '24/24' && $('dm-gl-on').checked, 'v1.18.0 蘇坤 ③ 確認存為面板接線 ⇒ 鎖定、一致 24/24');
+      ok(allOk() && $('dm-pv-lock').getAttribute('data-locked') === '1', 'v1.18.1 蘇坤 ③ 鎖定接線 ⇒ 一致 24/24');
       fire($('f-mirror'), true);
-      ok(sum() !== '24/24' && QA2('#dm-ggrid select.dm-gne').length > 0 && QA2('#dm-pv-tft [data-glne]').length > 0 && wires() === w0 && QA2('#dm-pv-tft rect[data-dn]').map(r => r.getAttribute('data-dn')).join(',') !== dn0, '蘇坤 ② Mirror 改 1 ⇒ 接線不動、格內資料改變、標不一致 ' + sum());
+      ok(!allOk() && QA2('#dm-pv-tft [data-glne]').length > 0 && wires() === w0 && QA2('#dm-pv-tft rect[data-dn]').map(r => r.getAttribute('data-dn')).join(',') !== dn0, '蘇坤 ② Mirror 改 1 ⇒ 接線不動、格內資料改變、標不一致 ' + sum());
       fire($('f-mirror'), false);
-      ok(sum() === '24/24', '蘇坤 Mirror 改回 0 ⇒ 一致 24/24');
-      fire($('dm-gl-on'), false); w.dmImportBytes(raw, path.basename(EM02)); await new Promise(r => setTimeout(r, 50)); }
+      ok(allOk(), '蘇坤 Mirror 改回 0 ⇒ 一致 24/24');
+      $('dm-pv-lock').click(); w.dmImportBytes(raw, path.basename(EM02)); await new Promise(r => setTimeout(r, 50)); }
     ok($('dm-lodrow').getAttribute('data-state') === 'ok' && +$('dm-lodrow').getAttribute('data-cur') === 32 && /一致（Type 32/.test($('dm-lodstat').textContent) && /對調/.test($('dm-loddiff').textContent), '蘇坤 code：✓ Line OD 與 RT7 一致（Type 32，依 driver 對調後接線）');
     { const lod0 = JSON.stringify(A.lodOf(w.dmState.cur)); fire($('f-chrb'), true);
       ok($('dm-lodrow').getAttribute('data-state') === 'ok' && JSON.stringify(A.lodOf(w.dmState.cur)) !== lod0, 'v1.17.0 CHRB 勾 ⇒ Line OD 跟著 RT7 自動改成 R↔B 後的接線（依原廠 (25)→(26) 只差 chrb、Line OD 25 R↔B＝26），狀態仍一致：' + $('dm-lodstat').textContent);

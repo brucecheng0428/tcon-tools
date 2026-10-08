@@ -14,7 +14,7 @@ var TOOL_VERSIONS = {
   pattern: 'v3.8.3',       // Pattern Generator 畫面產生器
   dg:      'v2.4.7',       // Digital Gamma 迭代校正（含量測頁 dg-measure.html）
   i2c:     'v1.34.0',       // I2C（讀寫測試）
-  datamap: 'v1.18.0',       // Data Mapping（Python UI 的內容與規則、站內風格；DAZ／E501／E503／EM01／EM02／E512）
+  datamap: 'v1.18.1',       // Data Mapping（Python UI 的內容與規則、站內風格；DAZ／E501／E503／EM01／EM02／E512）
   /* 🔴 TCON 自檢畫面量測（dg-selftest.html）。
      這一頁**還沒登記在首頁**（入口與 dg-measure 的拆除是下一階段），所以
      `app` 這一輪不動 —— 首頁上看不到任何新東西。等入口接上去再依
