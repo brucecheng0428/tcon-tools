@@ -61,6 +61,17 @@ python3 tests/dgself/run.py --list      # 列出情境與網址參數
    截圖：`DGSELF_SHOTS=<資料夾> bash tests/dgself/run-all.sh …` ⇒ 每個情境跑完截一張 `<名稱>.png`（情境最後的畫面）。
 2. 在 `run.py` 的 `SCENARIOS` 加一列（網址參數、是否由 DG 開啟、pre 變數、是否 reduced-motion、頁面（可省略＝自檢頁））。
 3. 頁面改版後情境要跟著改：斷言寫的是「應有行為」，改規格時同一個 commit 一起更新測試。
+4. **不要用「固定等 N ms 再判斷」**（2026-10-09 整套去偶發：CI runner 比本機慢，固定等待會偶發地還沒好就量）。
+   一律等條件成立（含逾時），工具在 `lib/fake_hw.js`：
+   - `await __until(() => 條件, ms)`：每 20ms 檢查，成立就往下；逾時（預設 10 秒）也往下，交給後面的 `__ok` 照實判 FAIL。
+   - `await __untilIdle(() => 條件, ms)`：同上，另外要等自檢頁沒有進行中的 I/O（`dstBusy`／`dstLutBusy`／DG_EN 切換中…）。
+   - `await __still()`：等平滑捲動停下來再量位置（先等兩個畫格讓捲動開始）。量「捲到可視範圍」一定要先 `__until(在畫面內)` 再 `__still()`。
+   - `await __settle()`：等自檢頁 I/O 全部放下；`await __boot(ms)`：等文件載入完成再給 ms 初始化時間。
+   - 中間態（「切換中…」「連線中…」「正在向 DG 查詢…」）：把假硬體的回覆延遲拉長（≥1 秒）、用 `__until` 等到它出現才判斷；不能指望固定時點剛好看到。
+   - 「不應該發生」的檢查（例如同一輪不該再寫 DG_EN）才保留固定觀察時間，後面再接 `__settle()`。
+   - 驗證方式：`taskpolicy -b python3 tests/dgself/run.py --jobs 12`（macOS 背景 QoS，只用效率核心，模擬慢 runner）要全過。
+5. runner（`run.py`）與發佈前關卡（`tools/build/verify-site.mjs`）遇到「Chrome 起不來」（DevTools 沒出現）會換新 profile／port **自動重試一次**；
+   其他失敗（FAIL、JS 錯誤、逾時）一律不重試。
 
 ## 跨分頁實測（tabs.py，v2.5.1／dg v2.3.1）
 

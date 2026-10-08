@@ -11,7 +11,7 @@
     var prim = [['r', 0.64, 0.33, 40], ['g', 0.30, 0.60, 130], ['b', 0.15, 0.06, 15]];
     function send(d) { window.dispatchEvent(new MessageEvent('message', { data: d, origin: window.location.origin, source: window })); }
     var isView = /[?&]view=cmp\b/.test(location.search);
-    await __wait(1500);
+    await __boot(1500);
     if (/[?&]role=writer\b/.test(location.search)) {
       /* ③ 另一份真的 DG（iframe，同一個 localStorage）：讀回存檔的 2 組，量測頁按確定加第 3 組 ⇒ 寫存檔。
          檢視頁收到的是瀏覽器真的發的 storage 事件。 */
@@ -59,7 +59,7 @@
     var raw2 = JSON.stringify(w);
     localStorage.setItem(KEY, raw2);
     window.dispatchEvent(new StorageEvent('storage', { key: KEY, newValue: raw2, storageArea: localStorage }));
-    await __wait(400);
+    await __until(function () { return window.dgApi.viewCount() === 2 && __txt('dg-view-bar').indexOf('共 2 組') >= 0; });   // 2026-10-09 去偶發：等條件，不固定等
     __ok('V2 live update: now 2 sets', window.dgApi.viewCount() === 2 && document.querySelectorAll('#dg-slot-list .dg-slot-row').length === 2
       && __txt('dg-view-bar').indexOf('共 2 組') >= 0, window.dgApi.viewCount() + ' | ' + __txt('dg-view-bar'));
     // 檢視頁不寫存檔：勾掉「顯示」（會走 change 與 dgRenderCharts 的保存掛點）、等過 debounce
@@ -77,12 +77,12 @@
     // 讀不到存檔 ⇒ 提示切回 DG
     localStorage.removeItem(KEY);
     window.dispatchEvent(new StorageEvent('storage', { key: KEY, newValue: null, storageArea: localStorage }));
-    await __wait(400);
+    await __until(function () { return window.dgApi.viewCount() === -1 && document.getElementById('dg-view-bar').classList.contains('err'); });
     __ok('V4 no autosave ⇒ switch-back hint', window.dgApi.viewCount() === -1 && __txt('dg-view-bar').indexOf('請切回 DG 分頁，點「光學資料比較」查看') >= 0
       && document.getElementById('dg-view-bar').classList.contains('err'), __txt('dg-view-bar'));
     localStorage.setItem(KEY, raw2);
     window.dispatchEvent(new StorageEvent('storage', { key: KEY, newValue: raw2, storageArea: localStorage }));
-    await __wait(400);
+    await __until(function () { return window.dgApi.viewCount() === 2 && !document.getElementById('dg-view-bar').classList.contains('err'); });
     __ok('V4 comes back when DG writes again', window.dgApi.viewCount() === 2 && !document.getElementById('dg-view-bar').classList.contains('err'));
     __ok('V0 first phase stored exactly what the view read', raw1.length > 0);
     // ③ 真的跨文件：iframe 裡的一般 DG 加第 3 組 ⇒ 瀏覽器發 storage 事件 ⇒ 這裡自動變 3 組
@@ -111,7 +111,7 @@
     await __wait(300);
     __ok('V6 missed storage event ⇒ still 3 until the tab comes back', window.dgApi.viewCount() === 3, window.dgApi.viewCount());
     document.dispatchEvent(new Event('visibilitychange'));
-    await __wait(300);
+    await __until(function () { return window.dgApi.viewCount() === 4 && document.querySelectorAll('#dg-slot-list .dg-slot-row').length === 4; });
     __ok('V6 tab comes back to front ⇒ re-reads ⇒ 4 sets', window.dgApi.viewCount() === 4
       && document.querySelectorAll('#dg-slot-list .dg-slot-row').length === 4, window.dgApi.viewCount());
     __ok('DGV version = common/version.js dg (' + window.__expectDgVer + ')', TOOL_VERSIONS.dg === window.__expectDgVer, TOOL_VERSIONS.dg);

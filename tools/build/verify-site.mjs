@@ -56,14 +56,35 @@ const srvA = await serve(SRC), srvB = await serve(SITE);
 const ORIGIN = { src: `http://127.0.0.1:${srvA.address().port}`, site: `http://127.0.0.1:${srvB.address().port}` };
 
 // ── 2. Chrome（自有暫存 profile）
-const port = 9200 + Math.floor(Math.random() * 700);
-const prof = await mkdtemp(join(tmpdir(), 'pages-verify-'));
-const chrome = spawn(CHROME, ['--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check', '--mute-audio',
-  `--remote-debugging-port=${port}`, `--user-data-dir=${prof}`, '--window-size=1600,1000', 'about:blank'], { stdio: 'ignore' });
-let targets;
-for (let i = 0; i < 100; i++) { try { targets = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json(); if (targets.length) break; } catch { } await sleep(200); }
-if (!targets) { console.error('🛑 Chrome 起不來'); process.exit(2); }
-const ws = new WebSocket(targets.find(t => t.type === 'page').webSocketDebuggerUrl);
+// 2026-10-09（Bruce「不要再一項一項被 CI 卡，整套一次修好」；10/8 run #78 卡在這裡）：
+// Chrome 起不來（DevTools 沒出現 page target）⇒ 收掉、換新 profile／port 自動重試一次；第二次還是起不來才 exit 2。
+// 只有「Chrome 起不來」會重試，頁面比對的差異一律不重試。
+let chrome, prof, pageWsUrl = null;
+async function launchChrome() {
+  const port = 9200 + Math.floor(Math.random() * 700);
+  const pf = await mkdtemp(join(tmpdir(), 'pages-verify-'));
+  const ch = spawn(CHROME, ['--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check', '--mute-audio',
+    `--remote-debugging-port=${port}`, `--user-data-dir=${pf}`, '--window-size=1600,1000', 'about:blank'], { stdio: 'ignore' });
+  let exited = false; ch.on('exit', () => { exited = true; }); ch.on('error', () => { exited = true; });
+  for (let i = 0; i < 150 && !exited; i++) {
+    try {
+      const targets = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
+      const pg = targets.find(t => t.type === 'page' && t.webSocketDebuggerUrl);
+      if (pg) return { ch, pf, url: pg.webSocketDebuggerUrl };
+    } catch { }
+    await sleep(200);
+  }
+  try { ch.kill('SIGKILL'); } catch { }
+  await rm(pf, { recursive: true, force: true }).catch(() => { });
+  return null;
+}
+for (let attempt = 1; attempt <= 2 && !pageWsUrl; attempt++) {
+  const r = await launchChrome();
+  if (r) { chrome = r.ch; prof = r.pf; pageWsUrl = r.url; if (attempt > 1) console.log('⚠ Chrome 第 1 次起不來，自動重試一次後成功'); }
+  else console.error(`⚠ Chrome 起不來（第 ${attempt} 次）${attempt === 1 ? '，自動重試一次' : ''}`);
+}
+if (!pageWsUrl) { console.error('🛑 Chrome 起不來（已重試一次）'); process.exit(2); }
+const ws = new WebSocket(pageWsUrl);
 await new Promise((r, j) => { ws.onopen = r; ws.onerror = j; });
 let seq = 0; const pend = new Map(); let sink = null;
 ws.onmessage = ev => {

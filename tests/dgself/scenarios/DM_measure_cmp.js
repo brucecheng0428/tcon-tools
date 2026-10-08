@@ -9,7 +9,10 @@
     if (C === 'EN') { try { localStorage.setItem('tcon-lang', 'en'); } catch (e) {} }
     if (C === 'CN') { try { localStorage.setItem('tcon-lang', 'zh-CN'); } catch (e) {} }
     function btnGone() { return getComputedStyle(document.getElementById('dgm-cmp-open')).display === 'none'; }
-    await __wait(300);
+    await __boot(300);
+    /* 2026-10-09 去偶發：假 DG 40ms 後才回覆；原本固定等 150ms 再看。改成等頁面自己的狀態（dgmCmpPhase）。 */
+    async function replied() { await __until(function () { return dgmCmpPhase !== 'ask'; }); }
+    async function added() { await __until(function () { return dgmCmpPhase === 'done'; }); }
     var sent = [], dg = { count: 4, reply: (C !== 'C') };
     window.opener.postMessage = function (m) {
       sent.push(m);
@@ -71,14 +74,14 @@
     var solid = ['dgm-start', 'dgm-fs', 'dgm-link'].filter(function (id) { var e = document.getElementById(id);
       return !e.disabled && getComputedStyle(e).backgroundColor !== 'rgba(0, 0, 0, 0)'; });
     __ok('DM1 no other solid page button while open', solid.length === 0, solid.join(','));
-    await __wait(150);
+    if (C !== 'C') await replied();
     if (C === 'C') {
       __ok('DM-C this line falls back to DG step name', tx('dgm-cmp-this') === '這一筆：電腦畫面', tx('dgm-cmp-this'));
-      await __wait(1500);
+      await __until(function () { return tx('dgm-cmp-count') === '無法取得目前的筆數，按「確定」仍會送出。'; }, 8000);
       __ok('DM-C unknown count', tx('dgm-cmp-count') === '無法取得目前的筆數，按「確定」仍會送出。', tx('dgm-cmp-count'));
       document.getElementById('dgm-cmp-ok').click();
       __ok('DM-C OK still sends', sent.filter(function (m) { return m.type === 'dg-cmp-add'; }).length === 1);
-      await __wait(2200);
+      await __until(function () { return tx('dgm-cmp-res').indexOf('沒有收到 DG 的回覆') >= 0; }, 10000);
       __ok('DM-C no reply reported', tx('dgm-cmp-res').indexOf('沒有收到 DG 的回覆') >= 0, tx('dgm-cmp-res'));
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
       __ok('DM-C Esc closes', !open());
@@ -96,8 +99,8 @@
       document.getElementById('dgm-cmp-cancel').click();
       __ok('DM-' + C + ' declined: no button, state + add link', btnGone() && !!document.getElementById('dgm-cmp-addlink')
         && tx('dgm-cmp-state') === (en ? 'This round was not added to the comparison.Add to comparison' : '这一轮没有加入比较。加入比较'), tx('dgm-cmp-state'));
-      document.getElementById('dgm-cmp-addlink').click(); await __wait(150);
-      document.getElementById('dgm-cmp-ok').click(); await __wait(150);
+      document.getElementById('dgm-cmp-addlink').click(); await replied();
+      document.getElementById('dgm-cmp-ok').click(); await added();
       document.getElementById('dgm-cmp-ok').click();
       __ok('DM-' + C + ' added: no button, "added ✓ · view"', btnGone() && !document.getElementById('dgm-cmp-addlink')
         && tx('dgm-cmp-state') === (en ? 'Added to the comparison ✓ ·View comparison' : '已加入比较 ✓ ·查看比较'), tx('dgm-cmp-state'));
@@ -108,7 +111,7 @@
     __ok('DM2 list 4 items', document.getElementById('dgm-cmp-list-ol').children.length === 4);
     __ok('DM2 name prefilled', document.getElementById('dgm-cmp-name').value === '第三輪');
     if (C === 'ADD') {   // 視窗裡直接按加入 ⇒ 底部從頭到尾不出現「加入光學資料比較…」鈕
-      document.getElementById('dgm-cmp-ok').click(); await __wait(150);
+      document.getElementById('dgm-cmp-ok').click(); await added();
       document.getElementById('dgm-cmp-ok').click();
       __ok('DM-ADD added in the popup ⇒ no re-add button, "已加入比較 ✓ · 查看比較"', !open() && btnGone() && !document.getElementById('dgm-cmp-addlink')
         && tx('dgm-cmp-state') === '已加入比較 ✓ ·查看比較', tx('dgm-cmp-state'));
@@ -121,9 +124,9 @@
       && btnGone() && tx('dgm-cmp-state') === '這一輪沒有加入比較。加入比較'
       && document.getElementById('dgm-cmp-addlink').className === 'dgm-link', tx('dgm-cmp-state'));
     document.getElementById('dgm-cmp-addlink').click();
-    await __wait(150);
+    await replied();
     document.getElementById('dgm-cmp-ok').click();
-    await __wait(150);
+    await added();
     var add = sent.filter(function (m) { return m.type === 'dg-cmp-add'; })[0] || {};
     __ok('DM4 add sent (kind pc, default name)', add.kind === 'pc' && add.name === '第三輪' && add.edited === false && add.rows.length === 256 && add.task === 7);
     __ok('DM4 added text', tx('dgm-cmp-res') === '已加入，目前共 5 筆。', tx('dgm-cmp-res'));

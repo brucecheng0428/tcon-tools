@@ -33,15 +33,17 @@
   try {
     window.__lutFill = true;
     if (C === 'EN') applyLang('en');
-    await __wait(500);
+    await __boot(500);
 
     if (C === 'RELOAD') {
-      await __wait(3500);
+      // 2026-10-09 去偶發：自動重連完成才判斷（原本固定等 3.5 秒）
+      await __untilIdle(function () { return window.__reconn.ln === 1 && window.__reconn.ca === 1 && dstLinked && dstCaLinked
+        && cardVis('dst-steps-card') && __cls('dst-test-card', 'dst-pg-done') && __cls('dst-hw-card', 'dst-pg-done'); }, 15000);
       __ok('P-RELOAD reconnected both (I2C via the ON path, meter via the granted port)', window.__reconn.ln === 1 && window.__reconn.ca === 1 && dstLinked && dstCaLinked, JSON.stringify(window.__reconn));
       __ok('P-RELOAD went straight to the step card', cardVis('dst-steps-card') && __cls('dst-test-card', 'dst-pg-done') && __cls('dst-hw-card', 'dst-pg-done'));
       __checkVersion('P-RELOAD'); throw 'done';
     }
-    await __arm(); await __wait(300);
+    await __arm(); await __settle();
     if (C === 'NODG') {
       __ok('P-NODG no staging: test card, step card, data cards all shown', cardVis('dst-test-card') && cardVis('dst-steps-card') && DATA.every(cardVis));
       __ok('P-NODG no ✓ lines', !__cls('dst-hw-card', 'dst-pg-done') && !__cls('dst-test-card', 'dst-pg-done'));
@@ -51,7 +53,8 @@
       dstAlignDone = false; dstPgMax = 0; dstRenderBtns();
       __ok('P-R2 round 2: hardware and alignment count as done (✓ lines), step card shown',
         __cls('dst-hw-card', 'dst-pg-done') && __cls('dst-test-card', 'dst-pg-done') && cardVis('dst-steps-card'));
-      await dstDgAutoThenStep1('connect'); await __wait(3000);
+      await dstDgAutoThenStep1('connect');
+      await __untilIdle(function () { return __cls('dst-group23', 'dst-fs-cur') && __vis('dst-go-gray') && !!dstStepDone.lut; });
       __ok('P-R2 stops at ②', __cls('dst-group23', 'dst-fs-cur') && __vis('dst-go-gray') && !!dstStepDone.lut);
       __checkVersion('P-R2'); throw 'done';
     }
@@ -79,7 +82,11 @@
       window.scrollTo(0, 0);
       var scrolled = [], osv = Element.prototype.scrollIntoView;
       Element.prototype.scrollIntoView = function (o) { scrolled.push(this.id || this.className); return osv.call(this, o); };
-      document.getElementById('dst-align').click(); await __wait(1500);
+      document.getElementById('dst-align').click();
+      // 2026-10-09 去偶發：等步驟卡出現、捲到它、捲動停下來才量位置（原本固定等 1.5 秒）
+      await __until(function () { var q = document.getElementById('dst-steps-card').getBoundingClientRect();
+        return dstShowing === 'align' && cardVis('dst-steps-card') && scrolled.indexOf('dst-steps-card') >= 0 && q.top >= -2 && q.top < 220; }, 8000);
+      await __still();
       __ok('P3 alignment shown', dstShowing === 'align');
       __ok('P3 step card appears', cardVis('dst-steps-card') && __vis('dst-go-lut'));
       __ok('P3 test card and hardware card collapsed to pale ✓ lines', __cls('dst-test-card', 'dst-pg-done') && __cls('dst-hw-card', 'dst-pg-done')

@@ -39,6 +39,48 @@ function __fakeWs() {
   return ws;
 }
 function __wait(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+/* ── 等條件成立（2026-10-09 去偶發，Bruce「不要再一項一項被 CI 卡，整套一次修好」）──────────────────
+   CI runner 比本機慢、四個 Chrome 同時跑時，「固定等 N ms 再判斷」會偶發地還沒好就量。改成：
+   __until(fn, ms)      每 20ms 檢查 fn()，成立就立刻往下；逾時（預設 10 秒）也往下，交給後面的 __ok 照實判 FAIL。
+   __untilIdle(fn, ms)  同上，另外要等自檢頁沒有進行中的 I/O（__busy() 為 false）。
+   __still(ms)          等整頁捲動停下來（scrollX／scrollY 連續 5 次、每 50ms 不變；平滑捲動也算），上限預設 6 秒。
+   __settle(ms)         等自檢頁的 I/O 全部放下、連續 3 次都放下（上限預設 10 秒）。
+   「不應該發生」的檢查（例如不該再寫 DG_EN）仍保留固定的觀察時間 —— 那是「等多久都不該發生」，不是等它好。
+   只改等待方式，不改任何斷言與頁面行為。 */
+function __busy() {
+  try {
+    return !!(dstBusy || dstLutBusy || dstLutWriteBusy || dstDgSwPending || dstLnPending || dstCaPending || dstRunning);
+  } catch (e) { return false; }   // dg.html／dg-measure.html 沒有這些變數 ⇒ 不算忙
+}
+async function __until(fn, ms) {
+  var t0 = Date.now(), lim = ms || 10000;
+  for (;;) {
+    var v; try { v = fn(); } catch (e) { v = false; }
+    if (v) return true;
+    if (Date.now() - t0 >= lim) return false;
+    await __wait(20);
+  }
+}
+function __untilIdle(fn, ms) { return __until(function () { return !__busy() && (!fn || fn()); }, ms); }
+function __frame() { return Promise.race([new Promise(function (r) { requestAnimationFrame(function () { r(); }); }), __wait(500)]); }
+async function __still(ms) {
+  await __frame(); await __frame();   // 先讓平滑捲動有機會開始（它在下一個畫格才動）
+  var t0 = Date.now(), lim = ms || 6000, last = null, same = 0;
+  while (Date.now() - t0 < lim) {
+    var k = Math.round(window.scrollX) + ',' + Math.round(window.scrollY);
+    same = (k === last) ? same + 1 : 0; last = k;
+    if (same >= 5) return true;
+    await __wait(50);
+  }
+  return false;
+}
+async function __settle(ms) {
+  var t0 = Date.now(), lim = ms || 10000, n = 0;
+  while (Date.now() - t0 < lim) { n = __busy() ? 0 : n + 1; if (n >= 3) return true; await __wait(30); }
+  return false;
+}
+/* 開頁後先等文件載入完成，再給頁面自己的初始化（setTimeout 0 的自動重連等）一點時間。 */
+async function __boot(ms) { await __until(function () { return document.readyState === 'complete'; }, 15000); await __wait(ms || 0); }
 function __vis(id) { var e = document.getElementById(id); return !!(e && e.offsetParent); }
 function __txt(id) { var e = document.getElementById(id); return e ? String(e.textContent || '').trim() : null; }
 function __cls(id, c) { var e = document.getElementById(id); return !!(e && e.classList.contains(c)); }

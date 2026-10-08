@@ -8,7 +8,7 @@
 (async function () {
   try {
     var C = window.__viewCase || 'OPEN';
-    await __wait(800);
+    await __boot(800);
     if (C === 'EN') applyLang('en');
     var dg = { count: 2 };
     function list(n) { var a = []; for (var i = 0; i < n; i++) a.push({ no: i + 1, name: '組' + (i + 1), t: Date.now() - 60000 * (n - i) }); return a; }
@@ -32,11 +32,11 @@
     }
     await __arm();
     await dstRun();
-    await __wait(150);
+    await __until(function () { return dstCmpPhase !== 'ask'; });   // 2026-10-09 去偶發：等假 DG 回覆，不固定等 150ms
     __ok('V0 popup open after the run', document.getElementById('dst-modal-cmp').classList.contains('open'));
     __ok('V0 view button hidden before OK (not in the comparison yet)', !vis('dst-cmp-view'));
     document.getElementById('dst-cmp-ok').click();
-    await __wait(150);
+    await __until(function () { return dstCmpPhase === 'done'; });
     __ok('V1 added', dstCmpPhase === 'done' && dstCmpSaved && dstCmpSaved.no === 3, JSON.stringify(dstCmpSaved));
     __ok('V1 view button shown after OK', vis('dst-cmp-view'));
     var vb = document.getElementById('dst-cmp-view');
@@ -71,9 +71,9 @@
       if (C === 'BLK') {
         // 關掉再從 ④ 底下重開 ⇒ 提示不殘留
         document.getElementById('dst-cmp-ok').click(); await __wait(30);
-        document.getElementById('dst-cmp-open').click(); await __wait(150);
+        document.getElementById('dst-cmp-open').click(); await __until(function () { return dstCmpPhase !== 'ask'; });
         __ok('V3 reopen: hint cleared, view button still there (already added)', !vis('dst-cmp-go') && vis('dst-cmp-view'));
-        document.getElementById('dst-cmp-ok').click(); await __wait(150);   // 再按確定（假 DG 加第 4 筆）
+        document.getElementById('dst-cmp-ok').click(); await __until(function () { return dstCmpPhase === 'done'; });   // 再按確定（假 DG 加第 4 筆）
         vb.click(); await __wait(30);   // 截圖停在「已加入 ⇒ 提示」的狀態
         __ok('V3 hint again after OK; Close yields', vis('dst-cmp-go') && dstCmpPhase === 'done' && solid().join(',') === 'dst-cmp-go', solid().join(','));
       }

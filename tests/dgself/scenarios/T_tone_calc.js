@@ -4,7 +4,7 @@
             MISS（第 2／3 部分都還沒有 ⇒ 按了照既有的錯誤提示「還不能計算」，沒有結果）／EN／CN（鈕面字）。 */
 (async function () {
   try {
-    await __wait(1500);
+    await __boot(1500);
     var C = window.__tCase || 'CCT';
     window.postMessage = function () {};
     function send(d) { window.dispatchEvent(new MessageEvent('message', { data: d, origin: window.location.origin, source: window })); }
@@ -32,13 +32,13 @@
       await __wait(80);
     }
     dgLutModalOpen(); await __wait(50);
-    $('dg-btn-default').click(); await __wait(100);
+    $('dg-btn-default').click(); await __until(function () { return lutStep() === 'tone'; }, 5000);   // 2026-10-09 去偶發：等到「要不要調色溫」出現
     __ok('T0 LUT identical on 3 channels ⇒ asks "tune colour temperature?"', lutStep() === 'tone', lutStep());
     __ok('T0 labels say what happens', $('dg-btn-tone-cct').textContent === '調色溫並產生新的 RGB LUT' && $('dg-btn-tone-gamma').textContent === '不調色溫並產生新的 RGB LUT');
     __ok('T0 no result yet', !lastLut);
     __ok('T0 the calculate button is still there', !!$('dg-btn-calc'));
     var btn = (C === 'GAMMA') ? 'dg-btn-tone-gamma' : 'dg-btn-tone-cct';
-    $(btn).click(); await __wait(300);
+    $(btn).click(); await __until(function () { return !$('dg-modal-lut').classList.contains('open') && (C === 'MISS' ? /還不能計算/.test((($('dg-status') || {}).textContent) || '') : (!!lastLut && !!lastCtx)); });
     __ok('T1 popup closed', !$('dg-modal-lut').classList.contains('open'));
     if (C === 'MISS') {
       var st = ($('dg-status') || {}).textContent || '';

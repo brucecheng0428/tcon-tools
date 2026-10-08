@@ -6,7 +6,7 @@
        滿 10 組 ⇒ 回原因；DG 手上沒有那一份 ⇒ 用訊息帶的資料建組；舊版量測頁（沒有 cmpAsk）照舊自動加。 */
 (async function () {
   try {
-    await __wait(1500);
+    await __boot(1500);
     var rep = [];
     window.postMessage = function (m) { rep.push(m); };
     function send(d) {
@@ -25,26 +25,26 @@
       dgFillDefault();
       await __wait(50);
       dgDoCalc();
-      await __wait(100);
+      await __until(function () { return !!lastLut; });   // 2026-10-09 去偶發：等條件，不固定等
       __ok('NR1 a result exists (lastLut)', !!lastLut, dgMissingParts().join(','));
       DG_LIVE_TASKS[22] = 'conf'; DG_LIVE_TASK_KIND[22] = 'tcon';
       send({ type: 'dg-measure-result', mode: 'gray', task: 22, rows: rows(0.95), prim: prim, at: 'n2', cmpAsk: true });
-      await __wait(50);
+      await __until(function () { return DG_P4 && DG_P4.cmpAsk; });
       __ok('NR2 conf landed, nothing in comparison (user will cancel)', DG_P4 && DG_P4.cmpAsk && DG_SLOTS.length === 0, DG_SLOTS.length);
       var okNR = dgNextRound();
-      await __wait(600);
+      await __until(function () { return DG_ROUND === 2 && ($('dg-status').textContent || '').indexOf('這一輪也不自動加入') >= 0; });
       __ok('NR3 next round started', okNR === true && DG_ROUND === 2, DG_ROUND);
       __ok('NR3 cancelled conf NOT auto-recorded', DG_SLOTS.length === 0, DG_SLOTS.length);
       __ok('NR3 status says why', ($('dg-status').textContent || '').indexOf('這一輪也不自動加入') >= 0);
       /* 對照：確認結果那次按了確定 ⇒ 下一輪把那一組改名成新輪數（既有 v1.26.0 行為照舊） */
       DG_LIVE_TASKS[23] = 'conf'; DG_LIVE_TASK_KIND[23] = 'tcon';
-      dgDoCalc(); await __wait(100);
+      dgDoCalc(); await __until(function () { return !!lastLut; });
       send({ type: 'dg-measure-result', mode: 'gray', task: 23, rows: rows(0.9), prim: prim, at: 'n3', cmpAsk: true });
       await __wait(50);
       send({ type: 'dg-cmp-add', task: 23, name: '第二輪確認', edited: false });
       __ok('NR4 conf added via popup', DG_SLOTS.length === 1 && dgSlotDisplayName(0) === '第二輪確認', dgSlotDisplayName(0));
       dgNextRound();
-      await __wait(600);
+      await __until(function () { return DG_ROUND === 3 && dgSlotDisplayName(0) === '第三輪'; });
       __ok('NR4 next round retitles that set (existing rule kept)', DG_ROUND === 3 && DG_SLOTS.length === 1 && dgSlotDisplayName(0) === '第三輪', dgSlotDisplayName(0));
       __done(); return;
     }
@@ -54,7 +54,7 @@
     // ① 第 2 部分（主量測）帶 cmpAsk
     DG_LIVE_TASKS[11] = 'gray'; DG_LIVE_TASK_KIND[11] = 'tcon';
     send({ type: 'dg-measure-result', mode: 'gray', task: 11, rows: rows(1), prim: prim, durMs: 1234, settleMs: 300, at: 't1', cmpAsk: true });
-    await __wait(50);
+    await __until(function () { return $('dg-in-gray').value.split('\n').filter(function (l) { return l.trim(); }).length >= 256 && !!DG_CMP_PEND[11]; });
     __ok('DG1 part 2 got the data', $('dg-in-gray').value.split('\n').filter(function (l) { return l.trim(); }).length >= 256);
     __ok('DG1 NOT auto-added', DG_SLOTS.length === 0, DG_SLOTS.length);
     __ok('DG1 no dg-slot-auto reply', !last('dg-slot-auto'));
@@ -88,7 +88,7 @@
     // ② 第 4 部分（確認結果）帶 cmpAsk
     DG_LIVE_TASKS[12] = 'conf'; DG_LIVE_TASK_KIND[12] = 'tcon';
     send({ type: 'dg-measure-result', mode: 'gray', task: 12, rows: rows(0.9), prim: prim, at: 't2', cmpAsk: true });
-    await __wait(50);
+    await __until(function () { return DG_P4 && DG_P4.rows.length === 256 && DG_P4.cmpAsk === true; });
     __ok('DG6 part 4 got the data, not auto-recorded', DG_P4 && DG_P4.rows.length === 256 && DG_P4.cmpAsk === true && DG_SLOTS.length === 1);
     send({ type: 'dg-cmp-query', task: 12 });
     q = last('dg-cmp-info');
@@ -106,7 +106,7 @@
     // ③ 光學資料比較分頁的即時量測帶 cmpAsk
     DG_LIVE_TASKS[13] = 'slot'; DG_LIVE_TASK_KIND[13] = 'pc';
     send({ type: 'dg-measure-result', mode: 'gray', task: 13, rows: rows(0.8), prim: null, at: 't3', cmpAsk: true });
-    await __wait(50);
+    await __until(function () { return ($('dg-slot-status').textContent || '').indexOf('由量測分頁的視窗決定') >= 0; });
     __ok('DG7 slot path not auto-added', DG_SLOTS.length === 2 && ($('dg-slot-status').textContent || '').indexOf('由量測分頁的視窗決定') >= 0);
     send({ type: 'dg-cmp-query', task: 13 });
     q = last('dg-cmp-info');
@@ -124,7 +124,7 @@
     DG_LIVE_TASKS[14] = 'gray'; DG_LIVE_TASK_KIND[14] = 'pc';
     var before = rep.length;
     send({ type: 'dg-measure-result', mode: 'gray', task: 14, rows: rows(0.6), prim: null, at: 't5' });
-    await __wait(50);
+    await __until(function () { return DG_SLOTS.length === 5 && rep.slice(before).some(function (m) { return m.type === 'dg-slot-auto'; }); });
     var auto = rep.slice(before).filter(function (m) { return m.type === 'dg-slot-auto'; })[0];
     __ok('DG9 legacy page: auto-added + dg-slot-auto reply', DG_SLOTS.length === 5 && auto && auto.no === 5, DG_SLOTS.length);
 
