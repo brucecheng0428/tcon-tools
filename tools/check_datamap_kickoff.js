@@ -213,8 +213,20 @@ console.log('── code 表（D2:R31）＝網頁 T 表解碼');
       ok(sum() === '24/24' && QA('[data-glne]').length === 0 && w.dmBuildScript().text === scU, 'Mirror 改回 1 ⇒ 全部一致，匯出和鎖定前逐字相同');
       $('dm-pv-lock').click();
       ok($('dm-pv-lock').getAttribute('data-locked') === '0' && $('dm-pv-tft').innerHTML === svgU, '解除鎖定 ⇒ 回到 v1.17.5 畫法（和鎖定前逐字相同）');
-      $('dm-pv-lock').click(); w.dmImportBytes(new Uint8Array(fs.readFileSync(QM)), path.basename(QM)); await new Promise(r => setTimeout(r, 80));
-      ok($('dm-pv-lock').getAttribute('data-locked') === '0' && /未鎖定/.test($('dm-pv-lockst').textContent), '匯入新的 code ⇒ 自動解除鎖定'); }
+      /* v1.18.6（Bruce 10/8）：鎖定後 Driver／面板／型號停用，TCON（② 全部）可改；同型號匯入只改 TCON 值、保留鎖定；清除匯入保留鎖定；換型號要先解鎖 */
+      const HW = ['dm-model', 'dm-pv-swap', 'dm-pv-first', 'dm-pv-drv', 'dm-pv-stripe', 'dm-pv-lod'], TC = ['f-mirror', 'f-chrb', 'f-chwb', 'dm-hand', 'f-deEn', 'f-tsel', 'f-rvs'];
+      const first0 = $('dm-pv-first').value, stripe0 = $('dm-pv-stripe').value;
+      $('dm-pv-lock').click();
+      ok(HW.every(id => $(id).disabled) && TC.every(id => !$(id).disabled) && QA2('.dm-locknote:not(.hidden)').length === 2 && $('dm-drv-form').classList.contains('dm-hwlocked') && $('dm-pan-form').classList.contains('dm-hwlocked') && /解除鎖定後才能改/.test($('dm-pv-drv').title),
+        'v1.18.6 鎖定後：型號、Driver 區（對調、CH1、SHL）、面板區（子像素排列）、Line OD 測試來源停用並標「已鎖定，解鎖後才能改」；TCON 欄位（Mirror、CHRB、CHWB、Hand、FORCE_DE、T 表、READ_RVS）可改');
+      const m0 = w.dmState.model || $('dm-model').value; fire($('dm-pv-first'), first0 === 'r' ? 'l' : 'r'); fire($('dm-pv-stripe'), stripe0 === 'rgb' ? 'bgr' : 'rgb'); fire($('dm-model'), 'EM02');
+      ok($('dm-pv-first').value === first0 && $('dm-pv-stripe').value === stripe0 && $('dm-model').value === m0 && $('dm-pv-lock').getAttribute('data-locked') === '1', 'v1.18.6 鎖定中強行改 CH1／子像素排列／型號 ⇒ 被擋下、值不變、仍鎖定');
+      w.dmImportBytes(new Uint8Array(fs.readFileSync(QM)), path.basename(QM)); await new Promise(r => setTimeout(r, 80));
+      ok($('dm-pv-lock').getAttribute('data-locked') === '1' && $('dm-pv-first').value === first0 && $('dm-pv-stripe').value === stripe0, 'v1.18.6 鎖定中匯入同型號 code ⇒ 只改 TCON 值，鎖定與 Driver／面板設定保留');
+      if (w.dmClearImport) { w.dmClearImport(); await new Promise(r => setTimeout(r, 30)); ok($('dm-pv-lock').getAttribute('data-locked') === '1' && $('dm-pv-first').value === first0, 'v1.18.6 鎖定中清除匯入 ⇒ TCON 值回預設，鎖定與 Driver／面板設定保留'); }
+      $('dm-pv-lock').click();
+      ok($('dm-pv-lock').getAttribute('data-locked') === '0' && HW.every(id => !$(id).disabled) && QA2('.dm-locknote:not(.hidden)').length === 0, 'v1.18.6 解除鎖定 ⇒ Driver／面板／型號恢復可改');
+      w.dmImportBytes(new Uint8Array(fs.readFileSync(QM)), path.basename(QM)); await new Promise(r => setTimeout(r, 80)); }
     /* v1.17.3：匯入 A 後手動改 ③，再匯入 B ⇒ ③ 回預設、SHL 依 B 帶入（B＝全民 code 去掉 iSP 設定，0x0F00＝0 ⇒ 沒有 SHL ⇒ 正向） */
     fire($('dm-pv-swap'), true); fire($('dm-pv-first'), 'r'); fire($('dm-pv-stripe'), 'bgr'); fire($('dm-pv-drv'), 'r');
     { const b = new Uint8Array(fs.readFileSync(QM)); b[0x0F00] = 0; w.dmImportBytes(b, 'B_noISP_' + path.basename(QM)); await new Promise(r => setTimeout(r, 80)); }
