@@ -152,6 +152,21 @@
        RM81010_for_FAE_20240509_20241127.model:9748-9765 0x3F0[6:4]（E501A／E501B 同；RM81011 model:9605 相同）
        RM8100x_for_FAE_20240925_20250311.model:8522-8540 0x320[6:4]（E503） */
   var SUB_PANEL_REG = { DAZ6111: [0x032, 6, 4], DAZ7353: [0x0C9, 7, 4], DAZ6138: [0x180, 6, 4], RM81010: [0x3F0, 6, 4], RM81000: [0x320, 6, 4] };
+  /* v1.18.21（Bruce 10/8「E503 應該也要有 Mirror……CHRB、CHWB 都有」）：NB 的 Mirror／CHRB／CHWB／READ_RVS（Python UI 字典沒有；出處同上 .model 檔）：
+       RM8100x_for_FAE_20240925_20250311.model:8850-8898（E503）          CHWB 0x321[4]、CHRB 0x321[3]、MIRROR 0x321[0]、READ_RVS 0x343[7:0]
+       RM81010_for_FAE_20240509_20241127.model:10076-10124（E501A）       CHWB 0x3F1[4]、CHRB 0x3F1[3]、MIRROR 0x3F1[0]、READ_RVS 0x413[7:0]（RM81011 model:9933-9981 相同）
+       DAZ6138_20230309.model:7708-7770（DAZ6138／6139）                  MIRROR 0x181[0]、READ_RVS 0x1A2[5:0]（bit n＝iSP Port n）、CHRB 0x181[3]、CHWB 0x181[4]
+       DAZ6111_for_FAE_20240509_20240830.model:2906-2912                  CHWB 0x17E[7]（沒有 MIRROR；MIRROR_Function 只有 SW_REV 0x17C[3]；CHRB 只有 hand 模式 0x17B[0]/0x17C[0]，for RD test ⇒ 未確認，不加）
+       DAZ7353_20190418.model:2923-2929                                   CHWB 0xAC[7]（沒有 MIRROR；CHRB 只有 hand 模式 ⇒ 未確認，不加）
+     原廠註解：MIRROR=0 ⇒ READ_RVS=00；MIRROR=1 ⇒ READ_RVS=FF（DAZ6138：Check READ_RVS = 1）；FORCE_SEL need manual readjustment。 */
+  var NB_EXTRA = {
+    RM81000: { mirror: [0x321, 0, 0], chrb: [0x321, 3, 3], chwb: [0x321, 4, 4], rvsL: [0x343, 7, 0] },
+    RM81010: { mirror: [0x3F1, 0, 0], chrb: [0x3F1, 3, 3], chwb: [0x3F1, 4, 4], rvsL: [0x413, 7, 0] },
+    DAZ6138: { mirror: [0x181, 0, 0], chrb: [0x181, 3, 3], chwb: [0x181, 4, 4], rvsL: [0x1A2, 5, 0] },
+    DAZ6111: { chwb: [0x17E, 7, 7] },
+    DAZ7353: { chwb: [0x0AC, 7, 7] }
+  };
+  var NB_EXTRA_NAME = { mirror: 'MIRROR', chrb: 'CHRB', chwb: 'CHWB', rvsL: 'READ_RVS' };
   /* ── 型號 ─────────────────────────────────────────────────────────────── */
   /* kind：'nb' ＝ Python UI 型號（暫存器＝3E 位址）；'mnt' ＝ EM01／EM02／E512。
      sem：表格規則（'daz7353'／'daz6111'／'e50x'）；mnt 套 e50x 規則（同一組 GN1／GN2 與 Gate 判準）。 */
@@ -196,6 +211,8 @@
       /* v1.10.0：Auto Mode（Hand Mode 關）的 Type ＝ PANEL_MODE＋SUB_PANEL_MODE（各型號 .model 檔，見 SUB_PANEL_REG） */
       if (SUB_PANEL_REG[m.tbl]) f.push({ id: 'subPanel', parts: [SUB_PANEL_REG[m.tbl]], name: 'SUB_PANEL_MODE' });
       if (T.rd) f.push({ id: 'rd', parts: [T.rd], name: 'RD_MODE' });
+      var X = NB_EXTRA[m.tbl];
+      if (X) ['mirror', 'chrb', 'chwb', 'rvsL'].forEach(function (id) { if (X[id]) f.push({ id: id, parts: [X[id]], name: NB_EXTRA_NAME[id] }); });
       if (T.lineType) for (var i = 0; i < 8; i++) f.push({ id: 'lt' + i, parts: [T.lineType[i]], name: 'LINE' + i + '_TYPE_SEL' });
       for (var k = 0; k < 24; k++) {
         var t = Math.floor(k / 6), d = k % 6;
@@ -1006,7 +1023,8 @@
         log('n', 'W 0x' + hex(e.reg, 4) + ' before ' + hex(cur, 2) + ' -> ' + hex(nv, 2) + ' (mask ' + hex(e.mask, 2) + ')');
         await io.write(e.reg, [nv]);
         var back = (await io.read(e.reg, 1))[0];
-        if (back !== nv) { failed.push(e.reg); log('e', 'W 0x' + hex(e.reg, 4) + ' readback ' + hex(back, 2) + ' != ' + hex(nv, 2)); }
+        /* v1.18.22（Bruce 10/8「不要動到沒有包含到的 bit」）：read-modify-write 只改欄位 mask 內的 bit；回讀只比 mask 內（mask 外由 TCON 自己決定，不當成失敗） */
+        if (((back ^ nv) & e.mask) !== 0) { failed.push(e.reg); log('e', 'W 0x' + hex(e.reg, 4) + ' readback ' + hex(back, 2) + ' != ' + hex(nv, 2) + ' (mask ' + hex(e.mask, 2) + ')'); }
         else { written++; log('w', 'W 0x' + hex(e.reg, 4) + ' after  ' + hex(back, 2) + ' OK'); }
       } catch (err) { failed.push(e.reg); log('e', 'W 0x' + hex(e.reg, 4) + ' FAIL ' + (err && err.message || err)); }
     }

@@ -13,6 +13,7 @@ const ROOT = path.resolve(process.argv[2] || '.'), CODE = process.argv[3];
 const { JSDOM, VirtualConsole } = require(path.join(ROOT, 'node_modules/jsdom'));
 let fail = 0, pass = 0; const ok = (c, m) => { console.log((c ? '  ✓ ' : '  ✗ ') + m); if (c) pass++; else fail++; };
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+const DMC = require(path.join(ROOT, 'common/datamap-core.js'));
 
 async function open(opt) {
   opt = opt || {};
@@ -37,7 +38,7 @@ async function open(opt) {
   await new Promise(r => dom.window.addEventListener('load', r));
   const w = dom.window, d = w.document, $ = id => d.getElementById(id);
   const isId = m => m.type === 'read' && ((m.addr === 0xFF00 && m.len === 3) || m.slave === 0x7C || m.slave === 0x7D);
-  return { w, d, $, log, opt, reads: () => log.filter(m => m.type === 'read' && !isId(m)).length,
+  return { w, d, $, log, opt, mem, reads: () => log.filter(m => m.type === 'read' && !isId(m)).length,
     writes: () => log.filter(m => m.type === 'rawwrite' && !(m.slave === 0x7E && m.addr === 0xAB)).length,
     mode: () => $('dm-modebar').getAttribute('data-mode') + '｜' + $('dm-modebar').textContent,
     askOpen: () => !$('dm-ask').classList.contains('hidden'), askT: () => $('dm-ask-t').textContent };
@@ -126,6 +127,7 @@ const connect = async a => { a.$('dm-link').click(); await wait(() => a.w.dmStat
     ok(!$('dm-codeonly') && !$('dm-pmhelp') && !$('card-dm').contains($('dm-code')), '「只看變動的位置」勾選已移除；② 不再有暫存器表與 Panel mode 說明表');
     ok(/^進階$/.test($('card-dm').querySelector('.dm-secfoot .dm-sech').textContent), '② 最下面區塊改名「進階」');
     if (CODE) { w.dmImportBytes(new Uint8Array(fs.readFileSync(CODE)), path.basename(CODE)); await sleep(80); }
+    $('dm-reg-va').click(); await sleep(20);   // v1.18.22：預設改成依 Register 名稱；這段驗的是「依位址」檢視
     const addrs = () => Array.from(new Set(Array.from($('dm-code').querySelectorAll('tr[data-a]')).map(r => r.getAttribute('data-a'))));
     const n0 = addrs().length, sum0 = $('dm-codesum').textContent;
     ok(n0 > 24 && sum0.indexOf(n0 + ' 個位址，0 個已修改') === 0, '沒改任何值也列出全部 ' + n0 + ' 個位址（含 Panel mode 等，不只 24 個 force_sel）：' + sum0);
@@ -190,6 +192,42 @@ const connect = async a => { a.$('dm-link').click(); await wait(() => a.w.dmStat
     $('dm-link').click(); await wait(() => !w.dmState.linked, 2000);
     const wr1 = a.writes(); w.dmApplyCombo(curKey); await sleep(200);
     ok((w.dmState.cur.mirror | 0) === m0 && a.writes() === wr1, '離線：套用只改頁面上的 Mirror，不寫 TCON');
+  }
+
+  console.log('v1.18.22：Register 卡依名稱＋寫入安全');
+  { const a = await open(); const { $, w, d } = a;
+    w.document.getElementById('dm-model').value = 'E503'; w.document.getElementById('dm-model').dispatchEvent(new w.Event('change')); await sleep(40);
+    const hdr = Array.from($('dm-code').querySelectorAll('th')).map(t => t.textContent).join('|');
+    ok($('dm-reg-vf').classList.contains('on') && hdr === 'Register 名稱|值|bit 數|組成位置', '預設「依 Register 名稱」，欄位順序：' + hdr);
+    const row = id => $('dm-code').querySelector('tr[data-f="' + id + '"]');
+    const g10 = DMC.fieldsOf('E503').find(f => f.name === 'FORCE_SEL_G1_0');
+    ok(g10 && row(g10.id).cells[0].textContent === 'FORCE_SEL_G1_0' && row(g10.id).cells[2].textContent === '5' && row(g10.id).cells[3].textContent === '0x326, 5, 5, 0x325, 7, 5, 0x324, 7, 7', 'E503 FORCE_SEL_G1_0：一列、5 bit、組成位置＝Python UI 寫法「0x326, 5, 5, 0x325, 7, 5, 0x324, 7, 7」（RomCodeProcessUI.py:1881）');
+    const others = () => ['FORCE_SEL_R0_1', 'FORCE_SEL_R1_3', 'FORCE_SEL_G1_1', 'FORCE_SEL_R0_3', 'FORCE_SEL_R0_2'].map(n => w.dmState.cur[DMC.fieldsOf('E503').find(f => f.name === n).id]).join(',');
+    w.dmState.img[0x324] = 0x00; const o0 = others();
+    const setF = (id, v) => { const inp = row(id).querySelector('input'); inp.dispatchEvent(new w.Event('focus')); inp.value = v; inp.dispatchEvent(new w.Event('blur')); };
+    setF(g10.id, '32'); await sleep(30);
+    ok((w.dmState.cur[g10.id] | 0) === 0 && /5 bit，範圍 0～0x1F／31/.test(d.querySelector('.dm-toasts').textContent), '輸入 32（超過 5 bit）⇒ 不改、提示範圍 0～0x1F／31');
+    setF(g10.id, '0x1F'); await sleep(30);
+    const im = w.dmState.img;
+    ok((w.dmState.cur[g10.id] | 0) === 31 && (im[0x326] & 0x20) && ((im[0x325] >> 5) & 7) === 7 && (im[0x324] & 0x80) && others() === o0, '輸入 0x1F ⇒ 0x326[5]、0x325[7:5]、0x324[7] 全為 1；同 byte 的其他欄位不變');
+    setF(g10.id, '0b1'); await sleep(20); setF(g10.id, '10'); await sleep(30);
+    ok((w.dmState.cur[g10.id] | 0) === 10 && ((im[0x326] >> 5) & 1) === 0 && ((im[0x325] >> 5) & 7) === 5 && ((im[0x324] >> 7) & 1) === 0, '輸入十進位 10（01010b）⇒ MSB 0x326[5]＝0、0x325[7:5]＝101、LSB 0x324[7]＝0');
+  }
+  { const a = await open(); const { $, w, d } = a;
+    a.mem[(0x68 << 16) | 0x401] = 0x66;   // EM01 rt7+0x01：bit1、2、5、6 不屬於任何欄位
+    await connect(a);
+    const mid = DMC.fieldsOf('EM01').find(f => f.id === 'mirror');
+    const before = a.log.length;
+    const inp = $('dm-code').querySelector('tr[data-f="mirror"] input'); inp.dispatchEvent(new w.Event('focus')); inp.value = '1'; inp.dispatchEvent(new w.Event('blur')); await sleep(300);
+    const seq = a.log.slice(before).filter(m => (m.type === 'read' || m.type === 'rawwrite') && m.addr === 0x401).map(m => m.type + (m.data ? ':' + m.data.map(x => x.toString(16)).join('') : ''));
+    ok(seq.join(',') === 'read,rawwrite:67,read' && a.mem[(0x68 << 16) | 0x401] === 0x67, 'I2C：改 mirror ⇒ 先讀 0x401（66）→ 只改 bit0 寫 67 → 回讀；非欄位 bit（0x66）保留：' + seq.join(','));
+    const sc = w.dmBuildScript().text;
+    ok(/write -m 0401 01 99/.test(sc), '匯出 script：0401 值 01、mask 99（只含 force_sel_en／chwb／chrb／mirror 的 bit，非欄位 bit 不寫）');
+    $('dm-reg-va').click(); await sleep(20);
+    const bi = $('dm-code').querySelector('input[data-a="1025"]'); bi.dispatchEvent(new w.Event('focus')); bi.value = 'E7'; bi.dispatchEvent(new w.Event('blur')); await sleep(60);
+    ok(/連帶改到：force_sel_en/.test(d.querySelector('.dm-toasts').textContent), '依位址改整個 byte（67→E7）⇒ 提示連帶改到 force_sel_en');
+    const bi2 = $('dm-code').querySelector('input[data-a="1025"]'); bi2.dispatchEvent(new w.Event('focus')); bi2.value = 'C7'; bi2.dispatchEvent(new w.Event('blur')); await sleep(60);
+    ok(/不屬於任何欄位的 bit（mask 0x66）不會寫入/.test(d.querySelector('.dm-toasts').textContent), '改到非欄位 bit（bit5）⇒ 提示「不屬於任何欄位的 bit（mask 0x66）不會寫入」');
   }
   console.log((fail ? '✗ ' : '✓ ') + 'check_datamap_tcon_gate ' + pass + ' pass / ' + fail + ' fail');
   process.exit(fail ? 1 : 0);

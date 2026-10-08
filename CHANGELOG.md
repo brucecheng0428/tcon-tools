@@ -2,6 +2,45 @@
 
 ---
 
+## Data Mapping (datamap) v1.18.21 — 2026-10-08 ｜ PATCH
+
+判定依據：`docs/VERSIONING.md` §R3：補欄位與 Register 卡呈現改版。② 編碼規則、既有欄位的匯出都不變；E503／DAZ6138 的匯出只多了新欄位的遮罩寫入。版號 PATCH。
+
+### NB 型號補 Mirror／CHRB／CHWB／READ_RVS（出處：Model file）
+
+> Bruce：為什麼 E503 我沒看到 Mirror 的選項？……可以去查 Model file。……這些都有，CHRB、CHWB 都有。
+
+- 出處：`~/TCON/WorkSoftware/I2C_UI/E503_E501/Raydium_RomCodeProcessUI_V5.0.3_Release/*.model`（唯讀）。格式是 RegAddrN／RegMsbN／RegBitsN。
+
+| 型號 | MIRROR | CHRB | CHWB | READ_RVS | 出處 |
+|---|---|---|---|---|---|
+| E503（RM81000～81004） | 0x321[0] | 0x321[3] | 0x321[4] | 0x343[7:0] | RM8100x_for_FAE_20240925_20250311.model:8850-8898 |
+| E501A／E501B | 0x3F1[0] | 0x3F1[3] | 0x3F1[4] | 0x413[7:0] | RM81010…model:10076-10124；RM81011…model:9933-9981 |
+| DAZ6138／6139 | 0x181[0] | 0x181[3] | 0x181[4] | 0x1A2[5:0]（bit n＝iSP Port n） | DAZ6138_20230309.model:7708-7770 |
+| DAZ6111 | 沒有（只有 SW_REV 0x17C[3]） | 只有 hand 模式（0x17B[0]／0x17C[0]，for RD test） | 0x17E[7] | — | DAZ6111…model:2906-2960 |
+| DAZ7353 | 沒有 | 只有 hand 模式（0xA9[0]／0xAA[0]，for RD test） | 0xAC[7] | — | DAZ7353…model:2923-2958 |
+
+- **原因**：NB 欄位原本只來自 Python UI 字典（`datamap-core.js` PY_TABLES），沒有這幾個欄位；② 的列是 Monitor 專用；③ 的 pvMirror／pvChrb 限定 Monitor。
+- **變更**：
+  - `datamap-core.js` 新增 NB_EXTRA。② 依型號有沒有該欄位顯示 Mirror／CHRB／CHWB／READ_RVS。
+  - 匯入 decode、匯出 script、TCON Register 卡都自動納入。
+  - Mirror 連帶 READ_RVS 照原廠：全 1 或 0，寬度依型號（E50x 0xFF、DAZ6138 0x3F、Monitor 0xFFFF）。
+- **③ Mirror**：Mirror 換算本來就是依 RM81010（NB）Kick Off「Data hand mode」mirror＝0／1 範例驗證（v1.15.0／v1.16.0／v1.17.1；kickoff 測試 FX.mir），Monitor 沿用同一套（Bruce 10/8 確認）。
+  - NB Dual 走同一條 pvMirror。
+  - NB Single（Kick Off E36 交錯公式）用 pvNbMirror：同一套換算，交錯的第二組維持 +6。
+  - CHRB 依 .model「Swap Red / Blue output data」對 NB 生效。
+- **比較表**：有 MIRROR 的 NB 型號也納入 TCON Mirror 維度（32 種）。
+- **RD 待問**：DAZ6111 的 SW_REV 是否等同 Mirror；DAZ6111／7353 的 hand CHRB（標 for RD test）。這兩項沒有實作。
+- **匯出差異**（與 v1.17.5 比對）：E503 預設多 `write -m 0321 00 19`、`write -m 0343 00 FF`；DAZ6138 預設多 `write -m 0181 00 19`、`write -m 01A2 00 3F`。其餘行逐字相同，EM01／EM02／E512 與兩組匯入案例完全相同。
+- **測試**：新增 `tools/check_datamap_nbfields.js` 17/0：
+  - 欄位位址、decode、匯出、② 依型號顯示。
+  - Mirror 連帶 READ_RVS（0xFF／0x3F）；CHRB 在 ③ R↔B。
+  - Kick Off mirror＝1（Dual）：E501A 與 EM02 的接線和格內資料 54 格完全相同。
+  - NB Single Mirror：E503 Line 1／2＝EM02 Line 1／3。
+
+
+---
+
 ## Data Mapping (datamap) v1.18.20 — 2026-10-08 ｜ PATCH
 
 **配置比較表納入 TCON 的 Mirror（0／1）：有 Mirror 欄位的型號從 16 種變 32 種。和 ② 目前值不同的列標「需改 TCON」，點列會連 Mirror 一起套用。鎖定時只列 Mirror 0／1 兩列。**
