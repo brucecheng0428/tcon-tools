@@ -1,5 +1,6 @@
 // 用法：node tools/check_datamap_tcon_gate.js <repo> <EM01 code.bin>
 // v1.18.11（Bruce 10/8）：讀寫 T-CON 要本次連線 Check T-CON 成功且型號＝目前型號；④ 移除 Write／Load，只剩匯出 script
+// v1.18.13（Bruce 10/8）：TCON Register 確認卡（獨立卡、列全部、預設展開）
 // v1.18.12（Bruce 10/8）：離線（匯入 code／Excel）與線上（I2C）互斥；頂端顯示模式
 // mock I2C Bridge（假的 WebSocket）跑：
 //   ① 連線中匯入 → 確認 → 已斷線且沒寫 TCON   ② 取消 → 維持連線、沒匯入
@@ -48,7 +49,7 @@ const connect = async a => { a.$('dm-link').click(); await wait(() => a.w.dmStat
   console.log('按鈕與模式列');
   { const a = await open(); const { $, d } = a;
     ok(!$('dm-write') && !$('dm-load') && !$('dm-bar-write') && !!$('dm-export') && /匯出 script/.test(d.querySelector('[data-i18n="dm.stp3"]').textContent), '④ 沒有 Write to TCON／Load from TCON，只剩匯出 script');
-    ok(/重新回讀請再按 Check T-CON/.test(d.querySelector('[data-i18n="dm.checkHint"]').textContent), 'Check T-CON 旁說明：連線後自動 Check＋回讀，要重讀再按 Check T-CON');
+    ok(/自動 Check T-CON 並回讀；要重讀再按一次/.test(d.querySelector('[data-i18n="dm.checkHint"]').textContent), 'Check T-CON 旁說明：連線後自動 Check＋回讀，要重讀再按一次');
     ok(/^off｜離線/.test(a.mode()) && /未匯入、未連線/.test(a.mode()), '開頁：頂端模式列＝離線（未匯入、未連線）');
     if (CODE) { a.w.dmImportBytes(new Uint8Array(fs.readFileSync(CODE)), path.basename(CODE)); await sleep(50);
       ok(/^off｜離線/.test(a.mode()) && a.mode().indexOf(path.basename(CODE)) >= 0 && !a.askOpen(), '未連線匯入：不問，模式列＝離線：匯入 ' + path.basename(CODE)); } }
@@ -114,6 +115,29 @@ const connect = async a => { a.$('dm-link').click(); await wait(() => a.w.dmStat
     ok(w.dmState.linked && w.dmState.checked === null && a.reads() === 0 && $('dm-live').disabled && /^onq｜/.test(a.mode()), 'Check 失敗 ⇒ 沒有確認、沒有回讀、即時寫入停用，模式列＝線上（尚未確認）');
     const wr0 = a.writes(); toggleHand(a); await sleep(250);
     ok(a.writes() === wr0, 'Check 失敗時改值也不會寫進 T-CON');
+  }
+
+  console.log('TCON Register 確認卡（v1.18.13）');
+  { const a = await open(); const { $, d, w } = a;
+    const cards = Array.from(d.querySelectorAll('.card.stp')).map(e => e.id);
+    ok(cards.indexOf('card-reg') === cards.indexOf('card-pv') + 1 && cards.indexOf('card-out') === cards.indexOf('card-reg') + 1, '獨立卡 card-reg 位在 ③ 與 ④ 之間：' + cards.join(' → '));
+    ok($('dm-codebox').tagName === 'DETAILS' && $('dm-codebox').open && /TCON Register 確認/.test($('dm-codebox').querySelector('summary').textContent), '卡名「TCON Register 確認」，預設展開、可收合');
+    ok(!$('dm-codeonly') && !$('dm-pmhelp') && !$('card-dm').contains($('dm-code')), '「只看變動的位置」勾選已移除；② 不再有暫存器表與 Panel mode 說明表');
+    ok(/^進階$/.test($('card-dm').querySelector('.dm-secfoot .dm-sech').textContent), '② 最下面區塊改名「進階」');
+    if (CODE) { w.dmImportBytes(new Uint8Array(fs.readFileSync(CODE)), path.basename(CODE)); await sleep(80); }
+    const addrs = () => Array.from(new Set(Array.from($('dm-code').querySelectorAll('tr[data-a]')).map(r => r.getAttribute('data-a'))));
+    const n0 = addrs().length, sum0 = $('dm-codesum').textContent;
+    ok(n0 > 24 && sum0.indexOf(n0 + ' 個位址，0 個已修改') === 0, '沒改任何值也列出全部 ' + n0 + ' 個位址（含 Panel mode 等，不只 24 個 force_sel）：' + sum0);
+    const hdr = Array.from($('dm-code').querySelectorAll('th')).map(e => e.textContent).join('|');
+    ok(hdr === '位址|Byte|bit|名稱|值', '欄位：' + hdr);
+    const names = Array.from($('dm-code').querySelectorAll('tbody tr')).map(r => r.cells[r.cells.length - 2].textContent).join(',');
+    ok(/Mirror|MIRROR/i.test(names) && /FORCE_SEL_EN|force_sel_en/i.test(names), '名稱含 Mirror、FORCE_SEL_EN 等 Panel mode 欄位');
+    const mir = $('f-mirror'); mir.checked = !mir.checked; mir.dispatchEvent(new w.Event('change')); await sleep(80);
+    ok(/個已修改/.test($('dm-codesum').textContent) && !/，0 個已修改/.test($('dm-codesum').textContent) && addrs().length === n0 && $('dm-code').querySelectorAll('tr.chg').length > 0, '改 Mirror ⇒ 列數不變、改過的列標色：' + $('dm-codesum').textContent);
+    const inp = Array.from($('dm-code').querySelectorAll('input[data-a]')).find(i => !i.closest('tr').classList.contains('chg'));
+    const aa = +inp.getAttribute('data-a'), nv = ((w.dmState.img[aa] | 0) ^ 0x01) & 0xFF;
+    inp.dispatchEvent(new w.Event('focus')); inp.value = nv.toString(16).padStart(2, '0'); inp.dispatchEvent(new w.Event('blur')); await sleep(80);
+    ok((w.dmState.img[aa] | 0) === nv && $('dm-code').querySelector('tr[data-a="' + aa + '"]').classList.contains('chg'), '直接改 Byte（0x' + aa.toString(16) + '）⇒ 寫進頁面值並標色');
   }
   console.log((fail ? '✗ ' : '✓ ') + 'check_datamap_tcon_gate ' + pass + ' pass / ' + fail + ' fail');
   process.exit(fail ? 1 : 0);
