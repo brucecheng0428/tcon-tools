@@ -2,6 +2,47 @@
 
 ---
 
+## Data Mapping (datamap) v1.18.9 — 2026-10-08 ｜ PATCH
+
+**修正：鎖定架構和目前設定的 gate 列數不同時（例：1D1G 鎖定後改 Zigzag），③ 只畫鎖定架構的列數，Zigzag Type 3／4／7／8 不同的那幾列沒畫出來，看起來「只送紅還是全紅（或全綠）」。**
+
+判定依據：`docs/VERSIONING.md` §R3：修正鎖定顯示的錯誤；未鎖定畫面、② 與匯出不變，版號 PATCH。
+
+### 需求（Bruce 2026-10-08）
+
+> EM01、hand mode enable 關閉、選 1D1G，把 TFT 架構鎖定。鎖定以後把 1D1G 選成 ZZAG Type 3（Type 3 跟 Type 4 都怪怪的），只送紅，為什麼明明都是 ZZAG 了，Type 3 顯示的還是紅？
+
+### 根因
+
+- 1D1G 鎖定時，鎖定架構只有 2 列（Line 1、2）。Zigzag 各 Type 的週期是 2／4／8 列：
+  - type1／2：LR／RL
+  - type3／4：LLRR／RRLL
+  - type5／6：LRRL／RLLR
+  - type7／8：LLLLRRRR／RRRRLLLL
+- v1.18.8 的鎖定分支（datamap.html:1432）只用鎖定架構的列（Pg0.rows），目前設定的 Line 3～8 沒有對應的列可以畫。
+- 結果：type3／7 的前兩列都是 L（不錯位，R 資料在 R 位置），只看得到全紅；type4／8 前兩列都是 R（錯一條，R 資料在 G 位置），只看得到全綠。
+- 已排除的其他可能：
+  - 「只送紅」是依每格實際收到的資料判斷，沒有錯。
+  - Gate Type 兩邊都是 Single、週期都是 6，所以沒有走「架構不同」分支。
+  - EM01 Zigzag type1～8 對到 EM02 同組合 Type 的推定也沒有對錯。
+- 匯入全民 code 再做一次，結果相同。
+
+### 變更
+
+- 鎖定時，鎖定架構和目前設定兩邊都照自己的週期循環延伸到較多的列數：
+  - 鎖定接線第 k 列＝鎖定架構第 (k mod 鎖定列數) 列（垂直方向重複）。
+  - 第 k 列收到的資料＝目前設定第 (k mod 目前列數) 列。
+
+### 驗證
+
+- 推導（鎖定 1D1G 直下接線、RGB、只送紅）：L 列＝R 資料在 R 位置亮紅；R 列（資料錯一條）＝R 資料在 G 位置亮綠。
+- type1～8 實際結果和推導一致：LR、RL、LLRR、RRLL、LRRL、RLLR、LLLLRRRR、RRRRLLLL，列數畫滿（新增 check_datamap_kickoff 測試）。匯入全民 code 後再測，結果相同。
+- 未鎖定時：tools/check_datamap_svg_vs_tag.js 96 組和 datamap-v1.17.5 逐字相同；匯出 script 7 組相同。
+- check_datamap_kickoff 85/0、auto 104/0、core 282/0、preview 46/0（EM02 61/0）、lod 196/0。
+- cache buster 20261008dm1189。
+
+---
+
 ## Data Mapping (datamap) v1.18.8 — 2026-10-08 ｜ PATCH
 
 **EM01 Auto（Hand 關）時，Type 選單改成照 EM01 原廠 UI 的兩層選單：先選 Panel_mode（1D1G／Zigzag／HSD／LTPS），再選該模式的 sub_panel_mode。不再套 EM02 的單一 RT7 Type 清單。**
