@@ -180,6 +180,17 @@ const connect = async a => { a.$('dm-link').click(); await wait(() => a.w.dmStat
     const scan2 = a.log.filter(m => m.type === 'read' && m.addr === 0xFF00 && m.len === 3).map(m => '0x' + m.slave.toString(16));
     ok(scan2.join(',') === '0x6a', '手選 0x6A ⇒ 只讀 0x6A：' + scan2.join(','));
   }
+
+  console.log('v1.18.20：比較表點「需改 TCON」列 ⇒ 依即時寫入規則寫 Mirror');
+  { const a = await open(); const { $, w } = a;
+    await connect(a);
+    const curKey = $('dm-pv-combotbl').querySelector('tr.dm-ccur').getAttribute('data-combo'), m0 = +curKey.charAt(4), alt = curKey.slice(0, 4) + (1 - m0);
+    const wr0 = a.writes(); w.dmApplyCombo(alt); await sleep(300);
+    ok((w.dmState.cur.mirror | 0) === 1 - m0 && a.writes() > wr0, '線上且 Check 已確認：套用 ' + alt + ' ⇒ ② Mirror 改成 ' + (1 - m0) + ' 並即時寫入 TCON（寫入 ' + (a.writes() - wr0) + ' 筆）');
+    $('dm-link').click(); await wait(() => !w.dmState.linked, 2000);
+    const wr1 = a.writes(); w.dmApplyCombo(curKey); await sleep(200);
+    ok((w.dmState.cur.mirror | 0) === m0 && a.writes() === wr1, '離線：套用只改頁面上的 Mirror，不寫 TCON');
+  }
   console.log((fail ? '✗ ' : '✓ ') + 'check_datamap_tcon_gate ' + pass + ' pass / ' + fail + ' fail');
   process.exit(fail ? 1 : 0);
 })().catch(e => { console.log('✗ ', e && e.stack || e); process.exit(1); });
