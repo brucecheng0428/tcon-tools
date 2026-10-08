@@ -94,6 +94,31 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   $('dm-pv-combotbl').querySelector('tr[data-combo="rfgn1"]').dispatchEvent(new w.MouseEvent('click', { bubbles: true })); await sleep(60);
   ok((w.dmState.cur.mirror | 0) === 1 && $('dm-pv-first').value === 'r' && $('card-pv').classList.contains('dm-locked'), '鎖定時點 Mirror 1 那列 ⇒ 只改 TCON Mirror，鎖定保留');
   $('dm-pv-lock').click(); await sleep(60);
+
+  console.log('v1.18.23：鎖定後「只送 R1 (1st R Vline)」');
+  fire('f-mirror', true); fire('f-chrb', false); await sleep(30);
+  w.dmApplyCombo('rfgn1'); await sleep(60);
+  if (!$('card-pv').classList.contains('dm-locked')) { $('dm-pv-lock').click(); await sleep(60); }
+  const r1b = $('dm-pv-colmode').querySelector('button[data-col="R1"]');
+  ok(!!r1b && /只送 R1 \(1st R Vline\)/.test(r1b.textContent) && $('dm-pv-colmode').querySelectorAll('button[data-col]').length === 5, '鎖定後畫面樣式有 5 個按鈕，第 5 個＝「只送 R1 (1st R Vline)」');
+  r1b.click(); await sleep(40);
+  const cells = () => Array.from(d.querySelectorAll('#dm-pv-tft rect[data-col]')).map(r => ({ on: r.getAttribute('data-col') === 'on', dn: r.getAttribute('data-dn'), ph: r.getAttribute('data-phys'), pv: r.getAttribute('data-pv'), x: +r.getAttribute('x'), tier: r.getAttribute('data-tier') }));
+  let c1 = cells(), lit = c1.filter(c => c.on);
+  const flip = !!d.querySelector('#dm-pv-tft [data-flip]'), rx = c1.filter(c => c.ph === 'R' && c.tier === 'main').map(c => c.x), minRx = flip ? Math.max.apply(null, rx) : Math.min.apply(null, rx);   // CH1 在最右時整張圖左右翻：畫面最左＝原始 x 最大
+  console.log('    正確架構亮的格：' + lit.map(c => c.pv + '=' + c.dn + '/' + c.ph + '@' + c.x).join(' '));
+  ok(lit.length >= 2 && lit.every(c => c.dn === 'R1' && c.ph === 'R') && new Set(lit.map(c => c.x)).size === 1 && lit[0].x === minRx && c1.filter(c => c.dn === 'R1').every(c => c.on), '正確架構（全民＝CH1 最右＋正向＋RGB＋Mirror 1）：只有最左一條紅色豎線亮（每個 Line 的 R1 格），其他全透明');
+  fire('f-mirror', false); await sleep(40);
+  c1 = cells(); lit = c1.filter(c => c.on);
+  console.log('    Mirror 改 0 後亮的格：' + (lit.map(c => c.pv + '=' + c.dn + '/' + c.ph).join(' ') || '（無）') + '；格內出現 R末1 的格：' + c1.filter(c => c.dn === 'R末1').length);
+  ok(lit.every(c => c.dn === 'R1') && c1.filter(c => c.dn === 'R1').every(c => c.on) && c1.filter(c => /末/.test(c.dn || '')).every(c => !c.on), '鎖定後改 Mirror：仍只有收到 R1（資料來源編號）的格子亮；「R末1」（從行尾數）不亮');
+  fire('f-mirror', true); fire('f-chrb', true); await sleep(40);
+  c1 = cells(); lit = c1.filter(c => c.on);
+  console.log('    CHRB＝1 亮的格：' + lit.map(c => c.pv + '=' + c.dn + '/' + c.ph).join(' '));
+  ok(lit.length >= 2 && lit.every(c => c.dn === 'R1' && c.ph === 'B'), 'CHRB＝1：R1 資料落在實體 B 子像素 ⇒ 亮藍');
+  fire('f-chrb', false); await sleep(20);
+  $('dm-pv-lock').click(); await sleep(40); $('dm-pv-lock').click(); await sleep(40);
+  ok($('dm-pv-colmode').querySelector('button[data-col=""]').getAttribute('aria-pressed') === 'true', '解除再鎖定 ⇒ 畫面樣式回到「全白」');
+  $('dm-pv-lock').click(); await sleep(40);
   console.log((fail ? '✗ ' : '✓ ') + 'check_datamap_combos ' + pass + ' pass / ' + fail + ' fail');
   process.exit(fail ? 1 : 0);
 })().catch(e => { console.log('✗ ', e && e.stack || e); process.exit(1); });
