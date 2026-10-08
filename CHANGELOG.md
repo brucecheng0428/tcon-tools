@@ -2,6 +2,86 @@
 
 ---
 
+## Data Mapping (datamap) v1.18.25 — 2026-10-08 ｜ PATCH
+
+**Hand Mode 亮色範圍＝② 表格定義的列；TCON Out／SD Out 字級放大；② 下拉保留原色改加外框；Register 卡只留依名稱、組成位置改「位址[MSB:LSB]」；新增「回到初始設定」。**
+
+判定依據：`docs/VERSIONING.md` §R3：顯示調整、移除一個檢視、加一個還原按鈕（只用既有的寫入路徑）；接線規則與匯出不變，版號 PATCH。
+
+### 需求（Bruce 2026-10-08，語音輸入）
+
+> 如果是 hand mode enable 的模式，亮的部分要配合 data mapping 表格所設定的個數……只會有 line 1 跟 line 2 是亮的，下方其他部分都要是暗的。
+> TFT 接線圖裡面的 T-CON OUT 字太小了……SD OUT 跟 T-CON OUT 兩者都將字體放大一點（兩者字體要一樣大）。
+> 下拉選單，滑鼠移動到那個顏色的時候，都會變成淺藍的底色……請改成在上面多一個 highlight 的外框。
+> TCON Register 確認，請拿掉依位址，只保留依 Register 名稱……組成位置……0x401[7]、0x402[7:5]，用此方式表示。
+> data mapping 表格那邊要多一個按鈕，按下去會回復到一開始讀進來的初始設定……i2c 打開的時候……也會把原本的初始設定再由 i2c 下回給 T-CON。
+
+### A. Hand Mode 亮色範圍
+
+- Hand Mode 開（不是 Auto、不是 Line OD 測試）時，v1.18.24 垂直重複出來的列整列算前後循環，格子、TFT、drain 都調暗。
+- 只有 ② 表格定義的列的 D1~D(週期) 是亮的。
+- 表格列數來源＝② 畫出的 Line 數（`pvModel` 的 `P.nl`）：
+  - NB Single（E50x／DAZ）＝2 條 line（_0／_2，_1／_3 是複本列）。
+  - Monitor Single＝4 條。
+  - Monitor Zigzag LLLLRRRR＝8 條（加第二組）。
+  - Dual＝2 條 Line（各 2 gate）。
+  - HSD 4line＝4 條。
+- 表格列數 ≥ 4 時沒有重複列，全部亮，畫面不變。Auto 維持 v1.18.24。
+- ③ 說明文字加一句「Hand Mode：② 表格定義 N 列 ⇒ 只有 Line 1~N 的主循環亮」。
+- 鎖定比對「x/n 格一致」只算亮的格子，回到表格定義的列。
+
+### B. TCON Out／SD Out 字級
+
+- 列頭與每欄的 Data k／Dn 都改成 12px，和子像素格內文字一樣（原 TCON Out 9px、SD Out 11～11.5px）。
+- y 各微調 1～2px，避免兩列擠在一起；其他元素位置不變。
+
+### C. ② 下拉選單
+
+- 瀏覽器支援可自訂下拉（`appearance: base-select`，Chrome 135 起；Bruce 的 Chrome 154 支援）時改用它：
+  - 選項底色就是 R／G／B 原色。
+  - 滑鼠移上去或鍵盤停在上面＝白色 3px 外框；目前選中＝黃色外框；不再換成淺藍底。
+- 不支援的瀏覽器維持原生選單。
+
+### D. TCON Register 確認
+
+- 移除「依位址」檢視與切換 Tab（含 byte 直接編輯），只留依 Register 名稱。
+- 組成位置改成「位址[MSB:LSB]」，單一 bit 寫「[7]」，多段用逗號、不加空格、高位段在前。
+  - 例：EM01 MIRROR＝0x401[0]；E503 FORCE_SEL_G1_0＝0x326[5],0x325[7:5],0x324[7]。
+  - Bruce 舉的單 bit 寫法有 [7:7] 和 [7] 兩種，取第二個例子的 [7]。要改成 [7:7] 只需把 `POS_1BIT_RANGE` 改成 true。
+
+### E. 回到初始設定
+
+- 按鈕放在 ② Data Mapping 表格標題旁，旁邊顯示初始來源與時間。
+- 初始快照（`S.init`）建立時機：
+  - 匯入 code、匯入 Excel：每次都重建。
+  - I2C 連線後第一次 Check T-CON 讀回：之後再按 Check 不重建；斷線重連後的第一次才重建。
+  - 快照時是 Auto，第一次打開 Hand Mode Enable：把當下的 Data Mapping 表格（force_sel）補進快照，只補一次。
+- 快照內容＝全部 TCON 欄位（Hand/Auto、Panel/Sub panel、Mirror／CHRB／CHWB／READ_RVS、FORCE_DE、T 表、force_sel 兩組、Line OD 等 Register 卡全部欄位）＋各 byte 原值＋第二組寫入旗標。
+- Driver／面板設定不是 TCON 設定，不還原。
+- 按下時：
+  - 頁面全部 TCON 欄位回到快照。
+  - 離線只改頁面。
+  - 線上且 Check 已確認：只把和目前不同的欄位用既有的 `queueWrite`→`DM.writeRegs` 寫回。每個 byte 先讀、mask 外的 bit 保留、寫完回讀只比 mask 內。寫完一行提示結果，失敗會重新讀回 TCON 現況。
+  - 連線中但還沒 Check：只改頁面並提示。
+- 清除時機：換型號、清除匯入、連線前清掉離線資料時，快照一起清掉，和離線／線上互斥規則一致。斷線不清，離線也能回到初始。
+- 鎖定中也可用：鎖定只固定 Driver／面板，TCON 本來就可改。
+
+### 測試
+
+- tcon_gate 78/0（新增 22 項）：
+  - D：8 型號全部欄位的位置字串，含三段 9 個、單 bit 36 個。
+  - B：字級。
+  - C：CSS。
+  - A：E501A Hand 只有 Line 1、2 亮，Line 3、4 全暗，Auto 不調暗。
+  - E 離線：匯入→改→還原，狀態與匯出 script 和匯入時逐字相同；再匯入重建快照；清除匯入清快照。
+  - E 線上 mock I2C：第一次 Check＝快照；第一次開 Hand 補表格；改值後還原只寫不同的 byte，每筆寫前讀、寫後回讀；TCON 記憶體 mask 內＝快照；Hand 回到 Auto；斷線保留快照；換型號清快照。
+  - 原本驗「依位址」的段落改驗依名稱檢視。
+- svg_rep：Hand 調暗的架構，重複列改成只比資料，並確認重複列沒有主循環格。
+- 其餘回歸全過：舊幾何 SVG 96/96、svg_rep 0 fail、kickoff 85、preview 48／63、lod 196、auto 104、core 282、import_lock、combos 37、nbfields 17、jump_realmouse 16。
+- 匯出 7 組和 v1.18.24 相同。
+
+---
+
 ## Data Mapping (datamap) v1.18.24 — 2026-10-08 ｜ PATCH
 
 **③ 接線圖：垂直畫 max(4, 垂直週期) 列、水平畫 24 條 Data 線，新增部分都是依週期重複；原本的列與 D1~D12 和 v1.17.5 語意相同。**

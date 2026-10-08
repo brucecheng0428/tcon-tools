@@ -127,20 +127,14 @@ const connect = async a => { a.$('dm-link').click(); await wait(() => a.w.dmStat
     ok(!$('dm-codeonly') && !$('dm-pmhelp') && !$('card-dm').contains($('dm-code')), '「只看變動的位置」勾選已移除；② 不再有暫存器表與 Panel mode 說明表');
     ok(/^進階$/.test($('card-dm').querySelector('.dm-secfoot .dm-sech').textContent), '② 最下面區塊改名「進階」');
     if (CODE) { w.dmImportBytes(new Uint8Array(fs.readFileSync(CODE)), path.basename(CODE)); await sleep(80); }
-    $('dm-reg-va').click(); await sleep(20);   // v1.18.22：預設改成依 Register 名稱；這段驗的是「依位址」檢視
-    const addrs = () => Array.from(new Set(Array.from($('dm-code').querySelectorAll('tr[data-a]')).map(r => r.getAttribute('data-a'))));
-    const n0 = addrs().length, sum0 = $('dm-codesum').textContent;
-    ok(n0 > 24 && sum0.indexOf(n0 + ' 個位址，0 個已修改') === 0, '沒改任何值也列出全部 ' + n0 + ' 個位址（含 Panel mode 等，不只 24 個 force_sel）：' + sum0);
-    const hdr = Array.from($('dm-code').querySelectorAll('th')).map(e => e.textContent).join('|');
-    ok(hdr === '位址|Byte|bit|名稱|值', '欄位：' + hdr);
-    const names = Array.from($('dm-code').querySelectorAll('tbody tr')).map(r => r.cells[r.cells.length - 2].textContent).join(',');
-    ok(/Mirror|MIRROR/i.test(names) && /FORCE_SEL_EN|force_sel_en/i.test(names), '名稱含 Mirror、FORCE_SEL_EN 等 Panel mode 欄位');
+    /* v1.18.25（Bruce 10/8「拿掉依位址，只保留依 Register 名稱…也不用做那個 Tab」）：原本這段驗「依位址」檢視，改驗依名稱檢視 */
+    ok(!$('dm-reg-va') && !$('dm-reg-vf') && !d.querySelector('#card-reg .dm-seg'), 'v1.18.25 Register 卡沒有「依位址」與切換 Tab');
+    const nF = DMC.fieldsOf(w.dmState.model).length, rowsF = () => $('dm-code').querySelectorAll('tbody tr[data-f]').length, sum0 = $('dm-codesum').textContent;
+    ok(rowsF() === nF && /0 個已修改/.test(sum0), '沒改任何值也列出全部 ' + nF + ' 個欄位：' + sum0);
+    const names = Array.from($('dm-code').querySelectorAll('tbody tr[data-f]')).map(r => r.cells[0].textContent).join(',');
+    ok(/MIRROR|mirror/i.test(names) && /FORCE_SEL_EN|force_sel_en/i.test(names), '名稱含 Mirror、FORCE_SEL_EN 等 Panel mode 欄位');
     const mir = $('f-mirror'); mir.checked = !mir.checked; mir.dispatchEvent(new w.Event('change')); await sleep(80);
-    ok(/個已修改/.test($('dm-codesum').textContent) && !/，0 個已修改/.test($('dm-codesum').textContent) && addrs().length === n0 && $('dm-code').querySelectorAll('tr.chg').length > 0, '改 Mirror ⇒ 列數不變、改過的列標色：' + $('dm-codesum').textContent);
-    const inp = Array.from($('dm-code').querySelectorAll('input[data-a]')).find(i => !i.closest('tr').classList.contains('chg'));
-    const aa = +inp.getAttribute('data-a'), nv = ((w.dmState.img[aa] | 0) ^ 0x01) & 0xFF;
-    inp.dispatchEvent(new w.Event('focus')); inp.value = nv.toString(16).padStart(2, '0'); inp.dispatchEvent(new w.Event('blur')); await sleep(80);
-    ok((w.dmState.img[aa] | 0) === nv && $('dm-code').querySelector('tr[data-a="' + aa + '"]').classList.contains('chg'), '直接改 Byte（0x' + aa.toString(16) + '）⇒ 寫進頁面值並標色');
+    ok(!/，0 個已修改/.test($('dm-codesum').textContent) && rowsF() === nF && $('dm-code').querySelector('tr.chg[data-f="mirror"]'), '改 Mirror ⇒ 列數不變、Mirror 那列標色：' + $('dm-codesum').textContent);
   }
 
   console.log('TCON Out／SD Out 配色與點擊跳轉（v1.18.14）');
@@ -198,10 +192,10 @@ const connect = async a => { a.$('dm-link').click(); await wait(() => a.w.dmStat
   { const a = await open(); const { $, w, d } = a;
     w.document.getElementById('dm-model').value = 'E503'; w.document.getElementById('dm-model').dispatchEvent(new w.Event('change')); await sleep(40);
     const hdr = Array.from($('dm-code').querySelectorAll('th')).map(t => t.textContent).join('|');
-    ok($('dm-reg-vf').classList.contains('on') && hdr === 'Register 名稱|值|bit 數|組成位置', '預設「依 Register 名稱」，欄位順序：' + hdr);
+    ok(hdr === 'Register 名稱|值|bit 數|組成位置', '依 Register 名稱，欄位順序：' + hdr);
     const row = id => $('dm-code').querySelector('tr[data-f="' + id + '"]');
     const g10 = DMC.fieldsOf('E503').find(f => f.name === 'FORCE_SEL_G1_0');
-    ok(g10 && row(g10.id).cells[0].textContent === 'FORCE_SEL_G1_0' && row(g10.id).cells[2].textContent === '5' && row(g10.id).cells[3].textContent === '0x326, 5, 5, 0x325, 7, 5, 0x324, 7, 7', 'E503 FORCE_SEL_G1_0：一列、5 bit、組成位置＝Python UI 寫法「0x326, 5, 5, 0x325, 7, 5, 0x324, 7, 7」（RomCodeProcessUI.py:1881）');
+    ok(g10 && row(g10.id).cells[0].textContent === 'FORCE_SEL_G1_0' && row(g10.id).cells[2].textContent === '5' && row(g10.id).cells[3].textContent === '0x326[5],0x325[7:5],0x324[7]', 'E503 FORCE_SEL_G1_0：一列、5 bit、組成位置＝「0x326[5],0x325[7:5],0x324[7]」（v1.18.25 格式；Python UI 原寫法 0x326, 5, 5, 0x325, 7, 5, 0x324, 7, 7（RomCodeProcessUI.py:1881）');
     const others = () => ['FORCE_SEL_R0_1', 'FORCE_SEL_R1_3', 'FORCE_SEL_G1_1', 'FORCE_SEL_R0_3', 'FORCE_SEL_R0_2'].map(n => w.dmState.cur[DMC.fieldsOf('E503').find(f => f.name === n).id]).join(',');
     w.dmState.img[0x324] = 0x00; const o0 = others();
     const setF = (id, v) => { const inp = row(id).querySelector('input'); inp.dispatchEvent(new w.Event('focus')); inp.value = v; inp.dispatchEvent(new w.Event('blur')); };
@@ -223,11 +217,93 @@ const connect = async a => { a.$('dm-link').click(); await wait(() => a.w.dmStat
     ok(seq.join(',') === 'read,rawwrite:67,read' && a.mem[(0x68 << 16) | 0x401] === 0x67, 'I2C：改 mirror ⇒ 先讀 0x401（66）→ 只改 bit0 寫 67 → 回讀；非欄位 bit（0x66）保留：' + seq.join(','));
     const sc = w.dmBuildScript().text;
     ok(/write -m 0401 01 99/.test(sc), '匯出 script：0401 值 01、mask 99（只含 force_sel_en／chwb／chrb／mirror 的 bit，非欄位 bit 不寫）');
-    $('dm-reg-va').click(); await sleep(20);
-    const bi = $('dm-code').querySelector('input[data-a="1025"]'); bi.dispatchEvent(new w.Event('focus')); bi.value = 'E7'; bi.dispatchEvent(new w.Event('blur')); await sleep(60);
-    ok(/連帶改到：force_sel_en/.test(d.querySelector('.dm-toasts').textContent), '依位址改整個 byte（67→E7）⇒ 提示連帶改到 force_sel_en');
-    const bi2 = $('dm-code').querySelector('input[data-a="1025"]'); bi2.dispatchEvent(new w.Event('focus')); bi2.value = 'C7'; bi2.dispatchEvent(new w.Event('blur')); await sleep(60);
-    ok(/不屬於任何欄位的 bit（mask 0x66）不會寫入/.test(d.querySelector('.dm-toasts').textContent), '改到非欄位 bit（bit5）⇒ 提示「不屬於任何欄位的 bit（mask 0x66）不會寫入」');
+  }
+
+  console.log('v1.18.25：組成位置格式、Hand 亮色範圍、字級、回到初始設定');
+  { const a = await open(); const { $, w, d } = a;
+    const fmt = /^0x[0-9A-F]{3,4}\[\d+(:\d+)?\](,0x[0-9A-F]{3,4}\[\d+(:\d+)?\])*$/;
+    let bad = [], n3 = 0, n1 = 0;
+    for (const m of ['EM01', 'EM02', 'E512', 'E503', 'E501A', 'DAZ6138', 'DAZ6111', 'DAZ7353']) {
+      if (!DMC.MODELS[m]) continue;
+      $('dm-model').value = m; $('dm-model').dispatchEvent(new w.Event('change')); await sleep(20);
+      Array.from($('dm-code').querySelectorAll('tbody tr[data-f]')).forEach(r => { const t = r.cells[3].textContent, f = DMC.fieldById(m, r.getAttribute('data-f'));
+        const want = f.parts.map(q => '0x' + q[0].toString(16).toUpperCase().padStart(q[0] > 0xFFF ? 4 : 3, '0') + '[' + q[1] + (q[1] !== q[2] ? ':' + q[2] : '') + ']').join(',');
+        if (!fmt.test(t) || t !== want || /\[(\d+):\1\]/.test(t) || / /.test(t)) bad.push(m + ' ' + f.name + ' ' + t + ' ≠ ' + want);
+        if (f.parts.length >= 3) n3++; if (f.bits === 1) n1++; });
+    }
+    ok(!bad.length && n3 > 0 && n1 > 0, '8 型號全部欄位的組成位置＝「位址[MSB:LSB]」、單 bit 寫 [7]、逗號不加空格、高位段在前（三段 ' + n3 + ' 個、單 bit ' + n1 + ' 個）' + (bad.length ? '：' + bad.slice(0, 3).join('；') : ''));
+    $('dm-model').value = 'EM01'; $('dm-model').dispatchEvent(new w.Event('change')); await sleep(20);
+    const mrow = $('dm-code').querySelector('tr[data-f="mirror"]');
+    ok(mrow && mrow.cells[3].textContent === '0x401[0]', 'EM01 MIRROR 單一 bit ⇒ 「0x401[0]」：' + (mrow && mrow.cells[3].textContent));
+    // B：字級
+    const T = $('dm-pv-tft'), fsz = sel => Array.from(new Set(Array.from(T.querySelectorAll(sel)).map(e => e.getAttribute('font-size'))));
+    const cellFs = fsz('text[data-name]').filter(x => x !== '10.5');
+    ok(fsz('text[data-dof]').join() === '12' && fsz('text[data-dlab]').join() === '12' && fsz('[data-rowhead] text').join() === '12' && cellFs.join() === '12',
+      'TCON Out／SD Out（列頭與每欄）字級 12＝子像素格內文字 12：' + [fsz('text[data-dof]'), fsz('text[data-dlab]'), fsz('[data-rowhead] text'), cellFs].join(' / '));
+    // C：下拉選單樣式
+    const css = Array.from(d.querySelectorAll('style')).map(e => e.textContent).join('\n');
+    ok(/appearance: base-select/.test(css) && /\.dm-cell option:hover[^{]*\{ outline: 3px solid #ffffff/.test(css) && !/\.dm-cell option:hover[^{]*\{[^}]*background/.test(css), '② 下拉：可自訂選單時 hover／focus 只加白色外框、不改底色（底色＝選項原色）');
+    // A：Hand 亮色範圍（NB E501A Hand，表格 2 條 line）
+    $('dm-model').value = 'E501A'; $('dm-model').dispatchEvent(new w.Event('change')); await sleep(30);
+    const hand0 = w.dmState.cur.hand | 0;
+    if (!hand0) { toggleHand(a); await sleep(30); }
+    const rowsTier = () => { const o = {}; Array.from($('dm-pv-tft').querySelectorAll('rect[data-pv]')).forEach(r => { const k = r.getAttribute('data-pv').split(':')[0]; (o[k] = o[k] || {})[r.getAttribute('data-tier')] = ((o[k] || {})[r.getAttribute('data-tier')] | 0) + 1; }); return o; };
+    let rt = rowsTier(), T2 = $('dm-pv-tft');
+    ok(T2.getAttribute('data-handdim') === '1' && T2.getAttribute('data-vper') === '2' && T2.getAttribute('data-nl') === '4' && rt[1].main > 0 && rt[2].main > 0 && !rt[3].main && !rt[4].main && rt[3].rep === rt[1].main + rt[1].rep && rt[4].rep === rt[2].main + rt[2].rep,
+      'Hand：② 表格 2 條 line ⇒ 只有 Line 1、2 有亮色主循環格，Line 3、4 同樣的格子全部調暗（E501A 預設 code 全 0，D1~D6 都接同一格）：' + JSON.stringify(rt));
+    ok(Array.from(T2.querySelectorAll('path[data-w]')).filter(e => +e.getAttribute('data-w').split(':')[0] >= 3).every(e => e.closest('[data-rep]')), 'Hand：Line 3、4 的 TFT／drain 都在調暗組');
+    ok(/Hand Mode：② 表格定義 2 列/.test($('dm-pv-pos').textContent), '③ 說明文字寫出 Hand Mode 只亮表格定義的 2 列');
+    toggleHand(a); await sleep(40); T2 = $('dm-pv-tft');
+    ok(T2.getAttribute('data-handdim') === '0', 'Auto（Hand 關）⇒ 維持 v1.18.24（重複列不調暗）');
+  }
+  { // E：離線（匯入 code）
+    const a = await open(); const { $, w, d } = a;
+    ok($('dm-restore') && $('dm-restore').disabled && $('dm-restore').getAttribute('data-has') === '0', '開頁沒有初始快照 ⇒「回到初始設定」停用');
+    if (CODE) {
+      w.dmImportBytes(new Uint8Array(fs.readFileSync(CODE)), path.basename(CODE)); await sleep(60);
+      const sc0 = w.dmBuildScript().text, st0 = JSON.stringify(w.dmState.cur);
+      ok(!$('dm-restore').disabled && /匯入/.test($('dm-rstst').textContent), '匯入 code ⇒ 建立初始快照、按鈕可用：' + $('dm-rstst').textContent);
+      const mir = $('f-mirror'); mir.checked = !mir.checked; mir.dispatchEvent(new w.Event('change')); await sleep(30);
+      const sel = $('dm-c0-0'), opt = Array.from(sel.options).find(o => o.value !== sel.value && o.value !== '__ns');
+      if (opt) { sel.value = opt.value; sel.dispatchEvent(new w.Event('change')); await sleep(30); }
+      ok(JSON.stringify(w.dmState.cur) !== st0, '改 Mirror 與 ② 一格 ⇒ 狀態和初始不同');
+      $('dm-restore').click(); await sleep(60);
+      ok(JSON.stringify(w.dmState.cur) === st0 && w.dmBuildScript().text === sc0 && /已回到初始設定：\d+ 個欄位（只改頁面；離線）/.test(d.querySelector('.dm-toasts').textContent), '離線按「回到初始設定」⇒ 全部 TCON 欄位回到匯入時、匯出 script 和匯入時逐字相同、提示一行');
+      w.dmImportBytes(new Uint8Array(fs.readFileSync(CODE)), path.basename(CODE)); await sleep(60);
+      ok(!!w.dmState.init && w.dmState.init.cur && JSON.stringify(w.dmState.init.cur) === st0, '再匯入一次 ⇒ 快照重建');
+      w.dmClearImport(); await sleep(30);
+      ok(!w.dmState.init && $('dm-restore').disabled, '清除匯入 ⇒ 快照清掉、按鈕停用');
+    }
+  }
+  { // E：線上（mock I2C）：第一次 Check 讀回＝初始（Auto）→ 第一次開 Hand 補表格 → 改值（即時寫入）→ 還原 ⇒ 寫回＋回讀核對
+    const a = await open(); const { $, w, d } = a;
+    await connect(a);
+    const I0 = w.dmState.init;
+    ok(I0 && I0.model === 'EM01' && /第一次 Check T-CON 讀回/.test($('dm-rstst').textContent), '連線後第一次 Check 讀回 ⇒ 建立初始快照：' + $('dm-rstst').textContent);
+    const auto0 = !(w.dmState.cur.hand | 0);
+    if (!auto0) { toggleHand(a); await sleep(200); }
+    ok(!(w.dmState.init.cur.hand | 0) || !auto0, '初始是 Auto（mock 記憶體 hand＝0）');
+    toggleHand(a); await sleep(300);
+    const I1 = w.dmState.init, cf = DMC.fieldsOf('EM01').filter(f => /^c\d+$/.test(f.id));
+    ok(I1.handAdd && !(I1.cur.hand | 0) && cf.every(f => (I1.cur[f.id] >>> 0) === (w.dmState.cur[f.id] >>> 0)) && /第一次開 Hand Mode/.test($('dm-rstst').textContent),
+      '第一次打開 Hand Mode ⇒ 把當下表格（' + cf.length + ' 格 force_sel）補進快照，快照的 Hand 仍是 Auto');
+    $('dm-live').checked = true; $('dm-live').dispatchEvent(new w.Event('change'));
+    const mir = $('f-mirror'); mir.checked = !mir.checked; mir.dispatchEvent(new w.Event('change')); await sleep(300);
+    const sel = $('dm-c0-0'), opt = Array.from(sel.options).find(o => o.value !== sel.value && o.value !== '__ns');
+    if (opt) { sel.value = opt.value; sel.dispatchEvent(new w.Event('change')); await sleep(300); }
+    const want = JSON.stringify(I1.cur), wr0 = a.writes(), l0 = a.log.length;
+    const r = await w.dmRestoreInit(); await sleep(200);
+    const mem = addr => a.mem[(0x68 << 16) | addr] | 0;
+    const enc = DMC.encode('EM01', I1.cur), memOk = enc.every(e => ((mem(e.reg) ^ e.val) & e.mask) === 0);
+    const rw = a.log.slice(l0).filter(m => m.type === 'rawwrite').map(m => m.addr);
+    const rbOk = rw.every(ad => a.log.slice(l0).filter(m => m.type === 'read' && m.addr === ad).length >= 2);
+    ok(JSON.stringify(w.dmState.cur) === want && a.writes() > wr0 && memOk && rbOk && r && r.ok && /寫回 TCON \d+ byte，回讀核對一致/.test(d.querySelector('.dm-toasts').textContent),
+      '線上按「回到初始設定」⇒ 頁面＝快照（Auto＋第一次開 Hand 的表格）、只寫不同的 byte（' + rw.length + ' 筆，每筆寫前讀、寫後回讀）、TCON 記憶體 mask 內＝快照、提示核對一致');
+    ok(!(w.dmState.cur.hand | 0) && !$('dm-hand').checked, '還原後 Hand Mode Enable 回到初始的 Auto');
+    $('dm-link').click(); await wait(() => !w.dmState.linked, 2000);
+    ok(!!w.dmState.init && !$('dm-restore').disabled, '斷線後快照保留（離線也能回到初始）');
+    $('dm-model').value = 'EM02'; $('dm-model').dispatchEvent(new w.Event('change')); await sleep(30);
+    ok(!w.dmState.init && $('dm-restore').disabled, '換型號 ⇒ 快照清掉');
   }
   console.log((fail ? '✗ ' : '✓ ') + 'check_datamap_tcon_gate ' + pass + ' pass / ' + fail + ' fail');
   process.exit(fail ? 1 : 0);

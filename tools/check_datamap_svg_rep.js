@@ -24,7 +24,7 @@ const ok = (c, m) => { if (c) pass++; else { fail++; if (fails.length < 30) fail
 const own = e => Array.from(e.childNodes).filter(n => n.nodeType === 3).map(n => n.textContent).join('');
 function parse(T) {
   const A = n => T.getAttribute(n), npre = +(A('data-npre') || 0), smin = -npre;
-  const o = { nd: +(A('data-nd') || 0), nl: +(A('data-nl') || 0), vper: +(A('data-vper') || 0), n: +A('data-plines'), pSub: +A('data-period'), fl: A('data-dir') === 'rl',
+  const o = { nd: +(A('data-nd') || 0), nl: +(A('data-nl') || 0), vper: +(A('data-vper') || 0), n: +A('data-plines'), pSub: +A('data-period'), fl: A('data-dir') === 'rl', hd: A('data-handdim') === '1',
     glob: ['data-maxlen', 'data-maxlen0', 'data-bal', 'data-bal0', 'data-swap', 'data-ng', 'data-npre'].map(a => a + '=' + A(a)).join(' '), lines: {}, cells: {}, wires: {}, glab: [] };
   const byX = {};
   T.querySelectorAll('path[data-dl]').forEach(e => { const p = +e.getAttribute('data-dl') - 1; o.lines[p] = { gap: +e.getAttribute('data-gap'), src: +e.getAttribute('data-src'), rep: e.getAttribute('data-rep') }; byX[e.getAttribute('data-x')] = p; });
@@ -106,9 +106,13 @@ function checkPeriodic(key, b) {
   Object.values(b.cells).forEach(c => { if (c.k < v) return; const d = b.cells[(c.k % v) + ':' + c.s];
     const strip = at => { const x = Object.assign({}, at); x['data-pv'] = x['data-pv'].replace(/^\d+:/, ''); return JSON.stringify(x); };
     const tipN = t => t.replace(/\(\d+-(\d+)\)/g, '(k-$1)');   // Tri 的來源標籤含列號 (k-gi)
+    // v1.18.25：Hand Mode（data-handdim）時重複列整列調暗 ⇒ 只比資料（名稱、實體色、衝突、接到的線），並確認重複列沒有主循環格
+    if (b.hd) { const core = at => [at['data-pv'].replace(/^\d+:/, ''), at['data-dn'], at['data-phys'], at['data-mis'], at['data-st']].join('|');
+      ok(d && core(c.at) === core(d.at) && c.inn.join(',') === d.inn.join(',') && c.at['data-tier'] !== 'main', key + ' 垂直週期（Hand 調暗）格 ' + c.k + ':' + c.s); return; }
     ok(d && strip(c.at) === strip(d.at) && c.txt === d.txt && c.inn.join(',') === d.inn.join(',') && tipN(c.tip) === tipN(d.tip), key + ' 垂直週期 格 ' + c.k + ':' + c.s + ' ' + (d ? tipN(c.tip) + ' | ' + tipN(d.tip) : '')); });
   Object.keys(b.wires).forEach(wk => { const [k, p, ud] = wk.split(':'); if (+k < v) return; const W = b.wires[wk], V = b.wires[(k % v) + ':' + p + ':' + ud];
     ok(V && W.name === V.name && W.len === V.len && W.off === V.off && W.col === V.col, key + ' 垂直週期 接線 ' + wk); });
+  if (b.hd) ok(Object.values(b.cells).some(c => c.k < v && c.at['data-tier'] === 'main'), key + ' Hand：原本的列仍有主循環格');
   const NG = b.glab.length / b.nl;
   b.glab.forEach((g, i) => { const k = Math.floor(i / NG), gi = i % NG;
     ok(g.main === 'Line ' + (k + 1) + (NG > 1 ? '-' + (gi + 1) : ''), key + ' Line 標號 ' + g.main);
