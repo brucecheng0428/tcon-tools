@@ -2,6 +2,51 @@
 
 ---
 
+## Data Mapping (datamap) v1.18.11 — 2026-10-08 ｜ PATCH
+
+**讀寫 T-CON 前一定要先 Check T-CON：本次連線 Check T-CON 成功，而且認到的型號＝目前型號（S.checked === S.model）。④ 移除 Write to TCON／Load from TCON，只留匯出 script；連線中改值即時寫入，要重讀就按 Check T-CON。**
+
+判定依據：`docs/VERSIONING.md` §R3：修正「沒確認 T-CON 也能讀寫」的漏洞並簡化 ④；② 與匯出 script 不變，版號 PATCH。
+
+### 需求（Bruce 2026-10-08）
+
+> 建議要按一下 Check T-CON 以後才會去讀 T-CON 的設定……如果沒有去確認 T-CON，讀的數值有可能是假的。
+> 第四部分應該就不用再寫入 TCON……乾脆把 Write to TCON 跟 Load from TCON 這兩個全部都移除，只剩下匯出 Script？
+
+### 原因
+
+- v1.18.9／v1.18.10 連線後會自動 doCheck()，認到型號才 readBack()，這部分是對的。
+- 漏洞：「Load from TCON」「Write to TCON」和即時寫入只檢查 S.linked。型號是手選的、或 Check 失敗時，仍會照手選型號讀寫。
+
+### 變更
+
+- **確認狀態**：新增 tconOk()＝S.linked && S.checked === S.model。以下情況會清掉確認：斷線、Bridge 關閉、手選換型號、Check T-CON 開始時（失敗就維持未確認）。
+- **④**：移除「Write to TCON」「Load from TCON」與上方提示列的 Write 按鈕，標題改成「④ 匯出 script」。
+- **回讀**：連線後自動 Check T-CON，成功才回讀（同前）。要重新回讀就按 Check T-CON（重新辨認 IC＋回讀）；按鈕旁加這段說明。
+- **即時寫入**：只有 tconOk() 時才寫，其他時候「改值立即寫入」停用並提示「請先 Check T-CON」。沒確認時改值不寫，④ 標示「頁面值與 T-CON 不同」。
+- **連線中匯入 code／Excel**：
+  - 跳確認框「要把匯入的值寫入 TCON 嗎？」。
+  - 按「寫入 TCON」：整批寫入（範圍同原 Write to TCON：第一組沒動過就不寫 r2..b3），寫完逐 byte 回讀核對（只比 mask 內的位元）。
+  - 按「只帶進頁面」：不寫，④ 標示「頁面值與 T-CON 不同」。
+  - 還沒確認時：不問、不寫，直接標示不同。
+- **E503**：前置動作照 v1.18.10（M-Bus 7E:AB←CD 一定下；3E:0059←1E 只有 Check 確定是 E503 才下）。只手選 E503、沒有 Check 成功時，不再讀寫。
+
+### 驗證
+
+- 新增 tools/check_datamap_tcon_gate.js（mock I2C Bridge）18/0：
+  - 按鈕已移除，Check 旁有說明。
+  - 連線後自動 Check 成功就回讀，之後改值即時寫入。
+  - Check 失敗：不回讀、即時寫入停用、改值不寫、匯入不問。
+  - 手選換型號：確認清掉、不讀不寫；再按 Check 恢復並重新回讀。
+  - 斷線：確認清掉。
+  - 匯入後詢問：寫入＋回讀核對全部相同；只帶進頁面則標示不同。
+- tools/check_datamap_import_lock.js：未連線的停用檢查改成新按鈕組（Check T-CON／即時寫入）。這支測試另外 3 項（匯入切換相關）在 HEAD（v1.18.10）就已經失敗，和本次無關。
+- 未鎖定時：tools/check_datamap_svg_vs_tag.js 96 組和 datamap-v1.17.5 逐字相同；匯出 script 7 組相同。
+- check_datamap_kickoff 85/0、auto 104/0、core 282/0、preview 46/0（EM02 61/0）、lod 196/0。
+- cache buster 20261008dm11811。
+
+---
+
 ## I2C 讀寫測試 (i2c) v1.34.1 — 2026-10-08 ｜ PATCH
 
 **修正：Check T-CON 不分型號，辨認前一律先下「M-Bus 導通 C-Bus」（0x7E:0xAB ← CD）。接 E503 的 M-Bus 時，以前按 Check T-CON 認不到 E503。**

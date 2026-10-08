@@ -70,8 +70,9 @@ async function open() {
   if (a.askOpen()) { a.$('dm-ask-no').click(); ok(a.$('dm-model').value === 'EM02', '問→取消：維持 EM02'); a.setModel('EM01'); a.$('dm-ask-yes').click(); ok(a.$('dm-model').value === 'EM01' && /尚未載入/.test(a.src()), '問→切換：EM01、清除匯入'); }
 
   console.log('[7] I2C 未連線：需要 I2C 的控制項停用＋提示；不需要的可用');
-  for (const id of ['dm-write', 'dm-load', 'dm-check', 'dm-live', 'dm-bar-write']) ok(a.$(id).disabled, id + ' disabled');
-  ok(a.$('dm-write').title === '需先開啟 I2C（在 ① 按「連線」）', 'Write title=需先開啟 I2C');
+  for (const id of ['dm-check', 'dm-live']) ok(a.$(id).disabled, id + ' disabled');
+  ok(!a.$('dm-write') && !a.$('dm-load') && !a.$('dm-bar-write'), 'v1.18.11 Write to TCON／Load from TCON 已移除（連線中即時寫入、Check T-CON 回讀）');
+  ok(a.$('dm-check').title === '需先開啟 I2C（在 ① 按「連線」）', 'Check T-CON title=需先開啟 I2C');
   ok(a.$('dm-live-lbl').classList.contains('off'), '改值立即寫入 灰色');
   for (const id of ['dm-model', 'dm-import', 'dm-clear', 'dm-link']) ok(!a.$(id).disabled, id + ' 可用');
   a.imp(EM01); ok(!a.$('dm-export').disabled, '匯出 script 可用');
