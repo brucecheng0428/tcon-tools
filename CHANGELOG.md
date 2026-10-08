@@ -2,6 +2,40 @@
 
 ---
 
+## Data Mapping (datamap) v1.18.22 — 2026-10-08 ｜ PATCH（和 v1.18.21 同一次 push，Bruce 10/8 同意）
+
+判定依據：`docs/VERSIONING.md` §R3：補欄位與 Register 卡呈現改版。② 編碼規則、既有欄位的匯出都不變；E503／DAZ6138 的匯出只多了新欄位的遮罩寫入。版號 PATCH。
+
+### TCON Register 確認卡改成以 Register 名稱為主＋寫入安全
+
+> Bruce：為什麼 force_sel_g1_0 有兩個位置……是不是直接把它設計成跟著 register 名稱走……位置變成多個位置合併起來，像 model file 那樣的設計。
+> Register Name 名稱在最左邊，位置在右邊。位置不要用加號，最好用逗號分隔，跟 Python UI 內部的定義一樣。
+> 寫入時必須要不動到沒有規範到的 bit……I2C 打開的時候也要注意。
+
+- **查證 E503 FORCE_SEL_G1_0**：確實是三段 5 bit，不是打錯。
+  - Python UI `SourceCode_V5.0.4/RomCodeProcessUI.py:1881`（RM81000 HAND_TYPE0_DATA4）＝`0x326, 5, 5, 0x325, 7, 5, 0x324, 7, 7`：0x326[5]＝bit4（MSB）、0x325[7:5]＝bit3:1、0x324[7]＝bit0。
+  - Model file `RM8100x…model:8616`（TotalBytes＝3）由低到高列 0x324[7]、0x325[7:5]、0x326[5]，兩者一致。
+  - R1_3＝`0x324, 6, 5, 0x323, 7, 5`（PY:2153），同樣是兩段。
+- **新版面（預設「依 Register 名稱」）**：Register 名稱（最左）｜值｜bit 數｜組成位置（最右）。
+  - 組成位置照 Python UI：（位址, MSB, LSB）逗號分隔、高位段在前。
+  - 值是合併後的數值，可直接輸入 hex（0x..）或十進位，範圍 0～2^n−1，超出就不改並提示。
+  - 依功能分組：Panel mode → Mirror／CHRB／CHWB／READ_RVS → FORCE_DE → FORCE_SEL → FORCE_SEL 第二組 → Line OD。
+- **「依位址」檢視**：保留 v1.18.13 的 byte 檢視，兩種檢視是同一份資料。改整個 byte 時提示連帶改到哪些欄位；改到不屬於任何欄位的 bit 時提示「不會寫入」。
+- **寫入安全（查證＋補強）**：
+  - I2C：原本就是 read-modify-write（`datamap-core.js writeRegs`：讀該 byte → 只改欄位 mask → 沒變就不寫 → 寫 → 回讀）。這版把回讀核對改成**只比 mask 內**。
+  - 匯出 script：原本就是遮罩寫入 `write -m 位址 值 mask`，非欄位 bit 不寫；NB 的 Python SCRIPT Excel 也是逐欄位寫位置。所以不會有「沒有原值就寫 0」的情況，不需要「原值未知」警告。
+  - 改欄位值只改該欄位的 bit（commit → diffRegs 的 mask）。
+- **測試**：tcon_gate 60/0，新增 9 項：
+  - 預設檢視與欄位順序；G1_0 的組成位置字串。
+  - 範圍檢查；0x1F 與十進位 10 拆回三個 byte 正確，同 byte 其他欄位不變。
+  - mock I2C：改 mirror ⇒ 讀 0x401（66）→ 寫 67 → 回讀，非欄位 bit 保留。
+  - 匯出 mask 99；依位址改 byte 的兩種提示。
+  - v1.18.13 的 9 項改在「依位址」檢視下驗。
+- 回歸：kickoff 85、auto 104、core 282、preview 48 與 63、lod 196、import_lock、jump_realmouse 16、combos 32 全過；SVG 語意比對 96/96。
+
+
+---
+
 ## Data Mapping (datamap) v1.18.21 — 2026-10-08 ｜ PATCH
 
 判定依據：`docs/VERSIONING.md` §R3：補欄位與 Register 卡呈現改版。② 編碼規則、既有欄位的匯出都不變；E503／DAZ6138 的匯出只多了新欄位的遮罩寫入。版號 PATCH。
