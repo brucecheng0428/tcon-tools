@@ -2,6 +2,47 @@
 
 ---
 
+## Data Mapping (datamap) v1.18.8 — 2026-10-08 ｜ PATCH
+
+**EM01 Auto（Hand 關）時，Type 選單改成照 EM01 原廠 UI 的兩層選單：先選 Panel_mode（1D1G／Zigzag／HSD／LTPS），再選該模式的 sub_panel_mode。不再套 EM02 的單一 RT7 Type 清單。**
+
+判定依據：`docs/VERSIONING.md` §R3：只改 EM01 Auto 的選單呈現與寫入方式；其他型號、③ 接線與匯出不變，版號 PATCH。
+
+### 需求（Bruce 2026-10-08）
+
+> 在 EM01 的使用下，如果沒有 hand mode enable（在 UI 上面也就是選擇 Auto），在不同的 Panel Mode（例如 1D1G、Z-Zag、HSD 或是 LTPS），可以選擇的 Type 都不一樣。這個目前先不要做到跟 EM02 一樣的選單，先 follow EM01 的 UI。
+
+### EM01 原廠 UI（VCL_TV_TCON_EM01_Tool，只讀）
+
+- **Panel_mode**：ComboBox_TX_panel_mode，選項 1D1G／Zigzag／HSD／LTPS（SDIMAIN.dfm:37682-37694）。
+- **sub_panel_mode**：ComboBox_TX_sub_panel_mode，項目依 Panel_mode 填入（RApp_TX.cpp:8916-8984，載入時 :9300-9359 相同）：
+  - 1D1G：Normal（停用）
+  - Zigzag：type1～type8
+  - HSD：type1、type4、type3-5、type4+BOE zigzag、8-pixel、4line,4pixel
+  - LTPS：MUX3 normal type1、MUX2 normal type1、MUX3 zigzag type1、MUX2 zigzag type1、MUX3 normal type2、MUX2 normal type2、MUX3 zigzag type2、MUX2 zigzag type2
+- **換 Panel_mode**：sub 一律回第一項（ItemIndex＝0）；rd_mode 依模式寫 0／0／1／2（0x0504[7:6]，:8916-8945）。
+- **寫入**：rt7+0x00 panel_mode[2:1]＝ItemIndex、sub_panel_mode[7:5]＝ItemIndex，mask 0xE6（:9174-9175）。讀回在 :9213、:9359。
+- 網頁 DM.SUB_PANEL 的四組清單和原廠逐字相同。
+
+### 變更
+
+- **EM01＋Hand 關**：「RT7 Type Select」位置改成兩個下拉（Panel_mode、sub_panel_mode），旁邊標出目前的 panel_mode／sub_panel_mode／rd_mode。
+  - 換 Panel_mode 時，sub 改成新清單第一項，rd_mode 依模式帶入，並跳提示。
+  - 匯入 EM01 code 時，依 code 的 0x0400 自動帶入兩層選單。值不在清單內時，顯示「code 值 sub n：這個 Panel_mode 沒有定義」。
+- **EM01＋Hand 開**、EM02、E512、E50x、DAZ：選單不變。
+- ③ 仍依 EM02 同組合的 Type 畫（暫存器語意相同，標「推定」）。
+- 兩個下拉屬於 TCON 設定，鎖定時可改。
+
+### 驗證
+
+- check_datamap_kickoff 84/0：EM01 Auto 兩層選單、四組清單和順序、rd_mode、換 Panel_mode 時 sub 回第一項；EM02 不變。
+- check_datamap_auto 104/0：EM01 改成逐一跑 23 種 Panel_mode×sub 組合，檢查寫入和 ③；EM01 Hand 關 ③ 的測試改用新選單。
+- 未鎖定時：tools/check_datamap_svg_vs_tag.js 96 組和 datamap-v1.17.5 逐字相同；匯出 script 7 組相同。
+- core 282/0、preview 46/0（EM02 61/0）、lod 196/0。
+- cache buster 20261008dm1188。
+
+---
+
 ## Data Mapping (datamap) v1.18.7 — 2026-10-08 ｜ PATCH
 
 **鎖定後，TFT 接線圖上方多一組畫面樣式按鈕：全白（預設）／只送紅／只送綠／只送藍。每格亮不亮由「這格收到的資料」決定；亮的格子用「這顆實體子像素本身的顏色」顯示，其餘格子透明，只留虛框。**

@@ -100,6 +100,16 @@ console.log('── v1.12.0 Hand 關 ③ 一定有圖或明確原因');
   ok(/^v1\.1\d\./.test(w.TOOL_VERSIONS.datamap), 'datamap 版號 v1.10 以上：' + w.TOOL_VERSIONS.datamap);
   for (const m of DM.MODEL_KEYS) {
     fire($('dm-model'), m); if (w.dmState.cur.hand) fire($('dm-hand'), false);
+    if (m === 'EM01') {   /* v1.18.8：EM01 Auto 照原廠兩層 UI（Panel_mode＋sub_panel_mode），逐一組合 */
+      let g1 = !$('dm-em01box').classList.contains('hidden') && $('dm-auto').classList.contains('hidden'), n1 = 0, d1 = 0;
+      for (let pm = 0; pm < 4; pm++) { fire($('dm-em01pm'), String(pm));
+        for (let sb = 0; sb < DM.SUB_PANEL[pm].length; sb++) { if (sb) fire($('dm-em01sub'), String(sb)); n1++;
+          const st = w.dmState.cur, t = w.dmBuildScript().text, line = t.split('\n').find(l => l.startsWith('write -m ' + hex(DM.MODELS[m].rt7, 4)));
+          g1 = g1 && !st.hand && (st.panel | 0) === pm && (st.subPanel | 0) === sb && (st.rd | 0) === [0, 0, 1, 2][pm] && !!line && (parseInt(line.split(' ')[3], 16) & 0xE6) === ((pm << 1) | (sb << 5));
+          if (QA('rect[data-pv]').length > 0 && /^Auto · /.test($('dm-pvtag').textContent)) d1++; } }
+      ok(g1 && d1 > 0, 'EM01：Hand 關 ⇒ 原廠兩層選單 Panel_mode × sub_panel_mode 共 ' + n1 + ' 種，逐一寫入 panel／sub／rd、匯出 rt7+0x00；③ 有畫 ' + d1 + ' 種（其餘照 EM02 同組合，無對應 Type 時標推定）');
+      continue;
+    }
     const L = A.list(m), sel = $('dm-auto');
     let good = !$('dm-autorow').classList.contains('hidden') && !sel.disabled && (A.fam(m) === 'mnt' ? sel.options.length === DM.PRESETS.length + 1 && sel.options[sel.options.length - 1].value === 'u' : Array.from(sel.options).filter(o => o.value !== '-1').length === L.length);
     let drawn = 0, nopic = 0;
@@ -166,13 +176,13 @@ console.log('── v1.12.0 Hand 關 ③ 一定有圖或明確原因');
   console.log('── v1.12.0 EM01 Hand 關 ③');
   if (w.dmClearImport) w.dmClearImport();
   fire($('dm-model'), 'EM01'); if (w.dmState.cur.hand) fire($('dm-hand'), false);
-  for (const n of ['(0) 1D1G(Normal)', '(1) ZZ+LR', '(2) ZZ+RL']) {
-    fire($('dm-auto'), 'p' + DM.PRESETS.findIndex(p => p.name === n));
-    ok(!w.dmState.cur.hand && $('dm-pvtag').textContent.startsWith('Auto · ' + n) && QA('rect[data-pv]').length > 0 && !$('dm-pvbody').classList.contains('hidden') && /依 EM02／查詢表定義推定/.test($('dm-pvnote').textContent), 'EM01 Hand 關選 ' + n + ' ⇒ ③ 有畫、註明依 EM02／查詢表定義推定');
+  for (const [pm, sb, n] of [[0, 0, '(0) 1D1G(Normal)'], [1, 0, '(1) ZZ+LR'], [1, 1, '(2) ZZ+RL']]) {
+    fire($('dm-em01pm'), String(pm)); fire($('dm-em01sub'), String(sb));
+    ok(!w.dmState.cur.hand && $('dm-pvtag').textContent.startsWith('Auto · ' + n) && QA('rect[data-pv]').length > 0 && !$('dm-pvbody').classList.contains('hidden') && /依 EM02／查詢表定義推定/.test($('dm-pvnote').textContent), 'EM01 Hand 關選 Panel_mode ' + pm + '／sub ' + sb + '（＝EM02 ' + n + '）⇒ ③ 有畫、註明依 EM02／查詢表定義推定');
   }
-  fire($('dm-auto'), 'p0'); fire($('f-mirror'), true); fire($('f-chrb'), true);
-  ok(!w.dmState.cur.hand && $('dm-auto').value === 'u' && QA('rect[data-pv]').length > 0 && /R↔B（推定）$/.test($('dm-pvtag').textContent) && /chrb 不同 ⇒ R、B 對換/.test($('dm-pvnote').textContent),
-    'EM01 panel 0＋mirror 1＋chrb 1（人工組合，不在清單）⇒ ② 顯示 User define、③ 照 (0) Mirror＋R↔B 畫並標推定：' + $('dm-pvtag').textContent);
+  fire($('dm-em01pm'), '0'); fire($('f-mirror'), true); fire($('f-chrb'), true);
+  ok(!w.dmState.cur.hand && !$('dm-em01box').classList.contains('hidden') && QA('rect[data-pv]').length > 0 && /R↔B（推定）$/.test($('dm-pvtag').textContent) && /chrb 不同 ⇒ R、B 對換/.test($('dm-pvnote').textContent),
+    'EM01 panel 0＋mirror 1＋chrb 1（人工組合，不在 EM02 清單）⇒ ② 照 EM01 兩層選單、③ 照 (0) Mirror＋R↔B 畫並標推定：' + $('dm-pvtag').textContent);
   console.log('── v1.12.0 單一 RT7 Type Select（EM02）');
   if (w.dmClearImport) w.dmClearImport();
   fire($('dm-model'), 'EM02'); if (w.dmState.cur.hand) fire($('dm-hand'), false);

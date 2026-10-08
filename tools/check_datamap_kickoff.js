@@ -295,6 +295,21 @@ console.log('── code 表（D2:R31）＝網頁 T 表解碼');
         'v1.18.7 Auto（EM02，鎖定後換 RT7 Type「' + $('dm-auto').options[$('dm-auto').selectedIndex].text.slice(0, 18) + '」）只送綠：亮 ' + onG.length + ' 格，都是收到 G 的格子，顏色依實體子像素（實體非 G 的有 ' + onG.filter(r => physOf(r) !== 'G').length + ' 格）');
       $('dm-pv-lock').click(); }
   }
+  /* v1.18.8（Bruce 10/8）：EM01 Auto（Hand 關）照原廠 UI：Panel_mode（1D1G／Zigzag／HSD／LTPS）＋該模式的 sub_panel_mode；EM02 不變 */
+  console.log('── EM01 Auto：Panel_mode／sub_panel_mode');
+  { fire($('dm-model'), 'EM01'); if ($('dm-hand').checked) fire($('dm-hand'), false);
+    const pm = $('dm-em01pm'), sb = $('dm-em01sub'), subs = () => [...sb.options].map(o => o.text).join('|');
+    ok(!$('dm-em01box').classList.contains('hidden') && $('dm-auto').classList.contains('hidden') && [...pm.options].map(o => o.text).join('|') === '1D1G|Zigzag|HSD|LTPS', 'v1.18.8 EM01 Auto：顯示原廠兩層選單 Panel_mode（1D1G／Zigzag／HSD／LTPS），不顯示 EM02 的 RT7 Type 清單');
+    const res = {};
+    for (const [v, n] of [['1', 'Zigzag'], ['2', 'HSD'], ['3', 'LTPS'], ['0', '1D1G']]) { fire(pm, v); res[n] = { subs: subs(), sub: w.dmState.cur.subPanel | 0, panel: w.dmState.cur.panel | 0, rd: w.dmState.cur.rd | 0, dis: sb.disabled }; }
+    ok(res.Zigzag.subs === 'type1|type2|type3|type4|type5|type6|type7|type8' && res.HSD.subs === 'type1|type4|type3-5|type4+BOE zigzag|8-pixel|4line,4pixel'
+      && res.LTPS.subs === 'MUX3 normal type1|MUX2 normal type1|MUX3 zigzag type1|MUX2 zigzag type1|MUX3 normal type2|MUX2 normal type2|MUX3 zigzag type2|MUX2 zigzag type2'
+      && res['1D1G'].subs === 'Normal' && res['1D1G'].dis && [res.Zigzag.rd, res.HSD.rd, res.LTPS.rd, res['1D1G'].rd].join() === '0,1,2,0' && [res.Zigzag.panel, res.HSD.panel, res.LTPS.panel].join() === '1,2,3',
+      'v1.18.8 EM01 各 Panel_mode 的 sub_panel_mode 清單和順序照原廠 RApp_TX.cpp:8916-8984，rd_mode 依模式帶 0／1／2／0：' + JSON.stringify(res));
+    fire(pm, '1'); fire(sb, '2'); const sZ = w.dmState.cur.subPanel; fire(pm, '2');
+    ok(sZ === 2 && (w.dmState.cur.subPanel | 0) === 0 && sb.value === '0' && /0400 /.test(w.dmBuildScript().text) , 'v1.18.8 Zigzag type3 → 換 HSD ⇒ sub 回第一項 type1（照原廠 ItemIndex＝0），匯出寫 rt7+0x00');
+    fire($('dm-model'), 'EM02'); if ($('dm-hand').checked) fire($('dm-hand'), false);
+    ok($('dm-em01box').classList.contains('hidden') && !$('dm-auto').classList.contains('hidden'), 'v1.18.8 EM02 Auto 仍是單一 RT7 Type Select 清單（不變）'); }
   console.log((fail ? '✗ ' : '✓ ') + 'check_datamap_kickoff ' + pass + ' pass / ' + fail + ' fail');
   process.exit(fail ? 1 : 0);
 })().catch(e => { console.log('✗ ', e && e.stack || e); process.exit(1); });
