@@ -25,6 +25,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   ok(r0.length === 16 && new Set(r0.map(r => r.key)).size === 16, '16 列、各不相同');
   const hdr = Array.from($('dm-pv-combotbl').querySelectorAll('th')).map(t => t.textContent.replace(' ⓘ', ''));
   ok(hdr.join('|') === '排名|Driver CH1 位置|Driver 輸出方向（SHL）|子像素排列|輸出對調|資料正確|顏色正確|最長 drain|左右線長差|CH1＝Mirror 方向', '欄位：' + hdr.join('|'));
+  ok(Array.from($('dm-pv-drv').options).map(o => o.textContent).join('|') === '正向（CH1→CHn）|反向（CHn→CH1）', 'v1.18.19：SHL 選項保留方向（正向（CH1→CHn）／反向（CHn→CH1）），沒有「預設」');
+  ok(new Set(r0.map(r => r.cells[2])).size === 2 && r0.every(r => /^(正向（CH1→CHn）|反向（CHn→CH1）)$/.test(r.cells[2])), 'v1.18.19：比較表 SHL 欄同樣寫方向');
   ok(/排序：資料與顏色全對 → 錯的格數少/.test(d.querySelector('[data-i18n="dm.pvCRule"]').textContent), '表格上方一行寫出排序規則');
   ok(r0.every(r => /^(✓|✗ 錯 \d+ 格)$/.test(r.cells[5]) && /^(✓|✗ 錯 \d+ 格)$/.test(r.cells[6])), '資料正確／顏色正確一律「✓」或「✗ 錯 n 格」');
   console.log('Bruce 的 case：全民 code、CH1 最左、SHL 反向');
