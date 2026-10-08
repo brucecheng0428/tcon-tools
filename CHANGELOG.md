@@ -2,6 +2,56 @@
 
 ---
 
+## Data Mapping (datamap) v1.18.15 — 2026-10-08 ｜ PATCH
+
+**修正 v1.18.14：圖內的 SD Out／TCON Out（含每欄 Dn、Data k）用真的滑鼠點不會跳。表頭依訊號方向改成上 TCON Out、下 SD Out。移除圖上方那排跳轉文字。**
+
+判定依據：`docs/VERSIONING.md` §R3：修回 v1.18.14 應有的行為，加上表頭兩列上下對調；② 編碼、③ 接線、匯出 script 都不變，版號 PATCH。
+
+### 需求（Bruce 2026-10-08）
+
+> 我點 TFT 接線圖那邊的 SD-OUT 與右邊的相關文字，或是 TCON-OUT 與右邊的相關文字，並沒有像超連結那樣會直接跳到對應的位置。
+> 我要的是直接點圖內的 TCON Out 跟 SD Out 都可以跳轉。
+> 配合訊號的傳遞方向，將 TFT 接線圖裡面的 T-CON OUT 擺在 SD OUT 的上方。
+
+### 根因（真實 Chrome 重現）
+
+- 現象：在 Bruce 的 Chrome 開線上 v1.18.14，用滑鼠點圖內的「TCON Out」。mousedown 落在 `<text>`，mouseup 與 click 卻落在外層 `#dm-pv-wrap`，所以 `closest('[data-jump]')` 找不到元素，不會跳。
+- 原因：v1.6.2 的拖曳捲動在 mousedown 一按下就對 `#dm-pv-wrap` 加 `.dragging`。CSS `.dm-pvdrag.dragging * { pointer-events: none; }`（datamap.html:168）讓所有子元素在放開前就收不到滑鼠事件。v1.18.14 之前圖內沒有可點的東西，所以沒人發現。
+- 只有圖上方那排 HTML 短標籤（不在拖曳區內）能跳，看起來就像「要點上方的文字才會跳」。
+- 為什麼測試沒抓到：
+  - jsdom 不套用 CSS pointer-events，也不做命中判定。
+  - 先前的測試和截圖都是直接對元素 `dispatchEvent(new MouseEvent('click'))`，跳過了瀏覽器真正的 mousedown → mouseup → click 流程。
+
+### 變更
+
+- **拖曳**：按下時只記起點，位移超過 3px 才算拖曳、才加 `.dragging`、才捲動。沒有超過門檻就是點擊，圖內文字收得到 click。
+- **連續點擊**：高亮與外框閃的移除計時改成先 `clearTimeout` 再重設。原本前一次點擊的 1.6 秒計時會把下一次剛加上的高亮拿掉，真實滑鼠測試抓到這個問題。
+- **表頭順序**：上＝TCON Out（紫、Data k），下＝SD Out（藍、Dn），再往下是 Gate／子像素，符合 TCON → Source Driver → 面板。列標題、點擊、hover 都跟著列走。
+- **圖內提示**：每個 Dn、Data k 加滑鼠提示（`<title>`：跳到 Source Driver 設定／跳到 ② Data Mapping 表格）；hover 時加底線並變亮。
+- **移除** ③ TFT 標題旁的「SD Out＝Source Driver 設定」「TCON Out＝② 表格」兩個短標籤，避免和圖內重複。② 表格與 Source Driver 區的「＝③ …」回跳標籤保留。
+
+### 比對（Dispatch 要求：語意比對）
+
+- `tools/check_datamap_svg_vs_tag.js --sem`：表頭兩列上下對調後 y 不同，所以兩邊都做以下處理：
+  - 每欄 TCON Out 文字（data-dof）與 SD Out 文字（data-dlab）各自依 (x, transform, 文字, 主循環／前後循環) 排序比對，不比 y。
+  - 兩個列標題只比文字。
+  - 拿掉 class、data-jump、tabindex、role、`<title data-jt>`。
+  - 其餘部分逐字比對 innerHTML：Gate 線、Data 線路徑、TFT、跳線，以及子像素方格與格內的標籤、顏色、接線目標。
+- 結果：與 v1.17.5 比對 96/96 相同；匯出 script 7 組完全相同。
+
+### 測試
+
+- 新增 `tools/check_datamap_jump_realmouse.mjs`：headless Chrome＋CDP `Input.dispatchMouseEvent`，送真的按下／放開，由瀏覽器做命中判定。16 項：
+  - 未鎖定、鎖定各點 SD Out 標題、D1、TCON Out 標題、Data 1，捲動目標正確；Data 1 欄會高亮、Driver 區外框會閃。
+  - 拖曳 40px 時接線圖捲動、不跳；之後再點一次正常跳。
+  - console 沒有錯誤。
+  - v1.18.14 跑這支是 2 pass / 14 fail，v1.18.15 是 16/0。
+- preview 拖曳測試改成：只按下不算拖曳；移 2px 不捲動；移超過 3px 才 grabbing。
+- 回歸：kickoff 85/0、auto 104/0、core 282/0、preview 48/0 與 63/0、lod 196/0、tcon_gate 46/0、import_lock ALL PASS。
+
+---
+
 ## Data Mapping (datamap) v1.18.14 — 2026-10-08 ｜ PATCH
 
 **TCON Out 改亮紫、SD Out 維持亮藍，各自和設定區用同色連起來：② 表格用紫框，Source Driver 設定用藍框。③ 的 SD Out／TCON Out（含每欄文字）可點，跳到對應設定。**

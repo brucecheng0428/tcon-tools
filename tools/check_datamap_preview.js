@@ -132,8 +132,12 @@ const ok = (c, m) => { if (c) pass++; else { fail++; console.log('  ✗ ' + m); 
   const wr = $('dm-pv-wrap'); let SL = 100; Object.defineProperty(wr, 'scrollLeft', { get: () => SL, set: v => { SL = v; }, configurable: true });
   ok(w.getComputedStyle(wr).cursor === 'grab', '預覽區游標＝grab：' + w.getComputedStyle(wr).cursor);
   wr.dispatchEvent(new w.MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0, clientX: 500 }));
-  ok(wr.classList.contains('dragging') && w.getComputedStyle(wr).cursor === 'grabbing', '按下 ⇒ grabbing');
+  /* v1.18.15：按下還不算拖曳（否則子元素 pointer-events:none，圖內 SD Out／TCON Out 收不到 click）；移超過 3px 才 grabbing */
+  ok(!wr.classList.contains('dragging'), '只按下、還沒移動 ⇒ 不是拖曳狀態（圖內文字仍可點）');
+  w.dispatchEvent(new w.MouseEvent('mousemove', { bubbles: true, cancelable: true, clientX: 498 }));
+  ok(!wr.classList.contains('dragging') && SL === 100, '移 2px（未超過 3px 門檻）⇒ 仍不是拖曳、不捲動');
   w.dispatchEvent(new w.MouseEvent('mousemove', { bubbles: true, cancelable: true, clientX: 380 }));
+  ok(wr.classList.contains('dragging') && w.getComputedStyle(wr).cursor === 'grabbing', '移超過 3px ⇒ grabbing');
   ok(SL === 220, '往左拖 120px ⇒ scrollLeft 100→' + SL);
   w.dispatchEvent(new w.MouseEvent('mouseup', { bubbles: true }));
   w.dispatchEvent(new w.MouseEvent('mousemove', { bubbles: true, clientX: 100 }));
