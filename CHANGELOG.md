@@ -2,6 +2,75 @@
 
 ---
 
+## Data Mapping (datamap) v1.18.20 — 2026-10-08 ｜ PATCH
+
+**配置比較表納入 TCON 的 Mirror（0／1）：有 Mirror 欄位的型號從 16 種變 32 種。和 ② 目前值不同的列標「需改 TCON」，點列會連 Mirror 一起套用。鎖定時只列 Mirror 0／1 兩列。**
+
+判定依據：`docs/VERSIONING.md` §R3：比較表擴充與套用；② 編碼規則、③ 接線畫法、匯出 script 都不變，版號 PATCH。
+
+### 需求（Bruce 2026-10-08）
+
+> 如果我用全民的 code，但是我故意把 Mirror 關閉，這時候最長 drain 會到 5.5……在建議的排序裡面，卻看不到有「把 Mirror 再打開，最長可以只有 0.5」的這個選項……請看看要怎麼樣才能把這個真正的最佳選項考量進去？
+
+### 評估（v1.18.19）
+
+- 16 種的組成：CH1 位置 × SHL × RGB／BGR × 輸出對調。TCON 的 Mirror 固定用目前值（`pvCombos` 一開頭讀 `S.cur.mirror`）。
+- 「CH1＝Mirror 方向」欄：`ori: rl === mir`，只是標示，**不參與排序**（`rank` 只有 mis、dbad、mx、bal 與決勝鍵）。v1.17.0 已說明 Mirror 由 COF 傳送順序決定，不能拿來判斷單顆 COF 的方向。
+- 重現（全民 code）：
+
+| Mirror | 第 1 名 | 最長 drain | 左右線長差 |
+|---|---|---|---|
+| 1（code 原值） | CH1 最右＋正向＋RGB＋無 | 0.5 | 0 |
+| 0（故意關） | CH1 最左＋正向＋RGB＋無 | 5.5 | 21 |
+
+- Mirror＝0 時，16 種裡沒有 0.5 的選項，因為 Mirror 不在比較範圍內。
+
+### 變更
+
+- **第 5 個維度＝TCON Mirror 0／1**
+  - 只對有 Mirror 欄位的型號（EM01／EM02／E512）；NB 型號沒有這個欄位，維持 16 種。
+  - 另一個 Mirror 值的接線用 `pvModelState()` 算。state 照 ② 勾 Mirror 的寫法：Mirror 連帶 READ_RVS 0xFFFF／0。
+- **欄位**：
+  - 新增「TCON Mirror」欄，和 ② 目前值不同的格標紫色「需改 TCON」（紫色＝TCON）。
+  - 拿掉「CH1＝Mirror 方向」欄：它只是標示、不參與排序，而且每列已直接列出 Mirror 值，兩欄重複。
+- **排序**：規則不變，最後加一個決勝鍵「Mirror 不必改優先」。表格上方的規則行改成「排序（含 TCON Mirror）：…同分依序：輸出對調「無」、SHL 正向、RGB、CH1 最左、Mirror 不必改」。
+- **點列套用**：
+  - Driver／面板照舊套用。
+  - Mirror 不同時，走 ② 勾 Mirror 的同一條路（連帶 READ_RVS），所以線上且 Check T-CON 已確認時照即時寫入規則寫進 TCON，離線只改頁面。
+  - 套用後提示「已改 ② Mirror＝n（TCON 設定）」。
+- **鎖定時**：Driver／面板固定，表格只列和目前 Driver／面板相同的兩列（Mirror 0／1）。點列只改 TCON Mirror，鎖定保留。對應「架構定了、只能調 TCON」的情境。展開規則照舊：鎖定時自動收合，可手動展開。
+- 表格標題的張數改成動態（32 或 16；鎖定時 2）。
+- 「套用建議」按鈕的文字在需要改 Mirror 時會加「＋Mirror＝n」。
+- 「套用建議」的隱藏條件修正：v1.18.18 規定「目前已全對就不建議」，但 Mirror＝0 時目前那列也是全對，只是最長 drain 5.5（第 1 名 0.5），會讓更好的選項被藏起來。改成目前全對**而且**最長 drain、左右線長差都和第 1 名一樣好才不建議（例如第 1 名的鏡像），否則照常建議第 1 名。建議理由在目前沒錯格時改寫「最長 drain 5.5 → 0.5」（原本會寫「目前錯 0 格」）。
+
+### 驗證：全民 code、故意把 Mirror 關成 0
+
+- 第 1 名＝CH1 最右＋正向＋RGB＋輸出對調無＋**Mirror 1（需改 TCON）**，最長 drain 0.5，資料與顏色全對。第 2 名是它的鏡像（CH1 最左＋BGR＋Mirror 1）。
+- 目前那列（Mirror 0）最長 drain 5.5。
+- 點第 1 名：Driver／面板套用，② Mirror 改回 1，READ_RVS 0xFFFF，第 1 名變成「目前套用」。
+
+### 其他 TCON 參數要不要納入（評估，這版不做）
+
+- **CHRB（R↔B）**：效果等於面板 RGB／BGR 對調，和現有的子像素排列維度重複，未鎖定時加進去只會多出等價列。**建議：只在鎖定時加入**——面板排列已固定，CHRB 是唯一能修正 R／B 顏色的 TCON 手段。
+- **FORCE_DE_EN／FORCE_DE_SEL（T 表）**：換 T 表等於整組資料平移 2 pixel 的倍數，會改變 ② 每格名稱的意義。它是「code 該用哪張表解」的問題，不是接線選擇；6 張表 × 32 也會讓表格太大。**建議不納入**，維持 ② 的「基準未確定」提示與候選列表。
+- **READ_RVS**：原廠跟著 Mirror 一起寫（0xFFFF／0），這版已隨 Mirror 一起處理，不單獨列。
+- **CHWB（灰階反相）**：不影響接線，不納入。
+
+### 測試
+
+- combos 32/0，新增 10 項：
+  - 32 列。
+  - Mirror＝0 時第 1 名是 Mirror 1 且 0.5；「需改 TCON」標示正確。
+  - 點列後 Mirror 改回 1、READ_RVS 0xFFFF。
+  - 鎖定時只剩 2 列，點 Mirror 列只改 Mirror。
+  - 鎖定時用套用函式套別的 Driver 組合仍會被擋。
+  - 目前全對但線長較差時，仍顯示含 Mirror＝1 的套用建議。
+- tcon_gate 51/0，新增 2 項（mock I2C）：線上且已確認時套用「需改 TCON」列會寫入 TCON；離線只改頁面、不寫。
+- kickoff 4 項跟著新格式更新：key 多一碼 Mirror（`lfbn1`、`rfgn1`），表格 32 列。
+- 其他回歸全過。SVG 語意比對 96/96（接線圖沒動）；匯出 script 7 組完全相同。
+
+---
+
 ## Data Mapping (datamap) v1.18.19 — 2026-10-08 ｜ PATCH
 
 **Driver 輸出方向（SHL）選項恢復方向：「正向（CH1→CHn）」「反向（CHn→CH1）」。16 種比較表的 SHL 欄也一樣。**
