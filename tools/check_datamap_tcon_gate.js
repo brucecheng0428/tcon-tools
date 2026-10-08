@@ -166,6 +166,20 @@ const connect = async a => { a.$('dm-link').click(); await wait(() => a.w.dmStat
     click(t5); ok(scrolled.length === 0, '拖曳接線圖（位移 40px）後放開：不觸發跳轉');
     click(t5); ok(scrolled.length === 1, '拖曳結束後再點一次：正常跳轉');
   }
+
+  console.log('Slave 選單（v1.18.16）');
+  { const a = await open(); const { $, w } = a;
+    const opts = Array.from($('dm-slave').options).map(o => o.textContent.trim());
+    ok(opts.join(',') === '自動,0x68,0x69,0x6A,0x6B,0x6C,0x6D,0x6E,0x6F', '手選清單＝0x68～0x6F（原 0x68／0x69／0x60／0x61）：' + opts.join(','));
+    await connect(a);
+    const scan = a.log.filter(m => m.type === 'read' && m.addr === 0xFF00 && m.len === 3).map(m => '0x' + m.slave.toString(16));
+    ok(scan.join(',') === '0x60,0x61,0x68' && w.dmState.checked === 'EM01', '「自動」照 PQ Tool 順序掃到 0x68 就停：' + scan.join(','));
+    $('dm-link').click(); await wait(() => !w.dmState.linked, 2000);
+    $('dm-slave').value = '106'; $('dm-slave').dispatchEvent(new w.Event('change'));
+    a.log.length = 0; $('dm-link').click(); await wait(() => w.dmState.linked && !w.dmState.busy, 4000); await sleep(300);
+    const scan2 = a.log.filter(m => m.type === 'read' && m.addr === 0xFF00 && m.len === 3).map(m => '0x' + m.slave.toString(16));
+    ok(scan2.join(',') === '0x6a', '手選 0x6A ⇒ 只讀 0x6A：' + scan2.join(','));
+  }
   console.log((fail ? '✗ ' : '✓ ') + 'check_datamap_tcon_gate ' + pass + ' pass / ' + fail + ' fail');
   process.exit(fail ? 1 : 0);
 })().catch(e => { console.log('✗ ', e && e.stack || e); process.exit(1); });
