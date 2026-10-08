@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Data Mapping — TCON FAE Toolbox</title>
-<link rel="stylesheet" href="common/common.css?v=20261008dm11811">
-<link rel="stylesheet" href="common/site-ui.css?v=20261008dm11811">
+<link rel="stylesheet" href="common/common.css?v=20261008dm11812">
+<link rel="stylesheet" href="common/site-ui.css?v=20261008dm11812">
 <!--
   Data Mapping 分頁 v1.2.0（Bruce 2026-10-07）
   ・Bruce 10/7：「我其實沒有要你把它做得跟原生 UI 一模一樣，你還是要兼顧到網頁的風格，現在這個有點太突兀了。
@@ -201,6 +201,11 @@
   /* ④ 未匯出提示 */
   .dm-pend { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin-top: 10px; font-size: 13.5px; color: var(--sub); }
   .dm-pend.dirty { color: #fde68a; font-weight: 600; }
+  .dm-modebar { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; margin: 0 0 10px; padding: 7px 12px; border-radius: 8px; border: 1px solid var(--border, #334155); font-size: 13.5px; }
+  .dm-modebar .dm-mode-k { font-weight: 800; padding: 1px 9px; border-radius: 6px; }
+  .dm-modebar[data-mode="off"] .dm-mode-k { background: #64748b; color: #fff; }
+  .dm-modebar[data-mode="on"] .dm-mode-k { background: #16a34a; color: #fff; }
+  .dm-modebar[data-mode="onq"] .dm-mode-k { background: #d97706; color: #111827; }
   .dm-dirtybar { position: sticky; top: 0; z-index: 30; display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin: 0 0 12px; padding: 8px 12px;
                  border: 1px solid #b45309; border-radius: 8px; background: #2a1a06; color: #fde68a; font-size: 14px; font-weight: 600; box-shadow: 0 4px 14px rgba(0,0,0,.45); }
   .dm-dirtybar .dot { width: 9px; height: 9px; border-radius: 50%; background: #f59e0b; box-shadow: 0 0 8px #f59e0b; }
@@ -240,6 +245,8 @@
 </div>
 
 <div class="container">
+  <!-- v1.18.12（Bruce 10/8「匯入 Code 就是在離線作業…i2c 要連線的話，匯入的資料就要重新歸零」）：離線（匯入）／線上（I2C）互斥，頂端顯示目前模式 -->
+  <div id="dm-modebar" class="dm-modebar" role="status"><span class="dm-mode-k" id="dm-mode-k"></span><span id="dm-mode-t"></span></div>
   <div id="dm-dirtybar" class="dm-dirtybar hidden" role="status">
     <span class="dot"></span><span id="dm-dirtytext"></span>
     <button class="sbtn pri" id="dm-bar-export" data-i18n="dm.exportScript">匯出 script</button>
@@ -439,8 +446,8 @@
 </div>
 <div class="dm-toasts" id="dm-toasts" aria-live="polite"></div>
 
-<script src="common/version.js?v=20261008dm11811"></script>
-<script src="common/i18n.js?v=20261008dm11811"></script>
+<script src="common/version.js?v=20261008dm11812"></script>
+<script src="common/i18n.js?v=20261008dm11812"></script>
 <script>
 (function () {
   /* [zh-TW, en, zh-CN] */
@@ -583,13 +590,23 @@
     'dm.em01PmChg': ['Panel_mode 已換，原本的 Type「{o}」不在新清單，改成第一項「{n}」（照原廠 UI）', 'Panel_mode changed; "{o}" is not in the new list, so the first item "{n}" was selected (as the vendor UI does)', 'Panel_mode 已换，改成第一项「{n}」'],
     'dm.needCheck': ['請先 Check T-CON：本次連線確認的型號＝目前型號後，才會寫入／回讀 T-CON（避免讀到假的值或寫錯 IC）', 'Run Check T-CON first: the T-CON is written/read back only after this connection confirmed the IC is the selected model', '请先 Check T-CON：本次连线确认型号＝目前型号后才会写入／回读 T-CON'],
     'dm.checkHint': ['連線後會自動 Check T-CON（辨認 IC）並回讀 T-CON 設定；要重新回讀請再按 Check T-CON', 'After connecting, Check T-CON runs automatically (identifies the IC) and reads the T-CON back; press Check T-CON again to re-read', '连线后会自动 Check T-CON 并回读；要重新回读请再按 Check T-CON'],
-    'dm.askWrT': ['要把匯入的值寫入 TCON 嗎？', 'Write the imported values to the TCON?', '要把导入的值写入 TCON 吗？'],
-    'dm.askWrD': ['「{f}」已帶進頁面（{m}）。按「寫入 TCON」會整批寫入目前連線的 T-CON，寫完逐 byte 回讀核對；按「只帶進頁面」則不寫，頁面會標示「頁面值與 T-CON 不同」。', '"{f}" is loaded on the page ({m}). "Write to TCON" writes it to the connected T-CON and reads every byte back to verify; "Page only" keeps it on the page and marks it as different from the T-CON.', '「{f}」已带进页面（{m}）。按「写入 TCON」会整批写入并回读核对；按「只带进页面」则不写。'],
-    'dm.askWrYes': ['寫入 TCON', 'Write to TCON', '写入 TCON'],
-    'dm.askWrNo': ['只帶進頁面', 'Page only', '只带进页面'],
-    'dm.tconDiff': ['頁面值與 T-CON 不同（匯入後未寫入；要讀回 T-CON 的值請按 Check T-CON）', 'Page values differ from the T-CON (imported, not written; press Check T-CON to read the T-CON back)', '页面值与 T-CON 不同（导入后未写入）'],
-    'dm.wrVerifyOk': ['已寫入 T-CON，回讀核對 {n} byte 全部相同', 'Written to the T-CON; {n} bytes read back and verified', '已写入 T-CON，回读核对 {n} byte 全部相同'],
-    'dm.wrVerifyNg': ['已寫入 T-CON，但回讀核對有 {n} byte 不同', 'Written, but {n} bytes differ on read-back', '已写入，但回读核对有 {n} byte 不同'],
+    'dm.modeOn': ['線上', 'Online', '线上'],
+    'dm.modeOff': ['離線', 'Offline', '离线'],
+    'dm.modeOnOk': ['I2C {m}（Check T-CON 已確認，改值即時寫入）', 'I2C {m} (Check T-CON confirmed; edits are written live)', 'I2C {m}（Check T-CON 已确认，改值即时写入）'],
+    'dm.modeOnNo': ['I2C 已連線，尚未 Check T-CON 確認（不讀不寫）', 'I2C connected, Check T-CON not confirmed (no read/write)', 'I2C 已连线，尚未 Check T-CON 确认'],
+    'dm.modeOffFile': ['匯入 {f}（不會寫入 TCON；可匯出 script）', 'Imported {f} (never written to the TCON; export a script)', '导入 {f}（不会写入 TCON）'],
+    'dm.modeOffNone': ['未匯入、未連線（可匯入 code 離線編輯，或按「連線」讀 TCON）', 'Nothing imported, not connected (import a code to edit offline, or Connect to read the TCON)', '未导入、未连线'],
+    'dm.askOffT': ['匯入會中斷 I2C 連線並進入離線模式，確定？', 'Importing disconnects I2C and switches to offline mode. Continue?', '导入会中断 I2C 连线并进入离线模式，确定？'],
+    'dm.askOffD': ['離線（匯入 code／Excel）和線上（I2C）不同時進行：確定後會先斷線、關閉 I2C Bridge 通道，再匯入；匯入的值只在頁面上，不會寫入 TCON（可匯出 script）。', 'Offline (imported code/Excel) and online (I2C) are exclusive: the I2C bridge channel is closed first, then the file is imported; imported values stay on the page and are never written to the TCON.', '离线和线上不同时进行：确定后先断线再导入，导入的值不会写入 TCON。'],
+    'dm.askOffYes': ['斷線並匯入', 'Disconnect and import', '断线并导入'],
+    'dm.askOnT': ['連線會清除匯入的資料，改讀 TCON 實際值，確定？', 'Connecting clears the imported data and reads the actual TCON values. Continue?', '连线会清除导入的资料，改读 TCON 实际值，确定？'],
+    'dm.askOnD': ['目前是離線模式（匯入 {f}）。確定後等同「清除匯入」（檔名、TCON 值回預設、Driver SHL 回正向；鎖定保留），再連線並自動 Check T-CON，成功才回讀。', 'Offline now (imported {f}). Continuing clears the import (like Clear import; lock kept), then connects and runs Check T-CON; values are read back only if the check succeeds.', '目前是离线模式（导入 {f}）。确定后清除导入再连线并自动 Check T-CON。'],
+    'dm.askOnYes': ['清除匯入並連線', 'Clear import and connect', '清除导入并连线'],
+    'dm.askNo2': ['取消', 'Cancel', '取消'],
+    'dm.toOffline': ['切到離線：先斷開 I2C 再匯入', 'Going offline: disconnecting I2C before importing', '切到离线：先断开 I2C 再导入'],
+    'dm.offCanceled': ['已取消匯入，維持線上（I2C 連線）', 'Import canceled; still online', '已取消导入，维持线上'],
+    'dm.onCanceled': ['已取消連線，維持離線（匯入的資料保留）', 'Connect canceled; still offline (imported data kept)', '已取消连线，维持离线'],
+    'dm.lockCheckChg': ['Check T-CON 認到 {b}，和鎖定時的 {a} 不同（實體架構改變），已自動解除接線鎖定', 'Check T-CON found {b}, not {a} as when locked; the wiring lock was released', 'Check T-CON 认到 {b}，和锁定时的 {a} 不同，已自动解锁'],
     'dm.lockTag': ['🔒 接線已鎖定', '🔒 Wiring locked', '🔒 接线已锁定'],
     'dm.lockK': ['接線鎖定', 'Wiring lock', '接线锁定'],
     'dm.panT2': ['面板', 'Panel', '面板'],
@@ -718,7 +735,7 @@
     'dm.v512': ['⚠ 可能是 V512：用 EM02 規則讀到 Data Mapping 的值超過 5 bit（{a}）。只讀不寫：表格、匯出、寫入都已鎖住。', '⚠ Possibly a V512: Data Mapping values read with the EM02 rule exceed 5 bits ({a}). Read-only: table, export and write are locked.', '⚠ 可能是 V512：用 EM02 规则读到 Data Mapping 的值超过 5 bit（{a}）。只读不写：表格、导出、写入都已锁住。'],
     'dm.nextPick': ['先選 T-CON 型號並「匯入 code」；要直接調 TCON 就按「連線」。', 'Pick the T-CON model and Import a code, or Connect to tune the TCON directly.', '先选 T-CON 型号并「导入 code」；要直接调 TCON 就按「连接」。'],
     'dm.nextHand': ['勾「Hand Mode Enable」後，用每一格的下拉選單選 R／G／B 或 X。', 'Tick "Hand Mode Enable", then pick R/G/B or X from each cell\'s menu.', '勾「Hand Mode Enable」后，用每一格的下拉菜单选 R／G／B 或 X。'],
-    'dm.nextEdit': ['用每一格的下拉選單調整；調好到 ④ 匯出 script 或寫入 TCON。', 'Adjust with each cell\'s menu, then export a script or write to the TCON in ④.', '用每一格的下拉菜单调整；调好到 ④ 导出 script 或写入 TCON。'],
+    'dm.nextEdit': ['用每一格的下拉選單調整；調好到 ④ 匯出 script（要寫入 TCON 請連線並 Check T-CON 成功）。', 'Adjust with each cell\'s menu, then export a script in ④ (to write the TCON, connect and pass Check T-CON).', '用每一格的下拉菜单调整；调好到 ④ 导出 script（要写入 TCON 请连线并 Check T-CON 成功）。'],
     'dm.nextLive': ['用每一格的下拉選單調整；I2C 連線中，改值會立即寫入 TCON。', 'Adjust with each cell\'s menu; while connected, every change is written to the TCON right away.', '用每一格的下拉菜单调整；I2C 连接中，改值会立即写入 TCON。'],
     'dm.nextTri': ['Tri-Gate：Python UI 不提供表格編輯；要調請把 Gate Type 改成 Single 或 Dual。', 'Tri-Gate: the Python UI does not edit the table; switch Gate Type to Single or Dual to edit.', 'Tri-Gate：Python UI 不提供表格编辑；要调请把 Gate Type 改成 Single 或 Dual。'],
     'dm.dirtyBar': ['有 {n} 個位址的變更還沒匯出或寫入 TCON', '{n} changed addresses are not exported or written to the TCON yet', '有 {n} 个地址的变更还没导出或写入 TCON'],
@@ -748,7 +765,7 @@
     'dm.modelDropped': ['已切到 {m}；{f} 不是 {m} 的 code，已清除匯入（{r}）', 'Switched to {m}; {f} is not a {m} code, so the import was cleared ({r})', '已切到 {m}；{f} 不是 {m} 的 code，已清除导入（{r}）'],
     'dm.needI2c': ['需先開啟 I2C（在 ① 按「連線」）', 'Turn on I2C first (Connect in ①)', '需先开启 I2C（在 ① 按「连接」）'],
     'dm.rAmbig': ['同時像 {f}，請先選對型號再匯入', 'looks like {f}; select the model first', '同时像 {f}，请先选对型号再导入'],
-    'dm.impLinked': ['I2C 連線中：匯入後會詢問要不要寫入 TCON。', 'I2C is connected: after importing you will be asked whether to write to the TCON.', 'I2C 连接中：导入后会询问要不要写入 TCON。'],
+    'dm.impLinked': ['I2C 連線中：匯入會先斷線並進入離線模式。', 'I2C is connected: importing disconnects first and switches to offline mode.', 'I2C 连接中：导入会先断线并进入离线模式。'],
     'dm.expScript': ['已匯出 {f}（{n} 列）', 'Exported {f} ({n} rows)', '已导出 {f}（{n} 列）'],
     'dm.needGlass': ['請輸入NOTE(建議用玻璃廠名稱)，才可匯出Excel !', 'Enter a note (glass maker suggested) before Export Excel.', '请输入NOTE(建议用玻璃厂名称)，才可导出Excel !'],
     'dm.xlsOk': ['匯入 Data Mapping Excel 完成：{f}', 'Data Mapping Excel imported: {f}', '导入 Data Mapping Excel 完成：{f}'],
@@ -778,12 +795,12 @@
 })();
 </script>
 <script src="common/common.js?v=20260523"></script>
-<script src="common/subpix-colors.js?v=20261008dm11811"></script>
-<script src="common/xlsx.js?v=20261008dm11811"></script>
-<script src="common/datamap-core.js?v=20261008dm11811"></script>
-<script src="common/datamap-lod.js?v=20261008dm11811"></script>
-<script src="common/datamap-auto.js?v=20261008dm11811"></script>
-<script src="common/i2c-mbus.js?v=20261008dm11811"></script>
+<script src="common/subpix-colors.js?v=20261008dm11812"></script>
+<script src="common/xlsx.js?v=20261008dm11812"></script>
+<script src="common/datamap-core.js?v=20261008dm11812"></script>
+<script src="common/datamap-lod.js?v=20261008dm11812"></script>
+<script src="common/datamap-auto.js?v=20261008dm11812"></script>
+<script src="common/i2c-mbus.js?v=20261008dm11812"></script>
 <script>
 (function () {
   'use strict';
@@ -1039,7 +1056,7 @@
     if (ro) $('dm-ro').textContent = tt('dm.v512', { a: S.ro.slice(0, 4).map(function (a) { return '0x' + hex(a, 4); }).join(', ') + (S.ro.length > 4 ? '…' : '') });
     $('dm-glass').disabled = !s.hand || ro;
     $('dm-expx').disabled = !s.hand || ro; $('dm-impx').disabled = !s.hand || ro;
-    renderGrid(); renderLegend(); renderSame(); renderCode(); renderX(); renderMnt(); renderAuto(); renderLod(); renderManual(); renderPreview(); renderLock();
+    renderMode(); renderGrid(); renderLegend(); renderSame(); renderCode(); renderX(); renderMnt(); renderAuto(); renderLod(); renderManual(); renderPreview(); renderLock();
     var sl = isNb() ? '0x3E' : '0x' + hex(S.slave, 2);
     $('dm-export').disabled = ro; $('dm-bar-export').disabled = ro;
     $('dm-import').disabled = S.busy; $('dm-clear').disabled = S.busy;
@@ -1109,7 +1126,7 @@
       if (GL.on && S.glass) { GL.on = false; S.glass = null; log('n', '③ 解除接線鎖定'); render(); return; }
       /* v1.18.5（Bruce 10/8「不是 Hand Mode…按接線鎖定以後全部都是灰的」）：v1.18.1 起這裡把 Auto 狀態強制改成 Hand（DM.setHand），
          但 Auto 時 force_sel 表不是實際接法（多半是 0 或殘值）⇒ 鎖定基準變成一張空表、③ 全灰。改成原樣凍結：Auto 就用 Auto Type 推出的接線當基準 */
-      S.glass = DM.cloneState(S.cur); GL.on = true; PV_COLMODE = '';   // v1.18.7：鎖定剛按下去一律回「全白」
+      S.glass = DM.cloneState(S.cur); S.glassModel = S.model; GL.on = true; PV_COLMODE = '';   // v1.18.7：鎖定剛按下去一律回「全白」
       var d = new Date(); GL.info = ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2); log('n', '③ 確定此架構（鎖定接線）'); render();
     });
   }
@@ -1131,8 +1148,7 @@
     $('st-out').textContent = S.last ? tt('dm.pendLast', { w: S.last }) : ''; $('st-out').title = $('st-out').textContent;
     var pend = $('dm-pend');
     pend.className = 'dm-pend' + (dn ? ' dirty' : '');
-    pend.textContent = (dn ? '● ' + tt('dm.dirtyBar', { n: dn }) : tt('dm.pendClean')) + (S.linked && S.tconDiff ? '　⚠ ' + tt('dm.tconDiff') : '');
-    pend.setAttribute('data-tcondiff', S.linked && S.tconDiff ? 1 : 0);
+    pend.textContent = dn ? '● ' + tt('dm.dirtyBar', { n: dn }) : tt('dm.pendClean');
     $('dm-dirtybar').classList.toggle('hidden', !dn);
     $('dm-dirtytext').textContent = tt('dm.dirtyBar', { n: dn });
     /* 下一步 */
@@ -1890,7 +1906,7 @@
     if (AUTO && AUTO.lodSupported(S.model) && !(opt && opt.noLod) && rt7Changed(S.cur, ns)) { var le = AUTO.expectedLod(S.model, ns); if (le.ok) ns = AUTO.lodSet(ns, le.reg); }
     S.rt7User = false;
     var old = S.cur; S.cur = ns; syncImgFromState(); render();
-    if (S.linked && $('dm-live').checked && !(opt && opt.noLive) && !tconOk()) { if (DM.diffRegs(S.model, old, ns).length) { S.tconDiff = true; toast('e', tt('dm.needCheck')); render(); } }
+    if (S.linked && $('dm-live').checked && !(opt && opt.noLive) && !tconOk()) { if (DM.diffRegs(S.model, old, ns).length) toast('e', tt('dm.needCheck')); }
     else if (tconOk() && $('dm-live').checked && !(opt && opt.noLive)) {
       var regs = DM.diffRegs(S.model, old, ns);
       if (regs.length) queueWrite(regs, why, true);
@@ -1980,6 +1996,22 @@
      寫 T-CON（即時寫入、匯入後確認寫入）一律要本次連線 Check T-CON 成功，而且認到的型號＝目前型號（S.checked === S.model）；
      回讀只在 Check T-CON 成功時做（連線後自動 Check；要重讀就按 Check T-CON）；斷線、手選換型號、Check 失敗都清掉確認 */
   function tconOk() { return !!(S.linked && S.checked && S.checked === S.model); }
+  /* v1.18.12：離線資料＝匯入的 code（S.src.kind＝file）或 Excel（S.offline）；連線前要清掉，匯入前要斷線 */
+  function hasOffline() { return S.src.kind === 'file' || !!S.raw || !!S.offline; }
+  function renderMode() {
+    var b = $('dm-modebar'), k, t, md;
+    if (S.linked) { md = tconOk() ? 'on' : 'onq'; k = tt('dm.modeOn'); t = tconOk() ? tt('dm.modeOnOk', { m: DM.MODELS[S.model].label }) : tt('dm.modeOnNo'); }
+    else { md = 'off'; k = tt('dm.modeOff'); t = S.src.kind === 'file' ? tt('dm.modeOffFile', { f: S.src.name }) : (S.offline ? tt('dm.modeOffFile', { f: S.offline.name }) : tt('dm.modeOffNone')); }
+    b.setAttribute('data-mode', md); $('dm-mode-k').textContent = k; $('dm-mode-t').textContent = t;
+  }
+  /* 連線中要匯入 ⇒ 先問；確定才斷線（關 Bridge 通道）再匯入，匯入不會寫 TCON */
+  function askGoOffline(then) {
+    if (!S.linked) { then(); return; }
+    ask(tt('dm.askOffT'), tt('dm.askOffD'), tt('dm.askOffYes'), tt('dm.askNo2'),
+      function () { log('n', tt('dm.toOffline')); var p = disconnect(); then(p); },
+      function () { toast('n', tt('dm.offCanceled')); render(); });
+  }
+  window.dmAskGoOffline = askGoOffline;
   /* PY i2c_open_mbus_to_cbus（:31832）：DAZ613x／E50x／E503 讀寫前都先下；E503 的 3E:0059 只在 Check T-CON 確認是 E503 才下 */
   async function preamble() {
     var m = DM.MODELS[S.model];
@@ -2013,7 +2045,7 @@
     S.img = {}; imgAddrs().forEach(function (a) { S.img[a] = r.bytes[a] | 0; });
     var codeA = DM.codeAddrs(S.model), missing = codeA.filter(function (a) { return !(a in r.bytes); });
     for (var i = 0; i < missing.length; i++) S.img[missing[i]] = (await io.read(missing[i], 1))[0] | 0;
-    S.cur = r.state; S.baseImg = clone(S.img); markSaved(tt('dm.whatRead')); S.tconDiff = false;
+    S.cur = r.state; S.baseImg = clone(S.img); markSaved(tt('dm.whatRead'));
     S.src = { kind: 'tcon', model: S.model, slave: isNb() ? 0x3E : S.slave };
     afterLoad(DM.v512Suspects(S.model, function (a) { return r.bytes[a]; }));
     if (!quiet) toast('ok', tt('dm.readOk', { m: S.model }));
@@ -2062,6 +2094,7 @@
     try {
       var r = await checkTcon();
       if (r && r.key) {
+        if (GL.on && S.glass && S.glassModel && S.glassModel !== r.key) { S.glass = null; GL.on = false; toast('n', tt('dm.lockCheckChg', { a: S.glassModel, b: r.key })); log('n', tt('dm.lockCheckChg', { a: S.glassModel, b: r.key })); }   // v1.18.12
         S.model = r.key; S.e503ok = !!r.e503; S.checked = r.key;
         $('dm-ic').textContent = r.info; log('w', r.info);
         S.cur = DM.emptyState(S.model); S.img = {};
@@ -2073,6 +2106,12 @@
   }
   async function connect() {
     if (S.linked) { return disconnect(); }
+    if (hasOffline() && !S.busy) {
+      ask(tt('dm.askOnT'), tt('dm.askOnD', { f: S.src.kind === 'file' ? S.src.name : (S.offline ? S.offline.name : '') }), tt('dm.askOnYes'), tt('dm.askNo2'),
+        function () { var f = S.rawName || S.src.name || (S.offline && S.offline.name) || ''; resetToModel(S.model, hwLocked()); S.offline = null; log('n', tt('dm.cleared', { f: f, m: DM.MODELS[S.model].label })); render(); connect(); },
+        function () { toast('n', tt('dm.onCanceled')); render(); });
+      return;
+    }
     if (S.busy) return;
     S.busy = true; render();
     log('n', 'connect ' + WS_URL);
@@ -2117,7 +2156,7 @@
   async function disconnect() {
     try { if (S.ws && S.ws.readyState === 1) await send({ type: 'close' }); } catch (e) {}
     try { if (S.ws) S.ws.close(); } catch (e) {}
-    S.ws = null; S.linked = false; S.checked = null; S.tconDiff = false; log('n', 'disconnected'); render();
+    S.ws = null; S.linked = false; S.checked = null; log('n', 'disconnected'); render();
   }
 
   /* ── 匯入／匯出 ── */
@@ -2140,7 +2179,7 @@
     pvSwapOn = false; pvFirstRight = false; pvBGR = false; pvDrvRev = false; pvDrvAuto = null;   /* v1.18.5（Bruce 10/8）：Driver 設定和 code 脫鉤，匯入一律回正向 */ pvAutoFirst = null;
     $('dm-pv-swap').checked = false; $('dm-pv-swapbox').classList.remove('on'); $('dm-pv-first').value = 'l'; $('dm-pv-stripe').value = 'rgb'; $('dm-pv-drv').value = pvDrvRev ? 'r' : 'f';
     }
-    S.src = { kind: 'file', name: name, model: r.model, cks: r.cks };
+    S.src = { kind: 'file', name: name, model: r.model, cks: r.cks }; S.offline = null;
     afterLoad(r.v512);
   }
   /* v1.3.0（Bruce 10/7 卡死回報）：回到「這個型號、沒有匯入」的狀態。型號選單、匯入、清除匯入任何時候都不鎖。 */
@@ -2149,7 +2188,7 @@
     S.model = k; S.cur = DM.emptyState(k); S.img = {}; S.baseImg = null; S.savedImg = null; S.src = { kind: 'none' };
     /* v1.18.5（Bruce 10/8「Driver 的輸出方向如果沒有特別設定，預設應該是正向」）：換型號、清除匯入時 SHL 回預設正向，不沿用上一份 code 帶入的反向 */
     if (!keepLock) { pvDrvRev = false; pvDrvAuto = null; if ($('dm-pv-drv')) $('dm-pv-drv').value = 'f'; }
-    S.ro = null; S.last = ''; S.e503ok = false; S.raw = null; S.rawName = ''; resetX();
+    S.ro = null; S.last = ''; S.e503ok = false; S.raw = null; S.rawName = ''; S.offline = null; resetX();
   }
   function clearImport() {
     if (S.busy) return;
@@ -2174,6 +2213,7 @@
   }
   window.dmAskAnswer = askDone;
   function importBytes(raw, name) {
+    if (S.linked) { askGoOffline(function (p) { Promise.resolve(p).then(function () { importBytes(raw, name); }); }); return false; }
     var r = DM.parseCode(raw, S.model, name);
     if (!r.ok && r.reason === 'modelMismatch' && r.found.length === 1 && DM.MODELS[r.found[0]]) {
       /* 型號不符且認得出是哪一顆：先問，不動任何狀態（取消＝維持匯入前） */
@@ -2197,7 +2237,6 @@
     var how = r.medium === 'rom' ? (r.byName ? tt('dm.howName') : tt('dm.howPick')) : tt('dm.howBin');
     toast('ok', tt('dm.impOk', { f: name, m: DM.MODELS[r.model].label + (r.py ? ' / ' + r.py : ''), how: how }));
     render();
-    if (S.linked) askWriteImport(name);
     return true;
   }
   window.dmImportBytes = importBytes;
@@ -2234,29 +2273,6 @@
     toast('ok', tt('dm.expScript', { f: fn, n: out.count }));
     render();
   }
-  /* v1.18.11：匯入（code／Excel）後按「寫入 TCON」⇒ 整批寫入（同 Write to TCON 的範圍：第一組沒動過就不寫 r2..b3），寫完逐 byte 回讀核對（只比 mask 內的位元，同 DM.writeRegs） */
-  function writeImported(why) {
-    if (S.ro) { toast('e', tt('dm.roBlocked')); return; }
-    if (!tconOk()) { S.tconDiff = true; toast('e', tt('dm.needCheck')); render(); return; }
-    var regs = DM.exportRegs(S.model, S.cur, S.xTouched);
-    return queueWrite(regs, why || 'Import → TCON').then(async function (res) {
-      if (!(res && res.ok)) { S.tconDiff = true; render(); return res; }
-      var bad = 0;
-      await (S.chain = S.chain.then(async function () { for (var i = 0; i < regs.length; i++) { var e = regs[i], mk = e.mask === undefined ? 0xFF : e.mask, b = (await io.read(e.reg, 1))[0] | 0; if ((b & mk) !== (e.val & mk)) bad++; } }).catch(function (e) { bad = -1; toast('e', String(e && e.message || e)); }));
-      if (bad === 0) { S.tconDiff = false; S.baseImg = clone(S.img); markSaved(tt('dm.whatWrite')); toast('ok', tt('dm.wrVerifyOk', { n: regs.length })); log('w', tt('dm.wrVerifyOk', { n: regs.length })); }
-      else { S.tconDiff = true; if (bad > 0) { toast('e', tt('dm.wrVerifyNg', { n: bad })); log('e', tt('dm.wrVerifyNg', { n: bad })); } }
-      render(); return res;
-    });
-  }
-  window.dmWriteImported = writeImported;
-  /* v1.18.11：I2C 連線中匯入 ⇒ 問要不要寫入 TCON；取消（或還沒 Check T-CON）就只帶進頁面並標示「頁面值與 T-CON 不同」 */
-  function askWriteImport(name) {
-    if (!S.linked) return;
-    if (!tconOk()) { S.tconDiff = true; log('n', tt('dm.needCheck')); toast('n', tt('dm.needCheck')); render(); return; }
-    ask(tt('dm.askWrT'), tt('dm.askWrD', { f: name, m: DM.MODELS[S.model].label }), tt('dm.askWrYes'), tt('dm.askWrNo'),
-      function () { writeImported('Import → TCON'); },
-      function () { S.tconDiff = true; log('n', tt('dm.tconDiff')); render(); });
-  }
   function exportExcel() {
     var glass = $('dm-glass').value;
     if (!S.cur.hand) return;
@@ -2271,14 +2287,14 @@
     return new Uint8Array(buf);
   }
   async function importExcel(u8, name) {
+    if (S.linked) { askGoOffline(function (p) { Promise.resolve(p).then(function () { importExcel(u8, name); }); }); return; }
     try {
       var rows = await DM.readXlsxRows(u8, inflateRaw), r = DM.excelToNames(rows);
       if (!r.ok) throw new Error(r.reason);
       var ns = DM.applyNames(S.model, S.cur, r.names);
       if (!ns) throw new Error('Gate');
       toast('ok', tt('dm.xlsOk', { f: name }));
-      commit(ns, 'Import Excel', { noLive: true });
-      if (S.linked) askWriteImport(name);
+      commit(ns, 'Import Excel', { noLive: true }); S.offline = S.offline || { kind: 'xls', name: name }; render();
     } catch (e) { toast('e', tt('dm.xlsFail', { r: e.message || e })); }
   }
   window.dmImportExcel = importExcel;
@@ -2305,7 +2321,7 @@
       } else { resetToModel(k); }
       render();
     });
-    $('dm-import').addEventListener('click', function () { $('dm-file').value = ''; $('dm-file').click(); });
+    $('dm-import').addEventListener('click', function () { askGoOffline(function () { $('dm-file').value = ''; $('dm-file').click(); }); });
     $('dm-clear').addEventListener('click', clearImport);
     $('dm-ask-yes').addEventListener('click', function () { askDone(true); });
     $('dm-ask-no').addEventListener('click', function () { askDone(false); });
@@ -2378,7 +2394,7 @@
     });
     $('dm-codeonly').addEventListener('change', renderCode);
     $('dm-expx').addEventListener('click', exportExcel);
-    $('dm-impx').addEventListener('click', function () { $('dm-xfile').value = ''; $('dm-xfile').click(); });
+    $('dm-impx').addEventListener('click', function () { askGoOffline(function () { $('dm-xfile').value = ''; $('dm-xfile').click(); }); });
     $('dm-xfile').addEventListener('change', function () {
       var f = this.files && this.files[0]; if (!f) return;
       var rd = new FileReader(); rd.onload = function (e) { importExcel(new Uint8Array(e.target.result), f.name); }; rd.readAsArrayBuffer(f);
