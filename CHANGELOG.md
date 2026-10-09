@@ -2,6 +2,50 @@
 
 ---
 
+## Data Mapping (datamap) v1.19.0 — 2026-10-09 ｜ MINOR
+
+**③ TFT 接線圖新增「V 方向 Line 數」設定（4 預設／8／12）；接線鎖定時 Gate Type 也鎖住。**
+
+判定依據：`docs/VERSIONING.md` §1 判定表＋R3：多了一個新設定（使用者能做的事多一件），選 4 時畫面與 v1.18.25 相同 → MINOR。Gate Type 鎖定是把既有「接線鎖定」的範圍依 Bruce 指示擴到 Gate Type；解除鎖定後仍可照舊修改，原本的操作入口都在，不判 MAJOR（取捨：鎖定期間少了一個可改項目；依 R2 補充第 3 點「不確定就編較低級別」，記在這裡供覆核）。兩件同檔，Dispatch 指示同一次上線，合併成一版。
+
+### 需求（Bruce 2026-10-09）
+
+> 可以在現在的 TFT 切線圖那邊做一個設定。那個設定就是 V 方向的 line 數設定，目前是 4 條 line，也可以手動改成 8 條 line 或是 12 條 line。寬度都一樣
+
+> Gate type 也要鎖住
+
+### A. V 方向 Line 數
+
+- ③「TFT 接線圖」標題下新增「V 方向 Line 數」下拉：4（預設）／8／12，切換即時重畫（只重畫預覽）。
+- 列數＝max(所選, 該架構垂直週期)。選 4＝v1.18.24 起的 max(4, 週期)，畫面不變。週期大於所選時（例 Zigzag LLLLRRRR 8 列選 4）照週期畫，設定旁顯示「目前架構垂直週期 8 條 Line，大於所選 4，照週期畫 8 條」。
+- 新增的列沿用 v1.18.24 的垂直週期重複（`pvVRep`，第 k 列＝第 k mod 週期列）；Hand Mode 調暗（v1.18.25：表格定義的列以外調暗）、Zigzag 鎖定列數（v1.18.9）、鎖定比對的 recv 都走同一套，不另寫分支。
+- 水平寬度不動：Data 線條數（24）、每條線 x、每格寬、SVG 寬度都和選 4 時相同；只有高度隨列數變。
+- 「回到初始設定」一併把 V 方向 Line 數回 4。頁面沒有存使用者設定的機制（無 localStorage），所以不另存；重新開頁面回 4。
+- 匯出、比較表、鎖定比對的 shift 都用原本的模型，不受列數影響（同 v1.18.24）。
+
+### B. 鎖定時 Gate Type 不可修改
+
+- v1.18.6 起鎖定只停用 Driver／面板／型號，Gate Type 屬 TCON 可改。改成接線鎖定時 ② 的 Gate Type 下拉停用，旁邊顯示「🔒 已鎖定，解鎖後才能改」，滑鼠提示說明原因；即使有程式送 change 事件也會擋下（toast 提示、重畫回原值），不改 TCON 狀態。
+- 解除鎖定後恢復原本規則（Hand Mode 開才可改）。
+- 鎖定說明文字（`dm.hwLockedT`）改成「Driver／面板設定、型號與 Gate Type 屬實體架構」。
+- 比較表：候選只依 CH1 位置／SHL／RGB-BGR／輸出對調／TCON Mirror 產生，本來就不含 Gate Type，鎖定時列不變（測試確認）。
+- 同型號匯入 code、「回到初始設定」仍可能在鎖定中帶入不同 Gate Type（這兩條路徑本次未改，維持 v1.18.6／v1.18.25 行為；屆時 ③ 照舊顯示「架構不同」提示）。
+
+### 修改
+
+- `datamap.html`：V 方向 Line 數 UI／`pvVlSet`／`renderPvVl`（data-vlsel、提示）、`restoreInit` 重設、Gate Type 鎖定（表單 render、change 防護、🔒 提示）、三語字串 `dm.pvVlK`／`dm.hVlT`／`dm.pvVlMore`／`dm.hwGateLockedT`。
+- 新增 `tools/check_datamap_vlines.js`（jsdom，全部用「等條件成立」，不固定等待）。
+- `common/version.js` datamap v1.19.0；datamap.html、index.html 的 `version.js?v=` 更新。
+
+### 驗證
+
+- `check_datamap_vlines.js`：236 個架構案例（EM02 Kick Off 範例、E501A、EM02／E512／EM01 Panel_mode × sub_panel、Line OD Type 各型 × CH1 左右）× V＝8／12 對照 V＝4：列數、提示、水平不變、原列逐格相同、新增列＝週期重複；另驗「回到初始設定」回 4、鎖定 Gate Type 停用／擋 change／比較表不變／解鎖恢復。180,108 項 0 fail。
+- `check_datamap_kickoff.js` v1.18.6 鎖定那一項同步更新：鎖定後 🔒 提示由 2 個變 3 個（多 Gate Type），並檢查 Gate Type 停用。
+- 既有回歸全過：core 282、preview 63、lod 160、kickoff 85、auto 104、combos 37、import_lock ALL PASS、nbfields 17、tcon_gate 78、svg_rep 96＋166 cases 127,764 項 0 fail、svg_vs_tag --sem --legacy 96/96 SAME、jump_realmouse 16。
+- 實際畫面：自有暫存 profile 的 headless Chrome，iPhone 寬 390 與桌面 1440，匯入 EM02 code 後切 4／8／12：data-nl 4→8→12、Data 線 24 條、SVG 寬 3084 不變；鎖定後 Gate Type 停用＋🔒 提示，解鎖恢復。
+
+---
+
 ## Digital Gamma 迭代校正 (dg) v2.4.8 — 2026-10-09 ｜ PATCH ｜ ⚠ 輸出變更
 
 **「查看目前結果」與進下一輪捲回目前這一步：慢機器上不再停在頁頂。**

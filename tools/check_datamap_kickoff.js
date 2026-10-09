@@ -216,8 +216,8 @@ console.log('── code 表（D2:R31）＝網頁 T 表解碼');
       const HW = ['dm-model', 'dm-pv-swap', 'dm-pv-first', 'dm-pv-drv', 'dm-pv-stripe', 'dm-pv-lod'], TC = ['f-mirror', 'f-chrb', 'f-chwb', 'dm-hand', 'f-deEn', 'f-tsel', 'f-rvs'];
       const first0 = $('dm-pv-first').value, stripe0 = $('dm-pv-stripe').value;
       $('dm-pv-lock').click();
-      ok(HW.every(id => $(id).disabled) && TC.every(id => !$(id).disabled) && QA2('.dm-locknote:not(.hidden)').length === 2 && $('dm-drv-form').classList.contains('dm-hwlocked') && $('dm-pan-form').classList.contains('dm-hwlocked') && /解除鎖定後才能改/.test($('dm-pv-drv').title),
-        'v1.18.6 鎖定後：型號、Driver 區（對調、CH1、SHL）、面板區（子像素排列）、Line OD 測試來源停用並標「已鎖定，解鎖後才能改」；TCON 欄位（Mirror、CHRB、CHWB、Hand、FORCE_DE、T 表、READ_RVS）可改');
+      ok(HW.every(id => $(id).disabled) && TC.every(id => !$(id).disabled) && QA2('.dm-locknote:not(.hidden)').length === 3 && $('dm-gate').disabled && $('dm-gate').getAttribute('data-hwlock') === '1' && $('dm-drv-form').classList.contains('dm-hwlocked') && $('dm-pan-form').classList.contains('dm-hwlocked') && /解除鎖定後才能改/.test($('dm-pv-drv').title),
+        'v1.18.6／v1.19.0 鎖定後：型號、Driver 區（對調、CH1、SHL）、面板區（子像素排列）、Line OD 測試來源、Gate Type（v1.19.0）停用並標「已鎖定，解鎖後才能改」；其他 TCON 欄位（Mirror、CHRB、CHWB、Hand、FORCE_DE、T 表、READ_RVS）可改');
       const m0 = w.dmState.model || $('dm-model').value; fire($('dm-pv-first'), first0 === 'r' ? 'l' : 'r'); fire($('dm-pv-stripe'), stripe0 === 'rgb' ? 'bgr' : 'rgb'); fire($('dm-model'), 'EM02');
       ok($('dm-pv-first').value === first0 && $('dm-pv-stripe').value === stripe0 && $('dm-model').value === m0 && $('dm-pv-lock').getAttribute('data-locked') === '1', 'v1.18.6 鎖定中強行改 CH1／子像素排列／型號 ⇒ 被擋下、值不變、仍鎖定');
       w.dmImportBytes(new Uint8Array(fs.readFileSync(QM)), path.basename(QM)); await new Promise(r => setTimeout(r, 80));
