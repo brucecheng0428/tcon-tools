@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   datamap-core.js — Data Mapping 共用核心（v1.3.0，2026-10-09）
+   datamap-core.js — Data Mapping 共用核心（v1.3.1，2026-10-09）
    ───────────────────────────────────────────────────────────────────────────
    給 datamap.html 與 tools/check_datamap.js 共用：瀏覽器下 window.TCONDataMap，node 下 module.exports。
    不碰 DOM、不碰 WebSocket；I2C 只透過呼叫端傳進來的 io（io.read(addr,len)、io.write(addr,bytes)）。
@@ -208,6 +208,12 @@
     return (ph < 3 ? 0x3D4 : 0x1000) + col * 6 + k;
   }
   function en01RowLabel(row) { return 'L' + (Math.floor(row / 6) + 1) + '-' + (row % 6 + 1); }
+  /* v1.3.1（Bruce 10/9「需要用到6條gate才能顯示完全的意思嗎？」）：列的「-n」＝同一條 line 的第 n 個輸出時槽 SWn，不是第 n 條 gate。
+     RD_MODE 決定一條 line 用幾個時槽（MODEL:3532-3535「1 line in 1／2 half／3×1/3 line out」「MUX4 1 line 4 read」「MUX6 1 line 6 read」；
+     DMM:334-335、452：列＝line×相位、RD_MODE 只決定相位數）。HSD／Tri-Gate 的 2／3 份 half line 才各對一條 gate（MODEL:3680
+     ST_LINE「Each line may have 1/2/3 start point by different RD_MODE」；GUIDE 1.5），MUX4／MUX6 是 source 端 demux，同一條 gate。
+     回傳該 RD_MODE 用到的時槽數；4／6／7（model 寫 not support）回 null。 */
+  function en01Phases(rd) { return ({ 0: 1, 1: 2, 2: 3, 3: 4, 5: 6 })[rd | 0] || null; }
   /* 顯示哪些列：P1 一定有；P2／P3 依 code 的 header 有沒有載入那一段（DMM:356-374）。seg 缺省＝全部 */
   function en01Rows(seg) { var out = []; for (var r = 0; r < 24; r++) { var g = en01Seg(r); if (g === 'p1' || !seg || seg[g]) out.push(r); } return out; }
   function en01T(t) { t = t | 0; return t >= 1 && t <= 10 ? t : EN01_TDEF; }
@@ -1280,7 +1286,7 @@
     excelName: excelName, excelRows: excelRows, excelToNames: excelToNames, readXlsxRows: readXlsxRows,
     writeRegs: writeRegs, readSpans: readSpans, readState: readState, modelByIcId: modelByIcId, hex: hex,
     SELECT_KEYS: SELECT_KEYS, EN01_CH: EN01_CH, EN01_TABS: EN01_TABS, EN01_TDEF: EN01_TDEF, EN01_GATES: EN01_GATES, EN01_PANEL: EN01_PANEL,
-    en01Seg: en01Seg, en01Addr: en01Addr, en01RowLabel: en01RowLabel, en01Rows: en01Rows, en01Defs: en01Defs, en01Name: en01Name, en01Value: en01Value,
+    en01Seg: en01Seg, en01Addr: en01Addr, en01RowLabel: en01RowLabel, en01Phases: en01Phases, en01Rows: en01Rows, en01Defs: en01Defs, en01Name: en01Name, en01Value: en01Value,
     en01Gate: en01Gate, en01CellView: en01CellView, en01Pick: en01Pick, en01SameOptions: en01SameOptions, en01AllSame: en01AllSame,
     en01Ids: en01Ids, en01ExportRegs: en01ExportRegs, en01ExcelName: en01ExcelName, en01ExcelRows: en01ExcelRows, en01ExcelApply: en01ExcelApply,
     en01Maps: en01Maps, parseEn01: parseEn01
