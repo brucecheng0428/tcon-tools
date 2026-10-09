@@ -55,7 +55,7 @@ function kmirState(mdl, extra) {
 
 (async () => {
   const P = await open(), { w, $, waitFor, fire } = P;
-  ok(w.TOOL_VERSIONS && /^v1\.19\./.test(w.TOOL_VERSIONS.datamap), '版號 ' + (w.TOOL_VERSIONS && w.TOOL_VERSIONS.datamap));
+  ok(w.TOOL_VERSIONS && /^v1\.(19|2\d)\./.test(w.TOOL_VERSIONS.datamap), '版號 ' + (w.TOOL_VERSIONS && w.TOOL_VERSIONS.datamap));
   const sel = $('dm-pv-vl');
   ok(sel && Array.from(sel.options).map(o => o.value).join(',') === '4,8,12' && sel.value === '4', 'V 方向 Line 數選單＝4／8／12、預設 4');
   const tft = () => $('dm-pv-tft');

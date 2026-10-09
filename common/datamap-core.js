@@ -1,8 +1,11 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   datamap-core.js — Data Mapping 共用核心（v1.2.1，2026-10-07）
+   datamap-core.js — Data Mapping 共用核心（v1.3.0，2026-10-09）
    ───────────────────────────────────────────────────────────────────────────
    給 datamap.html 與 tools/check_datamap.js 共用：瀏覽器下 window.TCONDataMap，node 下 module.exports。
    不碰 DOM、不碰 WebSocket；I2C 只透過呼叫端傳進來的 io（io.read(addr,len)、io.write(addr,bytes)）。
+   ── v1.3.0（Bruce 2026-10-09「將EN01先完整調查完source code後，還有model file，將EN01也整合進datamap網頁」）──
+   ・新增 EN01（RM81008）：kind 'en01'，依原廠 WPF RomCodeProcessUI（PY 沒有 EN01），細節與出處見下方「EN01」區塊；
+     調查報告 assistant_kb/reference/EN01_DataMapping調查_20261009.md。MODEL_KEYS（PY＋MNT）不變，下拉另用 SELECT_KEYS。
 
    ── v1.2.1（Bruce 10/7 回 Dispatch「要不要也把它改成長循環？」：「ok」）─────────
    ・secondSetRule：Zigzag type7／type8（panel_mode=1、sub_panel_mode=6／7，LOD 8 line×1 pixel）改為長循環 'free'，
@@ -167,6 +170,177 @@
     DAZ7353: { chwb: [0x0AC, 7, 7] }
   };
   var NB_EXTRA_NAME = { mirror: 'MIRROR', chrb: 'CHRB', chwb: 'CHWB', rvsL: 'READ_RVS' };
+
+  /* ══ v1.3.0 EN01（RM81008）════════════════════════════════════════════════════════════
+     原廠依據＝WPF_RomCodeProcessUI v2.0.23.0（acdb7f9）；PY 沒有 EN01。縮寫：
+       ICD＝DLL_Raydium_CommonLibrary/Raydium.Core/Models/ICDefine.cs（GetRM81008 :40-1106）
+       DMM＝Wpf.RomCodeProcessUI/Modules/DataMappingModule.cs、MODEL＝Wpf.RomCodeProcessUI/ModelFiles/RM81008.model
+       HDR＝Raydium.Core/Models/DynamicHeader/EN01/、GUIDE＝Wpf.RomCodeProcessUI/Docs/DataMapping_新手指南.md
+     ・表格（DataMappingVersion.Version2，ICD:48）：24 列 × 12 欄（R0 G0 B0 R1 G1 B1 R2 G2 B2 R3 G3 B3），
+       列＝line×6＋相位（標題 L1-1…L4-6，DMM:335-342），一格一個 byte（沒有打包）。
+       P1 0x3D4–0x41B（72）、P2 0x1000–0x1047（72）、P3 0x1100–0x118F（144）（ICD:857-875）；位址換算＝DMM:170-218 的讀法：
+       row 0~2／6~8＝P1＋6c＋{0,1,2}／{3,4,5}；row 3~5／9~11＝P2 同上；row 12~23＝P3＋12c＋(row−12)。
+       P3 不在 MODEL（FORCE_SEL_* 只到 _11，MODEL:11176-12177），依 WPF 程式＋GUIDE 附錄 B 原廠實檔驗證。
+     ・候選值（ICD:1055-1077 GenDataMappingDefine）：階數 T1~T10（TabNum 2,4,…,1024；TabNumDisplayConverter.cs），
+       gValues＝(T,T−1,…,0) 每塊 4 個編號（T1＝5 6 7 8 1 2 3 4），值 v ⇒ 'RGB'[v%3]＋gValues[v/3]，共 12(T+1) 個，X＝0xFF。
+       TabNum 不寫進 ROM，只決定「名稱 ↔ byte」；WPF V2 每列預設 16（T4，DMM:106-108）。
+       「SW1→T1…SW6→T6」等規則原廠也標待設計端確認（GUIDE 附錄 C-1）⇒ 網頁照 WPF 預設 T4、每列可改。
+     ・Hand Mode：讀＝FORCE_DE_EN 與 FORCE_SEL_EN 都非 0；切換＝兩者一起寫、FORCE_DE_SEL 整 byte 寫 0x0E（DMM:224-245）。
+     ・Gate Type：只寫 RD_MODE 0x41C[2:0]（Single 0／Dual 1／Tri 2，DMM:421-458；MODEL:3525-3532 另有 3＝MUX4、5＝MUX6），
+       不寫 PANEL_MODE（EN01 的 PANEL_MODE 是 0 Normal／1 ZigZag／2 HSD／3 LTPS，與 Gate 數無關，MODEL:11051-11059）。V2 不遮格（DMM:423-433）。
+     ・其他欄位（MODEL）：SUB_PANEL_MODE 0x390[6:4]（:11061）、LTPS_ZIGZAG_MODE 0x390[3:2]（:11081）、MIRROR 0x392[6]（:12244）、
+       CHRB 0x392[4]（:12219）、CHWB 0x392[5]（:12212）、READ_RVS 0x3A5[7:0]（:12253）。
+       ⚠ MODEL:11092 也把 0x392[7] 定義成 FORCE_DIV3_EN（與 FORCE_DE_EN 同 bit）⇒ 照 ICD 當 FORCE_DE_EN，列入未確認。 */
+  var EN01_CH = ['R0', 'G0', 'B0', 'R1', 'G1', 'B1', 'R2', 'G2', 'B2', 'R3', 'G3', 'B3'];
+  var EN01_TABS = [2, 4, 8, 16, 32, 64, 128, 256, 512, 1024];
+  var EN01_TDEF = 4;
+  var EN01_REG = {
+    hand: [0x393, 7, 7, 'FORCE_SEL_EN'], deEn: [0x392, 7, 7, 'FORCE_DE_EN'], deSel: [0x394, 7, 0, 'FORCE_DE_SEL'],
+    panel: [0x390, 1, 0, 'PANEL_MODE'], subPanel: [0x390, 6, 4, 'SUB_PANEL_MODE'], ltpsZz: [0x390, 3, 2, 'LTPS_ZIGZAG_MODE'],
+    rd: [0x41C, 2, 0, 'RD_MODE'], mirror: [0x392, 6, 6, 'MIRROR'], chrb: [0x392, 4, 4, 'CHRB'], chwb: [0x392, 5, 5, 'CHWB'], rvsL: [0x3A5, 7, 0, 'READ_RVS']
+  };
+  var EN01_REG_IDS = ['hand', 'deEn', 'deSel', 'panel', 'subPanel', 'ltpsZz', 'rd', 'mirror', 'chrb', 'chwb', 'rvsL'];
+  var EN01_PANEL = ['Normal', 'ZigZag (ZINV)', 'HSD', 'LTPS'];   // MODEL:11056-11059
+  function en01Seg(row) { return row >= 12 ? 'p3' : ((row % 6) >= 3 ? 'p2' : 'p1'); }
+  function en01Addr(row, col) {
+    if (row >= 12) return 0x1100 + col * 12 + (row - 12);
+    var ph = row % 6, k = (ph % 3) + Math.floor(row / 6) * 3;
+    return (ph < 3 ? 0x3D4 : 0x1000) + col * 6 + k;
+  }
+  function en01RowLabel(row) { return 'L' + (Math.floor(row / 6) + 1) + '-' + (row % 6 + 1); }
+  /* 顯示哪些列：P1 一定有；P2／P3 依 code 的 header 有沒有載入那一段（DMM:356-374）。seg 缺省＝全部 */
+  function en01Rows(seg) { var out = []; for (var r = 0; r < 24; r++) { var g = en01Seg(r); if (g === 'p1' || !seg || seg[g]) out.push(r); } return out; }
+  function en01T(t) { t = t | 0; return t >= 1 && t <= 10 ? t : EN01_TDEF; }
+  var _en01Defs = {};
+  /* 某階數的候選（WPF 下拉 MappingCellInfo：R→G→B、編號小→大，X 最後） */
+  function en01Defs(t) {
+    t = en01T(t);
+    if (_en01Defs[t]) return _en01Defs[t];
+    var g = [], list = [], v, b, k;
+    for (b = t; b >= 0; b--) for (k = 1; k <= 4; k++) g.push(4 * b + k);
+    for (v = 0; v < g.length * 3; v++) list.push({ name: 'RGB'.charAt(v % 3) + g[Math.floor(v / 3)], value: v, c: v % 3, n: g[Math.floor(v / 3)] });
+    list.sort(function (x, y) { return x.c - y.c || x.n - y.n; });
+    list = list.map(function (x) { return { name: x.name, value: x.value }; });
+    list.push({ name: 'X', value: 0xFF });
+    return (_en01Defs[t] = list);
+  }
+  function en01Name(t, v) { var d = en01Defs(t); for (var i = 0; i < d.length; i++) if (d[i].value === v) return d[i].name; return null; }
+  function en01Value(t, name) { var d = en01Defs(t); for (var i = 0; i < d.length; i++) if (d[i].name === name) return d[i].value; return null; }
+  /* 'off'｜'single'｜'dual'｜'tri'｜'mux4'｜'mux6'｜'rdx'（RD_MODE 4／6／7＝model 寫 not support） */
+  function en01Gate(s) {
+    if (!((s.hand | 0) && (s.deEn | 0))) return 'off';
+    return ({ 0: 'single', 1: 'dual', 2: 'tri', 3: 'mux4', 5: 'mux6' })[s.rd | 0] || 'rdx';
+  }
+  var EN01_GATES = [['Single-Gate', 0], ['Dual-Gate', 1], ['Tri-Gate', 2], ['MUX4 (RD_MODE=3)', 3], ['MUX6 (RD_MODE=5)', 5]];
+  function en01GateText(s) { var r = s.rd | 0; for (var i = 0; i < EN01_GATES.length; i++) if (EN01_GATES[i][1] === r) return EN01_GATES[i][0]; return 'RD_MODE=' + r; }
+  /* 一格：{ raw, std, txt, color, editable, id, addr, name }。Hand 關時照樣顯示值（WPF 整張表停用但看得到），不能改 */
+  function en01CellView(s, row, col, t) {
+    var id = 'e' + (row * 12 + col), raw = s[id] | 0, name = en01Name(t, raw);
+    return { raw: raw, std: name !== null, txt: name !== null ? name : '0x' + hex(raw, 2), color: name !== null ? colorOfName(name) : 'ns',
+             editable: en01Gate(s) !== 'off', id: id, addr: en01Addr(row, col), name: 'FORCE_SEL_' + EN01_CH[col] + '_' + row };
+  }
+  function en01Pick(s, row, col, t, name) {
+    if (en01Gate(s) === 'off') return null;
+    var v = en01Value(t, name); if (v === null) return null;
+    var ns = cloneState(s); ns['e' + (row * 12 + col)] = v; return { state: ns, text: name };
+  }
+  /* All Same Pixel（WPF AssignList／AllAssign，DMM:398-410、684-692）：清單＝各列階數候選的聯集（X 先，再 R→G→B、編號小→大）；
+     套用＝每一格在「自己那列的階數」裡找同名的候選，找不到就不改那一格 */
+  function en01SameOptions(rows, tabs) {
+    var seen = {}, all = [];
+    rows.forEach(function (r) { en01Defs(tabs ? tabs[r] : EN01_TDEF).forEach(function (d) { if (!seen[d.name]) { seen[d.name] = 1; all.push(d.name); } }); });
+    var key = function (n) { return n === 'X' ? [-1, 0] : ['RGB'.indexOf(n.charAt(0)), +n.slice(1)]; };
+    return all.sort(function (a, b) { var x = key(a), y = key(b); return x[0] - y[0] || x[1] - y[1]; });
+  }
+  function en01AllSame(s, name, rows, tabs) {
+    if (en01Gate(s) === 'off') return null;
+    var ns = cloneState(s), n = 0;
+    rows.forEach(function (r) { var v = en01Value(tabs ? tabs[r] : EN01_TDEF, name); if (v === null) return; for (var c = 0; c < 12; c++) { ns['e' + (r * 12 + c)] = v; n++; } });
+    return { state: ns, text: name, cells: n };
+  }
+  /* 匯出／寫入用的欄位：非表格欄位全部＋目前有的段（沒載入的 P2／P3 不寫） */
+  function en01Ids(seg) {
+    var rows = {}; en01Rows(seg).forEach(function (r) { rows[r] = 1; });
+    return fieldsOf('EN01').filter(function (f) { return !/^e\d+$/.test(f.id) || rows[f.row]; }).map(function (f) { return f.id; });
+  }
+  function en01ExportRegs(s, seg) { return encodeFields('EN01', s, en01Ids(seg)); }
+  /* Excel（WPF Export/Import，DMM:510-616）：第一張表、第 1 列 ['', R0…B3]；第 (row＋2) 列 A 欄＝L?-?、儲存格＝名稱（不在候選內＝空白）。
+     P2／P3 沒開時列號會跳（照 WPF：g.Key＋1）。Import：只在 Hand Mode、空白格略過、名稱要在該列階數的候選內才採用。 */
+  function en01ExcelName(now) {
+    var d = now || new Date(), p = function (x) { return (x < 10 ? '0' : '') + x; }, h = d.getHours() % 12 || 12;   // WPF 用 .NET 'hh'（12 小時制）
+    return 'DataMapping Export ' + d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + '_' + p(h) + p(d.getMinutes()) + p(d.getSeconds()) + '.xlsx';
+  }
+  function en01ExcelRows(s, rows, tabs) {
+    var out = [[''].concat(EN01_CH)];
+    rows.forEach(function (r) {
+      var row = [en01RowLabel(r)];
+      for (var c = 0; c < 12; c++) { var v = en01CellView(s, r, c, tabs ? tabs[r] : EN01_TDEF); row.push(v.std ? v.txt : ''); }
+      out[r + 1] = row;
+    });
+    for (var i = 0; i < out.length; i++) if (!out[i]) out[i] = [];
+    return out;
+  }
+  function en01ExcelApply(s, xrows, rows, tabs) {
+    if (en01Gate(s) === 'off') return null;
+    var ns = cloneState(s), n = 0, skip = 0;
+    rows.forEach(function (r) {
+      var xr = xrows[r + 1]; if (!xr) return;
+      for (var c = 0; c < 12; c++) {
+        var t = xr[c + 1]; if (t == null || String(t).trim() === '') continue;
+        var v = en01Value(tabs ? tabs[r] : EN01_TDEF, String(t)); if (v === null) { skip++; continue; }
+        ns['e' + (r * 12 + c)] = v; n++;
+      }
+    });
+    return { state: ns, cells: n, skipped: skip };
+  }
+  /* code：Dynamic Header（ICD:45 DynamicHeader＝true；HDR EN01HeaderDefine.cs:292-316 ComputeRegisterMappings）。
+     EEPROM：header 在檔案 0x100（EN01HeaderDefine.cs HeaderStartAddr），Header0＋第 1~19 筆 × 8 B（第 20 筆 eSOL 不映射）：
+       From＝((b0&0x7F)<<8)|b1、Len＝((b2&0x7F)<<8)|b3、To＝((b4&7)<<16)|(b5<<8)|b6、b7＝前 7 byte 和；Len＞0 才啟用
+       （EN01HeaderDefineEEPROM.cs；與 wfg.html wfgEn01ParseHeader 同規則，2 份實檔 checksum 全對）。
+     FLASH：header 在 0x000，22 筆 × 16 B：ST_ADDR＝b0<<8|b1（×0x100）、RD_LEN＝b2<<16|b3<<8|b4、MAP_ST_ADDR＝b5<<8|b6、
+       b8[1] MCU_CODE、b8[0] EDID、b9[7] CHECKSUM_EN；Enable＝RD_LEN＞1；映射長度＝RD_LEN−1（CHECKSUM_EN＝1）／RD_LEN＋1（＝0）
+       （EN01HeaderDefineFLASH.cs:19-34、796、809-830）；只收 MAP_ST_ADDR 表內的暫存器 Bank（:228-249，排除 PWR_FLU／ASCII／ADIF、EDID、MCU）。
+       FLASH 的 For_checksum_use 用本機 Doc/EN01/FALSH.bin 驗算對不上 ⇒ 不用它；改要求 Bank0_5（MAP 0x0000）長度涵蓋到 RD_MODE 0x41C、
+       至少 3 個不同 Bank、起點在檔案內且不重複（避免把別顆 code 的 EDID 誤認成 header）。 */
+  var EN01_FLASH_MAP = [0x0000, 0x0600, 0x0700, 0x0800, 0x0900, 0x0A00, 0x0B00, 0x0C00, 0x0D00, 0x0E00, 0x0F00, 0x1000, 0x1100, 0x1200, 0x1300, 0x1400, 0x1800];
+  function en01Maps(b) {
+    var i, o, items = [], bad = 0;
+    if (!b) return null;
+    var ck = function (o) { var s = 0; for (var k = 0; k < 7; k++) s += b[o + k]; return (s & 0xFF) === b[o + 7]; };
+    if (b.length >= 0x100 + 8 * 20 && ck(0x100)) {
+      for (i = 1; i < 20; i++) {
+        o = 0x100 + i * 8;
+        if (!ck(o)) { bad++; continue; }
+        var frm = ((b[o] & 0x7F) << 8) | b[o + 1], len = ((b[o + 2] & 0x7F) << 8) | b[o + 3], to = ((b[o + 4] & 7) << 16) | (b[o + 5] << 8) | b[o + 6];
+        if (!len) continue;
+        if (frm + len > b.length) { bad++; continue; }
+        items.push({ from: frm, to: to, len: len });
+      }
+      if (items.length && bad <= items.length) return { medium: 'eeprom', maps: items };
+    }
+    if (b.length < 0x2000) return null;
+    items = []; var basic = false, seen = {};
+    for (i = 0; i < 22; i++) {
+      o = i * 16;
+      var st = ((b[o] << 8) | b[o + 1]) * 0x100, rd = (b[o + 2] << 16) | (b[o + 3] << 8) | b[o + 4], mp = (b[o + 5] << 8) | b[o + 6];
+      if (rd <= 1 || (b[o + 8] & 3) || EN01_FLASH_MAP.indexOf(mp) < 0) continue;
+      var ln = rd - 1 + ((b[o + 9] & 0x80) ? 0 : 2);
+      if (!st || st + ln > b.length || seen[mp]) return null;
+      seen[mp] = 1; items.push({ from: st, to: mp, len: ln });
+      if (mp === 0 && ln >= 0x41D) basic = true;
+    }
+    return basic && items.length >= 3 ? { medium: 'flash', maps: items } : null;
+  }
+  function parseEn01(bytes) {
+    var M = en01Maps(bytes);
+    if (!M) return { ok: false, reason: 'en01Header' };
+    var fileOf = function (reg) { for (var i = 0; i < M.maps.length; i++) { var m = M.maps[i]; if (reg >= m.to && reg < m.to + m.len) return m.from + (reg - m.to); } return -1; };
+    var has = function (a, n) { for (var k = 0; k < n; k++) if (fileOf(a + k) < 0) return false; return true; };
+    if (!has(0x390, 5) || !has(0x3D4, 0x49)) return { ok: false, reason: 'en01Header' };   // P1＋RD_MODE（0x3D4–0x41C）要在 Tcon Basic 內
+    var res = parseWith('EN01', bytes, fileOf, M.medium);
+    res.seg = { p2: has(0x1000, 72), p3: has(0x1100, 144) }; res.maps = M.maps; res.py = 'RM81008';
+    return res;
+  }
   /* ── 型號 ─────────────────────────────────────────────────────────────── */
   /* kind：'nb' ＝ Python UI 型號（暫存器＝3E 位址）；'mnt' ＝ EM01／EM02／E512。
      sem：表格規則（'daz7353'／'daz6111'／'e50x'）；mnt 套 e50x 規則（同一組 GN1／GN2 與 Gate 判準）。 */
@@ -178,6 +352,7 @@
     E501A:   { key: 'E501A', label: 'E501A (RM81010)', kind: 'nb', py: 'RM81010', tbl: 'RM81010', sem: 'e50x', mbus: true },
     E501B:   { key: 'E501B', label: 'E501B (RM81011)', kind: 'nb', py: 'RM81011', tbl: 'RM81010', sem: 'e50x', mbus: true },
     E503:    { key: 'E503', label: 'E503 (RM81000~RM81004)', kind: 'nb', py: 'RM81000', tbl: 'RM81000', sem: 'e50x', mbus: true, e503: true },
+    EN01:    { key: 'EN01', label: 'EN01 (RM81008)', kind: 'en01', py: 'RM81008', sem: 'en01', mbus: true },   // v1.3.0（WPF RomCodeProcessUI；見 EN01 區塊）
     EM01: { key: 'EM01', label: 'EM01', kind: 'mnt', sem: 'e50x', rt7: 0x0400, icId: [0x01, 0xEF, 0xA0], deSel: { off: 0x45, shift: 0, bits: 6 } },
     EM02: { key: 'EM02', label: 'EM02', kind: 'mnt', sem: 'e50x', rt7: 0x0480, icId: [0x02, 0xEF, 0xA0], deSel: { off: 0x45, shift: 0, bits: 6 }, lod: 0x0900 },
     E512: { key: 'E512', label: 'E512', kind: 'mnt', sem: 'e50x', rt7: 0x0480, icId: [0x12, 0xE5, 0xA0], deSel: { off: 0x02, shift: 4, bits: 4 } }
@@ -185,6 +360,8 @@
   /* 下拉順序照 PY list_tcon（:3516），MNT 接在後面 */
   var MODEL_KEYS = ['DAZ6111', 'DAZ6138', 'DAZ6139', 'DAZ7353', 'E501A', 'E501B', 'E503', 'EM01', 'EM02', 'E512'];
   var MNT_KEYS = ['EM01', 'EM02', 'E512'];
+  /* v1.3.0：頁面下拉＝PY 型號、EN01、MNT（EN01 接在 E503 後）；MODEL_KEYS 仍只含 PY＋MNT（既有 PY／MNT 規則的回歸測試逐一跑它） */
+  var SELECT_KEYS = MODEL_KEYS.slice(0, 7).concat(['EN01'], MNT_KEYS);
   /* PY tcon 名稱 → 本頁型號（RM81001~RM81004 與 RM81000 的 Data Mapping 表完全相同，PY:1775-1789） */
   var PY_TO_KEY = { DAZ6111: 'DAZ6111', DAZ6138: 'DAZ6138', DAZ6139: 'DAZ6139', DAZ7353: 'DAZ7353', RM81010: 'E501A', RM81011: 'E501B',
                     RM81000: 'E503', RM81001: 'E503', RM81002: 'E503', RM81003: 'E503', RM81004: 'E503' };
@@ -218,6 +395,10 @@
         var t = Math.floor(k / 6), d = k % 6;
         f.push({ id: 'c' + k, parts: T.cells[k], name: daz ? ('HAND_TYPE' + t + '_DATA' + d) : ('FORCE_SEL_' + CH6[d] + '_' + t) });
       }
+    } else if (m.kind === 'en01') {
+      EN01_REG_IDS.forEach(function (id) { var R = EN01_REG[id]; f.push({ id: id, parts: [P(R[0], R[1], R[2])], name: R[3] }); });
+      for (var er = 0; er < 24; er++) for (var ec = 0; ec < 12; ec++)
+        f.push({ id: 'e' + (er * 12 + ec), parts: [P(en01Addr(er, ec), 7, 0)], name: 'FORCE_SEL_' + EN01_CH[ec] + '_' + er, row: er, seg: en01Seg(er) });
     } else {
       var b = m.rt7;
       f.push({ id: 'hand', parts: [P(b + 0x01, 7, 7)], name: 'force_sel_en' });
@@ -423,6 +604,7 @@
   function semOf(key) { return MODELS[key].sem; }
   /* 'off'｜'single'｜'dual'｜'tri'｜'mismatch'（PY:28990-29022、29454-29705） */
   function gateOf(key, s) {
+    if (MODELS[key].kind === 'en01') return en01Gate(s);
     if (!s.hand) return 'off';
     var p = s.panel | 0;
     if (semOf(key) !== 'e50x') return p <= 1 ? 'single' : (p === 2 ? 'dual' : 'tri');
@@ -435,6 +617,7 @@
   var GATE_ITEMS = ['Non-Hand Mode', 'Single-Gate', 'Dual-Gate', 'Tri-Gate'];   // PY:4074
   /* comboBox_49 顯示（PY:28958-29005） */
   function gateText(key, s) {
+    if (MODELS[key].kind === 'en01') return en01GateText(s);
     var p = s.panel | 0;   // PY 先設 Non-Hand Mode（:28962），緊接著又依 PANEL_MODE 覆寫（:28998），所以實際顯示一律依 PANEL_MODE
     return p <= 1 ? GATE_ITEMS[1] : (p === 2 ? GATE_ITEMS[2] : GATE_ITEMS[3]);
   }
@@ -522,7 +705,7 @@
   function cellView(key, s, row, col) {
     var g = gateOf(key, s), p = s.panel | 0, se = semOf(key);
     var v = { txt: '', raw: null, std: true, color: '', dark: false, editable: false, blank: true, src: -1 };
-    if (g === 'off' || col >= 6) return v;
+    if (g === 'off' || col >= 6 || se === 'en01') return v;   // EN01 用 en01CellView
     v.dark = (p <= 1 && (row & 1) === 1) || p === 3;      // PY:10603-10621（依 PANEL_MODE）
     var srcRow = row;
     /* v1.15.0：MNT（EM01／EM02／E512）的 Single＝_0~_3 各是一條 gate（G1~G4，E512 圖解；EM01 原廠 StringGrid 也是 4 列原值），
@@ -571,6 +754,7 @@
   }
   /* 24 個名稱整批套用（Import Excel、All Same Pixel 共用：PY set_rgb_table_to_dm_info :29707-29847） */
   function applyNames(key, s, names) {
+    if (MODELS[key].kind === 'en01') return null;
     var g = gateOf(key, s), se = semOf(key), ns = cloneState(s);
     function look(d, n) { n = normText(n); return (n in d) ? d[n] : d.X; }
     if (MODELS[key].kind === 'mnt' && (g === 'single' || g === 'dual')) { for (var m = 0; m < 24; m++) ns['c' + m] = look(rowDict(key, Math.floor(m / 6), g, s), names[m]); }
@@ -593,6 +777,7 @@
      :29738；All Same Pixel 也能把 R5／R6 寫進這兩列，:29925）。不能改的格回傳 []。 */
   function namesOf(dict) { return Object.keys(dict); }
   function cellOptions(key, s, row, col) {
+    if (MODELS[key].kind === 'en01') return [];
     var v = cellView(key, s, row, col);
     if (!v.editable) return [];
     var d = rowDict(key, row, gateOf(key, s), s);
@@ -614,6 +799,7 @@
   /* All Same Pixel 下拉：只列會生效的名稱（PY 先用 GN2 驗證，再依各列字典查，查不到 ⇒ X）。
      e50x Dual ⇒ GN2（R5／R6 只會寫到 Line 1-2／2-2，其他列變 X）；e50x Single ⇒ GN1；DAZ ⇒ 自己的表。 */
   function allSameOptions(key, s) {
+    if (MODELS[key].kind === 'en01') return [];
     var se = semOf(key), g = gateOf(key, s);
     if (MODELS[key].kind === 'mnt' && (g === 'single' || g === 'dual')) return namesOf(rowDict(key, 0, g, s));
     if (se === 'e50x') return g === 'dual' ? namesOf(GN2) : (g === 'single' ? namesOf(GN1) : []);
@@ -621,13 +807,21 @@
   }
   /* Gate Type 下拉（PY get_object_to_dm_info :29849） */
   function setGate(key, s, item) {
+    if (MODELS[key].kind === 'en01') {   // DMM:436-449：只寫 RD_MODE
+      for (var q = 0; q < EN01_GATES.length; q++) if (EN01_GATES[q][0] === item) { var es = cloneState(s); es.rd = EN01_GATES[q][1]; return es; }
+      return null;
+    }
     var gi = GATE_ITEMS.indexOf(item); if (gi <= 0) return null;
     var ns = cloneState(s);
     ns.panel = gi;
     if (semOf(key) === 'e50x') ns.rd = gi - 1;
     return pyNormalize(key, ns);
   }
-  function setHand(key, s, on) { var ns = cloneState(s); ns.hand = on ? 1 : 0; return pyNormalize(key, ns); }
+  function setHand(key, s, on) {
+    var ns = cloneState(s); ns.hand = on ? 1 : 0;
+    if (MODELS[key].kind === 'en01') { ns.deEn = ns.hand; ns.deSel = 0x0E; return ns; }   // DMM:235-245
+    return pyNormalize(key, ns);
+  }
   /* PY 的 list_rgbstr（24 個名稱；表外 ⇒ 'X'） */
   function pyNames(key, s) {
     var out = [];
@@ -636,6 +830,7 @@
   }
   /* DM CKS（PY:29971）。回傳 '0xNNNN'；Hand 關 ⇒ null（PY 顯示 'DM CKS：'）。 */
   function cks(key, s) {
+    if (MODELS[key].kind === 'en01') return null;   // WPF 沒有 DM CKS
     var g = gateOf(key, s);
     if (g === 'off') return null;
     /* Tri／組合不符：PY 不更新 list_rgbstr，剛開檔時是空的 ⇒ 每格以 'X' 計（KeyError／IndexError 分支），這裡照算 */
@@ -649,6 +844,7 @@
   function codeAddrs(key) {
     var m = MODELS[key], out = [], i;
     if (m.kind === 'nb') { var dm = PY_TABLES[m.tbl].dm; for (i = 0; i < dm[2]; i++) out.push(dm[0] + i); }
+    else if (m.kind === 'en01') { for (i = 0; i < 288; i++) out.push(en01Addr(Math.floor(i / 12), i % 12)); }
     else for (i = 0; i < 24; i++) out.push(m.rt7 + 0x03 + i);
     return out;
   }
@@ -780,6 +976,7 @@
   var PY_LIST = ['DAZ6111', 'DAZ6138', 'DAZ6139', 'DAZ7353', 'RM81010', 'RM81011', 'RM81000', 'RM81001', 'RM81002', 'RM81003', 'RM81004'];
   function modelFromName(name) {
     var n = String(name || ''), py = null;
+    if (/RM81008|EN01/.test(n)) return { py: 'RM81008', key: 'EN01' };   // v1.3.0：放最前面（例：RM81008(RM81002like) 不可認成 E503）
     for (var i = 0; i < PY_LIST.length; i++) if (n.indexOf(PY_LIST[i]) >= 0) { py = PY_LIST[i]; break; }
     if (n.indexOf('E501A') >= 0) py = 'RM81010';
     if (n.indexOf('E501B') >= 0) py = 'RM81011';
@@ -839,6 +1036,13 @@
     var bytes = loadCodeBytes(name || 'x.bin', raw);
     var hits = locate(bytes);
     var fromName = modelFromName(name);
+    /* v1.3.0 EN01：檔名有 RM81008／EN01，或檔名看不出來但選的是 EN01 ⇒ 依 Dynamic Header 解析 */
+    if ((fromName && fromName.key === 'EN01') || (!fromName && pick === 'EN01')) {
+      var e1 = parseEn01(bytes);
+      if (e1.ok) { e1.byName = !!fromName; return e1; }
+      if (!fromName && hits.length === 1) return { ok: false, reason: 'modelMismatch', found: [hits[0].model] };
+      return e1;
+    }
     if (pick && MODELS[pick] && MODELS[pick].kind === 'mnt') {
       var h2 = hits.filter(function (h) { return h.model === pick; });
       if (h2.length === 1) return parseWith(pick, bytes, h2[0].fileOf, h2[0].medium);
@@ -847,6 +1051,7 @@
     if (hits.length === 1 && !fromName) return parseWith(hits[0].model, bytes, hits[0].fileOf, hits[0].medium);
     if (hits.length > 1 && !fromName) return { ok: false, reason: 'ambiguous', found: hits.map(function (h) { return h.model; }) };
     var key = fromName ? fromName.key : (pick && MODELS[pick] && MODELS[pick].kind === 'nb' ? pick : null);
+    if (!fromName && parseEn01(bytes).ok) return { ok: false, reason: 'modelMismatch', found: ['EN01'] };   // v1.3.0：選了別顆、內容是 EN01 header
     if (!key) return { ok: false, reason: 'noMatch' };
     var r = PY_TABLES[MODELS[key].tbl].rom;
     if (bytes.length < r[1] + 1) return { ok: false, reason: 'short', model: key, need: r[1] + 1, got: bytes.length };
@@ -861,11 +1066,13 @@
   /* MNT：TCON 工具 Script 格式（write -m AAAA VV MM，ASCII；格式照 wfg.html wfgEm02BuildScript） */
   function buildScript(key, s, opt) {
     opt = opt || {};
-    var lines = [], regs = exportRegs(key, s, opt.second !== false);   // opt.second＝false：第一組沒動過 ⇒ 不寫 r2..b3
+    var lines = [], regs = MODELS[key].kind === 'en01' ? en01ExportRegs(s, opt.seg) : exportRegs(key, s, opt.second !== false);   // opt.second＝false：第一組沒動過 ⇒ 不寫 r2..b3；EN01：opt.seg＝沒載入的 P2／P3 不寫
     if (opt.comments !== false) {
       lines.push('// DataMap ' + asciiOnly(opt.version || '') + ' - exported ' + key + ' Data Mapping settings');
       lines.push('// Load this file from the Script page of the TCON tool.');
-      lines.push('// Data Mapping registers only (rt7 data mapping + rd_mode) - masked writes, no TX, no timing.');
+      lines.push(MODELS[key].kind === 'en01'
+        ? '// EN01 (RM81008) Data Mapping registers only (0x390-0x394, 0x3A5, 0x41C, FORCE_SEL P1' + (opt.seg && !opt.seg.p2 ? '' : '+P2') + (opt.seg && !opt.seg.p3 ? '' : '+P3') + ') - masked writes, register addresses (slave 0x3E).'
+        : '// Data Mapping registers only (rt7 data mapping + rd_mode) - masked writes, no TX, no timing.');
       lines.push('// ' + (opt.now || new Date()).toISOString());
       if (opt.source) lines.push('// source: ' + asciiOnly(opt.source));
       if (typeof opt.cks === 'number' && opt.cks >= 0) lines.push('// source CKS: 0x' + hex(opt.cks, 6));
@@ -1071,7 +1278,12 @@
     loadCodeBytes: loadCodeBytes, modelFromName: modelFromName, locate: locate, parseCode: parseCode, nbFileOf: nbFileOf, cksOf: cksOf,
     buildScript: buildScript, applyScript: applyScript, pyScriptRows: pyScriptRows, applyPyScriptRows: applyPyScriptRows,
     excelName: excelName, excelRows: excelRows, excelToNames: excelToNames, readXlsxRows: readXlsxRows,
-    writeRegs: writeRegs, readSpans: readSpans, readState: readState, modelByIcId: modelByIcId, hex: hex
+    writeRegs: writeRegs, readSpans: readSpans, readState: readState, modelByIcId: modelByIcId, hex: hex,
+    SELECT_KEYS: SELECT_KEYS, EN01_CH: EN01_CH, EN01_TABS: EN01_TABS, EN01_TDEF: EN01_TDEF, EN01_GATES: EN01_GATES, EN01_PANEL: EN01_PANEL,
+    en01Seg: en01Seg, en01Addr: en01Addr, en01RowLabel: en01RowLabel, en01Rows: en01Rows, en01Defs: en01Defs, en01Name: en01Name, en01Value: en01Value,
+    en01Gate: en01Gate, en01CellView: en01CellView, en01Pick: en01Pick, en01SameOptions: en01SameOptions, en01AllSame: en01AllSame,
+    en01Ids: en01Ids, en01ExportRegs: en01ExportRegs, en01ExcelName: en01ExcelName, en01ExcelRows: en01ExcelRows, en01ExcelApply: en01ExcelApply,
+    en01Maps: en01Maps, parseEn01: parseEn01
   };
   if (typeof module === 'object' && module.exports) module.exports = API;
   else root.TCONDataMap = API;
