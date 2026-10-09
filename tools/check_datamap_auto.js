@@ -97,7 +97,7 @@ console.log('── v1.12.0 Hand 關 ③ 一定有圖或明確原因');
   const pv = n => 'p' + DM.PRESETS.findIndex(p => p.name.startsWith('(' + n + ')'));
   const bytesOf = t => { const b = {}; t.split('\n').forEach(l => { const k = l.trim().split(/\s+/); if (k[0] === 'write' && k[1] === '-m') for (let j = 3; j < k.length; j++) b[parseInt(k[2], 16) + j - 3] = parseInt(k[j], 16); }); return b; };
   const fieldOk = (m, b, id, v) => { const p = DM.fieldById(m, id).parts[0]; return b[p[0]] !== undefined && ((b[p[0]] >> p[2]) & ((1 << (p[1] - p[2] + 1)) - 1)) === v; };
-  ok(/^v1\.1\d\./.test(w.TOOL_VERSIONS.datamap), 'datamap 版號 v1.10 以上：' + w.TOOL_VERSIONS.datamap);
+  ok(/^v1\.[12]\d\./.test(w.TOOL_VERSIONS.datamap), 'datamap 版號 v1.10 以上：' + w.TOOL_VERSIONS.datamap);
   for (const m of DM.MODEL_KEYS) {
     fire($('dm-model'), m); if (w.dmState.cur.hand) fire($('dm-hand'), false);
     if (m === 'EM01') {   /* v1.18.8：EM01 Auto 照原廠兩層 UI（Panel_mode＋sub_panel_mode），逐一組合 */

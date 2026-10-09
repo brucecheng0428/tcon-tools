@@ -2,6 +2,61 @@
 
 ---
 
+## Data Mapping (datamap) v1.20.0 — 2026-10-09 ｜ MINOR
+
+**新增 EN01（RM81008）：型號下拉可選、24 列 × 12 欄 Data Mapping 表格（每列 T 階數）、匯入 code（Dynamic Header）、Check T-CON 認 EN01 並讀寫、匯出 script／Excel、TCON Register 確認。**
+
+判定依據：`docs/VERSIONING.md` §1 判定表：新增一顆可用的 IC（多了能做的事），既有 PY 型號（DAZ／E501／E503）與 MNT（EM01／EM02／E512）的操作與輸出都不變 → MINOR。原本 EN01 是下拉裡停用的「暫不支援」項目、Check T-CON 認出也不讀不寫，現在改成可用，屬新增能力，不是改變既有結果。
+
+### 需求（Bruce 2026-10-09）
+
+> 回到Tcon tools專案，datamap網頁，請將EN01先完整調查完source code後，還有model file，將EN01也整合進datamap網頁
+
+### 調查（先做，不改網頁）
+
+- 報告：`~/Obsidian/assistant_kb/reference/EN01_DataMapping調查_20261009.md`（每項附檔案＋行號，查不到寫未確認）。
+- 原廠依據＝`WPF_RomCodeProcessUI` v2.0.23.0（acdb7f9）：`ICDefine.cs GetRM81008`、`DataMappingModule.cs`（Version2）、`ModelFiles/RM81008.model`、`DynamicHeader/EN01/*`、原廠 `Docs/DataMapping_新手指南.md`。Python UI（V5.0.4）完全沒有 EN01，所以既有型號的 PY 規則不套用。
+- 「演算法不同」的實際內容：EN01 是 DataMappingVersion.Version2，表格 24 列（line × mux 相位，L1-1…L4-6）× 12 欄（R0…B3，1T4P），一格一個 byte；P1 0x3D4–0x41B、P2 0x1000–0x1047、P3 0x1100–0x118F；候選值依 T1~T10 階數產生（名稱↔byte 換算隨階數變，X＝0xFF）。
+
+### 整合內容
+
+- `common/datamap-core.js` v1.3.0：
+  - `MODELS.EN01`（kind `en01`）；欄位：FORCE_SEL_EN 0x393[7]、FORCE_DE_EN 0x392[7]、FORCE_DE_SEL 0x394、PANEL_MODE 0x390[1:0]、SUB_PANEL_MODE 0x390[6:4]、LTPS_ZIGZAG_MODE 0x390[3:2]、RD_MODE 0x41C[2:0]、MIRROR 0x392[6]、CHRB 0x392[4]、CHWB 0x392[5]、READ_RVS 0x3A5，以及 288 格 FORCE_SEL_<色><pixel>_<row>（id `e<row×12+col>`）。
+  - Hand Mode＝FORCE_SEL_EN 與 FORCE_DE_EN 都開；切換時兩者一起寫、FORCE_DE_SEL 寫 0x0E（同原廠）。Gate Type 只寫 RD_MODE（Single 0／Dual 1／Tri 2，另列 model 定義的 MUX4＝3、MUX6＝5），不寫 PANEL_MODE。EN01 沒有 DM CKS。
+  - 候選值 `en01Defs(T)`＝原廠 GenDataMappingDefine；選格、All Same（每列在自己的 T 找同名候選，找不到不改）、Excel 匯出／匯入（WPF 版面：第一張表、列號＝row＋2、P2／P3 沒開時跳號；只在 Hand Mode 匯入）。
+  - 匯入 code：`parseEn01` 依 Dynamic Header（EEPROM：0x100 起 8 B×20；FLASH：0x000 起 16 B×22，只收 MAP_ST_ADDR 表內的 Bank），回報有載入的段（P2／P3）；沒載入的段不顯示、不匯出。檔名有 RM81008／EN01 直接認 EN01（放在 PY 檔名判斷前面，`RM81008(RM81002like)` 不會被認成 E503）；選了別顆但內容是 EN01 header ⇒ 回「型號不符，找到 EN01」讓頁面先問。
+  - 匯出 script＝`write -m`（原廠 WPF Script 分頁的 .script 格式），沒載入的 P2／P3 不寫。
+  - `MODEL_KEYS`（PY＋MNT）不變，既有回歸照舊逐型號跑；頁面下拉改用新的 `SELECT_KEYS`（EN01 接在 E503 後）。
+- `datamap.html`：
+  - 型號下拉 EN01 (RM81008) 可選（拿掉停用的「暫不支援」項）。② 表格切成 EN01 版面：24 列（依 code 有的段）× 12 欄＋每列 T 下拉（預設 T4＝原廠 V2 預設；T 不寫入 TCON）；值不在該列 T 候選內顯示「非標準 0xNN」並保留原值（與既有型號同一原則）。只有 T／可否編輯／值變了才重建選項（288 格 × 最多 133 項，避免每次 render 全部重建）。
+  - Mirror／CHRB／CHWB／READ_RVS 列依欄位自動出現（勾 Mirror 時 READ_RVS 一起寫 FF／00，EN01 model 註解同義）。Gate Type 下拉換成 EN01 的 5 項；Hand 關時表格與 Gate Type 停用並提示兩個 bit 都要開。
+  - Check T-CON：原本 `3E:207E∈{0x10,0x11}` 認出 EN01 後只提示不讀不寫，改成認定 EN01 並回讀、即時寫入（讀寫前下 7E:AB←CD，不下 E503 的 3E:0059）。I2C 讀回時 24 列全部顯示（I2C 看不出 header）。
+  - ③ 面板排列預覽／16 種配置比較：EN01 不推接線（列＝line×相位、欄＝1T4P，原廠沒有可依據的換算），明寫「暫不支援、待設計端確認」。
+  - TCON Register 確認：EN01 列 11＋288 個欄位（沒載入的段不列）。
+  - `isNb()` 用來分 slave／MNT 專屬顯示的地方改成 `isMnt()`（EN01 走 0x3E、不顯示 MNT 欄位）；行為對既有型號不變。
+- `common/version.js` datamap v1.20.0；datamap.html、index.html 的 `version.js?v=`、datamap.html 的 `datamap-core.js?v=` 更新。
+- 測試：新增 `tools/check_datamap_en01.js`；`check_datamap_auto／lod／preview／vlines` 的版號檢查放寬到 v1.2x（只改版號正規式）。
+
+### 未確認（交 Bruce／RD）
+
+1. T 階數規則：原廠 V2 一律 T4，「SW1→T1…SW6→T6」與同相位是否共用原廠也標待設計端確認（GUIDE 附錄 C-1）。階數會影響名稱↔byte 換算；網頁照原廠預設 T4、每列可改。
+2. RM81008.model 把 0x392[7] 同時定義成 FORCE_DIV3_EN 與 FORCE_DE_EN；照 ICDefine.cs 當 FORCE_DE_EN。
+3. P3（row 12~23）不在 model 檔，位址依 WPF 程式＋原廠指南的實檔驗證。
+4. FORCE_DATA_SFT_SEL、FORCE_PIX_CNT_MAX／INV、FORCE_LINE_CNT_INV、FORCE_MAX_GATE_EN／CNT 六顆原廠工具也不讀不寫，網頁同樣沒做。
+5. I2C 即時模式下 P2／P3 是否生效看 ROM header，I2C 看不出來（24 列全顯示）。
+6. ③ 預覽／比較表 EN01 不支援（沒有原廠接線依據）。
+7. 3E:207E 高 4 bit＝1 ⇒ EN01 沿用 i2c.html 移植的既有規則，未在 WPF 找到同一判斷。
+8. FLASH header 的 For_checksum_use 用本機 FALSH.bin 驗算對不上，改用結構判斷（Bank0_5 涵蓋 0x41C、至少 3 個 Bank、都在檔內）。
+9. 沒有實機，I2C 讀寫只在 mock Bridge 驗證。
+
+### 驗證
+
+- `check_datamap_en01.js`：63 項 0 fail（28 秒）。含：位址與 WPF V2 讀法逐格相同（288 格）；10 階候選與 ICDefine.cs 原文逐值相同；11 個欄位位址＝ICDefine.cs／RM81008.model 原文、model 的 144 格 FORCE_SEL 位址相同；3 份實檔（EEPROM_Demo、F1567 4096 B、FALSH.bin FLASH）299 個欄位＝獨立重算的 header 映射；負控制 ~/TCON/Model 非 EN01 code 1144 份 0 份被誤認；script 套回＝狀態、Excel 往返 72 格相同、I2C 假裝置只寫改到的 3 byte；頁面：下拉、24×12＋T、匯入 F1567 只顯示 12 列、Hand／選格／T 切換／Gate MUX6／All Same、③ 註記、換回 E503 正常；mock Bridge Check T-CON 認 EN01、回讀、即時寫入只寫 0x3E:0x3D4。CI 沒有原廠資料時對拍項目自動跳過並註明。
+- 既有回歸（與改前同樣參數比對）：core 282、nbfields、kickoff、preview、combos、lod、auto、vlines、nb_code_import、em01_code_import 全過；`check_datamap_tcon_gate.js`（不帶 EM01 code）改前改後都是同一項 1 fail（「改 Mirror ⇒ … 0 個已修改」，需 code 參數），不是這次造成。`check_datamap_import_lock／svg_rep／svg_vs_tag` 需要舊版 worktree 與私有 code 參數，本次未跑。
+- 實際畫面：自有暫存 profile 的 headless Chrome 1440 寬，選 EN01＋匯入 F1567、勾 Hand：12 列 × 12 欄、L1-1 R0＝R9（24＠T4）、③ 顯示不支援註記、Register 確認 155 列，console 無錯誤；檔名 CKS 0x03F5CA 與頁面算出相同。
+
+---
+
 ## Data Mapping (datamap) v1.19.0 — 2026-10-09 ｜ MINOR
 
 **③ TFT 接線圖新增「V 方向 Line 數」設定（4 預設／8／12）；接線鎖定時 Gate Type 也鎖住。**
