@@ -69,6 +69,7 @@ const regOf = (b, maps) => { const r = {}; maps.forEach(([f, t, l]) => { for (le
       '代表格：L1-1 R0＝0x3D4（原廠指南 FORCE_SEL_R0_0）、L2-1 R0＝0x3D7、L1-1 G0＝0x3DA、L1-4＝0x1000、L2-4＝0x1003、L3-1＝0x1100、L3-1 G0＝0x110C、L4-6 B3＝0x118F');
     ok(DM.en01Rows({ p2: false, p3: false }).join() === '0,1,2,6,7,8' && DM.en01Rows({ p2: true, p3: false }).length === 12 && DM.en01Rows(null).length === 24, '顯示列：只有 P1＝0,1,2,6,7,8（跳號同原廠）；P1+P2＝12 列；全部＝24 列');
     ok(DM.en01RowLabel(0) === 'L1-1' && DM.en01RowLabel(5) === 'L1-6' && DM.en01RowLabel(6) === 'L2-1' && DM.en01RowLabel(23) === 'L4-6', '列名 L(line)-(相位)（DataMappingModule.cs:335-342）');
+    ok([0, 1, 2, 3, 4, 5, 6, 7].map(DM.en01Phases).join() === '1,2,3,4,,6,,', 'RD_MODE → 一條 line 用的時槽數：0→1、1→2、2→3、3→4、5→6，4／6／7＝not support（RM81008.model:3532-3535）');
     const f = DM.fieldsOf('EN01'), cells = f.filter(x => /^e\d+$/.test(x.id));
     ok(cells.length === 288 && cells.every(x => x.parts.length === 1 && x.parts[0][1] === 7 && x.parts[0][2] === 0) && f.find(x => x.id === 'e0').name === 'FORCE_SEL_R0_0' && f.find(x => x.id === 'e143').name === 'FORCE_SEL_B3_11',
       '288 個表格欄位都是整 byte，名稱＝RM81008.model 的 FORCE_SEL_<色><pixel>_<row>');
@@ -237,7 +238,7 @@ const regOf = (b, maps) => { const r = {}; maps.forEach(([f, t, l]) => { for (le
   }
   {
     const P = await open(), { w, d, $, fire } = P, S = w.dmState;
-    ok(w.TOOL_VERSIONS && /^v1\.20\./.test(w.TOOL_VERSIONS.datamap), '版號 ' + (w.TOOL_VERSIONS && w.TOOL_VERSIONS.datamap));
+    ok(w.TOOL_VERSIONS && /^v1\.2\d\./.test(w.TOOL_VERSIONS.datamap), '版號 ' + (w.TOOL_VERSIONS && w.TOOL_VERSIONS.datamap));
     const opts = Array.from($('dm-model').options);
     ok(opts.map(o => o.value).join() === DM.SELECT_KEYS.join() && opts.every(o => !o.disabled) && opts[7].textContent === 'EN01 (RM81008)', '型號下拉：EN01 (RM81008) 在 E503 後、可選（不再是「暫不支援」）');
     fire($('dm-model'), 'EN01');
@@ -255,6 +256,8 @@ const regOf = (b, maps) => { const r = {}; maps.forEach(([f, t, l]) => { for (le
       ok(S.model === 'EN01' && JSON.stringify(S.en01Seg) === '{"p2":true,"p3":false}' && g.querySelectorAll('tbody tr').length === 12 && !$('dm-e12-0') && !!$('dm-e3-0'), '匯入 F1567（檔名 RM81008）：P3 沒載入 ⇒ 只顯示 12 列（L1-1~L2-6）');
       ok(!d.querySelector('#dm-code tr[data-f="e144"]') && !!d.querySelector('#dm-code tr[data-f="e143"]') && !$('dm-hand').checked, 'Register 表不列 P3；Hand 關（原檔 FORCE_SEL_EN＝0）');
       ok($('dm-e0-0').value === 'R9' && $('dm-e1-0').value === 'B5', '格子名稱：L1-1 R0＝24 ⇒ T4 的 R9、L1-2 R0＝38 ⇒ B5');
+      ok(/^SW1·P1$/.test($('dm-ers0').textContent) && /^SW2·P1 未用$/.test($('dm-ers1').textContent) && /不是第 2 條 gate/.test($('dm-etr1').title) && /不是 6 條 gate/.test($('dm-legend').textContent),
+        'v1.20.1 列標 SW 時槽；RD_MODE 0（1 個時槽）⇒ SW2 起標「未用」；列提示與圖例寫明 SW≠gate');
       fire($('dm-hand'), true);
       ok(S.cur.hand === 1 && S.cur.deEn === 1 && S.cur.deSel === 0x0E && !$('dm-e0-0').disabled && !$('dm-gate').disabled && $('dm-gridnote').classList.contains('hidden'), '勾 Hand Mode ⇒ FORCE_SEL_EN＋FORCE_DE_EN＝1、FORCE_DE_SEL＝0x0E，表格可改');
       fire($('dm-e0-0'), 'B4');
@@ -263,7 +266,7 @@ const regOf = (b, maps) => { const r = {}; maps.forEach(([f, t, l]) => { for (le
       ok(S.cur.e0 === 59 && $('dm-e0-0').value === '__ns' && $('dm-e0-0').classList.contains('ns') && S.en01T[0] === 1, 'L1-1 改 T1 ⇒ 值不變（59 超出 T1 的 0~23）、顯示非標準；T 不寫入');
       fire($('dm-et0'), '4');
       fire($('dm-gate'), 'MUX6 (RD_MODE=5)');
-      ok(S.cur.rd === 5 && S.cur.panel === 1, 'Gate Type 選 MUX6 ⇒ RD_MODE 5，PANEL_MODE 不動');
+      ok(S.cur.rd === 5 && S.cur.panel === 1 && !/未用/.test($('dm-ers5').textContent), 'Gate Type 選 MUX6 ⇒ RD_MODE 5，PANEL_MODE 不動；6 個時槽都在用（SW6 不標未用）');
       const sc = w.dmBuildScript().text, lines = sc.split('\n').filter(l => /^write -m/.test(l));
       ok(lines.some(l => /^write -m 03D4 3B FF/.test(l)) && lines.some(l => /^write -m 041C 05 07/.test(l)) && !lines.some(l => /^write -m 11/.test(l)), '匯出 script：0x3D4←3B、0x41C←05（mask 07）、沒有 P3');
       const sameOpts = Array.from($('dm-samev').options).map(o => o.value);

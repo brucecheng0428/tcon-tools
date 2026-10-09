@@ -2,6 +2,32 @@
 
 ---
 
+## Data Mapping (datamap) v1.20.1 — 2026-10-09 ｜ PATCH
+
+**EN01 表格的列改標「SW 時槽」並說明不是 gate；超過 RD_MODE 時槽數的列標「未用」。**
+
+判定依據：`docs/VERSIONING.md` §1：只改列標題、提示與圖例文字（含依 RD_MODE 加的「未用」標記，只提示、不停用），暫存器值、匯入匯出結果都不變 → PATCH。
+
+### 起因（Bruce 2026-10-09 15:43）
+
+> 這張圖，是代表一列的line顯示的subpixel，需要用到6條gate才能顯示完全的意思嗎？是不是不太合理? 要查清楚
+
+### 查證結論
+
+- EN01 表格列＝line × 6＋SW（時槽），「L1-1…L1-6」是同一條 line 在同一個水平期內依序輸出的 6 個時槽，不是 6 條 gate。出處：`DataMappingModule.cs:334-335`（列＝第幾條 line × mux 相位數＋第幾個相位，V2 每條 line 6 個相位槽＝最多 mux6）、`:452-453`（RD_MODE 只決定相位數）；原廠指南 `DataMapping_新手指南.md:240-251、664`。
+- 一條 line 實際用幾個時槽由 RD_MODE 決定：`RM81008.model:3532-3535`「0 Normal/ZINV 1 line in 1 line out；1 HSD or MUX2 1 line in 2 half line out；2 TRI-GATE or MUX3 1 line in 3×1/3 line out；3 MUX4 1 line 4 read；5 MUX6 1 line 6 read」。
+- 和 gate 的關係：HSD（Dual-Gate）／Tri-Gate 時，2／3 份 half line 各有自己的起始點（`RM81008.model:3680` ST_LINE「Each line may have 1/2/3 start point by different RD_MODE」），各對一條 gate（原廠指南 1.5「G1、G2 是同一列實體 pixel 的兩條 gate，依序打開」，`:126-136`）；MUX4／MUX6 是 source 端開關分時切換，同一條 gate 一起打開（指南 `:165-173`）。所以一條 line 最多 3 條 gate，6 個時槽只會出現在 MUX6。
+- 本機實檔：EEPROM_Demo RD_MODE＝1（MUX2／HSD），每條 line 只填 SW1、SW2，SW3 起為 0；原廠指南附錄 B（`:695`）的實檔也是 mux2 × 2 line、其餘列為 0。
+
+### 修改
+
+- `datamap.html`：EN01 列標題第二行改成「SW n·P1/P2/P3」；滑鼠提示「Line x 的第 n 個輸出時槽…不是第 n 條 gate」；圖例說明 SW 與 RD_MODE、gate 的關係；超過 RD_MODE 時槽數的列標「未用」（橘字，只提示，不停用、不改值）。三語字串 `dm.en01`（改）、`dm.en01RowTip`、`dm.en01Unused`（新）。
+- `common/datamap-core.js` v1.3.1：`en01Phases(rd)`（0→1、1→2、2→3、3→4、5→6，其他 null）。
+- `common/version.js` datamap v1.20.1；`version.js?v=`、`datamap-core.js?v=` 更新。
+- `tools/check_datamap_en01.js`：加 RD_MODE→時槽數、列標 SW／未用、提示與圖例文字檢查。
+
+---
+
 ## Data Mapping (datamap) v1.20.0 — 2026-10-09 ｜ MINOR
 
 **新增 EN01（RM81008）：型號下拉可選、24 列 × 12 欄 Data Mapping 表格（每列 T 階數）、匯入 code（Dynamic Header）、Check T-CON 認 EN01 並讀寫、匯出 script／Excel、TCON Register 確認。**
