@@ -246,7 +246,7 @@ const regOf = (b, maps) => { const r = {}; maps.forEach(([f, t, l]) => { for (le
     ok(S.model === 'EN01' && g.classList.contains('en01') && g.querySelectorAll('tbody tr').length === 24 && g.querySelectorAll('select.dm-cell').length === 288 && g.querySelectorAll('select.dm-en01t').length === 24 && Array.from(g.querySelectorAll('thead th')).map(x => x.textContent).slice(2).join() === DM.EN01_CH.join(),
       '選 EN01（沒匯入）⇒ 表格 24 列 × 12 欄（R0…B3）＋每列 T 下拉');
     ok(Array.from(g.querySelectorAll('select.dm-en01t')).every(x => x.value === '4') && Array.from($('dm-gate').options).map(o => o.value).join('|') === DM.EN01_GATES.map(x => x[0]).join('|'), '每列 T 預設 T4（WPF V2）；Gate Type＝Single／Dual／Tri／MUX4／MUX6');
-    ok($('dm-pvbody').classList.contains('hidden') && /EN01：面板排列預覽與 16 種配置比較暫不支援/.test($('dm-pvnote').textContent) && !$('dm-pvnote').classList.contains('hidden'), '③ 明寫 EN01 預覽／比較表暫不支援（不推接線）');
+    ok($('dm-pvbody').classList.contains('hidden') && /EN01：排列組合相關設定與排列組合統計暫不支援/.test($('dm-pvnote').textContent) && !$('dm-pvnote').classList.contains('hidden'), '③ 明寫 EN01 預覽／比較表暫不支援（不推接線）');
     ok(!$('dm-gridnote').classList.contains('hidden') && /FORCE_SEL_EN 與 FORCE_DE_EN/.test($('dm-gridnote').textContent) && $('dm-e0-0').disabled && $('dm-gate').disabled, 'Hand 關：表格與 Gate Type 停用，提示兩個 bit 都要開');
     ['mirror', 'chrb', 'chwb', 'rvsL'].forEach(k => ok(!d.querySelector('.dm-fieldrow[data-need="' + k + '"]').classList.contains('hidden'), '② 顯示 ' + k + ' 列（EN01 model 有這個欄位）'));
     ok(d.querySelectorAll('#dm-code tr[data-f]').length === 299 && !!d.querySelector('#dm-code tr[data-f="e287"]'), 'TCON Register 確認：299 個欄位（11＋288）');

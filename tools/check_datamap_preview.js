@@ -119,12 +119,13 @@ const ok = (c, m) => { if (c) pass++; else { fail++; console.log('  ✗ ' + m); 
   ok(st(1, 'R1') === 'ok[D1u]' && st(1, 'G1') === 'ok[D1d]', 'R1 ← D1 經 Line 1-1（上）、G1 ← D1 經 Line 1-2（下）');
   ok(npre() === 3 && st(2, 'G-1') === 'ok[D1u]' && st(2, 'B-1') === 'ok[D1d]', '第二列用到 G-1／B-1 ⇒ 前循環出現，D1 往左接到 G-1、B-1');
   fire($('dm-pv-swap'), true);
-  ok(st(1, 'R1') === 'ok[D1u]' && rect(1, 'R1').getAttribute('data-dn') === 'G2' && rect(1, 'G2').getAttribute('data-dn') === 'R1' && Q('path[data-dl="1"]').getAttribute('data-src') === '3' && svgA('swap') === '1' && sidesOk() && balOk(), 'v1.17.4 對調（合成）：線位置不變（R1 仍由 D1 接），D1 改收 TCON Data 3（G2）、D3 改收 Data 1（R1）');
+  /* v1.23.2（Bruce 10/12）：子像素位置與名稱固定，對調只改 drain：D1 收 TCON Data 3 ⇒ drain 接到 Data 3 指定的 G2；R1 改由收 Data 1 的 D3 接 */
+  ok(st(1, 'G2') === 'ok[D1u]' && st(1, 'R1') === 'ok[D3u]' && rect(1, 'R1').getAttribute('data-dn') === 'R1' && rect(1, 'G2').getAttribute('data-dn') === 'G2' && Q('path[data-dl="1"]').getAttribute('data-src') === '3' && svgA('swap') === '1' && sidesOk() && balOk(), 'v1.23.2 對調（合成）：子像素名稱不變（R1 格仍寫 R1），D1 改收 TCON Data 3 ⇒ drain 接 Data 3 的 G2；R1 改由 D3（收 Data 1）接［G2 ' + st(1, 'G2') + '、R1 ' + st(1, 'R1') + '／' + rect(1, 'R1').getAttribute('data-dn') + '、G2 ' + rect(1, 'G2').getAttribute('data-dn') + '、src ' + Q('path[data-dl="1"]').getAttribute('data-src') + '、side ' + sidesOk() + '、bal ' + balOk() + '］');
   fire($('dm-pv-swap'), false);
   ok(st(1, 'R1') === 'ok[D1u]', '取消對調 ⇒ R1 回到 D1');
   ok(repOk() && tierOk() && rect(1, 'R5').getAttribute('data-tier') === 'rep' && st(1, 'R5') === 'ok[D7u]', 'Dual：D7~D12 平移 12 格（R1→R5）、R5 是暗色重複組');
   fire($('dm-pv-swap'), true);
-  ok(Q('path[data-dl="7"]').getAttribute('data-src') === '9' && Q('path[data-dl="10"]').getAttribute('data-src') === '12' && Q('path[data-dl="8"]').getAttribute('data-src') === '8' && st(1, 'R5') === 'ok[D7u]' && repOk(), '對調延伸：D7↔D9、D10↔D12 只改收到的資料（R5 位置仍由 D7 接、D7 收 Data 9）');
+  ok(Q('path[data-dl="7"]').getAttribute('data-src') === '9' && Q('path[data-dl="10"]').getAttribute('data-src') === '12' && Q('path[data-dl="8"]').getAttribute('data-src') === '8' && st(1, 'R5') === 'ok[D9u]' && repOk(), '對調延伸：D7↔D9、D10↔D12，drain 跟著收到的資料走（R5 改由收 Data 7 的 D9 接）');
   fire($('dm-pv-swap'), false);
   fire($('dm-c1-5'), 'R5');
   ok(!!Q('path[data-w="1:D6:d:R5"]') && /^conflict\[(D6d,D7u|D7u,D6d)\]$/.test(st(1, 'R5')) && !!Q('[data-bad]'), 'Line 1-2 Data 6＝R5 ⇒ 和重複組 D7 撞在 R5（衝突標示）');

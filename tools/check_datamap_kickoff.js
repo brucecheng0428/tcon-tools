@@ -134,9 +134,11 @@ console.log('── code 表（D2:R31）＝網頁 T 表解碼');
       'CH1 在最右＋正向＋RGB：主循環置左、資料顏色＝玻璃顏色 24/24、不再出建議');
     const posR = dlPos(), cellR = cells(1) + '/' + cells(2);
     ok(QA('text[data-dof]').filter(f => f.getAttribute('x') === QA('text[data-dlab="Dn+6"]')[0].getAttribute('x'))[0].getAttribute('data-dof') === '6', 'SHL 正向：Dn+6 那條的小字是 Data 6（對應 ② 表格 Data 6）');
+    const axisR = QA('rect[data-pv]').map(e => e.getAttribute('data-pv')).join(','), mxR = +T.getAttribute('data-maxlen');
     fire($('dm-pv-drv'), 'r');
-    ok(dlPos() === posR && cells(1) + '/' + cells(2) !== cellR && T.getAttribute('data-dir') === 'rl' && +T.getAttribute('data-mis') > 0 && /SHL 反向/.test($('dm-pv-eq').textContent) && !/反＋反|等效/.test($('dm-pv-eq').textContent),
-      'v1.17.2 切換 SHL（CH1 在右）：Data 線位置與標號完全不變，只有格內收到的資料改變（' + cellR + ' → ' + cells(1) + '/' + cells(2) + '）、顏色不符 ' + T.getAttribute('data-mis') + ' 格');
+    /* v1.23.2（Bruce 10/12）：SHL 只改連線（drain 跟著收到的資料走），子像素軸與格內資料不變、資料一定正確；差別是最長 drain 變長 */
+    ok(QA('text[data-dlab]').map(e => e.getAttribute('data-dlab')).join(',') === posR.split('|')[1] && QA('rect[data-pv]').map(e => e.getAttribute('data-pv')).join(',') === axisR && cells(1) + '/' + cells(2) === cellR && T.getAttribute('data-dir') === 'rl' && +T.getAttribute('data-mis') === 0 && +T.getAttribute('data-maxlen') > mxR && /SHL 反向/.test($('dm-pv-eq').textContent) && !/反＋反|等效/.test($('dm-pv-eq').textContent),
+      'v1.23.2 切換 SHL（CH1 在右）：Data 線標號與子像素軸不變、格內資料不變（' + cellR + '）、顏色不符 0 格，只有 drain 改接（最長 drain ' + mxR + ' → ' + T.getAttribute('data-maxlen') + '）');
     { const dof = lab => { const e = QA('text[data-dlab="' + lab + '"]')[0]; const x = e && e.getAttribute('x'); const sm = QA('text[data-dof]').filter(f => f.getAttribute('x') === x)[0]; return sm ? sm.getAttribute('data-dof') : null; };
       const cellOf = dl => { const r = QA('rect[data-pv^="1:"][data-tier="main"]').filter(e => (e.getAttribute('data-in') || '').split(',').indexOf(dl + 'u') >= 0)[0]; return r ? r.getAttribute('data-dn') : null; };
       ok(dof('Dn+6') === '1' && dof('Dn+1') === '6' && cellOf('D12') === gridTxt(0)[0] && cellOf('D7') === gridTxt(0)[5],
@@ -148,25 +150,28 @@ console.log('── code 表（D2:R31）＝網頁 T 表解碼');
       const sd0 = sd(), tc0 = tc(), p0 = pth(), scS = w.dmBuildScript().text;
       fire($('dm-pv-swap'), true);
       const m = { 1: 3, 3: 1, 4: 6, 6: 4, 2: 2, 5: 5 };
-      ok(sd() === sd0 && pth() === p0 && tc() === tc0.split(',').map(k => String(m[k])).join(',') && w.dmBuildScript().text === scS,
-        'v1.17.4 勾「輸出對調」⇒ SD Out 列（亮字、線位置）完全不變，TCON Out 列 1↔3、4↔6 對調（' + tc0 + ' → ' + tc() + '），匯出 script 不變');
+      const sdl = () => QA('text[data-dlab]').map(e => e.getAttribute('data-dlab')).join(','), ax = () => QA('rect[data-pv]').map(e => e.getAttribute('data-pv')).join(',');
+      const sdl0 = (fire($('dm-pv-swap'), false), sdl()), ax0 = ax(); fire($('dm-pv-swap'), true);
+      ok(sdl() === sdl0 && ax() === ax0 && tc() === tc0.split(',').map(k => String(m[k])).join(',') && w.dmBuildScript().text === scS && p0.length > 0,
+        'v1.23.2 勾「輸出對調」⇒ SD Out 標號順序、子像素軸完全不變（線位置可能因線長均衡重排），TCON Out 列 1↔3、4↔6 對調（' + tc0 + ' → ' + tc() + '），匯出 script 不變');
       fire($('dm-pv-swap'), false);
       ok(tc() === tc0 && sd() === sd0, '取消對調 ⇒ TCON Out 回原樣'); }
     fire($('dm-pv-first'), 'l');
     ok(dlPos() !== posR && T.getAttribute('data-dir') === 'lr' && !d.querySelector('#dm-pv-tft [data-flip]') && QA('text[data-dlab="D1"]').length === 1, 'v1.17.2 切換 CH1 位置：Data 線位置與標號改變（D1…D6 從左排）');
     fire($('dm-pv-drv'), 'f'); fire($('dm-pv-first'), 'r'); fire($('dm-pv-stripe'), 'bgr');
     /* v1.18.17：排序不再看目前選的子像素排列（同分固定 RGB 先）⇒ 選 BGR 時建議仍是第 1 名 CH1 最右＋正向＋RGB；鏡像 lfbn 也全對、排第 2 */
-    ok(+T.getAttribute('data-mis') > 0 && T.getAttribute('data-sugcombo') === 'rfgn' && $('dm-pv-combotbl').querySelector('tr[data-combo="lfbn1"]').getAttribute('data-ok') === '1', '子像素選 BGR ⇒ 顏色不符；建議固定是第 1 名 CH1 最右＋正向＋RGB，鏡像 CH1 最左＋正向＋BGR 也全對（排第 2）');
+    /* v1.23.2：「資料正確」＝格子收到的資料＝固定子像素軸名稱 ⇒ 鏡像組合 CH1 最左＋正向＋BGR 左右反，資料不對 */
+    ok(+T.getAttribute('data-mis') > 0 && T.getAttribute('data-sugcombo') === 'rfgn' && $('dm-pv-combotbl').querySelector('tr[data-combo="lfbn1"]').getAttribute('data-ok') === '0', '子像素選 BGR ⇒ 顏色不符；建議固定是第 1 名 CH1 最右＋正向＋RGB；鏡像 CH1 最左＋正向＋BGR 左右反 ⇒ 資料不對');
     fire($('dm-pv-first'), 'l');
-    ok(+T.getAttribute('data-mis') === 0 && QA('[data-misk]').length === 0 && $('dm-pv-combotbl').querySelector('tr.dm-ccur').getAttribute('data-combo') === 'lfbn1' && $('dm-pv-combotbl').querySelector('tr.dm-ccur').getAttribute('data-group') === '2', 'CH1 在最左＋正向＋BGR：鏡像組合也全對（計算驗證），固定排第 2');
+    { const cr = $('dm-pv-combotbl').querySelector('tr.dm-ccur'); ok(+T.getAttribute('data-mis') === 0 && QA('[data-misk]').length === 0 && cr.getAttribute('data-combo') === 'lfbn1' && cr.getAttribute('data-ok') === '0' && /✗/.test(cr.querySelector('[data-col="data"]').textContent), 'v1.23.2 CH1 在最左＋正向＋BGR：顏色全對但左右鏡像 ⇒ 「資料正確」✗（' + cr.querySelector('[data-col="data"]').textContent + '）'); }
     fire($('dm-pv-stripe'), 'rgb'); fire($('dm-pv-first'), 'r'); fire($('dm-pv-drv'), 'f');
     ok(+T.getAttribute('data-mis') === 0, '回到全民正確配置 CH1 最右＋正向＋RGB：24/24');
     /* v1.17.0 Panel mode 欄位逐一切換 ⇒ ③ 是否反應（Bruce 10/7「把 CHRB 打勾，③ 沒有任何變化」） */
-    { const svg = () => T.innerHTML, g0 = [0, 1, 2, 3].map(gridTxt).join('|'), v0 = svg(), st0 = DM.cloneState(w.dmState.cur);
+    { const svg = () => T.innerHTML, g0 = [0, 1, 2, 3].map(gridTxt).join('|'), v0 = svg(), st0 = DM.cloneState(w.dmState.cur), axC0 = QA('rect[data-pv]').map(e => e.getAttribute('data-pv')).join(',');
       const reg01 = () => /write -m 0401 ([0-9A-F]{2}) ([0-9A-F]{2})/.exec(w.dmBuildScript().text);
       fire($('f-chrb'), true);
-      ok(w.dmState.cur.chrb === 1 && svg() !== v0 && [0, 1, 2, 3].map(gridTxt).join('|') === g0 && +T.getAttribute('data-mis') > 0 && !!Q('path[data-w="1:D1:u:R2"]') && !Q('path[data-w="1:D1:u:B2"]') && QA('[data-misk]').length > 0 && QA('rect[data-pv="1:B2"][data-dn="R2"]').length > 0,
-        'CHRB 勾 ⇒ ③ 即時改：D1 收到的資料 B2→R2（R↔B，接線位置不變）、格內改寫收到的資料（B2 位置寫 R2）、面板顏色出現 ≠（' + T.getAttribute('data-mis') + ' 格）；② 仍顯示暫存器原值');
+      ok(w.dmState.cur.chrb === 1 && svg() !== v0 && [0, 1, 2, 3].map(gridTxt).join('|') === g0 && +T.getAttribute('data-mis') > 0 && !!Q('path[data-w="1:D1:u:R2"]') && !Q('path[data-w="1:D1:u:B2"]') && QA('[data-misk]').length > 0 && QA('rect[data-tier="main"][data-dn="R2"]').length > 0 && QA('[data-recv]').length > 0 && QA('rect[data-pv]').map(e => e.getAttribute('data-pv')).join(',') === axC0,
+        'CHRB 勾 ⇒ ③ 即時改：D1 收到的資料 B2→R2（R↔B，接線位置不變）、子像素軸名稱不變、格內下緣加寫收到的資料（←R2）、面板顏色出現 ≠（' + T.getAttribute('data-mis') + ' 格）；② 仍顯示暫存器原值');
       ok(/CHRB＝1（R↔B）/.test($('dm-pvflags').textContent) && /CHRB＝1/.test($('dm-tsum').textContent) && (m => !!m && (parseInt(m[1], 16) & 8) === 8 && (parseInt(m[2], 16) & 8) === 8)(reg01()), 'CHRB 勾 ⇒ ③ 標示 CHRB＝1（R↔B）、② 摘要註明、匯出 script 0401 bit3＝1');
       fire($('f-chrb'), false);
       ok(svg() === v0 && +T.getAttribute('data-mis') === 0, 'CHRB 取消 ⇒ ③ 回到原圖、顏色 24/24 相符');
