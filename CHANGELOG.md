@@ -2,6 +2,43 @@
 
 ---
 
+## Data Mapping (datamap) v1.21.0 — 2026-10-12 ｜ MINOR
+
+**Line OD 相關畫面先隱藏（單一開關 `FEATURE_LINE_OD`），程式與資料保留；Data Mapping 完整後再回來改 Line OD。**
+
+判定依據：`docs/VERSIONING.md` §1 判定表＋R2 補充「不確定就編較低的級別」。畫面上少了 Line OD 入口（嚴格對照 §2 案例 6「移除既有功能」會到 MAJOR），但這次是依 Bruce 指示**暫時隱藏**、程式碼與資料都在、改一個常數就恢復，暫存器值、匯入匯出、寫入 TCON 結果全部不變；MAJOR 須 Bruce 核准，依「編低了下次可以補」取 MINOR，供覆核。
+
+### 起因（Bruce 2026-10-12）
+
+> 回到 tcon-tools 專案 Data Mapping 網頁，先把 Line OD 相關的先給隱藏，等到 Data Mapping 都很完整以後，我們再來繼續修改 Line OD 的部分。
+
+### 隱藏清單（`FEATURE_LINE_OD = false`，在 datamap.html 主程式開頭）
+
+1. ② Panel mode 設定下方的「Line OD」狀態列（✓ 一致／⚠ 不一致／尚未支援、差異明細）與「依 RT7 修正 Line OD」按鈕（`#dm-lodrow`、`#dm-lodfix`）。
+2. ③ 預覽來源的「測試：Line OD Type」下拉與旁註（`#dm-lodbar`、`#dm-pv-lod`）。
+3. ③ 選測試 Type 時的說明區（暫存器值、48 值驗算、命名檢查、xlsx 比對）與「反推接線表」（`#dm-lodinfo`、`#dm-lodgridbox`）。
+4. TCON Register 確認卡的「Line OD」群組（EM02 的 lod* 欄位；`shownFields` 不列）。
+5. ③ 說明文字裡提到 Line OD 的句子改用不含 Line OD 的版本：Tri-Gate 提示（`dm.pvTriNoLod`）、Auto 推定 R↔B 的依據（`dm.autoRbNoLod`）、Auto Mode「資料來源」（`lodTxt` 去掉「＝Line OD n」；來源只有 Line OD Type 時改用 `dm.autoPvNs` 不寫來源）。
+- 頁面沒有 URL hash／快捷鍵入口，匯出 Excel 沒有 Line OD 欄位，不需處理。
+
+### 不變（刻意保留）
+
+- LOD 暫存器照常解碼、匯出 script、I2C 寫入；RT7 改動時 Line OD 照 v1.11.0 自動跟著寫（匯出／存檔內容與 v1.20.2 逐字相同）。
+- Auto Mode 的 ③ 接線照舊由 Line OD 反推接線表畫（只是不再在畫面上寫來源是 Line OD）。
+- 元素 id、事件處理、i18n 原字串都在；`tools/check_datamap_*.js` 用程式操作隱藏元素照舊通過（它們驗的是程式行為，不是可見性）。
+
+### 測試
+
+- `tools/check_datamap_lod.js`：唯一依賴 Line OD 提示文字的一項（Tri-Gate 提示改用測試 Type 17~21）改成只在開關打開時驗；關閉時改驗「提示不提 Line OD」，並新增一項：`html.dm-nolod`、TCON Register 確認不列 lod*、Line OD 仍跟 RT7（狀態 ok）、匯出 script 仍含 0x09C7／0x09C9。
+- 其餘 check_datamap*（含 check_datamap_roundtrip.js）、check_em01_code_import、check_nb_code_import 不改、全過。
+- 另用自有 headless Chrome 走 11 個型號 × Hand 開／關 × 每個 Auto 樣式 × Gate Type（275 種狀態、`<details>` 全展開），畫面文字與可見 title 都找不到「Line OD」；v1.20.2 同一走法會找到（對照組）。
+
+### 恢復方式
+
+`datamap.html` 主程式開頭 `var FEATURE_LINE_OD = false;` 改成 `true`，即回到 v1.20.2 的畫面（CSS `html.dm-nolod` 規則、`shownFields` 過濾與三段替代文字都只在 false 時作用）。另外 `window.DM_FEATURE_LINE_OD` 可供測試讀取目前狀態。
+
+---
+
 ## Data Mapping (datamap) v1.20.2 — 2026-10-12 ｜ PATCH
 
 **鎖定接線後多個 Data 設同一個名稱（例 Data 3、Data 4 的 Line 1-1 都選 R1）時，③ 收到的名稱整體偏 2 pixel（R1 變 R3）、「只送 R1」不亮的錯誤修正；並統一 ② 表格與 ③ 接線圖之間的名稱／位置換算。**
