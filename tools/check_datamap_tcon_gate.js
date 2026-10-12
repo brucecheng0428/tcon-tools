@@ -135,7 +135,10 @@ const connect = async a => { a.$('dm-link').click(); await wait(() => a.w.dmStat
     const names = Array.from($('dm-code').querySelectorAll('tbody tr[data-f]')).map(r => r.cells[0].textContent).join(',');
     ok(/MIRROR|mirror/i.test(names) && /FORCE_SEL_EN|force_sel_en/i.test(names), '名稱含 Mirror、FORCE_SEL_EN 等 Panel mode 欄位');
     const mir = $('f-mirror'); mir.checked = !mir.checked; mir.dispatchEvent(new w.Event('change')); await sleep(80);
-    ok(!/，0 個已修改/.test($('dm-codesum').textContent) && rowsF() === nF && $('dm-code').querySelector('tr.chg[data-f="mirror"]'), '改 Mirror ⇒ 列數不變、Mirror 那列標色：' + $('dm-codesum').textContent);
+    /* 「已修改／原 XX」的基準＝來源值（匯入的 code 或 Check T-CON 讀回，S.baseImg；即時寫入成功後跟著更新）。
+       沒有來源（沒帶 code 參數 ⇒ 未匯入、未連線）就沒有「原」可比，不標已修改；這是規格，不是錯。原本這項沒分兩種情況，不帶 code 跑一定 fail（v1.18.13 起） */
+    if (CODE) ok(!/，0 個已修改/.test($('dm-codesum').textContent) && rowsF() === nF && $('dm-code').querySelector('tr.chg[data-f="mirror"]'), '改 Mirror ⇒ 列數不變、Mirror 那列標色：' + $('dm-codesum').textContent);
+    else ok(!w.dmState.baseImg && /，0 個已修改/.test($('dm-codesum').textContent) && rowsF() === nF && !$('dm-code').querySelector('tr.chg, .was'), '沒有來源（未匯入、未連線）⇒ 沒有「原」可比：改 Mirror 列數不變、不標已修改：' + $('dm-codesum').textContent);
   }
 
   console.log('TCON Out／SD Out 配色與點擊跳轉（v1.18.14）');

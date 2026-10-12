@@ -1,7 +1,7 @@
 // 用法：node tools/check_datamap_import_lock.js <repo> <EM01 code.bin> <EM02 code.bin>（Bruce 10/7 型號不符卡死的回歸；需要 tools/build 的 jsdom 或 repo node_modules）
 // jsdom 重現／回歸：datamap.html 型號不符後的鎖死（v1.2.1 重現、v1.3.0 驗證）
 const path = require('path'), fs = require('fs');
-const ROOT = process.argv[2];
+const ROOT = path.resolve(process.argv[2] || path.join(__dirname, ".."));   // path.resolve：傳相對路徑「.」時 require 才不會把 node_modules/jsdom 當套件名找不到
 const { JSDOM, VirtualConsole } = require(path.join(ROOT, 'node_modules/jsdom'));
 const EM01 = process.argv[3], EM02 = process.argv[4];
 let fail = 0; const ok = (c, m) => { console.log((c ? '  ✓ ' : '  ✗ ') + m); if (!c) fail++; };
