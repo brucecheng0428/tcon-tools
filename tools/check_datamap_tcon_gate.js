@@ -122,7 +122,8 @@ const connect = async a => { a.$('dm-link').click(); await wait(() => a.w.dmStat
   console.log('TCON Register 確認卡（v1.18.13）');
   { const a = await open(); const { $, d, w } = a;
     const cards = Array.from(d.querySelectorAll('.card.stp')).map(e => e.id);
-    ok(cards.indexOf('card-reg') === cards.indexOf('card-pv') + 1 && cards.indexOf('card-out') === cards.indexOf('card-reg') + 1, '獨立卡 card-reg 位在 ③ 與 ④ 之間：' + cards.join(' → '));
+    /* v1.22.0：③ 與 card-reg 之間多了獨立的 TFT 接線圖卡（card-tft） */
+    ok(cards.indexOf('card-tft') === cards.indexOf('card-pv') + 1 && cards.indexOf('card-reg') === cards.indexOf('card-tft') + 1 && cards.indexOf('card-out') === cards.indexOf('card-reg') + 1, '獨立卡 card-reg 位在 ③ 與 ④ 之間：' + cards.join(' → '));
     ok($('dm-codebox').tagName === 'DETAILS' && $('dm-codebox').open && /TCON Register 確認/.test($('dm-codebox').querySelector('summary').textContent), '卡名「TCON Register 確認」，預設展開、可收合');
     ok(!$('dm-codeonly') && !$('dm-pmhelp') && !$('card-dm').contains($('dm-code')), '「只看變動的位置」勾選已移除；② 不再有暫存器表與 Panel mode 說明表');
     ok(/^進階$/.test($('card-dm').querySelector('.dm-secfoot .dm-sech').textContent), '② 最下面區塊改名「進階」');

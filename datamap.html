@@ -95,6 +95,28 @@
   .dm-lockst { margin-left: 10px; font-size: 13px; font-weight: 700; color: var(--sub); }
   .dm-lockst.ok { color: #86efac; } .dm-lockst.ng { color: #fca5a5; }
   .card.dm-locked #dm-pv-wrap { position: relative; outline: 3px solid #f59e0b; outline-offset: 2px; box-shadow: 0 0 0 6px rgba(245,158,11,.18), 0 0 18px rgba(245,158,11,.35); }
+  /* v1.22.0（Bruce 10/12「每張卡片都可以收摺起來…收折起來，我還是要可以看到這個卡片的最主要的名稱」）：
+     標題列整列可點（觸控區 ≥ 44px）、左側箭頭；收摺狀態用 data-fold（不用 class：renderSteps／renderPreview 會整個改寫 className） */
+  .card.stp > .stp-hd.dm-foldhd { cursor: pointer; user-select: none; -webkit-user-select: none; min-height: 44px; align-items: center; }
+  .card.stp > .stp-hd.dm-foldhd:focus-visible { outline: 2px solid #60a5fa; outline-offset: 2px; border-radius: 6px; }
+  .dm-foldcar { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; flex: none; border-radius: 6px; background: rgba(148,163,184,.16); color: #cbd5e1; font-size: 15px; line-height: 1; transition: transform .15s; }
+  .card.stp > .stp-hd.dm-foldhd:hover .dm-foldcar { background: rgba(96,165,250,.25); color: #fff; }
+  #card-reg .dm-regcar { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 6px; background: rgba(148,163,184,.16); color: #cbd5e1; font-size: 15px; }
+  #card-reg .dm-regcar::before { content: ''; width: 8px; height: 8px; border-right: 2.5px solid currentColor; border-bottom: 2.5px solid currentColor; transform: translateX(-2px) rotate(-45deg); }
+  #card-reg .dm-regbox[open] .dm-regcar::before { content: ''; transform: translateY(-2px) rotate(45deg); }
+  .card.stp[data-fold="1"] { padding-bottom: 10px; }
+  .dm-foldcar::before { content: ''; width: 8px; height: 8px; border-right: 2.5px solid currentColor; border-bottom: 2.5px solid currentColor; transform: translateY(-2px) rotate(45deg); }
+  .card.stp[data-fold="1"] .dm-foldcar { transform: rotate(-90deg); }
+  .card.stp[data-fold="1"] > :not(.stp-hd) { display: none !important; }
+  .card.stp[data-fold="1"] > .stp-hd { margin-bottom: 0; }
+  .card.stp[data-fold="1"] .stp-t { font-size: 1.05em; }
+  .dm-topbar { position: sticky; top: 0; z-index: 31; display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; margin: 0 0 10px; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border, #334155); background: var(--card, #0f172a); }
+  .dm-topbar .dm-topsp { flex: 1; }
+  .dm-topbar .sbtn { min-height: 32px; }
+  .dm-dirtybar { top: 52px !important; }
+  .dm-i2chd { margin-left: 4px; }
+  .dm-i2cdl { font-size: 12.5px; margin-left: 6px; white-space: nowrap; color: #60a5fa; }
+  .dm-i2cdl:hover { color: #93c5fd; }
   .card.dm-locked #dm-pv-wrap::before { content: attr(data-locktag); position: absolute; top: 4px; right: 6px; z-index: 2; background: #f59e0b; color: #111827; font-size: 11.5px; font-weight: 700; padding: 1px 8px; border-radius: 8px; pointer-events: none; }
 
   .dm-layerchip { font-size: 11px; font-weight: 700; padding: 1px 8px; border-radius: 10px; border: 1px solid; margin-left: 8px; white-space: nowrap; }
@@ -320,6 +342,9 @@
 </div>
 
 <div class="container">
+  <!-- v1.22.0（Bruce 10/12）：頁首固定列：I2C 連線狀態（common/i2c-bridge.js 的共用徽章，資料來源＝S.linked）＋全部展開／全部收摺 -->
+  <div class="dm-topbar" id="dm-topbar"><span id="dm-i2c-top" class="i2cb-badge i2cb-off" data-i2c="off" role="status" aria-live="polite">I2C</span><span class="dm-topsp"></span>
+    <button class="sbtn" id="dm-fold-open" data-i18n="dm.foldOpenAll">全部展開</button><button class="sbtn" id="dm-fold-close" data-i18n="dm.foldCloseAll">全部收摺</button></div>
   <!-- v1.18.12（Bruce 10/8「匯入 Code 就是在離線作業…i2c 要連線的話，匯入的資料就要重新歸零」）：離線（匯入）／線上（I2C）互斥，頂端顯示目前模式 -->
   <div id="dm-modebar" class="dm-modebar" role="status"><span class="dm-mode-k" id="dm-mode-k"></span><span id="dm-mode-t"></span></div>
   <div id="dm-dirtybar" class="dm-dirtybar hidden" role="status">
@@ -330,12 +355,14 @@
 
   <!-- ① 選 T-CON／匯入（v1.17.0 版面：欄位名｜控制項，一列一個） -->
   <div class="card stp" id="card-src">
-    <div class="stp-hd"><span class="stp-tick" id="tk-src">○</span><span class="stp-t" data-i18n="dm.stp1">① 選 T-CON／匯入 code</span><span class="stp-st" id="st-src"></span></div>
+    <div class="stp-hd"><span class="stp-tick" id="tk-src">○</span><span class="stp-t" data-i18n="dm.stp1">① 選 T-CON／匯入 code</span><span id="dm-i2c-src" class="i2cb-badge i2cb-off dm-i2chd" data-i2c="off">I2C</span><span class="stp-st" id="st-src"></span></div>
     <section class="dm-sec dm-sec1">
+      <!-- v1.22.0（Bruce 10/12「沒有 I2C bridge 的話…可以去下載這個 I2C bridge 的壓縮包」）：連不上 Bridge 時由 I2CBridge.mountNeed 畫出下載鈕＋步驟（與 I2C 讀寫測試頁同一份）；放在 ① 最上面，手機不用捲就看得到 -->
+      <div id="dm-i2c-need" hidden></div>
       <div class="dm-form">
         <div class="dm-frow"><span class="dm-fl"><span data-i18n="dm.model">T-CON 型號</span></span><span class="dm-fc"><select id="dm-model" class="dm-sel"></select></span></div>
         <div class="dm-frow"><span class="dm-fl"><span data-i18n="dm.codeK">Code 檔</span></span><span class="dm-fc"><button class="sbtn pri" id="dm-import" data-i18n-title="dm.importTitle" title="匯入 code（.bin／.hex／.rom／.txt／.dat）"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v8"></path><path d="M4.5 7 8 10.5 11.5 7"></path><path d="M2 12.5V14h12v-1.5"></path></svg><span data-i18n="dm.importCode">匯入 code</span></button> <button class="sbtn" id="dm-clear" data-i18n-title="dm.clearImpTitle" title="清除匯入的 code，回到目前型號的預設值"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4.5h11"></path><path d="M6.5 4.5V2.8h3v1.7"></path><path d="M4 4.5v8.2a1.3 1.3 0 0 0 1.3 1.3h5.4a1.3 1.3 0 0 0 1.3-1.3V4.5"></path><path d="M6.7 7v4.5"></path><path d="M9.3 7v4.5"></path></svg><span data-i18n="dm.clearImp">清除匯入</span></button><span class="dm-src" id="dm-src-text"></span></span></div>
-        <div class="dm-frow"><span class="dm-fl"><span data-i18n="dm.orI2c">或 I2C 連線</span></span><span class="dm-fc"><button id="dm-link" class="sbtn linkbtn" aria-pressed="false">連線</button> <button id="dm-check" class="sbtn" data-i18n="dm.check">Check T-CON</button><span class="dm-sub" data-i18n="dm.checkHint">連線後會自動 Check T-CON（辨認 IC）並回讀 T-CON 設定；要重新回讀請再按 Check T-CON</span></span></div>
+        <div class="dm-frow"><span class="dm-fl"><span data-i18n="dm.orI2c">或 I2C 連線</span></span><span class="dm-fc"><button id="dm-link" class="sbtn linkbtn" aria-pressed="false">連線</button> <button id="dm-check" class="sbtn" data-i18n="dm.check">Check T-CON</button><a class="dm-i2cdl" id="dm-i2c-dl" href="#" download><span data-i18n="dm.i2cDlSmall">沒有 I2C Bridge？下載</span> <span id="dm-i2c-dlver"></span></a><span class="dm-sub" data-i18n="dm.checkHint">連線後會自動 Check T-CON（辨認 IC）並回讀 T-CON 設定；要重新回讀請再按 Check T-CON</span></span></div>
         <div class="dm-frow"><span class="dm-fl">Slave</span><span class="dm-fc"><select id="dm-slave" class="dm-sel" data-i18n-title="dm.slaveTip" title="EM01／EM02／E512 用；DAZ／E501／E503 固定 0x3E">
         <option value="auto" data-i18n="dm.slaveAuto">自動</option>
         <!-- v1.18.16（Bruce 10/8「為什麼是 68、69、60、61，而不是 68 到 6F」）：原 4 個是 PQ Tool ICCommonFunction.CheckICID 的自動掃描順序（CHANGELOG 7065／12380），
@@ -406,12 +433,12 @@
     <section class="dm-sec dm-secfoot">
       <h3 class="dm-sech" data-i18n="dm.secAdv">進階</h3>
     <details class="stp-more hidden" id="dm-manual">
-      <summary><span data-i18n="dm.manSum">原廠 UI 手動輸入對照</span></summary>
+      <summary><span data-i18n="dm.manSum">瑞鼎 UI 手動輸入對照</span></summary>
       <div class="dm-row" style="margin-top:8px"><button class="sbtn" id="dm-mancopy" data-i18n="dm.manCopy">複製全部</button><span class="dm-sub" id="dm-mannote"></span></div>
       <div class="dm-gridwrap"><table class="dm-code" id="dm-mantbl"></table></div>
     </details>
       <details class="stp-more hidden" id="dm-mnt">
-        <summary><span data-i18n="dm.mntSum">網頁附加：EM01／EM02／E512 原廠工具欄位（Python UI 沒有）</span></summary>
+        <summary><span data-i18n="dm.mntSum">網頁附加：EM01／EM02／E512 瑞鼎 UI 欄位（Python UI 沒有）</span></summary>
         <div class="dm-form" style="margin-top:8px">
         <div class="dm-frow"><span class="dm-fl">Sub panel mode</span><span class="dm-fc"><select id="f-subPanel" class="dm-sel"></select></span></div>
         <div class="dm-frow"><span class="dm-fl">LTPS zigzag</span><span class="dm-fc"><select id="f-ltpsZz" class="dm-sel"><option>0</option><option>1</option><option>2</option><option>3</option></select></span></div>
@@ -457,8 +484,21 @@
         <!-- v1.18.17：比較表從「說明與進階」搬到這裡：緊接 Driver／面板設定與套用建議，點一列就套用到上方 -->
         <details class="stp-more" id="dm-pv-combos" open><summary><span id="dm-pv-combosum">16 種配置比較・點一列套用</span></summary><div class="dm-sub" style="margin:6px 0" data-i18n="dm.pvCRule">排序（含 TCON Mirror）：資料與顏色全對 → 錯的格數少 → 最長 drain 短 → 左右線長差小 → 同分依序：輸出對調「無」、SHL 正向、RGB、CH1 最左、Mirror 不必改</div><div class="dm-gridwrap"><table class="dm-code" id="dm-pv-combotbl"></table></div></details>
       </section>
-      <section class="dm-sec">
-        <h3 class="dm-sech" id="dm-pv-tfth"><span data-i18n="dm.pvTftH">TFT 接線圖</span><span class="dm-pvexp" id="dm-pv-exp"></span></h3>
+    </div>
+    <div class="hidden" id="dm-lodgridbox">
+      <div class="dm-pvh"><span data-i18n="dm.lodGridH">反推接線表</span><span class="dm-sub" id="dm-lodgridd"></span></div>
+      <div class="dm-pvwrap"><table class="dm-lodgrid" id="dm-lodgrid"></table></div>
+    </div>
+  </div>
+
+  <!-- v1.22.0（Bruce 10/12「TFT 接線圖，我需要把它獨立成另外一張卡片。可以單獨不收折，或收折」）：從 ③ 拆出成獨立卡片。
+       元素 id、事件、資料都不變（renderPreview／renderPvTft 照舊畫進 #dm-pv-tft，鎖定、只送 R1、反推、跳轉照常）；
+       #dm-pv-tfth 從 h3 改成這張卡的標題列（跳轉目標不變）。③ 無法預覽（Tri／EN01）時 #dm-tftbody 與 #dm-pvbody 一起藏，改顯示 #dm-tftnote。 -->
+  <div class="card stp" id="card-tft">
+    <div class="stp-hd" id="dm-pv-tfth"><span class="stp-tick" id="tk-tft">◇</span><span class="stp-t" data-i18n="dm.pvTftH">TFT 接線圖</span><span class="dm-pvexp" id="dm-pv-exp"></span><span class="stp-st" id="st-tft"></span></div>
+    <div class="dm-pvnote hidden" id="dm-tftnote"></div>
+    <div id="dm-tftbody">
+      <section class="dm-sec dm-sec1">
         <!-- v1.19.0（Bruce 10/9「V 方向的 line 數設定，目前是 4 條 line，也可以手動改成 8 條 line 或是 12 條 line。寬度都一樣」）：只改 ③ 接線圖垂直畫幾列；水平 Data 條數、每格寬不變 -->
         <div class="dm-vlbar" id="dm-pv-vlbar"><span class="dm-k" data-i18n="dm.pvVlK">V 方向 Line 數</span><select id="dm-pv-vl" class="dm-sel"><option value="4">4</option><option value="8">8</option><option value="12">12</option></select> <i class="dm-i" data-i18n-title="dm.hVlT" title="">ⓘ</i><span class="dm-sub" id="dm-pv-vlnote"></span></div>
         <!-- v1.18.7（Bruce 10/8）：鎖定後才出現的畫面樣式：全白（全都送，預設）／只送紅／只送綠／只送藍 -->
@@ -476,10 +516,6 @@
           <div class="dm-pvlg" id="dm-pv-legend"></div>
         </details>
       </section>
-    </div>
-    <div class="hidden" id="dm-lodgridbox">
-      <div class="dm-pvh"><span data-i18n="dm.lodGridH">反推接線表</span><span class="dm-sub" id="dm-lodgridd"></span></div>
-      <div class="dm-pvwrap"><table class="dm-lodgrid" id="dm-lodgrid"></table></div>
     </div>
   </div>
 
@@ -519,8 +555,8 @@
 </div>
 <div class="dm-toasts" id="dm-toasts" aria-live="polite"></div>
 
-<script src="common/version.js?v=20261012dm1210"></script>
-<script src="common/i18n.js?v=20261008dm11825"></script>
+<script src="common/version.js?v=20261012dm1220"></script>
+<script src="common/i18n.js?v=20261012dm1220"></script>
 <script>
 (function () {
   /* [zh-TW, en, zh-CN] */
@@ -536,6 +572,11 @@
     'dm.pvRowsDual': ['Dual Gate：每列上下各一條 Gate；Data n 經上下兩顆 TFT 接到 ② 指定的子像素。', 'Dual gate: an upper and a lower gate per row; Data n drives the subpixels set in ② through two TFTs.', 'Dual Gate：每列上下各一条 Gate；Data n 经上下两颗 TFT 接到 ② 指定的子像素。'],
     'dm.pvRow': ['第{n}列', 'Row {n}', '第{n}列'],
     'dm.pvTftH': ['TFT 接線圖', 'TFT wiring', 'TFT 接线图'],
+    'dm.foldOpenAll': ['全部展開', 'Expand all', '全部展开'],
+    'dm.foldCloseAll': ['全部收摺', 'Collapse all', '全部收折'],
+    'dm.foldT': ['點標題列收摺／展開', 'Click the title bar to collapse / expand', '点标题栏收折／展开'],
+    'dm.i2cDlSmall': ['沒有 I2C Bridge？下載', 'No I2C Bridge? Download', '没有 I2C Bridge？下载'],
+    'dm.tftNa': ['目前設定沒有 TFT 接線圖（原因見上方 ③ 的說明）。', 'No TFT wiring for the current settings (see the note in ③ above).', '目前设定没有 TFT 接线图（原因见上方 ③ 的说明）。'],
     'dm.pvVlK': ['V 方向 Line 數', 'V-direction lines', 'V 方向 Line 数'],
     'dm.hVlT': ['③ 接線圖垂直方向畫幾條 Line（4／8／12，預設 4）。不足時依垂直週期往下重複；水平 Data 條數與每格寬度不變。只影響預覽。', 'How many lines ③ draws vertically (4/8/12, default 4). Extra lines repeat the vertical period; horizontal data lines and cell width stay the same. Preview only.', '③ 接线图垂直方向画几条 Line（4／8／12，默认 4）。不足时依垂直周期往下重复；水平 Data 条数与每格宽度不变。只影响预览。'],
     'dm.pvVlMore': ['目前架構垂直週期 {p} 條 Line，大於所選 {n}，照週期畫 {p} 條', 'Vertical period is {p} lines (more than {n}); drawing {p} lines', '目前架构垂直周期 {p} 条 Line，大于所选 {n}，照周期画 {p} 条'],
@@ -580,7 +621,7 @@
     'dm.hChwbT': ['RGB 灰階反相；不影響接線預覽。', 'Inverts RGB grey levels; does not affect the wiring preview.', 'RGB 灰阶反相；不影响接线预览。'],
     'dm.hDeT': ['勾選＝用 FORCE_DE_SEL 指定 T 表（code 用哪張表解）。', 'On = FORCE_DE_SEL picks the T table used to decode the code.', '勾选＝用 FORCE_DE_SEL 指定 T 表（code 用哪张表解）。'],
     'dm.hTselT': ['bit n＝T 表 n+1；只設一個 bit 時才確定。', 'Bit n = table T(n+1); only defined when a single bit is set.', 'bit n＝T 表 n+1；只设一个 bit 时才确定。'],
-    'dm.hRvsT': ['各 port 反向讀取；勾 Mirror 時原廠寫 0xFFFF、取消寫 0。不影響預覽。', 'Per-port reverse read; the vendor tool writes 0xFFFF with Mirror on, 0 when off. No effect on the preview.', '各 port 反向读取；勾 Mirror 时原厂写 0xFFFF、取消写 0。不影响预览。'],
+    'dm.hRvsT': ['各 port 反向讀取；勾 Mirror 時瑞鼎 UI 寫 0xFFFF、取消寫 0。不影響預覽。', 'Per-port reverse read; the Raydium UI writes 0xFFFF with Mirror on, 0 when off. No effect on the preview.', '各 port 反向读取；勾 Mirror 时瑞鼎 UI 写 0xFFFF、取消写 0。不影响预览。'],
     'dm.secPanel': ['Panel mode 設定', 'Panel mode settings', 'Panel mode 设定'],
     'dm.secGrid': ['Data Mapping 表格（force_sel）', 'Data Mapping table (force_sel)', 'Data Mapping 表格（force_sel）'],
     'dm.secTools': ['工具', 'Tools', '工具'],
@@ -667,7 +708,7 @@
     'dm.pvEqPosR': ['Data 線：CH1 在最右 ⇒ 主循環置左（Dn+6…Dn+1）', 'Data lines: CH1 right ⇒ main cycle on the left (Dn+6…Dn+1)', 'Data 线：CH1 在最右 ⇒ 主循环置左'],
     'dm.pvEqShlF': ['資料：SHL 正向 ⇒ 每條線收到自己的資料', 'Data: SHL forward ⇒ each line receives its own data', '资料：SHL 正向 ⇒ 每条线收到自己的资料'],
     'dm.pvEqShlR': ['資料：SHL 反向 ⇒ 每組內資料順序倒過來', 'Data: SHL reversed ⇒ data order reversed inside each group', '资料：SHL 反向 ⇒ 每组内资料顺序倒过来'],
-    'dm.rvsWarn': ['⚠ Mirror＝{m} 但 READ_RVS＝0x{v}，和原廠工具勾／不勾 Mirror 時寫入的值（0x{w}）不同；量產 code 有逐 port 設定的例子（EM01 B4 34" mLVDS 0x0003／0x0001），請確認是否刻意。', '⚠ Mirror = {m} but READ_RVS = 0x{v}, unlike the value the vendor tool writes (0x{w}); some production codes set it per port on purpose — please check.', '⚠ Mirror＝{m} 但 READ_RVS＝0x{v}，和原厂工具写入值（0x{w}）不同，请确认。'],
+    'dm.rvsWarn': ['⚠ Mirror＝{m} 但 READ_RVS＝0x{v}，和瑞鼎 UI 勾／不勾 Mirror 時寫入的值（0x{w}）不同；量產 code 有逐 port 設定的例子（EM01 B4 34" mLVDS 0x0003／0x0001），請確認是否刻意。', '⚠ Mirror = {m} but READ_RVS = 0x{v}, unlike the value the Raydium UI writes (0x{w}); some production codes set it per port on purpose — please check.', '⚠ Mirror＝{m} 但 READ_RVS＝0x{v}，和瑞鼎 UI 写入值（0x{w}）不同，请确认。'],
     'dm.pvRhTcT': ['暗字＝TCON 丟出的資料順序，和 ② Data Mapping 表格的 Data k 一致（隨 SHL 改變）', 'Dim labels = the order the TCON sends the data, same as Data k in the step-2 table (changes with SHL)', '暗字＝TCON 送出的顺序，与 ② 表格一致'],
     'dm.pvRhTc': ['TCON Out', 'TCON Out', 'TCON Out'],
     'dm.pvRhSdT': ['亮字＝Source Driver 實際輸出到面板的 Data 線位置（只由 Driver CH1 位置決定，SHL 不影響）', 'Bright labels = the data lines the source driver actually drives on the panel (set by the driver CH1 position only)', '亮字＝Source Driver 实际输出到面板的 Data 线位置'],
@@ -702,9 +743,9 @@
     'dm.colNote': ['依每格收到的資料決定亮不亮；亮的格子用該子像素本身的顏色', 'Cells light up by the data they receive, in their own sub-pixel colour', '依每格收到的数据决定亮不亮；亮的格子用该子像素本身的颜色'],
     'dm.colOffTip': ['（畫面樣式：這格收到 {c}，不是 {m}，不亮）', ' (pattern: receives {c}, not {m}, stays dark)', '（画面样式：收到 {c}，不亮）'],
     'dm.em01Lbl': ['（panel_mode＝{p}、sub_panel_mode＝{s}、rd_mode＝{r}）', '(panel_mode={p}, sub_panel_mode={s}, rd_mode={r})', '（panel_mode＝{p}、sub_panel_mode＝{s}、rd_mode＝{r}）'],
-    'dm.em01Note': ['EM01 Auto：先選 Panel_mode，再選 sub_panel_mode（同原廠 UI）；③ 依 EM02 同組合的 Type 畫（待 RD 確認）。', 'EM01 Auto: pick Panel_mode, then sub_panel_mode (as in the vendor UI); ③ uses the matching EM02 type (to be confirmed by RD).', 'EM01 Auto：先选 Panel_mode，再选 sub_panel_mode（同原厂 UI）；③ 依 EM02 同组合的 Type 画（待 RD 确认）。'],
+    'dm.em01Note': ['EM01 Auto：先選 Panel_mode，再選 sub_panel_mode（同瑞鼎 UI）；③ 依 EM02 同組合的 Type 畫（待 RD 確認）。', 'EM01 Auto: pick Panel_mode, then sub_panel_mode (as in the Raydium UI); ③ uses the matching EM02 type (to be confirmed by RD).', 'EM01 Auto：先选 Panel_mode，再选 sub_panel_mode（同瑞鼎 UI）；③ 依 EM02 同组合的 Type 画（待 RD 确认）。'],
     'dm.em01SubNa': ['（code 值 sub {n}：這個 Panel_mode 沒有定義）', '(code sub {n}: not defined for this Panel_mode)', '（code 值 sub {n}：未定义）'],
-    'dm.em01PmChg': ['Panel_mode 已換，原本的 Type「{o}」不在新清單，改成第一項「{n}」（照原廠 UI）', 'Panel_mode changed; "{o}" is not in the new list, so the first item "{n}" was selected (as the vendor UI does)', 'Panel_mode 已换，改成第一项「{n}」'],
+    'dm.em01PmChg': ['Panel_mode 已換，原本的 Type「{o}」不在新清單，改成第一項「{n}」（照瑞鼎 UI）', 'Panel_mode changed; "{o}" is not in the new list, so the first item "{n}" was selected (as the Raydium UI does)', 'Panel_mode 已换，改成第一项「{n}」'],
     'dm.needCheck': ['請先 Check T-CON：本次連線確認的型號＝目前型號後，才會寫入／回讀 T-CON（避免讀到假的值或寫錯 IC）', 'Run Check T-CON first: the T-CON is written/read back only after this connection confirmed the IC is the selected model', '请先 Check T-CON：本次连线确认型号＝目前型号后才会写入／回读 T-CON'],
     'dm.checkHint': ['連線後自動 Check T-CON 並回讀；要重讀再按一次。', 'Check T-CON runs and reads back automatically after connecting; press again to re-read.', '连线后自动 Check T-CON 并回读；要重读再按一次。'],
     'dm.modeOn': ['線上', 'Online', '线上'],
@@ -764,12 +805,12 @@
     'dm.rt7User': ['(33) User define', '(33) User define', '(33) User define'],
     'dm.rt7NoteOff': ['Hand Mode 關（Auto 樣式）：TCON 依 {f} 自動決定接線；選 Manual 樣式會自動開 Hand Mode 並填入兩組 force_sel 表', 'Hand Mode off (Auto style): the TCON derives wiring from {f}; picking a Manual style turns Hand Mode on and fills both force_sel sets', 'Hand Mode 关（Auto 样式）：TCON 依 {f} 自动决定接线；选 Manual 样式会自动开 Hand Mode 并填入两组 force_sel 表'],
     'dm.rt7NoteOn': ['Hand Mode 開（Manual）：TCON 用下方 force_sel 表；表格與原廠樣式完全相同才顯示該樣式，否則顯示 User define；選 Auto 樣式會自動關 Hand Mode', 'Hand Mode on (Manual): the TCON uses the force_sel table below; a vendor style is shown only when everything matches, otherwise User define; picking an Auto style turns Hand Mode off', 'Hand Mode 开（Manual）：TCON 用下方 force_sel 表；表格与原厂样式完全相同才显示该样式，否则显示 User define；选 Auto 样式会自动关 Hand Mode'],
-    'dm.rt7NotEm02': ['（{m} 原廠工具沒有這個清單，沿用 EM02 原廠清單，暫存器語意相同）', ' ({m} vendor tool has no such list; the EM02 vendor list is used, same register semantics)', '（{m} 原厂工具没有这个清单，沿用 EM02 原厂清单，寄存器语义相同）'],
+    'dm.rt7NotEm02': ['（{m} 瑞鼎 UI 沒有這個清單，沿用 EM02 原廠清單，暫存器語意相同）', ' ({m} Raydium UI has no such list; the EM02 vendor list is used, same register semantics)', '（{m} 瑞鼎 UI 没有这个清单，沿用 EM02 原厂清单，寄存器语义相同）'],
     'dm.autoHandOpt': ['Hand Mode 開', 'Hand Mode on', 'Hand Mode 开'],
     'dm.autoUnknownOpt': ['未知（0x{v}）', 'Unknown (0x{v})', '未知（0x{v}）'],
     'dm.autoPv': ['Auto Mode：依 ② 選的 Type「{n}」畫（資料來源：{src}）', 'Auto Mode: drawn from the Type "{n}" chosen in ② (source: {src})', 'Auto Mode：依 ② 选的 Type「{n}」画（资料来源：{src}）'],
     'dm.autoPvNs': ['Auto Mode：依 ② 選的 Type「{n}」畫', 'Auto Mode: drawn from the Type "{n}" chosen in ②', 'Auto Mode：依 ② 选的 Type「{n}」画'],
-    'dm.autoEm02Def': ['依 EM02／查詢表定義推定：{m} 原廠工具沒有 Type 清單，panel／sub 欄位語意與 EM02 相同，照 EM02 RT7 樣式與查詢表 Type 定義畫', 'Inferred from EM02 / lookup-table definitions: the {m} vendor tool has no type list; panel/sub semantics equal EM02', '依 EM02／查询表定义推定：{m} 原厂工具没有 Type 清单，panel／sub 栏位语义与 EM02 相同，照 EM02 RT7 样式与查询表 Type 定义画'],
+    'dm.autoEm02Def': ['依 EM02／查詢表定義推定：{m} 瑞鼎 UI 沒有 Type 清單，panel／sub 欄位語意與 EM02 相同，照 EM02 RT7 樣式與查詢表 Type 定義畫', 'Inferred from EM02 / lookup-table definitions: the {m} Raydium UI has no type list; panel/sub semantics equal EM02', '依 EM02／查询表定义推定：{m} 瑞鼎 UI 没有 Type 清单，panel／sub 栏位语义与 EM02 相同，照 EM02 RT7 样式与查询表 Type 定义画'],
     'dm.autoLoose': ['推定：目前 panel {p}／sub {sp}／mirror {mi}／chrb {rb} 不是原廠清單裡的組合，依 panel／sub 比照「{n}」畫。', 'Inferred: panel {p} / sub {sp} / mirror {mi} / chrb {rb} is not a vendor combination; drawn per panel/sub as "{n}". ', '推定：目前 panel {p}／sub {sp}／mirror {mi}／chrb {rb} 不是原厂清单里的组合，依 panel／sub 比照「{n}」画。'],
     'dm.autoRb': ['chrb 不同 ⇒ R、B 對換（依據：RT7 (25)→(26) RB_chg 只差 chrb，Line OD 25／26 接線正好 R↔B）。', 'chrb differs ⇒ R and B swapped (RT7 (25)→(26) RB_chg differ only in chrb; Line OD 25/26 wiring is exactly R↔B). ', 'chrb 不同 ⇒ R、B 对换（依据：RT7 (25)→(26) RB_chg 只差 chrb，Line OD 25／26 接线正好 R↔B）。'],
     'dm.autoRbNoLod': ['chrb 不同 ⇒ R、B 對換（依據：RT7 (25)→(26) RB_chg 只差 chrb）。', 'chrb differs ⇒ R and B swapped (RT7 (25)→(26) RB_chg differ only in chrb). ', 'chrb 不同 ⇒ R、B 对换（依据：RT7 (25)→(26) RB_chg 只差 chrb）。'],
@@ -779,14 +820,14 @@
     'dm.autoNoPic': ['此型號（{m}）Auto Type「{n}」尚無架構定義，③ 無法畫圖。原因：{why}', 'No structure definition yet for {m} Auto Type "{n}"; nothing can be drawn. Reason: {why}', '此型号（{m}）Auto Type「{n}」尚无架构定义，③ 无法画图。原因：{why}'],
     'dm.autoUnk': ['Auto Mode：PANEL_MODE／SUB_PANEL_MODE（0x{v}）不在 Type 清單內，③ 不畫', 'Auto Mode: PANEL_MODE / SUB_PANEL_MODE (0x{v}) is not in the type list; nothing drawn', 'Auto Mode：PANEL_MODE／SUB_PANEL_MODE（0x{v}）不在 Type 清单内，③ 不画'],
     'dm.autoFix': ['已依邏輯修正：隱藏表「{row}」共 {n} 格與 Type 名稱／Pixel Structure 圖矛盾，畫圖時改用修正值（{ex}…）', 'Corrected by table logic: {n} cells of hidden-table row "{row}" contradict the type name / pixel-structure image; corrected values used ({ex}…)', '已依逻辑修正：隐藏表「{row}」共 {n} 格与 Type 名称／Pixel Structure 图矛盾，画图时改用修正值（{ex}…）'],
-    'dm.manSum': ['原廠 UI 手動輸入對照', 'Vendor UI manual entry', '原厂 UI 手动输入对照'],
+    'dm.manSum': ['瑞鼎 UI 手動輸入對照', 'Raydium UI manual entry', '瑞鼎 UI 手动输入对照'],
     'dm.manCopy': ['複製全部', 'Copy all', '复制全部'],
     'dm.manCopied': ['已複製手動輸入對照', 'Manual-entry table copied', '已复制手动输入对照'],
     'dm.lodFix': ['依 RT7 修正 Line OD', 'Fix Line OD from RT7', '依 RT7 修正 Line OD'],
     'dm.lodOk': ['✓ Line OD 與 RT7 一致（Type {t}）', '✓ Line OD matches RT7 (Type {t})', '✓ Line OD 与 RT7 一致（Type {t}）'],
     'dm.lodDiff': ['⚠ Line OD 與 RT7 不一致：目前 {c}，依 RT7 應為 {e}（差 {n} 格）', '⚠ Line OD does not match RT7: now {c}, RT7 needs {e} ({n} cells differ)', '⚠ Line OD 与 RT7 不一致：目前 {c}，依 RT7 应为 {e}（差 {n} 格）'],
     'dm.lodFail': ['⚠ 無法依 RT7 自動對應 Line OD（{w}），不會自動寫 LOD，請手動確認', '⚠ Line OD cannot be derived from RT7 ({w}); LOD is not written automatically, check it by hand', '⚠ 无法依 RT7 自动对应 Line OD（{w}），不会自动写 LOD，请手动确认'],
-    'dm.lodNa': ['{m} 的 Line OD 尚未支援（格式與 EM02 不同或 bin 位置未確認），請在原廠 UI 手動確認', 'Line OD for {m} is not supported yet; check it in the vendor UI', '{m} 的 Line OD 尚未支持，请在原厂 UI 手动确认'],
+    'dm.lodNa': ['{m} 的 Line OD 尚未支援（格式與 EM02 不同或 bin 位置未確認），請在瑞鼎 UI 手動確認', 'Line OD for {m} is not supported yet; check it in the Raydium UI', '{m} 的 Line OD 尚未支持，请在瑞鼎 UI 手动确认'],
     'dm.lodLinked': ['RT7 改動時 Line OD 會自動跟著寫（含匯出 script／I2C）', 'Line OD follows RT7 edits automatically (export / I2C included)', 'RT7 改动时 Line OD 会自动跟着写（含导出 script／I2C）'],
     'dm.pv2nd': ['第二組', '2nd set', '第二组'],
     'dm.pvRowsTri': ['Tri-Gate：每列三條 Gate；Data n 經三顆 TFT 接到指定的子像素。', 'Tri-gate: three gates per row; Data n drives its subpixels through three TFTs.', 'Tri-Gate：每列三条 Gate；Data n 经三颗 TFT 接到指定的子像素。'],
@@ -811,7 +852,7 @@
     'dm.lodTag': ['測試 · Line OD Type {n}', 'Test · Line OD Type {n}', '测试 · Line OD Type {n}'],
     'dm.lodTri': ['Tri-Gate：TFT 預覽只支援 Single／Dual Gate（② 也沒有 Tri 表格）；請看下方反推接線表。', 'Tri-Gate: the TFT preview supports Single / Dual Gate only (② has no Tri table); see the derived wiring table below.', 'Tri-Gate：TFT 预览只支持 Single／Dual Gate（② 也没有 Tri 表格）；请看下方反推接线表。'],
     'dm.lodGridH': ['反推接線表', 'Reverse-engineered wiring table', '反推接线表'],
-    'dm.lodGridD': ['淡色＝前循環（-1）；可和原廠 Line OD → Mapping 分頁的示意圖逐格對照。', 'Faded = previous cycle (-1); compare cell by cell with the vendor Line OD → Mapping diagram.', '淡色＝前循环（-1）；可和原厂 Line OD → Mapping 分页的示意图逐格对照。'],
+    'dm.lodGridD': ['淡色＝前循環（-1）；可和瑞鼎 UI 的 Line OD → Mapping 分頁的示意圖逐格對照。', 'Faded = previous cycle (-1); compare cell by cell with the vendor Line OD → Mapping diagram.', '淡色＝前循环（-1）；可和瑞鼎 UI 的 Line OD → Mapping 分页的示意图逐格对照。'],
     'dm.lodMir': ['原廠圖以左右反向的名稱標示（R4 G4 B4 R3…）；表內改用實體位置命名，接線同非 Mirror 的對應 Type。', 'The vendor diagram uses mirrored names (R4 G4 B4 R3…); this table uses physical positions, wiring identical to the matching non-mirror type.', '原厂图以左右反向的名称标示（R4 G4 B4 R3…）；表内改用实体位置命名，接线同非 Mirror 的对应 Type。'],
     'dm.lodRegs': ['原廠 Register Table：', 'Vendor register table: ', '原厂 Register Table：'],
     'dm.lodChkOk': ['✓ 由反推接線算回的 Line OD 48 個值與原廠表完全一致', '✓ The 48 Line OD values recomputed from this wiring match the vendor table exactly', '✓ 由反推接线算回的 Line OD 48 个值与原厂表完全一致'],
@@ -944,9 +985,10 @@
 <script src="common/subpix-colors.js?v=20261008dm11825"></script>
 <script src="common/xlsx.js?v=20261008dm11825"></script>
 <script src="common/datamap-core.js?v=20261012dm1202"></script>
-<script src="common/datamap-lod.js?v=20261008dm11825"></script>
+<script src="common/datamap-lod.js?v=20261012dm1220"></script>
 <script src="common/datamap-auto.js?v=20261008dm11825"></script>
 <script src="common/i2c-mbus.js?v=20261008dm11825"></script>
+<script src="common/i2c-bridge.js?v=20261012dm1220"></script>
 <script>
 (function () {
   'use strict';
@@ -1406,7 +1448,7 @@
     st.textContent = on ? tt('dm.lockedSt', { t: GL.info || '' }) + (cmp ? ' ' + tt(cmp.ok === cmp.n ? 'dm.lockOk' : 'dm.lockNg', { a: cmp.ok, n: cmp.n }) : '') : tt('dm.unlockedSt');
     st.className = 'dm-lockst' + (on ? (cmp && cmp.ok === cmp.n ? ' ok' : ' ng') : '');
     st.setAttribute('data-ok', cmp ? cmp.ok + '/' + cmp.n : '');
-    $('card-pv').classList.toggle('dm-locked', on);
+    $('card-pv').classList.toggle('dm-locked', on); $('card-tft').classList.toggle('dm-locked', on);   // v1.22.0：接線圖在獨立卡，鎖定外框跟著
     if (S.combosLockPrev !== on) { $('dm-pv-combos').open = !on; S.combosLockPrev = on; }   // v1.18.17（Bruce 10/8）
     $('dm-pv-wrap').setAttribute('data-locktag', on ? tt('dm.lockTag') : '');
     /* v1.18.6（Bruce 10/8「鎖定此架構按下去以後，Driver 那邊的設定跟面板那邊的設定都不能再變更，只能動 T-CON 的設定」）：
@@ -1484,7 +1526,7 @@
     var em01a = m === 'EM01' && !S.cur.hand;
     $('dm-em01box').classList.toggle('hidden', !em01a); sel.classList.toggle('hidden', em01a);
     if (em01a) {
-      $('dm-autolbl').textContent = 'Panel_mode／sub_panel_mode（EM01 原廠 UI）';
+      $('dm-autolbl').textContent = 'Panel_mode／sub_panel_mode（EM01 瑞鼎 UI）';
       var pmS = $('dm-em01pm'), sbS = $('dm-em01sub'), pm = S.cur.panel | 0, sb = S.cur.subPanel | 0, SPL = DM.SUB_PANEL[pm] || [];
       pmS.innerHTML = ''; ['1D1G', 'Zigzag', 'HSD', 'LTPS'].forEach(function (n, k) { pmS.appendChild(optEl(String(k), n)); }); pmS.value = String(pm);
       sbS.innerHTML = ''; SPL.forEach(function (n, k) { sbS.appendChild(optEl(String(k), n)); });
@@ -1539,21 +1581,21 @@
     var s = S.cur, rows = [], add = function (a, b, c, d) { rows.push([a, b, c, d]); };
     var mp = m === 'EM02' ? DM.matchPreset(m, s) : -1, PM = ['1D1G', 'Zigzag', 'HSD', 'LTPS'];
     if (m === 'EM02') add('Type_select:（ListBox）', mp >= 0 ? DM.PRESETS[mp].name : '（清單沒有完全相同的樣式：不點 ListBox，直接填下列欄位）', mp >= 0 ? 'ListBox 第 ' + (mp + 1) + ' 項' : '', mp >= 0 ? '點一下即寫入全部欄位' : '');
-    else add('Type_select', '（EM01 原廠工具沒有 Type 清單）', '', '');
+    else add('Type_select', '（EM01 瑞鼎 UI 沒有 Type 清單）', '', '');
     var sp = (DM.SUB_PANEL[s.panel | 0] || [])[s.subPanel | 0];
     add('Panel_mode（ComboBox）', PM[s.panel | 0] || ('?' + s.panel), 'ItemIndex ' + (s.panel | 0), 'rt7+0x00[2:1]');
     add('sub_panel（ComboBox）', sp || ('? ' + s.subPanel), 'ItemIndex ' + (s.subPanel | 0), 'rt7+0x00[7:5]');
-    add('Label「Panel_mode : n」', 'Panel_mode : ' + ((s.rd | 0) + 1), 'rd_mode ' + (s.rd | 0), '選 Panel_mode 時原廠自動寫 0x0504[7:6]；不符時要另外改 rd_mode');
+    add('Label「Panel_mode : n」', 'Panel_mode : ' + ((s.rd | 0) + 1), 'rd_mode ' + (s.rd | 0), '選 Panel_mode 時瑞鼎 UI 自動寫 0x0504[7:6]；不符時要另外改 rd_mode');
     add('chrb／chwb／mirror（CheckBox）', [s.chrb ? '☑chrb' : '☐chrb', s.chwb ? '☑chwb' : '☐chwb', s.mirror ? '☑mirror' : '☐mirror'].join(' '), '', 'rt7+0x01[3]／[4]／[0]');
     add('Force_sel_en（RadioGroup）', s.hand ? 'Manual' : 'Auto', 'ItemIndex ' + (s.hand ? 1 : 0), 'rt7+0x01[7]');
     var CHN = ['r0', 'g0', 'b0', 'r1', 'g1', 'b1'];
     for (var t = 0; t < 4; t++) for (var c = 0; c < 6; c++) { var v = s['c' + (t * 6 + c)] | 0; add('StringGrid_rt7_data_mapping_01 ' + CHN[c] + '_' + t, String(v), '0x' + hex(v, 2), '0x' + hex(DM.fieldById(m, 'c' + (t * 6 + c)).parts[0][0], 4)); }
     var CHX = ['r2', 'g2', 'b2', 'r3', 'g3', 'b3'];
     for (var t2 = 0; t2 < 4; t2++) for (var c2 = 0; c2 < 6; c2++) { var v2 = s['x' + (t2 * 6 + c2)] | 0; add('StringGrid_rt7_data_mapping_23 ' + CHX[c2] + '_' + t2, String(v2), '0x' + hex(v2, 2), '0x' + hex(DM.fieldById(m, 'x' + (t2 * 6 + c2)).parts[0][0], 4)); }
-    var H = ['原廠 UI 欄位（畫面字樣）', '要輸入的值', '十六進位／索引', '暫存器'];
+    var H = ['瑞鼎 UI 欄位（畫面字樣）', '要輸入的值', '十六進位／索引', '暫存器'];
     $('dm-mantbl').innerHTML = '<thead><tr>' + H.map(function (h) { return '<th>' + h + '</th>'; }).join('') + '</tr></thead><tbody>' +
       rows.map(function (r) { return '<tr>' + r.map(function (x, i) { return '<td' + (i ? ' class="mono"' : '') + '>' + esc(x) + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody>';
-    $('dm-mannote').textContent = '格子填十進位；改完按 Enter，原廠會把整張表（24 格）一起寫入。Hand 關時表格不作用，只要設 Panel_mode／sub_panel／Force_sel_en＝Auto。';
+    $('dm-mannote').textContent = '格子填十進位；改完按 Enter，瑞鼎 UI 會把整張表（24 格）一起寫入。Hand 關時表格不作用，只要設 Panel_mode／sub_panel／Force_sel_en＝Auto。';
     S.manualText = [m + ' System → TX → Rt7_data_mapping'].concat(rows.map(function (r) { return r.join('\t'); })).join('\n');
   }
   /* v1.18.21：READ_RVS 寬度依型號（EM：rvsH＋rvsL 16 bit；E50x NB：8 bit；DAZ6138：6 bit）。原廠：Mirror＝1 ⇒ READ_RVS 全 1，Mirror＝0 ⇒ 0 */
@@ -1775,11 +1817,18 @@
   var PV_DOT = '#e2e8f0', PV_WIRE = '#94a3b8', PV_BAD = '#f97316';
   var PV_LBL = { r: '#fca5a5', g: '#86efac', b: '#93c5fd' };
   var GT = { single: 'Single Gate', dual: 'Dual Gate', tri: 'Tri-Gate' };
+  /* v1.22.0：TFT 接線圖獨立卡片的可用狀態跟著 ③（#dm-pvbody）走 */
+  function tftAvail(ok, st) {
+    $('dm-tftbody').classList.toggle('hidden', !ok);
+    var n = $('dm-tftnote'); n.textContent = ok ? '' : tt('dm.tftNa'); n.classList.toggle('hidden', ok);
+    $('st-tft').textContent = st || '';
+    $('tk-tft').textContent = ok ? '◆' : '◇';
+  }
   function renderPreview() {
     /* v1.20.0 EN01：③ 不推接線（列＝line×mux 相位、欄＝1T4P，原廠沒有接線換算；見 dm.en01Pv） */
     $('dm-lodbar').classList.toggle('hidden', isEn01());
     if (isEn01()) {
-      $('dm-pvbody').classList.add('hidden');
+      $('dm-pvbody').classList.add('hidden'); tftAvail(false, 'EN01');
       var nt = $('dm-pvnote'); nt.textContent = tt('dm.en01Pv'); nt.className = 'dm-pvnote';
       $('dm-pvtag').textContent = 'EN01'; $('dm-pvtag').className = 'dm-pvtag'; $('dm-pvflags').classList.add('hidden');
       $('dm-lodinfo').classList.add('hidden'); $('dm-lodgridbox').classList.add('hidden');
@@ -1833,7 +1882,7 @@
     note.setAttribute('data-fix', fx ? fx.list.length : 0);
     note.style.whiteSpace = 'pre-line';
     note.textContent = nt; note.className = 'dm-pvnote' + (!ok && !autoMode ? ' err' : '') + (nt ? '' : ' hidden');
-    $('dm-pvbody').classList.toggle('hidden', !ok);
+    $('dm-pvbody').classList.toggle('hidden', !ok); tftAvail(ok, ok ? $('st-pv').textContent : '');
     if (!ok) { $('dm-pv-tft').innerHTML = ''; return; }
     $('dm-pv-tftd').textContent = tt(NG === 3 ? 'dm.pvRowsTri' : (NG === 2 ? 'dm.pvRowsDual' : 'dm.pvRowsSingle'));
     renderPvTft(P);
@@ -2324,6 +2373,7 @@
     b.setAttribute('aria-pressed', S.linked ? 'true' : 'false');
     b.textContent = S.linked ? tt('dm.connected') : tt('dm.connect');
     b.disabled = S.busy;
+    renderI2c();   // v1.22.0：頁首與 ① 標題列的 I2C 徽章（收摺時也看得到）
     $('dm-check').disabled = !S.linked || S.busy;
     $('dm-live').disabled = !tconOk(); $('dm-live-lbl').classList.toggle('off', !tconOk());
     /* 需要 I2C 的控制項：沒連線時滑鼠移上去說明原因；連線後還原原本的提示 */
@@ -2461,7 +2511,23 @@
   }
 
   /* ── I2C（協定同 i2c.html） ── */
-  var WS_URL = 'ws://127.0.0.1:8899/ws', WS_MS = 4000, CLOCK_HZ = 150000;
+  /* v1.22.0：連線位址、下載連結、「沒有 I2C Bridge」提示、狀態徽章一律走 common/i2c-bridge.js（與 i2c.html／dg-selftest.html／dg.html 同一份） */
+  var IB = window.I2CBridge || null;
+  var WS_URL = IB ? IB.WS_URL : 'ws://127.0.0.1:8899/ws', WS_MS = 4000, CLOCK_HZ = 150000;
+  /* I2C 狀態唯一來源：S.linked（既有）；S.connecting＝連線中；S.i2cMiss＝'none'（連不到 Bridge）／'drop'（連線中被關掉）／null */
+  function i2cState() { return S.linked ? 'on' : (S.connecting ? 'busy' : (S.i2cMiss || 'off')); }
+  function renderI2c() {
+    var st = i2cState();
+    if (IB) { IB.badge($('dm-i2c-top'), st); IB.badge($('dm-i2c-src'), st); }
+    else { ['dm-i2c-top', 'dm-i2c-src'].forEach(function (id) { var e = $(id); if (e) { e.setAttribute('data-i2c', st); e.textContent = st === 'on' ? 'I2C ' + tt('dm.connected') : 'I2C'; } }); }
+    var need = $('dm-i2c-need');
+    if (IB && S.i2cMiss && !S.linked && !S.connecting) { if (need.getAttribute('data-i2cb-need') !== S.i2cMiss || need.getAttribute('data-lang') !== document.documentElement.lang) { IB.mountNeed(need, S.i2cMiss); need.setAttribute('data-lang', document.documentElement.lang); } }
+    else if (IB) IB.unmountNeed(need);
+    var dl = $('dm-i2c-dl'); if (dl) { var okDl = IB ? IB.fillDl(dl, $('dm-i2c-dlver')) : false; if (!okDl) dl.setAttribute('hidden', ''); dl.classList.toggle('hidden', S.linked); }
+  }
+  window.dmI2cState = i2cState;
+  /* 連不到／被關掉：記下原因；① 收摺中就先展開，讓下載提示看得到 */
+  function i2cMissShow(kind) { S.i2cMiss = kind; var c = $('card-src'); if (c && isFolded(c)) setFold(c, false); }
   function send(obj) {
     return new Promise(function (resolve, reject) {
       if (!S.ws || S.ws.readyState !== 1) { reject(new Error(tt('dm.notLinked'))); return; }
@@ -2612,10 +2678,10 @@
       return;
     }
     if (S.busy) return;
-    S.busy = true; S.initLinked = false; render();   // v1.18.25：新的連線 ⇒ 第一次 Check 讀回會重建初始快照
+    S.busy = true; S.initLinked = false; S.connecting = true; S.userClose = false; render();   // v1.18.25：新的連線 ⇒ 第一次 Check 讀回會重建初始快照
     log('n', 'connect ' + WS_URL);
     var ws;
-    try { ws = new WebSocket(WS_URL); } catch (e) { S.busy = false; toast('e', tt('dm.linkErr')); render(); return; }
+    try { ws = new WebSocket(WS_URL); } catch (e) { S.busy = false; S.connecting = false; i2cMissShow('none'); toast('e', tt('dm.linkErr')); render(); return; }
     S.ws = ws;
     ws.onmessage = function (ev) {
       var m; try { m = JSON.parse(ev.data); } catch (e) { return; }
@@ -2624,6 +2690,7 @@
     ws.onclose = function () {
       for (var k in S.pend) { try { clearTimeout(S.pend[k].timer); S.pend[k].reject(new Error('closed')); } catch (e) {} }
       S.pend = {}; if (S.linked) toast('e', 'I2C Bridge closed');
+      if (S.linked && !S.userClose) i2cMissShow('drop');   // v1.22.0：非使用者按的斷線 ⇒ 紅色「已斷線」＋下載提示
       S.linked = false; S.ws = null; S.checked = null; render();
     };
     var opened = await new Promise(function (res) {
@@ -2631,7 +2698,7 @@
       ws.onopen = function () { if (!done) { done = true; clearTimeout(to); res(true); } };
       ws.onerror = function () { if (!done) { done = true; clearTimeout(to); res(false); } };
     });
-    if (!opened) { try { ws.close(); } catch (e) {} S.ws = null; S.busy = false; toast('e', tt('dm.linkErr')); render(); return; }
+    if (!opened) { try { ws.close(); } catch (e) {} S.ws = null; S.busy = false; S.connecting = false; i2cMissShow('none'); toast('e', tt('dm.linkErr')); render(); return; }
     try {
       var pong = await send({ type: 'ping' });
       log('n', 'I2C Bridge ' + (pong.helper || '?') + ' proto ' + (pong.proto || '?'));
@@ -2643,16 +2710,18 @@
         await new Promise(function (r) { setTimeout(r, 500); });
       }
       if (!op || !op.ok) throw new Error('open failed');
-      S.linked = true; log('w', 'channel open');
+      S.linked = true; S.i2cMiss = null; log('w', 'channel open');
     } catch (e) {
       toast('e', String(e && e.message || e));
+      S.userClose = true;   // 開通道失敗：Bridge 本身在，不是「沒有 Bridge」⇒ 不出下載提示
       try { send({ type: 'close' }).catch(function () {}); } catch (e2) {}
       try { ws.close(); } catch (e3) {}
-      S.linked = false; S.ws = null;
-    } finally { S.busy = false; render(); }
+      S.linked = false; S.ws = null; S.i2cMiss = null;
+    } finally { S.busy = false; S.connecting = false; render(); }
     if (S.linked) await doCheck();
   }
   async function disconnect() {
+    S.userClose = true; S.i2cMiss = null;
     try { if (S.ws && S.ws.readyState === 1) await send({ type: 'close' }); } catch (e) {}
     try { if (S.ws) S.ws.close(); } catch (e) {}
     S.ws = null; S.linked = false; S.checked = null; log('n', 'disconnected'); render();
@@ -2891,6 +2960,7 @@
       else if (kind === 'sd') { tgt = $('dm-drv-sec'); fl = tgt; }
       else { tgt = $('dm-pv-tfth'); }
       if (!tgt) return;
+      var fc = tgt.closest ? tgt.closest('.card.stp') : null; if (fc && isFolded(fc)) setFold(fc, false);   // v1.22.0：目標卡片收摺中 ⇒ 先展開再捲
       var cells = [], col = 0;
       if (kind === 'tc' && k) {
         col = ((k - 1) % 6) + 1;
@@ -2993,8 +3063,54 @@
       if (dirtyRegs().length) { e.preventDefault(); e.returnValue = tt('dm.unload'); return e.returnValue; }
     });
   }
-  window._onLangChange = function () { buildModelSelect(); buildLod(); render(); };
-  buildModelSelect(); buildGate(); buildGrid(); buildLod(); bind(); bindLock(); bindColMode(); render();
+  /* ── v1.22.0 卡片收摺（Bruce 10/12「Data Mapping 幫我做成每張卡片都可以收摺起來」）─────────────
+     ・每張 .card.stp：標題列（.stp-hd）整列可點／Enter／Space 切換；收摺只藏內容，標題列（卡片名稱、狀態、I2C 徽章）照常顯示。
+     ・TCON Register 確認原本就是 <details>（summary＝標題列），沿用它的 open，只多記憶與「全部展開／收摺」。
+     ・狀態記在 localStorage（dm.fold.v1：{卡片 id: 1＝收摺}），讀寫包 try/catch；讀不到就全部展開。
+     ・展開 ③／TFT 卡時重畫一次預覽（收摺期間 display:none，展開後以目前資料重畫，不沿用收摺前的畫面）。
+     ・跳轉（SD Out／TCON Out／接線圖）目標在收摺的卡內 ⇒ 先展開再捲。 */
+  var FOLD_KEY = 'dm.fold.v1';
+  function foldLoad() { try { var o = JSON.parse(localStorage.getItem(FOLD_KEY) || '{}'); return o && typeof o === 'object' ? o : {}; } catch (e) { return {}; } }
+  function foldSave() { try { var o = {}; foldCards().forEach(function (c) { if (isFolded(c)) o[c.id] = 1; }); localStorage.setItem(FOLD_KEY, JSON.stringify(o)); } catch (e) {} }
+  function foldCards() { return [].slice.call(document.querySelectorAll('.container > .card.stp[id]')); }
+  function foldHd(c) { for (var i = 0; i < c.children.length; i++) if (c.children[i].classList.contains('stp-hd')) return c.children[i]; return null; }
+  function foldDetails(c) { var d = c.firstElementChild; return d && d.tagName === 'DETAILS' ? d : null; }
+  function isFolded(c) { var d = foldDetails(c); return d ? !d.open : c.getAttribute('data-fold') === '1'; }
+  function setFold(c, on, noSave) {
+    if (typeof c === 'string') c = $(c); if (!c) return;
+    var d = foldDetails(c), was = isFolded(c);
+    if (d) d.open = !on;
+    else { c.setAttribute('data-fold', on ? '1' : '0'); var h = foldHd(c); if (h) h.setAttribute('aria-expanded', on ? 'false' : 'true'); }
+    if (was && !on && (c.id === 'card-tft' || c.id === 'card-pv')) renderPreview();
+    if (!noSave) foldSave();
+  }
+  function foldAll(on) { foldCards().forEach(function (c) { setFold(c, on, true); }); foldSave(); }
+  function foldTitles() { foldCards().forEach(function (c) { var h = foldHd(c); if (h) h.title = tt('dm.foldT'); }); }
+  function foldInit() {
+    var saved = foldLoad();
+    foldCards().forEach(function (c) {
+      var d = foldDetails(c);
+      if (d) { if (saved[c.id]) d.open = false; d.addEventListener('toggle', function () { foldSave(); }); return; }
+      var h = foldHd(c); if (!h) return;
+      h.classList.add('dm-foldhd'); h.setAttribute('role', 'button'); h.setAttribute('tabindex', '0');
+      var car = document.createElement('span'); car.className = 'dm-foldcar'; car.setAttribute('aria-hidden', 'true'); h.insertBefore(car, h.firstChild);
+      c.setAttribute('data-fold', saved[c.id] ? '1' : '0'); h.setAttribute('aria-expanded', saved[c.id] ? 'false' : 'true');
+      h.addEventListener('click', function (e) {
+        if (e.target.closest && e.target.closest('a,button,select,input,label,[data-jump]')) return;
+        setFold(c, !isFolded(c));
+      });
+      h.addEventListener('keydown', function (e) {
+        if (e.target !== h || (e.key !== 'Enter' && e.key !== ' ')) return;
+        e.preventDefault(); setFold(c, !isFolded(c));
+      });
+    });
+    foldTitles();
+    $('dm-fold-open').addEventListener('click', function () { foldAll(false); });
+    $('dm-fold-close').addEventListener('click', function () { foldAll(true); });
+  }
+  window.dmFold = { set: function (id, on) { setFold(id, on); }, all: foldAll, isFolded: function (id) { return isFolded($(id)); }, key: FOLD_KEY };
+  window._onLangChange = function () { buildModelSelect(); buildLod(); foldTitles(); render(); };
+  buildModelSelect(); buildGate(); buildGrid(); buildLod(); bind(); bindLock(); bindColMode(); foldInit(); render();
 })();
 </script>
 </body>

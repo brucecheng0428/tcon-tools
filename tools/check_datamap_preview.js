@@ -62,9 +62,10 @@ const ok = (c, m) => { if (c) pass++; else { fail++; console.log('  ✗ ' + m); 
 
   console.log('── 版面');
   const cards = Array.from(d.querySelectorAll('.card.stp')).map(c => c.id);
-  ok(cards.join(',') === 'card-src,card-dm,card-pv,card-reg,card-out', '卡片順序 ①②③＋TCON Register 確認＋④：' + cards.join(','));
+  /* v1.22.0（Bruce 10/12）：TFT 接線圖拆成獨立卡 card-tft，接在 ③ 後面 */
+  ok(cards.join(',') === 'card-src,card-dm,card-pv,card-tft,card-reg,card-out', '卡片順序 ①②③＋TFT 接線圖＋TCON Register 確認＋④：' + cards.join(','));
   ok(/^v1\.([4-9]|[12]\d)\./.test(w.TOOL_VERSIONS.datamap), 'datamap 版號 v1.4 以上：' + w.TOOL_VERSIONS.datamap);
-  ok(!$('dm-pv-rows') && $('card-pv').querySelectorAll('svg').length === 1 + $('dm-pv-legend').querySelectorAll('svg').length, '卡內只有一張 TFT 圖');
+  ok(!$('dm-pv-rows') && $('card-tft').querySelectorAll('svg').length === 1 + $('dm-pv-legend').querySelectorAll('svg').length && !$('card-pv').querySelector('svg'), 'TFT 卡內只有一張 TFT 圖（③ 不再含圖）');
 
   console.log('── Auto');
   fire($('dm-model'), 'E503');
