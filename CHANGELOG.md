@@ -2,6 +2,33 @@
 
 ---
 
+## Data Mapping (datamap) v1.23.3 — 2026-10-12 ｜ PATCH
+
+**⚠ 輸出變更：排列組合統計的「資料正確」加硬條件「左小右大、最左＝表格最小 pixel」；子像素軸名稱改由表格最小 pixel 起算。同事C code 第 2 名 rrgs1（CH1 最右＋反向＋對調＋Mirror 1）改判資料錯（最左收到 R5，不是 R-1），新第 2 名 lfgn0。**
+
+判定依據：Bruce 指為錯誤 ⇒ `docs/VERSIONING.md` §2 案例 7 PATCH＋`⚠ 輸出變更`（同一組設定的名次、資料正確欄與軸名稱會和 v1.23.2 不同）。
+
+### 起因（Bruce 2026-10-12）
+
+> 更新v1.23.2以後的第二名，他把 mirror 打開，雖然長度一樣是最短的，跟第一名只差別在 mirror，但是會有一個很嚴重的問題：在這個組配下，最左邊的並不是最小的 pixel（就是 R-1、G-1、B-1 這種）。這個的排列一定是左小右大，所以這個排列組合的定義是有問題的，也就是說這個定義應該是顏色正確，但是資料不對。
+
+### 根因
+- v1.23.2 `pvAxisLab` 在 CH1 在右（整張翻）時，軸名稱從「收到的資料」最小值對齊 ⇒ 軸跟著資料走，`pvOrientBad` 只會檢查「資料＝軸名稱」，只要資料由左到右遞增就判全對，最左收到 R4／R5 也算對。
+- `pvOrientBad` 翻圖時檢查的是 D1 側那組（`w.rep` 用不翻圖的定義），不是畫面主循環。
+- 另：Mirror 1 時 ② 表格解出的名稱整組平移（同事C Mirror 0＝G-1…、Mirror 1＝G4…），基準若跟著目前 Mirror 走，切 Mirror 後名次會跟著變。
+
+### 內容（通用規則，無型號特例）
+- 新增 `pvTableMin`、`pvTableRef`（基準＝Mirror 0 解讀下 ② 名稱的最小編號、往下取整 pixel；Mirror 1 的名稱是原廠 Pixel mapping view 整行反轉名稱，不是 pixel 索引；Auto／Line OD 測試用目前接線名稱）、`pvAxisEdge`（畫面最左有接線那格的 pixel 邊界）。
+- `pvAxisLab` 改成：畫面最左有接線的 pixel＝基準 pixel，往右每格 +1（BGR 只改 pixel 內順序），更左的空位不寫名稱；不翻圖、非 Mirror 時仍＝位置名稱。
+- `pvOrientBad` 改查畫面主循環（翻圖＝最後一個週期），資料≠軸名稱即算資料錯 ⇒ 最左不是最小 pixel、左右反、錯位、R↔B 一律「資料錯」，排在資料正確組之後。
+- `pvCombos` 32 種共用同一個基準（`pvTableRef`）；`renderPvTft0` 格子名稱同一套。
+
+### 測試
+- `tools/check_datamap_axis.js` 加 A5（資料正確的列每列資料左小右大、最左有接線的資料在最左 pixel）與 S5（同事C rrgs1 判資料錯、全對組合都是 Mirror 0）。
+- `tools/check_datamap_nbfields.js` E501A／EM02 Kick Off mirror＝1 比對改比格子位置＋接線＋收到的資料（軸名稱依各型號 Mirror 0 解讀起算，NB／MNT 名稱表不同）。
+
+---
+
 ## Data Mapping (datamap) v1.23.2 — 2026-10-12 ｜ PATCH
 
 **⚠ 輸出變更：TFT 接線圖未鎖定時子像素軸固定（畫面由左到右遞增、最左＝表格用到的最小編號），Source 輸出對調／SHL 只改 drain 連線、不再改格內名稱；排列組合統計依此重算最長 drain，同事C code 第一名改為「CH1 最左＋正向＋RGB＋輸出對調」（最長 drain 5.5 → 1.5，與參考圖一致）。卡片改名：「面板排列預覽」→「排列組合相關設定」、「比對結果」→「排列結果」、「32 種配置比較」→「排列組合統計」。**
