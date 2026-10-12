@@ -174,6 +174,22 @@
   .dm-tools2 { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; margin-top: 12px; }
   .dm-grp { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; }
   .dm-grp > .dm-k { margin-right: 2px; }
+  /* v1.23.0 Benchmark 反推表格：可收合（標題列整列可點＋箭頭）；格子樣式完全沿用 .dm-grid／.dm-cell */
+  .dm-bcar { display: inline-block; width: 0; height: 0; margin-right: 6px; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 6px solid currentColor; transition: transform .15s; vertical-align: 1px; }
+  .dm-benchbtn[aria-expanded="false"] .dm-bcar { transform: rotate(-90deg); }
+  /* 收合規範同 v1.22.0 卡片收摺：標題列整列可點、觸控區 ≥ 44px、同一個箭頭（.dm-foldcar）、狀態記 localStorage */
+  .dm-benchhd[aria-expanded="false"] .dm-foldcar { transform: rotate(-90deg); }
+  .dm-benchhd:hover .dm-foldcar { background: rgba(96,165,250,.25); color: #fff; }
+  .dm-benchhd:focus-visible { outline: 2px solid #60a5fa; outline-offset: 2px; border-radius: 6px; }
+  .dm-benchbtn[aria-expanded="true"] { box-shadow: 0 0 0 2px #38bdf8 inset; }
+  .dm-bench { margin-top: 14px; padding: 10px; border: 1px solid #38bdf8; border-radius: 10px; background: rgba(56,189,248,.05); }
+  .dm-benchhd { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-height: 44px; cursor: pointer; user-select: none; color: #7dd3fc; }
+  .dm-benchhd .dm-sub { color: var(--sub); }
+  .dm-bench.dm-bfold .dm-benchhow, .dm-bench.dm-bfold .dm-benchhit, .dm-bench.dm-bfold .dm-benchwrap, .dm-bench.dm-bfold .dm-benchbar { display: none; }
+  .dm-benchhow { margin: 4px 0 6px; }
+  .dm-benchhit { margin: 4px 0 6px; color: #fde047; font-weight: 600; }
+  .dm-benchbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; }
+  .dm-grid .dm-cell.dm-bhit { outline: 3px solid #fde047; outline-offset: -1px; box-shadow: 0 0 10px rgba(253,224,71,.7); }
 
   /* Data Mapping Code（只列有變動的位址：改前 → 目前） */
   table.dm-code { border-collapse: collapse; width: 100%; margin-top: 8px; font-size: 12.5px; }
@@ -406,9 +422,26 @@
     </section>
     <section class="dm-sec">
       <h3 class="dm-sech"><span data-i18n="dm.secGrid">Data Mapping 表格（force_sel）</span><span class="dm-linkchip tco" role="link" tabindex="0" data-jump="pvtc" data-i18n="dm.chipToTc" data-i18n-title="dm.jumpPvT">＝③ TCON Out</span>
-        <button class="sbtn" id="dm-restore" data-i18n="dm.rstBtn">回到初始設定</button><span class="dm-sub dm-rstst" id="dm-rstst"></span></h3>
+        <button class="sbtn" id="dm-restore" data-i18n="dm.rstBtn">回到初始設定</button><span class="dm-sub dm-rstst" id="dm-rstst"></span>
+        <button class="sbtn dm-benchbtn" id="dm-bench-tog" aria-expanded="false" aria-controls="dm-bench" data-i18n-title="dm.bmTogT" title=""><span class="dm-bcar" aria-hidden="true"></span>Benchmark</button></h3>
       <div class="dm-gridwrap dm-tcoframe" id="dm-gridbox"><table class="dm-grid" id="dm-grid"></table><div class="dm-gridnote hidden" id="dm-gridnote"></div></div>
       <div class="dm-legend" id="dm-legend"></div>
+      <!-- v1.23.0（Bruce 10/12「做一個 Benchmark 的按鈕。按下去的話，下方會再多一個表格…填完…一鍵 Copy 回實際 Data Mapping 表格…完成逆向的反推」；
+           按鈕名稱依 Bruce 10/12 定為「套用到主表」／「復原」）：Benchmark 表格與上方原表格用同一套 buildGrid／renderGrid 產生（GRID_BENCH） -->
+      <div class="dm-bench hidden" id="dm-bench" role="region" aria-labelledby="dm-bench-h">
+        <div class="dm-benchhd" id="dm-bench-h" role="button" tabindex="0" aria-expanded="true"><span class="dm-foldcar" aria-hidden="true"></span><b data-i18n="dm.bmT">Benchmark（反推表）</b><span class="dm-sub" id="dm-bench-st"></span></div>
+        <div class="dm-sub dm-benchhow" data-i18n="dm.bmHow">反推：All Same Pixel 全設 X → 原表格逐格改成 R1 → 看面板（或 ③ 接線圖）實際亮的子像素 → 把看到的名稱（如 B1、G1）填到下表同一格。全部填完按「套用到主表」。</div>
+        <div class="dm-sub dm-benchhit hidden" id="dm-bench-hit"></div>
+        <div class="dm-gridwrap dm-tcoframe dm-benchwrap"><table class="dm-grid" id="dm-bgrid"></table><div class="dm-gridnote hidden" id="dm-bgridnote"></div></div>
+        <div class="dm-benchbar">
+          <button class="sbtn pri" id="dm-bench-apply" data-i18n="dm.bmApply" data-i18n-title="dm.bmApplyT" title="把 Benchmark 結果套用到 Data Mapping 表格">套用到主表</button>
+          <button class="sbtn hidden" id="dm-bench-undo" data-i18n="dm.bmUndo" data-i18n-title="dm.bmUndoT" title="">復原</button>
+          <button class="sbtn" id="dm-bench-clear" data-i18n="dm.bmClear">清空重來</button>
+          <button class="sbtn" id="dm-bench-exp" data-i18n="dm.bmExp">匯出 JSON</button>
+          <button class="sbtn" id="dm-bench-imp" data-i18n="dm.bmImp">匯入 JSON</button>
+          <input type="file" id="dm-bench-file" accept=".json,application/json" class="hidden">
+        </div>
+      </div>
     <div class="stp-note hidden" id="dm-xline"></div>
     <div class="hidden" id="dm-xbox">
       <div class="dm-gridwrap dm-tcoframe"><table class="dm-grid" id="dm-xgrid"></table></div>
@@ -555,7 +588,7 @@
 </div>
 <div class="dm-toasts" id="dm-toasts" aria-live="polite"></div>
 
-<script src="common/version.js?v=20261012dm1220"></script>
+<script src="common/version.js?v=20261012dm1230"></script>
 <script src="common/i18n.js?v=20261012dm1220"></script>
 <script>
 (function () {
@@ -975,7 +1008,36 @@
     'dm.whatWrite': ['寫入 TCON', 'written to the TCON', '写入 TCON'],
     'dm.whatImport': ['匯入 {f}', 'imported {f}', '导入 {f}'],
     'dm.whatRead': ['從 TCON 讀回', 'read from the TCON', '从 TCON 读回'],
-    'dm.roBlocked': ['只讀（可能是 V512），不能改、不能匯出或寫入。', 'Read-only (possibly a V512): no edit, export or write.', '只读（可能是 V512），不能改、不能导出或写入。']
+    'dm.roBlocked': ['只讀（可能是 V512），不能改、不能匯出或寫入。', 'Read-only (possibly a V512): no edit, export or write.', '只读（可能是 V512），不能改、不能导出或写入。'],
+    /* v1.23.0 Benchmark 反推表格（按鈕／視窗名稱：Dispatch 依 Bruce 授權 10/12 定） */
+    'dm.bmTogT': ['展開／收合 Benchmark 反推表格（與上方表格同格位，第一次全部 X）', 'Show / hide the Benchmark reverse-mapping table (same cells as above; all X at first)', '展开／收合 Benchmark 反推表格（与上方表格同格位，第一次全部 X）'],
+    'dm.bmT': ['Benchmark（反推表）', 'Benchmark (reverse mapping)', 'Benchmark（反推表）'],
+    'dm.bmHow': ['反推：All Same Pixel 全設 X → 原表格逐格改成 R1 → 看面板（或 ③ 接線圖）實際亮的子像素 → 把看到的名稱（如 B1、G1）填到下表同一格。全部填完按「套用到主表」。', 'Reverse mapping: All Same Pixel = X → set one cell above to R1 → see which sub-pixel actually lights (panel or ③ wiring) → enter that name (e.g. B1, G1) in the same cell below. When done, press "Apply to main table".', '反推：All Same Pixel 全设 X → 原表格逐格改成 R1 → 看面板（或 ③ 接线图）实际亮的子像素 → 把看到的名称（如 B1、G1）填到下表同一格。全部填完按「套用到主表」。'],
+    'dm.bmSt': ['已填 {n}／{t} 格', '{n}/{t} cells filled', '已填 {n}／{t} 格'],
+    'dm.bmStBad': ['；{b} 格存的名稱在目前設定下不存在（顯示 X）', '; {b} saved names do not exist in the current settings (shown as X)', '；{b} 格存的名称在目前设定下不存在（显示 X）'],
+    'dm.bmHit': ['目前測試：{c}＝{v}（下表黃框格）→ 看實際亮的子像素，填在黃框格', 'Testing: {c} = {v} (yellow cell below) → enter the sub-pixel that lights', '目前测试：{c}＝{v}（下表黄框格）→ 看实际亮的子像素，填在黄框格'],
+    'dm.bmApply': ['套用到主表', 'Apply to main table', '套用到主表'],
+    'dm.bmApplyT': ['把 Benchmark 結果套用到 Data Mapping 表格', 'Apply the Benchmark result to the Data Mapping table', '把 Benchmark 结果套用到 Data Mapping 表格'],
+    'dm.bmUndoT': ['回到套用前（只能一次）', 'Back to before the apply (once)', '回到套用前（只能一次）'],
+    'dm.bmAskT': ['套用到主表？', 'Apply to main table?', '套用到主表？'],
+    'dm.bmAskD': ['{n} 格會依 Benchmark 寫入上方 Data Mapping 表格（之後 T 表、接線圖、暫存器、匯出照常更新；連線且即時寫入時會寫入 TCON）。可按「復原」回到套用前一次。', '{n} cells will be written to the Data Mapping table above (T table, wiring, registers and export update as usual; written to the TCON when live). "Undo" restores it once.', '{n} 格会依 Benchmark 写入上方 Data Mapping 表格（之后 T 表、接线图、寄存器、导出照常更新；连接且实时写入时会写入 TCON）。可按「复原」回到套用前一次。'],
+    'dm.bmAskPartD': ['還有 {x} 格未填（仍是 X）。只套用已填的 {n} 格，未填的格子保持上方原值？（可按「復原」回到套用前一次）', '{x} cells are not filled (still X). Apply only the {n} filled cells and keep the others unchanged? ("Undo" restores it once)', '还有 {x} 格未填（仍是 X）。只套用已填的 {n} 格，未填的格子保持上方原值？（可按「复原」回到套用前一次）'],
+    'dm.bmAskYes': ['套用', 'Apply', '套用'],
+    'dm.bmAskPartYes': ['只套用已填的 {n} 格', 'Apply the {n} filled cells only', '只套用已填的 {n} 格'],
+    'dm.bmNone': ['Benchmark 還沒有填任何格', 'Nothing filled in the Benchmark yet', 'Benchmark 还没有填任何格'],
+    'dm.bmDone': ['已套用 Benchmark：{n} 格寫入 Data Mapping 表格', 'Benchmark applied: {n} cells written to the Data Mapping table', '已套用 Benchmark：{n} 格写入 Data Mapping 表格'],
+    'dm.bmDoneBad': ['已套用 {n} 格；{b} 格無法寫入（目前設定下不能選這個名稱）：{l}', '{n} cells applied; {b} could not be written (name not selectable now): {l}', '已套用 {n} 格；{b} 格无法写入（目前设定下不能选这个名称）：{l}'],
+    'dm.bmUndo': ['復原', 'Undo', '复原'],
+    'dm.bmUndone': ['已復原到套用 Benchmark 之前', 'Restored to before the Benchmark was applied', '已复原到套用 Benchmark 之前'],
+    'dm.bmClear': ['清空重來', 'Clear', '清空重来'],
+    'dm.bmClearT': ['清空這組 Benchmark？', 'Clear this Benchmark?', '清空这组 Benchmark？'],
+    'dm.bmClearD': ['目前型號／設定這組的 {n} 格會全部回到 X（其他型號／設定存的不受影響）。', 'All {n} filled cells for the current model / settings go back to X (other models / settings are kept).', '目前型号／设定这组的 {n} 格会全部回到 X（其他型号／设定存的不受影响）。'],
+    'dm.bmClearYes': ['清空', 'Clear', '清空'],
+    'dm.bmExp': ['匯出 JSON', 'Export JSON', '导出 JSON'],
+    'dm.bmImp': ['匯入 JSON', 'Import JSON', '导入 JSON'],
+    'dm.bmImpOk': ['已匯入 Benchmark：{n} 組設定', 'Benchmark imported: {n} setting sets', '已导入 Benchmark：{n} 组设定'],
+    'dm.bmImpBad': ['不是 Benchmark JSON 檔', 'Not a Benchmark JSON file', '不是 Benchmark JSON 文件'],
+    'dm.bmNoStore': ['瀏覽器不能保存（localStorage 無法使用），Benchmark 只留在這個分頁；請用「匯出 JSON」備份', 'The browser cannot store data (localStorage unavailable); the Benchmark lives in this tab only — use Export JSON', '浏览器不能保存（localStorage 无法使用），Benchmark 只留在这个分页；请用「导出 JSON」备份']
   };
   var L = ['zh-TW', 'en', 'zh-CN'];
   Object.keys(D).forEach(function (k) { var o = {}; L.forEach(function (l, i) { o[l] = D[k][i]; }); I18N[k] = o; });
@@ -1102,24 +1164,32 @@
     if (!Array.prototype.some.call(sel.options, function (o) { return o.value === txt; })) { var o = document.createElement('option'); o.value = txt; o.textContent = txt; o.disabled = true; o.setAttribute('data-extra', '1'); sel.appendChild(o); }
     sel.value = txt;
   }
-  function buildGrid() {
+  /* v1.23.0（Bruce 10/12 Benchmark 反推表格）：② 表格的建表／畫格改成「畫到哪張表、用哪份 state、選了交給誰」參數化（G），
+     原表格＝GRID_MAIN（id 與行為和 v1.21.0 完全相同）；Benchmark 表格＝GRID_BENCH（id 前綴 dm-b，state 由 benchState() 依目前設定產生）。
+     兩張表同一套建表／畫格程式：Data × Line 格位、下拉選項、顏色、T 標示、Gate／Preset／Mirror／CHRB 決定的格位規則都一樣。 */
+  var GRID_MAIN = { tbl: 'dm-grid', p: 'dm-', main: true, st: function () { return S.cur; }, pick: function (r, c, v) { onPick(r, c, v); }, pickEn01: function (r, c, v) { onPickEn01(r, c, v); } };
+  function buildGrid(G) {
+    G = G || GRID_MAIN;
     var h = '<colgroup><col class="dm-hc">';
     for (var c = 0; c < 6; c++) h += '<col>';
     h += '</colgroup><thead><tr><th></th>';
     for (var c2 = 1; c2 <= 6; c2++) h += '<th>Data ' + c2 + '</th>';
     h += '</tr></thead><tbody>';
     for (var r = 0; r < 4; r++) {
-      h += '<tr id="dm-tr' + r + '"><th><span id="dm-rh' + r + '">' + ROWS[r] + '</span><span class="dm-rs" id="dm-rs' + r + '"></span></th>';
-      for (var c3 = 0; c3 < 6; c3++) h += '<td><select class="dm-cell" id="dm-c' + r + '-' + c3 + '" data-r="' + r + '" data-c="' + c3 + '" aria-label="' + ROWS[r] + ' Data ' + (c3 + 1) + '"></select></td>';
+      h += '<tr id="' + G.p + 'tr' + r + '"><th><span id="' + G.p + 'rh' + r + '">' + ROWS[r] + '</span><span class="dm-rs" id="' + G.p + 'rs' + r + '"></span></th>';
+      for (var c3 = 0; c3 < 6; c3++) h += '<td><select class="dm-cell" id="' + G.p + 'c' + r + '-' + c3 + '" data-r="' + r + '" data-c="' + c3 + '" aria-label="' + ROWS[r] + ' Data ' + (c3 + 1) + '"></select></td>';
       h += '</tr>';
     }
-    $('dm-grid').innerHTML = h + '</tbody>'; $('dm-grid').className = 'dm-grid'; $('dm-grid').dataset.kind = 'py';
-    Array.prototype.forEach.call($('dm-grid').querySelectorAll('select'), function (sel) {
-      sel.addEventListener('change', function () { onPick(+sel.dataset.r, +sel.dataset.c, sel.value); });
+    var tb = $(G.tbl);
+    tb.innerHTML = h + '</tbody>'; tb.className = 'dm-grid'; tb.dataset.kind = 'py';
+    Array.prototype.forEach.call(tb.querySelectorAll('select'), function (sel) {
+      sel.addEventListener('change', function () { G.pick(+sel.dataset.r, +sel.dataset.c, sel.value); });
     });
   }
   /* v1.20.0 EN01 表格：列＝目前有的段（L1-1…L4-6），第 1 欄 T 階數，後 12 欄 R0…B3（WPF DataMappingView.xaml 的 V2 版面） */
-  function buildGridEn01(rows) {
+  function buildGridEn01(rows, G) {
+    G = G || GRID_MAIN;
+    var P = G.p;
     var h = '<colgroup><col class="dm-hc"><col style="width:58px">';
     for (var c = 0; c < 12; c++) h += '<col>';
     h += '</colgroup><thead><tr><th></th><th title="' + esc(tt('dm.en01TTip')) + '">' + esc(tt('dm.en01T')) + '</th>';
@@ -1127,31 +1197,33 @@
     h += '</tr></thead><tbody>';
     rows.forEach(function (r) {
       var sg = DM.en01Seg(r).toUpperCase();
-      h += '<tr id="dm-etr' + r + '" class="' + (r % 6 === 0 && r ? 'en01l' : '') + '" title="' + esc(tt('dm.en01RowTip', { l: Math.floor(r / 6) + 1, k: r % 6 + 1 })) + '"><th><span>' + DM.en01RowLabel(r) + '</span><span class="dm-rs" id="dm-ers' + r + '">SW' + (r % 6 + 1) + '·' + sg + '</span></th>';
-      h += '<td><select class="dm-en01t" id="dm-et' + r + '" data-r="' + r + '" title="' + esc(tt('dm.en01TTip')) + '" aria-label="' + DM.en01RowLabel(r) + ' T">';
+      h += '<tr id="' + P + 'etr' + r + '" class="' + (r % 6 === 0 && r ? 'en01l' : '') + '" title="' + esc(tt('dm.en01RowTip', { l: Math.floor(r / 6) + 1, k: r % 6 + 1 })) + '"><th><span>' + DM.en01RowLabel(r) + '</span><span class="dm-rs" id="' + P + 'ers' + r + '">SW' + (r % 6 + 1) + '·' + sg + '</span></th>';
+      h += '<td><select class="dm-en01t" id="' + P + 'et' + r + '" data-r="' + r + '" title="' + esc(tt('dm.en01TTip')) + '" aria-label="' + DM.en01RowLabel(r) + ' T">';
       DM.EN01_TABS.forEach(function (n, i) { h += '<option value="' + (i + 1) + '">T' + (i + 1) + '</option>'; });
       h += '</select></td>';
-      for (var c3 = 0; c3 < 12; c3++) h += '<td><select class="dm-cell" id="dm-e' + r + '-' + c3 + '" data-r="' + r + '" data-c="' + c3 + '" aria-label="' + DM.en01RowLabel(r) + ' ' + DM.EN01_CH[c3] + '"></select></td>';
+      for (var c3 = 0; c3 < 12; c3++) h += '<td><select class="dm-cell" id="' + P + 'e' + r + '-' + c3 + '" data-r="' + r + '" data-c="' + c3 + '" aria-label="' + DM.en01RowLabel(r) + ' ' + DM.EN01_CH[c3] + '"></select></td>';
       h += '</tr>';
     });
-    var g = $('dm-grid');
+    var g = $(G.tbl);
     g.innerHTML = h + '</tbody>'; g.className = 'dm-grid en01'; g.dataset.kind = 'en01:' + rows.join(',');
-    Array.prototype.forEach.call(g.querySelectorAll('select.dm-cell'), function (sel) { sel.addEventListener('change', function () { onPickEn01(+sel.dataset.r, +sel.dataset.c, sel.value); }); });
+    Array.prototype.forEach.call(g.querySelectorAll('select.dm-cell'), function (sel) { sel.addEventListener('change', function () { G.pickEn01(+sel.dataset.r, +sel.dataset.c, sel.value); }); });
     Array.prototype.forEach.call(g.querySelectorAll('select.dm-en01t'), function (sel) { sel.addEventListener('change', function () { var r = +sel.dataset.r; S.en01T[r] = +sel.value; log('n', DM.en01RowLabel(r) + ' T ← T' + sel.value); render(); }); });
   }
-  function renderGridEn01() {
-    var s = S.cur, rows = en01Rows(), T = en01Tabs(), g = DM.en01Gate(s);
-    if ($('dm-grid').dataset.kind !== 'en01:' + rows.join(',')) buildGridEn01(rows);
+  function renderGridEn01(G) {
+    G = G || GRID_MAIN;
+    var P = G.p, busy = G.main ? S.busy : false;
+    var s = G.st(), rows = en01Rows(), T = en01Tabs(), g = DM.en01Gate(s);
+    if ($(G.tbl).dataset.kind !== 'en01:' + rows.join(',')) buildGridEn01(rows, G);
     var np = DM.en01Phases(s.rd);
     rows.forEach(function (r) {
       /* v1.20.1：列尾標 SW 時槽；超過 RD_MODE 用到的時槽數 ⇒ 標「未用」（只提示，不停用；原廠 V2 也不遮格） */
-      var un = np !== null && (r % 6) >= np, rs = $('dm-ers' + r);
+      var un = np !== null && (r % 6) >= np, rs = $(P + 'ers' + r);
       rs.textContent = 'SW' + (r % 6 + 1) + '·' + DM.en01Seg(r).toUpperCase() + (un ? ' ' + tt('dm.en01Unused') : '');
-      $('dm-etr' + r).classList.toggle('en01un', un);
-      var ts = $('dm-et' + r); ts.value = String(T[r]); ts.disabled = S.busy;
+      $(P + 'etr' + r).classList.toggle('en01un', un);
+      var ts = $(P + 'et' + r); ts.value = String(T[r]); ts.disabled = busy;
       var defs = DM.en01Defs(T[r]);
       for (var c = 0; c < 12; c++) {
-        var sel = $('dm-e' + r + '-' + c), v = DM.en01CellView(s, r, c, T[r]), can = v.editable && !S.ro && !S.busy;
+        var sel = $(P + 'e' + r + '-' + c), v = DM.en01CellView(s, r, c, T[r]), can = v.editable && !S.ro && !busy;
         /* 288 格 × 最多 133 個選項：只有「T／可否編輯／值」變了才重建選項（每次 render 全部重建會拖慢頁面） */
         var sig = T[r] + '|' + (can ? 1 : 0) + '|' + v.raw + '|' + (v.std ? '' : tt('dm.nsOpt', { v: '' }));
         if (sel.dataset.sig !== sig) {
@@ -1168,11 +1240,12 @@
         sel.disabled = !can;
         sel.classList.toggle('ns', !v.std);
         sel.classList.toggle('copy', !v.editable);
-        sel.classList.toggle('chg', !!(S.savedImg && (S.img[v.addr] | 0) !== (S.savedImg[v.addr] | 0)));
+        sel.classList.toggle('chg', !!(G.main && S.savedImg && (S.img[v.addr] | 0) !== (S.savedImg[v.addr] | 0)));
+        if (G.mark) G.mark(sel, r, c, v);
       }
     });
     var note = g === 'off' ? tt('dm.en01Off') : '';
-    $('dm-gridnote').textContent = note; $('dm-gridnote').classList.toggle('hidden', !note);
+    $(P + 'gridnote').textContent = note; $(P + 'gridnote').classList.toggle('hidden', !note);
   }
   function colorKeyOf(name) { return DM.colorOfName(name); }
   function optEl(value, text, ckey) {
@@ -1198,18 +1271,20 @@
     if (g === 'single') return DM.MODELS[m].kind === 'mnt' ? 'Line ' + (r + 1) + suf : 'Line ' + ((r >> 1) + 1) + ((r & 1) ? '′' : '') + suf;
     return ROWS[r];
   }
-  function renderGrid() {
-    if (isEn01()) { renderGridEn01(); return; }
-    if ($('dm-grid').dataset.kind !== 'py') buildGrid();
-    var m = S.model, s = S.cur, g = DM.gateOf(m, s), e50 = DM.MODELS[m].sem === 'e50x';
-    for (var r0 = 0; r0 < 4; r0++) $('dm-rh' + r0).textContent = rowLabel(m, g, r0);
+  function renderGrid(G) {
+    G = G || GRID_MAIN;
+    if (isEn01()) { renderGridEn01(G); return; }
+    var P = G.p, busy = G.main ? S.busy : false;
+    if ($(G.tbl).dataset.kind !== 'py') buildGrid(G);
+    var m = S.model, s = G.st(), g = DM.gateOf(m, s), e50 = DM.MODELS[m].sem === 'e50x';
+    for (var r0 = 0; r0 < 4; r0++) $(P + 'rh' + r0).textContent = rowLabel(m, g, r0);
     for (var r = 0; r < 4; r++) {
       var copyRow = e50 && g === 'single' && (r & 1) === 1 && DM.MODELS[m].kind !== 'mnt';
-      $('dm-tr' + r).className = copyRow ? 'dm-copyrow' : '';
-      $('dm-tr' + r).title = copyRow ? tt('dm.rowSameTip', { r: rowLabel(m, g, r - 1) }) : '';
-      $('dm-rs' + r).textContent = copyRow ? tt('dm.rowSame', { r: 'Line ' + ((r >> 1) + 1) }) : (e50 && g === 'dual' && (r & 1) ? tt('dm.rowGn2') : '');
+      $(P + 'tr' + r).className = copyRow ? 'dm-copyrow' : '';
+      $(P + 'tr' + r).title = copyRow ? tt('dm.rowSameTip', { r: rowLabel(m, g, r - 1) }) : '';
+      $(P + 'rs' + r).textContent = copyRow ? tt('dm.rowSame', { r: 'Line ' + ((r >> 1) + 1) }) : (e50 && g === 'dual' && (r & 1) ? tt('dm.rowGn2') : '');
       for (var c = 0; c < 6; c++) {
-        var sel = $('dm-c' + r + '-' + c), v = DM.cellView(m, s, r, c), opts = S.ro ? [] : DM.cellOptions(m, s, r, c);
+        var sel = $(P + 'c' + r + '-' + c), v = DM.cellView(m, s, r, c), opts = S.ro ? [] : DM.cellOptions(m, s, r, c);
         sel.innerHTML = '';
         sel.className = 'dm-cell';
         if (v.blank) { sel.appendChild(optEl('', '—')); sel.disabled = true; sel.classList.add('blank'); paintSel(sel, null); sel.title = ''; continue; }
@@ -1218,9 +1293,10 @@
         if (opts.length) opts.forEach(function (o) { sel.appendChild(optEl(o.name, o.name, colorKeyOf(o.name))); });
         else if (v.std) sel.appendChild(optEl(v.txt, v.txt, curKey));
         sel.value = v.std ? v.txt : '__ns';
-        sel.disabled = !opts.length || S.busy;
+        sel.disabled = !opts.length || busy;
         if (!v.editable) sel.classList.add('copy');
-        if (cellChanged(v.src)) sel.classList.add('chg');
+        if (G.main && cellChanged(v.src)) sel.classList.add('chg');
+        if (G.mark) G.mark(sel, r, c, v);
         paintSel(sel, curKey);
         var tN = DM.MODELS[m].kind === 'mnt' ? DM.mntTOf(s, g, r) : (g === 'dual' && (r & 1) ? 3 : 2);
         sel.title = (v.std ? v.txt + ' = ' + v.raw + '  (' + DM.fieldById(m, 'c' + v.src).name + ')' : tt('dm.nsOpt', { v: hex(v.raw, 2) })) + ' · T' + tN + (s.mirror && DM.MODELS[m].kind === 'mnt' ? ' · Mirror' : '') + (s.chrb && DM.MODELS[m].kind === 'mnt' ? ' · CHRB：實際送出 R↔B' : '');
@@ -1239,7 +1315,7 @@
     if (g === 'off') note = tt('dm.gridOff');
     else if (g === 'tri') note = tt('dm.gridTri');
     else if (g === 'mismatch') note = tt('dm.gridMismatch', { p: s.panel, r: s.rd });
-    $('dm-gridnote').textContent = note; $('dm-gridnote').classList.toggle('hidden', !note);
+    $(P + 'gridnote').textContent = note; $(P + 'gridnote').classList.toggle('hidden', !note);
   }
   function renderLegend() {
     if (isEn01()) {
@@ -1389,7 +1465,7 @@
     if (ro) $('dm-ro').textContent = tt('dm.v512', { a: S.ro.slice(0, 4).map(function (a) { return '0x' + hex(a, 4); }).join(', ') + (S.ro.length > 4 ? '…' : '') });
     $('dm-glass').disabled = !handOn || ro; $('dm-glass').classList.toggle('hidden', isEn01());   // EN01：WPF 的 Export 沒有 Glass 欄
     $('dm-expx').disabled = !handOn || ro; $('dm-impx').disabled = !handOn || ro;
-    renderMode(); renderRestore(); renderGrid(); renderLegend(); renderSame(); renderCode(); renderX(); renderMnt(); renderAuto(); renderLod(); renderManual(); renderPreview(); renderLock();
+    renderMode(); renderRestore(); renderGrid(); renderLegend(); renderSame(); renderCode(); renderX(); renderMnt(); renderAuto(); renderLod(); renderManual(); renderPreview(); renderLock(); renderBench();
     var sl = !isMnt() ? '0x3E' : '0x' + hex(S.slave, 2);
     $('dm-export').disabled = ro; $('dm-bar-export').disabled = ro;
     $('dm-import').disabled = S.busy; $('dm-clear').disabled = S.busy;
@@ -2477,6 +2553,7 @@
     var res = DM.pickCell(S.model, S.cur, r, c, name);
     if (!res) { render(); return; }
     log('n', ROWS[r] + ' Data ' + (c + 1) + ' ← ' + res.text);
+    BM.hit = { r: r, c: c };   // v1.23.0：Benchmark 黃框標這格
     commit(res.state, ROWS[r] + ' Data ' + (c + 1));
   }
   /* v1.20.0 EN01：選某格（名稱依該列 T 階數換成 byte） */
@@ -2485,6 +2562,7 @@
     var res = DM.en01Pick(S.cur, r, c, en01Tabs()[r], name);
     if (!res) { render(); return; }
     log('n', DM.en01RowLabel(r) + ' ' + DM.EN01_CH[c] + ' ← ' + res.text + '（T' + en01Tabs()[r] + '）');
+    BM.hit = { r: r, c: c };   // v1.23.0
     commit(res.state, DM.en01RowLabel(r) + ' ' + DM.EN01_CH[c]);
   }
   /* 長循環時填第二組（MUX3 的 _1／_3 由 pickSecond 一律寫 0） */
@@ -2495,6 +2573,162 @@
     log('n', 'r2..b3 ' + ['r2', 'g2', 'b2', 'r3', 'g3', 'b3'][c] + '_' + r + ' ← ' + res.text);
     commit(res.state, 'r2..b3', { noSync: true });
   }
+
+  /* ── v1.23.0 Benchmark 反推表格（Bruce 10/12） ─────────────────────────────────────────────
+     名詞（與 10/12 已確認的「只送 R1＝第 1 條 V-line 由上到下所有 R」同一套命名）：
+       ・原表格某格選 R1＝TCON 在這個 Line／Data 時槽送出「輸入影像第 1 個 pixel 的 R 資料」；
+       ・Benchmark 某格填 B1＝這個時槽的資料實際亮在「第 1 個 pixel 的 B 子像素位置」（看面板或 ③ 接線圖得到）。
+       ⇒ 想讓面板顯示正確，這個時槽就該送 B1 的資料；所以「套用」＝把 Benchmark 每格的名稱原樣寫回原表格同一格。
+     資料：只存名稱（不存 code），依「型號｜Gate｜Mirror｜CHRB｜Panel／Sub panel」分組存 localStorage；
+       顯示時以目前的 S.cur 為底、All Same Pixel X、再逐格用 DM.pickCell／en01Pick 選名稱 ⇒ 得到 Benchmark 的 state，
+       交給和原表格同一個 renderGrid（GRID_BENCH）畫。名稱在目前設定下選不到（例：Gate 改了）⇒ 顯示 X 並在狀態列計數。
+     套用：以 S.cur 為底逐格 pickCell（與手選同一個函式）→ commit()（與手選同一條路：T 表／接線圖／暫存器／匯出／即時寫入都照常）；
+       套用前的 S.cur 存一份，「復原」用 commit(..., noSync／noLod) 原樣回去一次。 */
+  var BM_LS = 'tcon.datamap.bench.v1';
+  var BM = { open: false, fold: false, all: {}, undo: null, hit: null, mem: false };
+  (function () { try { var o = JSON.parse(localStorage.getItem(BM_LS) || '{}'); if (o && typeof o === 'object') { BM.all = o.all || {}; BM.open = !!o.open; BM.fold = !!o.fold; } } catch (e) { /* 讀不到（隱私模式／file://）⇒ 從空白開始；第一次存檔失敗時才提示 */ } })();
+  function bmSave() {
+    try { localStorage.setItem(BM_LS, JSON.stringify({ v: 1, open: BM.open, fold: BM.fold, all: BM.all })); }
+    catch (e) { if (!BM.mem) { BM.mem = true; toast('e', tt('dm.bmNoStore')); } }
+  }
+  function bmKey(st) {
+    st = st || S.cur; var m = S.model;
+    return m + '|' + DM.gateText(m, st) + '|M' + (st.mirror | 0) + '|C' + (st.chrb | 0) + '|P' + (st.panel | 0) + '.' + (st.subPanel | 0);
+  }
+  function bmEn() { return isEn01(); }
+  function bmView(st, r, c) { return bmEn() ? DM.en01CellView(st, r, c, en01Tabs()[r]) : DM.cellView(S.model, st, r, c); }
+  function bmPick(st, r, c, name) { return bmEn() ? DM.en01Pick(st, r, c, en01Tabs()[r], name) : DM.pickCell(S.model, st, r, c, name); }
+  /* 可以填的格（原表格能選的格；Single 複本列、空白格不算） */
+  function bmCells(st) {
+    var out = [];
+    if (bmEn()) { if (DM.en01Gate(st) === 'off') return out; var T = en01Tabs(); en01Rows().forEach(function (r) { for (var c = 0; c < 12; c++) if (DM.en01CellView(st, r, c, T[r]).editable) out.push([r, c]); }); return out; }
+    for (var r = 0; r < 4; r++) for (var c2 = 0; c2 < 6; c2++) { var v = DM.cellView(S.model, st, r, c2); if (!v.blank && v.editable) out.push([r, c2]); }
+    return out;
+  }
+  function bmNames() { var e = BM.all[bmKey()]; return (e && e.names) || {}; }
+  function bmAllX(st) { var r = bmEn() ? (DM.en01Gate(st) === 'off' ? null : DM.en01AllSame(st, 'X', en01Rows(), en01Tabs())) : DM.allSame(S.model, st, 'X'); return r ? r.state : DM.cloneState(st); }
+  /* Benchmark 的 state：目前設定為底、全部 X、再填存下來的名稱 */
+  function benchState() {
+    var st = bmAllX(S.cur), N = bmNames(), bad = 0, n = 0;
+    bmCells(st).forEach(function (rc) {
+      var nm = N[rc[0] + '-' + rc[1]]; if (!nm || nm === 'X') return;
+      var res = bmPick(st, rc[0], rc[1], nm); if (res) { st = res.state; n++; } else bad++;
+    });
+    BM.last = { st: st, bad: bad, n: n, t: bmCells(st).length };
+    return st;
+  }
+  /* 從 Benchmark state 讀回每格名稱存起來（複本列跟著來源列，不另存） */
+  function bmStore(st) {
+    var N = {};
+    bmCells(st).forEach(function (rc) { var v = bmView(st, rc[0], rc[1]); if (v.std && v.txt && v.txt !== 'X') N[rc[0] + '-' + rc[1]] = v.txt; });
+    var k = bmKey();
+    if (Object.keys(N).length) BM.all[k] = { names: N, at: Date.now() }; else delete BM.all[k];
+    bmSave();
+  }
+  function onBenchPick(r, c, name) {
+    if (name === '__ns') return;
+    var res = bmPick(benchState(), r, c, name);
+    if (!res) { renderBench(); return; }
+    bmStore(res.state);
+    log('n', 'Benchmark ' + bmCellName(r, c) + ' ← ' + res.text);
+    renderBench();
+  }
+  function bmCellName(r, c) { return bmEn() ? DM.en01RowLabel(r) + ' ' + DM.EN01_CH[c] : rowLabel(S.model, DM.gateOf(S.model, S.cur), r).replace(/（.*$/, '') + ' Data ' + (c + 1); }
+  /* 黃框：原表格上最後改的那格（反推時就是剛改成 R1 的那格），它目前不是 X 才標 */
+  function bmHitCell() {
+    var h = BM.hit; if (!h) return null;
+    var v = bmView(S.cur, h.r, h.c); if (!v || v.blank || !v.std || v.txt === 'X') return null;
+    return { r: h.r, c: h.c, v: v.txt };
+  }
+  var GRID_BENCH = { tbl: 'dm-bgrid', p: 'dm-b', main: false,
+    st: function () { return BM.cur || benchState(); },
+    pick: function (r, c, v) { onBenchPick(r, c, v); }, pickEn01: function (r, c, v) { onBenchPick(r, c, v); },
+    mark: function (sel, r, c) { var h = BM.curHit; sel.classList.toggle('dm-bhit', !!(h && h.r === r && h.c === c)); sel.setAttribute('data-bhit', h && h.r === r && h.c === c ? 1 : 0); } };
+  function renderBench() {
+    var box = $('dm-bench'), tog = $('dm-bench-tog');
+    tog.setAttribute('aria-expanded', BM.open ? 'true' : 'false');
+    box.classList.toggle('hidden', !BM.open);
+    if (!BM.open) return;
+    box.classList.toggle('dm-bfold', BM.fold); $('dm-bench-h').setAttribute('aria-expanded', BM.fold ? 'false' : 'true');
+    BM.cur = benchState(); BM.curHit = bmHitCell();
+    var L = BM.last;
+    $('dm-bench-st').textContent = tt('dm.bmSt', { n: L.n, t: L.t }) + (L.bad ? tt('dm.bmStBad', { b: L.bad }) : '');
+    box.setAttribute('data-key', bmKey()); box.setAttribute('data-filled', L.n); box.setAttribute('data-total', L.t);
+    var hit = $('dm-bench-hit'), h = BM.curHit;
+    hit.classList.toggle('hidden', !h); hit.textContent = h ? tt('dm.bmHit', { c: bmCellName(h.r, h.c), v: h.v }) : '';
+    renderGrid(GRID_BENCH);
+    BM.cur = null;
+    var ro = !!S.ro;
+    $('dm-bench-apply').disabled = ro || !L.n; $('dm-bench-clear').disabled = !L.n && !L.bad;
+    $('dm-bench-undo').classList.toggle('hidden', !BM.undo); $('dm-bench-undo').disabled = ro || S.busy;
+  }
+  /* 套用：onlyFilled＝未填（X）的格不動；回傳 { n, bad[] } */
+  function benchApply(onlyFilled) {
+    if (S.ro) { toast('e', tt('dm.roBlocked')); return null; }
+    var N = bmNames(), ns = DM.cloneState(S.cur), n = 0, bad = [];
+    bmCells(ns).forEach(function (rc) {
+      var nm = N[rc[0] + '-' + rc[1]] || 'X'; if (onlyFilled && nm === 'X') return;
+      var res = bmPick(ns, rc[0], rc[1], nm);
+      if (res) { ns = res.state; n++; } else bad.push(bmCellName(rc[0], rc[1]) + '＝' + nm);
+    });
+    BM.undo = { model: S.model, st: DM.cloneState(S.cur), en01T: S.en01T.slice() };
+    log('n', 'Benchmark → Data Mapping：' + n + ' 格' + (bad.length ? '（' + bad.length + ' 格無法寫入）' : ''));
+    commit(ns, 'Benchmark → Data Mapping');
+    if (bad.length) toast('e', tt('dm.bmDoneBad', { n: n, b: bad.length, l: bad.slice(0, 6).join('、') + (bad.length > 6 ? '…' : '') }));
+    else toast('ok', tt('dm.bmDone', { n: n }));
+    return { n: n, bad: bad };
+  }
+  function benchApplyAsk() {
+    if (S.ro) { toast('e', tt('dm.roBlocked')); return; }
+    var N = bmNames(), cells = bmCells(S.cur), filled = cells.filter(function (rc) { var x = N[rc[0] + '-' + rc[1]]; return x && x !== 'X'; }).length, x = cells.length - filled;
+    if (!filled) { toast('n', tt('dm.bmNone')); return; }
+    if (x > 0) ask(tt('dm.bmAskT'), tt('dm.bmAskPartD', { x: x, n: filled }), tt('dm.bmAskPartYes', { n: filled }), tt('dm.askNo2'), function () { benchApply(true); }, function () {});
+    else ask(tt('dm.bmAskT'), tt('dm.bmAskD', { n: filled }), tt('dm.bmAskYes'), tt('dm.askNo2'), function () { benchApply(false); }, function () {});
+  }
+  function benchUndo() {
+    var U = BM.undo; if (!U) return;
+    if (U.model !== S.model) { BM.undo = null; renderBench(); return; }
+    BM.undo = null; S.en01T = U.en01T;
+    log('n', 'Benchmark 復原（回到套用前）');
+    commit(U.st, 'Benchmark undo', { noSync: true, noLod: true });
+    toast('ok', tt('dm.bmUndone'));
+  }
+  function benchClear(force) {
+    var go = function () { delete BM.all[bmKey()]; bmSave(); log('n', 'Benchmark 清空（' + bmKey() + '）'); renderBench(); };
+    if (force) { go(); return; }
+    ask(tt('dm.bmClearT'), tt('dm.bmClearD', { n: (BM.last && BM.last.n) || 0 }), tt('dm.bmClearYes'), tt('dm.askNo2'), go, function () {});
+  }
+  function benchExport() {
+    var o = { format: 'tcon-tools datamap benchmark', v: 1, tool: (window.TOOL_VERSIONS && TOOL_VERSIONS.datamap) || '', exported: new Date().toISOString(), all: BM.all };
+    download('datamap_benchmark_' + stamp() + '.json', JSON.stringify(o, null, 1), 'application/json');
+  }
+  function benchImportText(txt) {
+    var o; try { o = JSON.parse(txt); } catch (e) { o = null; }
+    if (!o || o.format !== 'tcon-tools datamap benchmark' || !o.all || typeof o.all !== 'object') { toast('e', tt('dm.bmImpBad')); return 0; }
+    var n = 0;
+    Object.keys(o.all).forEach(function (k) { var e = o.all[k]; if (e && e.names && typeof e.names === 'object') { var N = {}; Object.keys(e.names).forEach(function (c) { if (/^\d+-\d+$/.test(c) && typeof e.names[c] === 'string') N[c] = e.names[c]; }); BM.all[k] = { names: N, at: +e.at || Date.now() }; n++; } });
+    bmSave(); toast('ok', tt('dm.bmImpOk', { n: n })); log('n', 'Benchmark 匯入 ' + n + ' 組'); renderBench();
+    return n;
+  }
+  function bindBench() {
+    $('dm-bench-tog').addEventListener('click', function () { BM.open = !BM.open; if (BM.open) BM.fold = false; bmSave(); renderBench(); });
+    var hd = $('dm-bench-h'), fold = function () { BM.fold = !BM.fold; bmSave(); renderBench(); };
+    hd.addEventListener('click', fold);
+    hd.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fold(); } });
+    $('dm-bench-apply').addEventListener('click', benchApplyAsk);
+    $('dm-bench-undo').addEventListener('click', benchUndo);
+    $('dm-bench-clear').addEventListener('click', function () { benchClear(false); });
+    $('dm-bench-exp').addEventListener('click', benchExport);
+    $('dm-bench-imp').addEventListener('click', function () { $('dm-bench-file').value = ''; $('dm-bench-file').click(); });
+    $('dm-bench-file').addEventListener('change', function () {
+      var f = this.files && this.files[0]; if (!f) return;
+      var rd = new FileReader(); rd.onload = function (e) { benchImportText(String(e.target.result || '')); }; rd.readAsText(f);
+    });
+  }
+  /* 測試／自動化入口 */
+  window.dmBench = { key: bmKey, state: benchState, cells: bmCells, names: bmNames, pick: onBenchPick, apply: benchApply, undo: benchUndo, clear: function () { benchClear(true); },
+    exportObj: function () { return { format: 'tcon-tools datamap benchmark', v: 1, all: JSON.parse(JSON.stringify(BM.all)) }; }, importText: benchImportText,
+    open: function (on) { BM.open = on !== false; BM.fold = false; bmSave(); renderBench(); }, view: bmView, lsKey: BM_LS };
   function onCodeText(a, txt) {
     if (imgAddrs().indexOf(a) < 0 || S.ro) { render(); return; }
     var v = parseInt(String(txt).trim() || '0', 16);        // PY:12433-12438：解析失敗 ⇒ 00
@@ -3110,7 +3344,7 @@
   }
   window.dmFold = { set: function (id, on) { setFold(id, on); }, all: foldAll, isFolded: function (id) { return isFolded($(id)); }, key: FOLD_KEY };
   window._onLangChange = function () { buildModelSelect(); buildLod(); foldTitles(); render(); };
-  buildModelSelect(); buildGate(); buildGrid(); buildLod(); bind(); bindLock(); bindColMode(); foldInit(); render();
+  buildModelSelect(); buildGate(); buildGrid(); buildLod(); bind(); bindLock(); bindColMode(); foldInit(); bindBench(); render();
 })();
 </script>
 </body>
