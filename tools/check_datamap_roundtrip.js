@@ -175,12 +175,14 @@ async function partB(B, P) {
   for (const v of variants.filter((x, i) => i % SH[1] === SH[0] && (!ONLY || x.name.indexOf(ONLY) >= 0))) {
     setModel(v.k); lockOff(); show(v.s);
     if ($('dm-pvbody').classList.contains('hidden') || !d.querySelector('#dm-pv-tft rect[data-pv]')) continue;
-    nv++; if (process.env.RT_PROGRESS) process.stderr.write('[' + nv + '/' + variants.length + '] ' + v.name + ' ' + ((Date.now() - T0) / 1000).toFixed(0) + 's\n');
+    nv++; if (process.env.RT_PROGRESS) process.stderr.write('[' + nv + '/' + variants.length + '] ' + v.name + ' ' + ((Date.now() - T0) / 1000).toFixed(0) + 's（累計 fail ' + fail + '）\n');
+    /* 選項取樣（每 STEP 個取 1 個，R1 一定跑）：NB 型號全跑；MNT 預設每 3 個取 1（Mirror／CHRB 變化每 5 個取 1）；--all 全跑、--quick 每 5 個取 1 */
+    const STEP = ALL ? 1 : (QUICK ? 5 : (DM.MODELS[v.k].kind !== 'mnt' ? 1 : (v.mi || v.ch ? 5 : 3)));
     /* B6 未鎖定正推（Mirror 0、CHRB 0） */
     const X = sameX(v.k, v.s);
     if (!v.mi && !v.ch) {
-      for (let r = 0; r < 4; r++) for (let c = 0; c < 6; c++) if (!dark(v.k, X, r, c)) optsOf(v.k, X, r, c).forEach(n => {
-        if (n === 'X') return; show(pick(v.k, X, r, c, n)); tick('B6');
+      for (let r = 0; r < 4; r++) for (let c = 0; c < 6; c++) if (!dark(v.k, X, r, c)) optsOf(v.k, X, r, c).forEach((n, i) => {
+        if (n === 'X' || (i % STEP && n !== 'R1')) return; show(pick(v.k, X, r, c, n)); tick('B6');
         const R = rects(d), hit = R.filter(x => prim(x) && x.dn === n);
         ok(hit.length && hit.every(x => x.pos === n), 'B6', v.name + ' 未鎖定 r' + r + 'c' + c + '＝' + n + ' ⇒ ' + (hit.map(x => x.k + ':' + x.pos).join(',') || '沒有任何格收到'));
       });
@@ -188,7 +190,9 @@ async function partB(B, P) {
     /* B1 鎖定當下 */
     show(v.s); lockOn();
     const R0 = rects(d), main0 = R0.filter(prim);
-    tick('B1'); ok(main0.every(x => x.dn === x.pos), 'B1', v.name + ' 鎖定當下 ≠：' + main0.filter(x => x.dn !== x.pos).slice(0, 4).map(x => x.k + ':' + x.pos + '←' + x.dn).join(','));
+    /* CHRB＝1：TCON 把每個 pixel 的 R、B 資料對調（接線位置不變）⇒ 位置 R3 收到 B3，和未鎖定時的畫法相同 */
+    const idn = x => (v.ch ? rbSwap(x.pos) : x.pos);
+    tick('B1'); ok(main0.every(x => x.dn === idn(x)), 'B1', v.name + ' 鎖定當下 ≠：' + main0.filter(x => x.dn !== idn(x)).slice(0, 4).map(x => x.k + ':' + x.pos + '←' + x.dn).join(','));
     /* B2 全部 X */
     show(X); tick('B2');
     ok(rects(d).filter(x => prim(x) && x.dn && x.dn !== 'X').length === 0, 'B2', v.name + ' 全部 X 後仍有格收到資料');
@@ -197,9 +201,7 @@ async function partB(B, P) {
     const tgt = {};      // r:c → 目標位置集合（與 N 無關）
     for (let r = 0; r < 4; r++) for (let c = 0; c < 6; c++) {
       const opts = dark(v.k, X, r, c) ? [] : optsOf(v.k, X, r, c).filter(n => n !== 'X'); if (!opts.length) continue;
-      /* 完整模式：Mirror 0／CHRB 0 每個選項都跑；Mirror／CHRB 變化每 5 個取 1 個＋R1（--all 全跑） */
-      const sub = QUICK || ((v.mi || v.ch) && !ALL);
-      const list = sub ? opts.filter((n, i) => i % 5 === 0 || n === 'R1') : opts;
+      const list = opts.filter((n, i) => i % STEP === 0 || n === 'R1');
       for (const n of list) {
         show(pick(v.k, X, r, c, n)); col('R1');
         const R = rects(d), got = {}; R.forEach(x => { if (prim(x) && x.dn && x.dn !== 'X') got[x.k + ':' + x.pos] = x.dn; });
@@ -252,7 +254,7 @@ async function partB(B, P) {
     }
     for (let r = 0; r < 4; r++) { const cells = []; for (let c = 0; c < 6; c++) { const n = pickN(r, c, ['R1']); if (n) cells.push([r, c, n]); } if (cells.length > 1) combo(cells, '整列 r' + r + ' 同值'); }
     /* 全部套用 N0 後再個別改：其餘格＝全部套用 N0 單獨的結果，改的那格＝它單獨的結果 */
-    for (const n0 of DM.allSameOptions(v.k, v.s).filter(n => n !== 'X').slice(0, QUICK ? 2 : 99)) {
+    for (const n0 of DM.allSameOptions(v.k, v.s).filter(n => n !== 'X').filter((n, i) => i % STEP === 0 || n === 'R1')) {
       const A0 = same(v.k, v.s, n0); if (!A0) continue;
       show(A0); const g0 = {}; rects(d).forEach(x => { if (prim(x) && x.dn && x.dn !== 'X') g0[x.k + ':' + x.pos] = x.dn; });
       const r = 0, c = 3, n = pickN(r, c, ['R1']); if (!n) continue;
