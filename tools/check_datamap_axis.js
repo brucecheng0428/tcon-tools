@@ -8,6 +8,7 @@
 //   A2 「資料正確」✓ 的列：套用後每個主循環有接線的格子收到的資料＝格子的軸名稱（data-dn＝data-pv）
 //   A3 線長一致：套用後接線圖 data-maxlen＝比較表該列的「最長 drain」
 //   A4 排名：資料與顏色全對的列排在最前，且依最長 drain 由短到長
+//   A5 資料正確的列：每列資料左小右大，最左有接線的資料在最左 pixel（v1.23.3）
 //   S5 蘇坤 code（給 --sukun 才跑）：第 1 名＝CH1 最左＋正向＋RGB＋輸出對調＋Mirror 不改、最長 drain 1.5；套用後每條線接的子像素＝蘇坤 DataMapping 參考圖
 'use strict';
 const path = require('path'), fs = require('fs');
@@ -70,7 +71,13 @@ const ok = (c, g, m) => { cnt[g] = (cnt[g] || 0) + 1; if (c) pass++; else { fail
       /* 最左有名稱的格子：不小於「表格用到的最小編號的 pixel」與 R1 兩者較小者，也不大於兩者較大者（不翻圖時從 R1 或前循環起；CH1 在右翻圖時從用到的最小 pixel 起）；下限只對「資料正確」的組合檢查（鏡像組合的接線位置會落到資料編號之外） */
       const all = [1, 2, 3, 4, 5, 6, 7, 8].flatMap(rw => axis(rw)), pix = a => a.length ? 3 * Math.floor(Math.min.apply(null, a) / 3) : 0;
       const lo = pix(all.filter(c => c.inn && c.dn).map(c => DM.linIdx(c.dn)).filter(x => x !== null)), hi = pix(all.filter(c => c.tier === 'main' && c.dn).map(c => DM.linIdx(c.dn)).filter(x => x !== null));
-      ok((r.cells[5] !== '✓' || lin[0] >= Math.min(0, lo)) && lin[0] <= Math.max(0, hi) && ((lin[0] % 3) + 3) % 3 === 0, 'A1', v.n + ' ' + r.key + '：最左＝' + ax[0].nm + '（有接線資料最小 pixel ' + DM.linName(lo) + '、主循環資料最小 pixel ' + DM.linName(hi) + '，整 pixel 起點）');
+      ok((r.cells[5] !== "✓" || (lin[0] >= Math.min(0, lo) && lin[0] <= Math.max(0, hi))) && ((lin[0] % 3) + 3) % 3 === 0, 'A1', v.n + ' ' + r.key + '：最左＝' + ax[0].nm + '（有接線資料最小 pixel ' + DM.linName(lo) + '、主循環資料最小 pixel ' + DM.linName(hi) + '，整 pixel 起點）');
+      /* A5 v1.23.3（Bruce 10/12「這個的排列一定是左小右大」）：資料正確的列，每一列有接線的格子收到的資料由左到右嚴格遞增（左小右大），
+         且整張圖最左有接線的資料落在最左那個有名稱的 pixel（＝表格最小 pixel） */
+      if (r.cells[5] === '✓') [1, 2].forEach(rw => { const wc = axis(rw).filter(c => c.inn && c.dn && c.tier === 'main').map(c => inv(DM.linIdx(c.dn)));
+        ok(wc.every((x, i) => x !== null && (!i || x > wc[i - 1])), 'A5', v.n + ' ' + r.key + ' 第 ' + rw + ' 列：資料左小右大（' + wc.slice(0, 8).join(',') + '）'); });
+      if (r.cells[5] === '✓') { const fw = [1, 2, 3, 4].flatMap(rw => axis(rw)).filter(c => c.inn && c.dn).sort((a, b) => a.x - b.x)[0];
+        ok(!fw || Math.floor(inv(DM.linIdx(fw.dn)) / 3) === Math.floor(lin[0] / 3), 'A5', v.n + ' ' + r.key + '：最左有接線的資料 ' + (fw && fw.dn) + ' 在最左 pixel（' + ax[0].nm + '）'); }
       if (r.cells[5] === '✓') { const bad = ax.filter(c => c.tier === 'main' && c.dn !== c.nm); ok(!bad.length, 'A2', v.n + ' ' + r.key + '：資料正確 ⇒ 主循環格子收到的資料＝軸名稱（' + bad.slice(0, 4).map(c => c.nm + '←' + c.dn).join(',') + '）'); }
       ok(Math.abs(+T().getAttribute('data-maxlen') - +r.cells[7]) < 1e-9, 'A3', v.n + ' ' + r.key + '：接線圖最長 drain ' + T().getAttribute('data-maxlen') + '＝比較表 ' + r.cells[7]);
     }
@@ -85,6 +92,8 @@ const ok = (c, g, m) => { cnt[g] = (cnt[g] || 0) + 1; if (c) pass++; else { fail
     const all = rowsOf(), first = all[0], corr = all.findIndex(r => r.key === 'lfgs0');
     ok(first.key === 'lfgs0' && first.cells[5] === '✓' && first.cells[6] === '✓' && +first.cells[7] === 1.5, 'S5', '第 1 名＝CH1 最左＋正向＋RGB＋輸出對調、Mirror 0、資料／顏色 ✓、最長 drain 1.5（' + first.key + ' ' + first.cells.slice(1, 10).join(',') + '）');
     ok(all.filter(r => r.ok === '1' && +r.cells[7] < 1.5).length === 0, 'S5', '沒有比 1.5 更短的全對組合');
+    { const r2 = all.find(r => r.key === 'rrgs1'); ok(r2 && r2.cells[5] !== '✓' && r2.ok === '0', 'S5', 'v1.23.3：rrgs1（CH1 最右＋反向＋對調＋Mirror 1，最左收到 R5 不是 R-1）判資料錯：' + (r2 && r2.cells[5])); }
+    ok(all.filter(r => r.ok === '1').every(r => r.cells[9].charAt(0) === '0'), 'S5', 'v1.23.3：蘇坤所有全對組合都是 Mirror 0（Mirror 1 時最左收到的不是最小 pixel）');
     w.dmApplyCombo(first.key, false);
     /* 參考圖（BOE B4 27" QHD DataMapping_DualGate_BOE_HSD）：Data 線在 R1 左、G1|B1、R2|G2…；第 1 列上 TFT→右邊第二顆、下 TFT→右邊第一顆；
        第 2 列往左錯一條：上 TFT→左邊第二顆、下 TFT→左邊第一顆 ⇒ 依序 (D1：G1/R1｜G-1/B-1)、(D2：B1/R2｜G1/R1)、(D3：G2/B2｜B1/R2)… */

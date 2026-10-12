@@ -585,7 +585,7 @@
 </div>
 <div class="dm-toasts" id="dm-toasts" aria-live="polite"></div>
 
-<script src="common/version.js?v=20261012dm1232"></script>
+<script src="common/version.js?v=20261012dm1233"></script>
 <script src="common/i18n.js?v=20261012dm1220"></script>
 <script>
 (function () {
@@ -2161,39 +2161,52 @@
   }
   /* v1.23.2 單一來源：子像素軸名稱的線性編號（畫面序 sp 從 pixel 邊界起算；BGR 時每個 pixel 內名稱順序是 B G R，Bruce「唯一可以變動的就是設定 RGB 改為 BGR」） */
   function pvAxisLin(sp, bgr) { var m = ((sp % 3) + 3) % 3; return sp - m + (bgr ? 2 - m : m); }
-  /* v1.23.2 子像素軸名稱（單一來源，renderPvTft0 的格子名稱與 pvOrientBad 共用）：位置 s（D1 側起算）→ 軸名稱的線性編號；null＝不寫名稱。
-     不翻圖：畫面由左到右＝s 由小到大，軸名稱＝位置名稱（最左＝表格用到的最小編號補到整 pixel＝smin）。
-     CH1 在右整張翻：畫面由左到右＝s 由大到小；軸從「主循環資料最小編號」起、對齊到接線目標最大的位置（畫面最左有接線的那格）：
-       軸編號(s)＝dmin＋(tmax−s)；比 dmin 那個 pixel 更小的不寫名稱。dmin／tmax 只看 ② 的資料與接線目標，和 SHL／對調無關 ⇒ 同一狀態下軸固定。
-     BGR：每個 pixel 內名稱順序 B G R（pvAxisLin），Bruce「唯一可以變動的就是設定 RGB 改為 BGR」。 */
+  /* v1.23.3（Bruce 10/12「在這個組配下，最左邊的並不是最小的 pixel…這個的排列一定是左小右大…應該是顏色正確，但是資料不對」）：
+     子像素軸名稱（單一來源，renderPvTft0 的格子名稱與 pvOrientBad 共用）一律「左小右大」：
+       畫面最左有接線的那個 pixel＝表格（②）用到的最小 pixel（pvTableMin，如 G-1／B-1 ⇒ R-1），往右每格 +1；更左的空位不寫名稱。
+       BGR 只改 pixel 內順序（B G R）。不翻圖、非 Mirror 時＝位置名稱本身。
+     v1.23.2 翻圖時軸是從「收到的資料」最小值對齊（軸跟著資料走）⇒ 只要資料由左到右遞增就判全對，最左收到 R4 也算對（蘇坤第 2 名 rrgs1 的漏判根因）。
+     pvAxisEdge：畫面最左有接線那格所在 pixel 的邊界位置（不翻圖＝最小位置往下取整 pixel；翻圖＝最大位置往上補到 pixel 尾，畫面最左 smax 也補在 pixel 邊界）。 */
   function pvDataAt(P, t) {   // 未鎖定時位置 t 收到的資料名稱（和 renderPvTft0 的 pvNm0(shownPos(t)) 相同；CHRB 另外 R↔B）
     var n = P.period, nD = pvNDof(n), sh = P.flShift ? n * P.NG * (nD / n - 1) : 0, x = t - sh;
     return pvName(P.mirror ? pvSpanRev(P, x) : x);
   }
-  function pvAxisLab(P, s, fl, bgr) {
-    if (!fl) return pvAxisLin(s, bgr);
-    var key = (bgr ? 'b' : 'g'); P._ax = P._ax || {};
-    if (!P._ax[key]) {
-      /* 只看主循環（翻圖時＝離 D1 最遠那組，名稱陣列最後一個週期）：最小資料編號 dmin 所在位置 t0 ⇒ 軸編號(s)＝dmin＋(t0−s)；比 dmin 的 pixel（最多從 R1 起）更小的不寫 */
-      var t0 = null, dmin = null, keep = P.flShift, n0 = P.period, nD0 = pvNDof(n0); P.flShift = 1;
-      P.rows.forEach(function (r) { r.names.forEach(function (c, j) { if (j < nD0 - n0 || !c || c.off) return; var t = c.t !== undefined ? c.t : pvLin(c.name); if (t === null) return;
-        var d = pvLin(pvDataAt(P, t)); if (d === null) return; d = pvAxisLin(d, bgr); if (dmin === null || d < dmin) { dmin = d; t0 = t; } }); });   // CHRB 只換資料，不動軸
-      P.flShift = keep;
-      P._ax[key] = dmin === null ? { k: 0, lo: 0 } : { k: dmin + t0, lo: Math.min(0, 3 * Math.floor(dmin / 3)) };
-    }
-    var A = P._ax[key], L = A.k - s;
-    return L < A.lo ? null : pvAxisLin(L, bgr);
+  function pvTableMin(P) {   // ② 表格（主循環）用到的最小編號，往下取整 pixel；Mirror／CHRB 前的原名（c.raw）
+    if (P._tmin !== undefined) return P._tmin;
+    var mn = null;
+    P.rows.forEach(function (r) { for (var j = 0; j < P.period && j < r.names.length; j++) { var c = r.names[j]; if (!c || c.off) continue; var l = pvLin(c.raw || c.name); if (l !== null && (mn === null || l < mn)) mn = l; } });
+    return (P._tmin = mn === null ? 0 : 3 * Math.floor(mn / 3));
   }
-  /* v1.23.2「資料正確」＝每條主循環 drain 接到的格子，收到的資料名稱＝那格的子像素軸名稱（差一個整 pixel 的固定平移也算對）。
-     畫面序：不翻圖＝位置 t；CH1 在右整張翻 ⇒ 2−t（畫面最左 smax 補在 pixel 邊界，見 renderPvTft0）。取「資料編號−軸編號」最多數的值當基準，
-     不同或基準不是整 pixel 的都算錯 ⇒ 鏡像（左右反）、錯位、R↔B 的組合都會被抓到。 */
+  /* 軸的基準 pixel：排列組合統計同時比 TCON Mirror 0／1，32 種組合共用同一個基準（pvTableRef）⇒ 切 Mirror 不會讓「最左」跟著變（Bruce「最左邊的一定要是最小的」）。 */
+  function pvTableRef(P) {
+    /* 基準＝Mirror 0 解讀下 ② 名稱（＝位置名稱）的最小編號、往下取整 pixel：Mirror 1 的名稱是原廠 Pixel mapping view 的整行反轉名稱（例 蘇坤 G4…），
+       不是 pixel 索引；Mirror 0 的名稱就是 pixel 索引。所有型號同一套（Mirror 欄位不存在或 Auto／Line OD 測試 ⇒ 用目前接線名稱）。 */
+    if (P._tref !== undefined) return P._tref;
+    var P0 = P;
+    if (!P.lod && !P.auto && S.cur && (S.cur.mirror | 0) && DM.fieldById(S.model, 'mirror') && pvMirOk(P)) { var A = pvMirAlt(0); if (A && A.ok && A.period) P0 = A; }
+    return (P._tref = pvTableMin(P0));
+  }
+  function pvAxisEdge(ts, fl) {
+    var e = null; ts.forEach(function (t) { if (t === null || t === undefined) return; if (e === null || (fl ? t > e : t < e)) e = t; });
+    if (e === null) return null;
+    return fl ? 3 * Math.floor(e / 3) + 2 : 3 * Math.floor(e / 3);
+  }
+  function pvAxisLab(P, s, fl, bgr, edge) {
+    if (edge === null || edge === undefined) return null;
+    var m0 = P._tref !== undefined ? P._tref : pvTableMin(P), L = m0 + (fl ? edge - s : s - edge);
+    return L < m0 ? null : pvAxisLin(L, bgr);
+  }
+  /* 「資料正確」＝畫面主循環每條 drain 接到的格子，收到的資料名稱＝那格的軸名稱（左小右大、最左＝表格最小 pixel）。
+     主循環：不翻圖＝D1~D(週期)；翻圖＝畫面最左那組（名稱陣列最後一個週期）。鏡像、左右反、錯位、最左不是最小 pixel、R↔B 都算資料錯。 */
   function pvOrientBad(P, swap, rev, fl, bgr) {
-    var n = 0;
-    pvWiresSpec(P, swap, rev).forEach(function (w) {
-      if (w.off || w.rep || w.t === null || w.t === undefined) return;
-      var d = w.rname ? pvLin(w.rname) : null, a = pvAxisLab(P, w.t, fl, bgr);
-      if (fl) d = pvLin(pvDataAt(Object.assign({}, P, { flShift: 1 }), w.t));   // 翻圖時格內資料名稱照畫面的週期平移（renderPvTft0 shownPos）；未鎖定時收到的＝該位置的資料
+    var n = 0, sp = pvWiresSpec(P, swap, rev), nD = pvNDof(P.period), per = P.period, Q = Object.assign({}, P, { flShift: 1 });
+    var edge = pvAxisEdge(sp.filter(function (w) { return !w.off; }).map(function (w) { return w.t; }), fl);
+    sp.forEach(function (w) {
+      if (w.off || w.t === null || w.t === undefined) return;
+      if (fl ? w.p < nD - per : w.p >= per) return;
+      var d = fl ? pvLin(pvDataAt(Q, w.t)) : (w.rname ? pvLin(w.rname) : null);
       if (fl && d !== null && P.chrb) d = pvLin(DM.rbSwapName(pvName(d)));
+      var a = pvAxisLab(P, w.t, fl, bgr, edge);
       if (d === null || a === null || d !== a) n++;
     });
     return n;
@@ -2215,9 +2228,12 @@
   function pvCombos(P) {
     var hasMir = !!(S.cur && DM.fieldById(S.model, 'mirror') && pvMirOk(P)), curM = hasMir ? (S.cur.mirror | 0) : 0, out = [], locked = hwLocked();
     var mirs = hasMir ? [curM, 1 - curM] : [curM];
+    var PMS = {}, tref = pvTableRef(P);
+    mirs.forEach(function (m) { PMS[m] = m === curM ? P : pvMirAlt(m); });
     mirs.forEach(function (m) {
-      var Pm = m === curM ? P : pvMirAlt(m);
+      var Pm = PMS[m];
       if (!Pm || !Pm.period) return;
+      Pm._tref = tref;
       /* v1.23.2（Bruce 10/12 蘇坤 code：第一名資料、顏色都對但最長 drain 太長）：v1.23.1 以前 drain 長度只隨輸出對調算（cost[sw]），
          SHL／CH1 位置不影響線長、輸出對調也只把資料換到別條線（算成資料錯）⇒ 「對調後 drain 變短且資料正確」的組合永遠排不上來。
          改成每種 SHL × 輸出對調各自照 pvLineSrc 重新接 drain、算線長（CH1 位置只是整張左右翻，線長不變）；子像素軸固定。 */
@@ -2326,8 +2342,9 @@
     if (FL) smax += (2 - (smax % 3) + 3) % 3;   // v1.23.2：翻圖時畫面最左那顆（smax）要在 pixel 邊界上，玻璃顏色與軸名稱才從畫面最左的 R（或 B）開始
     /* v1.23.2 子像素軸名稱（單一來源）：畫面由左到右第 i 顆＝最小編號＋i；不翻圖時就是位置名稱，翻圖（CH1 在右）時從畫面最左數 */
     /* v1.23.2 軸名稱單一來源 pvAxisLab；翻圖時畫面最左那個 pixel 若只畫到一部分（不完整），那幾格不寫名稱，軸從完整 pixel 起 */
-    var axL0 = FL ? pvAxisLab(P, smax, FL, pvBGR) : null; if (axL0 !== null) axL0 = pvAxisLin(axL0, pvBGR);
-    var pvAxisNm = function (s0) { var L = pvAxisLab(P, s0, FL, pvBGR); if (L === null) return ''; if (axL0 !== null) { var raw = pvAxisLin(L, pvBGR); if (raw - (((raw % 3) + 3) % 3) < axL0) return ''; } return pvName(L); };
+    pvTableRef(P);
+    var axEdge = pvAxisEdge(spec.filter(function (w) { return !w.off && w.t !== null && w.t >= smin && w.t <= smax; }).map(function (w) { return w.t; }), FL);
+    var pvAxisNm = function (s0) { var L = pvAxisLab(P, s0, FL, pvBGR, axEdge); return L === null ? '' : pvName(L); };   // v1.23.3 左小右大，最左＝表格最小 pixel
     /* v1.18.3：格內名稱照 v1.17.5（Mirror 用原廠 Pixel mapping view 名稱）；只有「鎖定後 Mirror 和鎖定當下不同」才把收到的 pixel 編號左右鏡像（Bruce 10/8 pixel 級模型） */
     var pvNm0 = function (x) { return pvName(P.mirror ? pvSpanRev(P, x) : x); };
     var FLIP = !!P.recvMirFlip, PRc = P.recvP || P;

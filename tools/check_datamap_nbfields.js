@@ -55,7 +55,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   ok(w.dmState.cur.rvsL === 0x3F && /write -m 01A2 3F 3F/.test(w.dmBuildScript().text) && /write -m 0181 01 19/.test(w.dmBuildScript().text), '勾 Mirror ⇒ READ_RVS＝0x3F（6 bit 全 1），匯出 01A2 3F 3F、0181 01 19');
   console.log('NB Dual Mirror：Kick Off（RM81010）mirror＝1 範例，E501A 與 EM02 的 ③ 必須相同');
   const mr = FX.mir, rows = [mr.line0.c0, mr.line0.c1, mr.line1.c0, mr.line1.c1];
-  const wiring = () => Array.from(d.querySelectorAll('#dm-pv-tft rect[data-in]')).map(r => r.getAttribute('data-pv') + '=' + r.getAttribute('data-in') + '/' + r.getAttribute('data-dn')).join(' ');
+  /* v1.23.3：軸名稱（data-pv）改由各型號 Mirror 0 解讀的最小 pixel 起算，NB／MNT 的名稱表不同 ⇒ 比格子位置（x@y）＋接線＋收到的資料，不比軸名稱 */
+  const wiring = () => Array.from(d.querySelectorAll('#dm-pv-tft rect[data-in]')).map(r => r.getAttribute("x") + "@" + r.getAttribute("y") + "=" + r.getAttribute("data-in") + '/' + r.getAttribute('data-dn')).join(' ');
   const load = async (k) => { fire('dm-model', k); await sleep(40); const s = Object.assign(DM.emptyState(k), { hand: 1, panel: 2, subPanel: 0, rd: 1, mirror: 1 }); rows.forEach((r, i) => r.forEach((v, c) => { s['c' + (i * 6 + c)] = v; })); w.dmState.cur = s; w.dmRender(); await sleep(40); };
   await load('EM02'); const em = wiring();
   await load('E501A'); const nb = wiring();
