@@ -1,7 +1,8 @@
 // v1.18.24（Bruce 10/8）：③ 垂直重複到 max(4, 垂直週期) 列、水平擴到 24 條 Data 線後的比對。
-// 用法：node tools/check_datamap_svg_rep.js /tmp/dm1175wt . tools/check_datamap_kickoff.js <同事C EM02 bin>（全民 code 讀 /tmp/qm.bin）
-// 方法（未鎖定；資料組 qm／sk／kmir × Mirror 0/1 × CH1 左右 × SHL × RGB/BGR × 輸出對調 ＝ 96 種，同 check_datamap_svg_vs_tag.js --sem）：
-//  A. 原本的部分與 v1.17.5 語意相同（不比座標，因為多畫的線／列會改變 SVG 寬高、繞線軌道數與 CH1 在右時的翻轉基準）：
+// 用法：node tools/check_datamap_svg_rep.js [repo] [--sk <同事C EM02 code.bin>] [--qm <全民 EM01 code.bin>]（沒給的資料組跳過；kmir 用 tools/check_datamap_kickoff.js 的 FX.mir，一定跑）
+// 方法（未鎖定；資料組 qm／sk／kmir × Mirror 0/1 × CH1 左右 × SHL × RGB/BGR × 輸出對調 ＝ 96 種，同已退役的 archive/retired-tests/check_datamap_svg_vs_tag.js --sem）：
+//  A. （2026-10-12 退役，test-only）原本的部分與 v1.17.5 語意相同——Bruce 10/12「不可放著常態失敗」：v1.18.20 起 Mirror 固定完整 pixel P8→P1、v1.18.24／v1.19.0 幾何與 V 方向線數、v1.20.2 鎖定接線命名都是刻意改變，
+//     v1.17.5 已不是規格基準（HEAD 上 2032 項不同全在 Mirror／幾何／drain 長度，週期檢查 0 fail）。現行規格的資料正確性改由 check_datamap_roundtrip（正反推矩陣）、vlines、preview 驗；以下 A 段說明只留作歷史：
 //     ・Data 線：v1.17.5 的第 p 條（共 2×週期）對應新版第 p＋off 條（CH1 在左 off＝0；CH1 在右 off＝新條數−2×週期，因為主循環是最左那組＝最後一個週期）。
 //       比 SD Out 標號文字、TCON Out（Data k）文字／顏色／透明度、data-src（扣 off）、主／重複、data-gap（扣 off 個週期的位移）。
 //     ・接線（每列 × 每條線 × 上下 gate）：TFT 送的名稱、drain 長度、是否畫面外、顏色。
@@ -14,7 +15,9 @@
 //     ・水平：第 p 條（p ≥ 週期 n）的 data-gap＝第 p−n 條＋pSub、data-src＝第 p−n 條＋n、TCON Out 文字相同、SD Out 標號照實際順序；
 //       每條接線的目標格＝第 p−n 條的目標格往右 pSub 格（畫面外除外）、drain 長度相同；主循環只有一個週期（n 條）。
 const path = require('path'), fs = require('fs');
-const [BASE, NEW, KT, SK] = process.argv.slice(2).map((x, i) => i < 2 ? path.resolve(x) : x);
+const argv = process.argv.slice(2), opt = n => { const i = argv.indexOf(n); return i >= 0 ? argv[i + 1] : null; };
+const NEW = path.resolve(argv[0] && !argv[0].startsWith('--') ? argv[0] : path.join(__dirname, '..'));
+const KT = path.join(NEW, 'tools/check_datamap_kickoff.js'), SK = opt('--sk'), QM = opt('--qm');
 const FX = JSON.parse(/const FX = (\{.*?\});\n/s.exec(fs.readFileSync(KT, 'utf8'))[1]);
 const { JSDOM } = require(path.join(__dirname, '..', 'node_modules/jsdom'));
 const LX = 92, PIT = 58;
@@ -42,46 +45,7 @@ function parse(T) {
   o.glab.sort((a, b) => a.y - b.y);
   return o;
 }
-const edge = { wires: 0, cells: 0, keys: {} };
-function compareOld(key, a, b) {
-  edge.keys = {};
-  const n = a.n, nOld = 2 * n, off = b.fl ? b.nd - nOld : 0, goff = b.fl ? b.pSub * (b.nd / n - 2) : 0, vper = b.vper;
-  ok(a.n === b.n && a.pSub === b.pSub && a.fl === b.fl, key + ' 週期／方向不同');
-  ok(a.glob === b.glob, key + ' 全域屬性不同 ' + a.glob + ' vs ' + b.glob);
-  ok(Object.keys(a.lines).length === nOld, key + ' 舊版線數≠2×週期');
-  for (let p = 0; p < nOld; p++) {
-    const L = a.lines[p], M = b.lines[p + off];
-    ok(M && L.dlab === M.dlab && L.dof === M.dof && L.rep === M.rep && L.src === M.src - off && L.gap === M.gap - goff, key + ' Data 線 ' + p + ' 不同 ' + JSON.stringify(L) + ' vs ' + JSON.stringify(M));
-  }
-  const oldNl = Math.max(...Object.values(a.cells).map(c => c.k)) + 1;
-  ok(oldNl === vper, key + ' 原本列數 ' + oldNl + ' ≠ 新版垂直週期 ' + vper);
-  // 接線：同一個模型索引 p 的 TFT 名稱（② 解出的資料）必須相同；畫面上對應的那條（p＋off）drain 長度、畫面外與否、顏色必須相同
-  Object.keys(a.wires).forEach(wk => { const [k, p, ud] = wk.split(':'); const W = a.wires[wk], U = b.wires[wk], V = b.wires[k + ':' + (+p + off) + ':' + ud];
-    ok(U && W.name === U.name, key + ' 接線名稱 ' + wk + ' 不同 ' + W.name + ' vs ' + (U && U.name));
-    // 舊版畫面外（右界只到第 2×週期條線）的重複線，新版右界變寬後落在畫面內 ⇒ 允許，記數
-    if (V && W.off === '1' && V.off === '0' && a.lines[p].rep === '1') { edge.wires++; edge.keys[k + ':' + (+p + off) + ':' + ud] = 1; return; }
-    ok(V && W.len === V.len && W.off === V.off && W.col === V.col, key + ' 接線 ' + wk + ' 長度／畫面外／顏色不同 ' + JSON.stringify(W) + ' vs ' + JSON.stringify(V)); });
-  ok(JSON.stringify(a.glab.map(g => g.main + '|' + g.sub)) === JSON.stringify(b.glab.slice(0, a.glab.length).map(g => g.main + '|' + g.sub)), key + ' 原本列的 Gate 標籤不同');
-  const sOff = b.fl ? b.pSub * (b.nd / n - 2) : 0, mapIn = x => { const m = /^D(\d+)(.*)$/.exec(x), p = +m[1] - 1 - off; return p >= 0 && p < nOld ? 'D' + (p + 1) + m[2] : null; };
-  let extra = 0, same = 0;
-  Object.values(a.cells).forEach(c => {
-    const d = b.cells[c.k + ':' + (c.s + sOff)];
-    if (!d) { ok(false, key + ' 缺格 ' + c.k + ':' + c.s); return; }
-    const fin = d.inn.map(mapIn).filter(Boolean);
-    ok(fin.join(',') === c.inn.join(','), key + ' 格 ' + c.k + ':' + c.s + ' data-in ' + c.inn + ' vs ' + d.inn);
-    ok(c.at['data-pv'] === d.at['data-pv'] && c.at['data-phys'] === d.at['data-phys'], key + ' 格 ' + c.k + ':' + c.s + ' 名稱／實體色不同');
-    if (fin.length === d.inn.length) {
-      same++;
-      ok(JSON.stringify(c.at) === JSON.stringify(d.at) && c.txt === d.txt && c.tip === d.tip, key + ' 格 ' + c.k + ':' + c.s + ' 內容不同 ' + JSON.stringify(c.at) + c.txt + ' vs ' + JSON.stringify(d.at) + d.txt);
-    } else { extra++; ok(c.at['data-tier'] !== 'main', key + ' 格 ' + c.k + ':' + c.s + ' 舊版主循環卻被新增線接到'); }
-  });
-  // 原本的列裡，舊版沒有的格子不能被原本那 2×週期條線接到
-  Object.values(b.cells).forEach(d => { if (d.k >= vper) return; if (a.cells[d.k + ':' + (d.s - sOff)]) return;
-    const hitOrig = d.inn.filter(x => mapIn(x)), bad = hitOrig.filter(x => { const m = /^D(\d+)(.*)$/.exec(x); return !edge.keys[d.k + ':' + (m[1] - 1) + ':' + m[2]]; });
-    if (hitOrig.length && !bad.length) edge.cells++;
-    ok(!bad.length, key + ' 新格 ' + d.k + ':' + d.s + ' 被原本的線接到（且舊版不是畫面外）' + bad); });
-  return { extra, same };
-}
+/* 2026-10-12：與 v1.17.5 逐項比對的 compareOld 已退役（理由見檔頭 A） */
 function checkPeriodic(key, b) {
   const n = b.n, nd = b.nd, v = b.vper, pSub = b.pSub;
   ok(nd >= 24 && nd % n === 0 && nd >= 2 * n, key + ' 線數 ' + nd + ' 不是 ≥24 的週期倍數');
@@ -126,12 +90,12 @@ async function run(ROOT, isNew) {
   const fire = (el, v) => { if (el.type === 'checkbox') el.checked = v; else el.value = v; el.dispatchEvent(new w.Event('change')); };
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   const datasets = {
-    qm: async () => { fire($('dm-model'), 'EM01'); await sleep(20); w.dmImportBytes(new Uint8Array(fs.readFileSync('/tmp/qm.bin')), 'qm.bin'); await sleep(60); },
+    qm: async () => { fire($('dm-model'), 'EM01'); await sleep(20); w.dmImportBytes(new Uint8Array(fs.readFileSync(QM)), 'qm.bin'); await sleep(60); },
     sk: async () => { fire($('dm-model'), 'EM02'); await sleep(20); w.dmImportBytes(new Uint8Array(fs.readFileSync(SK)), path.basename(SK)); await sleep(60); },
     kmir: async () => { fire($('dm-model'), 'EM02'); await sleep(20); const mr = FX.mir, rows = [mr.line0.c0, mr.line0.c1, mr.line1.c0, mr.line1.c1];
       const s = Object.assign(require(path.join(ROOT, 'common/datamap-core.js')).emptyState('EM02'), { hand: 1, panel: 2, subPanel: 0, rd: 1, mirror: 1 }); rows.forEach((r, i) => r.forEach((v, c) => { s['c' + (i * 6 + c)] = v; })); w.dmState.cur = s; w.dmRender(); await sleep(20); },
   };
-  for (const ds of Object.keys(datasets)) {
+  for (const ds of Object.keys(datasets).filter(x => (x !== 'qm' || QM) && (x !== 'sk' || SK))) {
     await datasets[ds]();
     const mir0 = $('f-mirror').checked;
     for (const mi of [mir0, !mir0]) for (const first of ['l', 'r']) for (const drv of ['f', 'r']) for (const st of ['rgb', 'bgr']) for (const sw of [false, true]) {
@@ -146,7 +110,7 @@ async function run(ROOT, isNew) {
     fire($('dm-model'), 'E501A'); await sleep(30);
     for (const first of ['l', 'r']) { fire($('dm-pv-first'), first); await sleep(5); extra['E501A ' + first] = parse($('dm-pv-tft')); }
     // EM02／E512／EM01 Hand：Panel_mode（0 1D1G／1 Zigzag／2 HSD／3 LTPS）× sub_panel 0~7，code 用 sk 的值；② 畫不出來的組合（例 EM02 Single）跳過
-    await datasets.sk();
+    if (SK) await datasets.sk(); else await datasets.kmir();
     const base = w.dmState.cur, CORE = require(path.join(ROOT, 'common/datamap-core.js'));
     for (const mdl of ['EM02', 'E512', 'EM01']) {
       fire($('dm-model'), mdl); await sleep(20);
@@ -167,14 +131,14 @@ async function run(ROOT, isNew) {
   return out;
 }
 (async () => {
-  const a = await run(BASE, false), b = await run(NEW, true);
-  let nC = 0, ext = 0, sameC = 0; const shapes = {};
-  for (const k in a) { const r = compareOld(k, a[k], b[k]); ext += r.extra; sameC += r.same; checkPeriodic(k, b[k]); nC++; shapes[b[k].vper + '→' + b[k].nl + '列×' + b[k].nd + '條(週期' + b[k].n + ')'] = 1; }
+  const b = await run(NEW, true);
+  let nC = 0; const shapes = {};
+  for (const k in b) { if (k === '__extra') continue; checkPeriodic(k, b[k]); nC++; shapes[b[k].vper + '→' + b[k].nl + '列×' + b[k].nd + '條(週期' + b[k].n + ')'] = 1; }
   for (const k in b.__extra) { checkPeriodic(k, b.__extra[k]); shapes[k.replace(/ [lr]$/, '') + '：' + b.__extra[k].vper + '→' + b.__extra[k].nl + '列×' + b.__extra[k].nd + '條'] = 1; }
   fails.forEach(f => console.log('✗', f));
   Object.keys(cats).sort((x, y) => cats[y] - cats[x]).slice(0, 25).forEach(c => console.log('  ✗類別', cats[c], c));
   console.log('結構：', Object.keys(shapes).join('；'));
-  console.log('原本格子：內容逐項相同', sameC, '格；被新增線接到（舊版為前後循環／dummy）', ext, '格；舊版畫面外的重複線新版落在畫面內', edge.wires, '條（接到的新格', edge.cells, '）');
-  console.log((fail ? '✗ ' : '✓ ') + 'SVGREP', nC, 'cases vs v1.17.5 +', Object.keys(b.__extra).length, 'periodic-only cases;', pass, 'checks pass,', fail, 'fail');
+  console.log('資料組：' + ['kmir'].concat(SK ? ['sk'] : [], QM ? ['qm'] : []).join('、') + (SK && QM ? '' : '（沒給 --sk／--qm 的資料組跳過）'));
+  console.log((fail ? '✗ ' : '✓ ') + 'SVGREP', nC, 'cases +', Object.keys(b.__extra).length, 'periodic-only cases;', pass, 'checks pass,', fail, 'fail');
   process.exit(fail ? 1 : 0);
 })();

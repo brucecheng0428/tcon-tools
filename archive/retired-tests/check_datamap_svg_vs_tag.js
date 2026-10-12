@@ -1,3 +1,9 @@
+// 【已退役 2026-10-12，test-only】原位置 tools/check_datamap_svg_vs_tag.js。
+// 理由：這支是 v1.18.3～v1.18.15 重構時「③ 接線圖 SVG 和 datamap-v1.17.5 逐字／語意相同」的一次性等價檢查。之後的刻意改版
+//   （v1.18.20 Mirror 固定完整 pixel P8→P1、v1.18.24 垂直 max(4, 週期) 列與水平 24 條、v1.19.0 V 方向線數、v1.20.2 鎖定命名、v1.21.0 Line OD 隱藏）
+//   都會改 SVG，v1.17.5 已不是規格基準，在 HEAD 上必然常態失敗（Bruce 10/12「不可放著常態失敗」）。
+// 現行規格改由 tools/check_datamap_roundtrip.js（表格↔接線圖正反推矩陣）、check_datamap_svg_rep.js（週期重複）、check_datamap_vlines.js、check_datamap_preview.js 驗。
+// 只供歷史追溯；要重跑舊比對：git archive datamap-v1.17.5 | tar -x -C /tmp/dm1175wt，再用 archive 內這支（路徑參數照原用法）。
 // v1.18.3（Bruce 10/8）：未鎖定時 ③ 必須和 datamap-v1.17.5 逐字相同。
 // 用法：git archive datamap-v1.17.5 | tar -x -C /tmp/dm1175wt；node tools/check_datamap_svg_vs_tag.js /tmp/dm1175wt . tools/check_datamap_kickoff.js <同事C EM02 bin>（全民 code 讀 /tmp/qm.bin）
 // v1.18.14：加 --norm（Bruce 10/8 TCON Out 紫色／SD Out 藍色＋點擊跳轉）。刻意改的只有顏色與連結屬性，正規化後仍須逐字相同：
@@ -36,7 +42,7 @@ function normSvg(T) {
   return c.innerHTML + '\n#DOF ' + dof.join(';') + semTxt;
 }
 const FX = JSON.parse(/const FX = (\{.*?\});\n/s.exec(fs.readFileSync(KT, 'utf8'))[1]);
-const { JSDOM } = require(path.join(__dirname, '..', 'node_modules/jsdom'));
+const { JSDOM } = require(path.join(__dirname, '..', '..', 'node_modules/jsdom'));
 async function run(ROOT) {
   const dom = await JSDOM.fromFile(path.join(ROOT, 'datamap.html'), { runScripts: 'dangerously', resources: 'usable', pretendToBeVisual: true, beforeParse(w) { w.WebSocket = function () { throw 1; }; } });
   await new Promise(r => dom.window.addEventListener('load', r));
