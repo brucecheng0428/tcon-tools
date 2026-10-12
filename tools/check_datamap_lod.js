@@ -172,7 +172,15 @@ if (SRC) {
   fire($('dm-auto'), pval(23));
   ok(+$('dm-pv-tft').getAttribute('data-plines') === 6 && !Q('line[data-gate="3-1"]') && !!Q('path[data-w="1:D7:u:R5"]'), '預設樣式 (23)：週期 6、2 條 line，D7＝D1＋4 pixel（不變）');
   fire($('dm-gate'), 'Tri-Gate');
-  ok($('dm-pvbody').classList.contains('hidden') && /測試：Line OD Type/.test($('dm-pvnote').textContent), '② 選 Tri-Gate：依 code 不畫，提示改用測試 Type 17~21');
+  /* v1.21.0（Bruce 10/12）：FEATURE_LINE_OD＝false 時 Line OD 畫面全部隱藏 ⇒ Tri 提示不提 Line OD；開關打開時照舊驗 v1.7.0 的提示 */
+  if (w.DM_FEATURE_LINE_OD !== false) ok($('dm-pvbody').classList.contains('hidden') && /測試：Line OD Type/.test($('dm-pvnote').textContent), '② 選 Tri-Gate：依 code 不畫，提示改用測試 Type 17~21');
+  else {
+    ok($('dm-pvbody').classList.contains('hidden') && /只能畫 Single／Dual/.test($('dm-pvnote').textContent) && !/Line OD/.test($('dm-pvnote').textContent), 'v1.21.0 Line OD 隱藏：② 選 Tri-Gate 依 code 不畫，提示不提 Line OD');
+    fire($('dm-gate'), 'Dual-Gate'); fire($('dm-hand'), false); fire($('dm-auto'), pval(5));
+    const sc = w.dmBuildScript().text;
+    ok(d.documentElement.classList.contains('dm-nolod') && !d.querySelector('#card-reg tr[data-f^="lod"]') && /^write -m 09C7 /m.test(sc) && /^write -m 09C9 /m.test(sc) && $('dm-lodrow').getAttribute('data-state') === 'ok',
+      'v1.21.0 Line OD 隱藏：html.dm-nolod、TCON Register 確認不列 lod*，但 Line OD 照常跟 RT7（狀態 ok）且匯出 script 仍含 0x09C7／0x09C9');
+  }
   console.log((fail ? '✗ ' : '✓ ') + 'check_datamap_lod ' + pass + ' pass / ' + fail + ' fail');
   process.exit(fail ? 1 : 0);
 })().catch(e => { console.log('✗ ', e && e.stack || e); process.exit(1); });
