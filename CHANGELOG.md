@@ -2,6 +2,26 @@
 
 ---
 
+## Data Mapping (datamap) v1.23.1 — 2026-10-12 ｜ PATCH
+
+**Benchmark 反推表格移除「匯出 JSON」「匯入 JSON」按鈕與相關程式；localStorage 自動保存（依型號／設定分組）與「清空重來」保留。**
+
+判定依據：依 Dispatch 指定 PATCH。嚴格對照 `docs/VERSIONING.md` §1「移除既有功能」屬 MAJOR，但這兩顆按鈕是同日 v1.23.0 剛加、依 Bruce 指示拿掉，原表格與其他操作、輸出全部不變；記錄供覆核。
+
+### 起因（Bruce 2026-10-12）
+
+> Benchmark 的表格不用匯出 JSON 跟匯入 JSON
+
+### 內容
+- 移除 `#dm-bench-exp`／`#dm-bench-imp`／`#dm-bench-file`、`benchExport`／`benchImportText`、i18n `dm.bmExp`／`dm.bmImp`／`dm.bmImpOk`／`dm.bmImpBad`、`window.dmBench.exportObj／importText`。
+- 測試用入口改為 `window.dmBench._setNames`（直接寫目前這組的名稱，EN01 288 格填表用）。
+- 保存格式（`localStorage['tcon.datamap.bench.v1']`）不變，已存的 Benchmark 照常讀回。
+
+### 測試
+- `tools/check_datamap_bench.js` 改為檢查沒有匯出／匯入按鈕、清空重來 ⇒ 0 格；結果見該次回報（只跑快速版＋check_datamap、check_datamap_fold，依 Dispatch 80/20）。
+
+---
+
 ## Data Mapping (datamap) v1.23.0 — 2026-10-12 ｜ MINOR
 
 **② Data Mapping 表格新增「Benchmark」反推表格：與原表格同格位、第一次全部 X；填完按「套用到主表」寫回原表格（寫前確認、可「復原」一次）。**
