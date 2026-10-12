@@ -2,6 +2,60 @@
 
 ---
 
+## Data Mapping (datamap) v1.20.2 — 2026-10-12 ｜ PATCH
+
+**鎖定接線後多個 Data 設同一個名稱（例 Data 3、Data 4 的 Line 1-1 都選 R1）時，③ 收到的名稱整體偏 2 pixel（R1 變 R3）、「只送 R1」不亮的錯誤修正；並統一 ② 表格與 ③ 接線圖之間的名稱／位置換算。**
+
+判定依據：`docs/VERSIONING.md` §1：修正錯誤顯示，暫存器值、匯入匯出結果不變；MNT 在 FORCE_DE_SEL 多位元／0 時下拉少列會讓 T 表換一張的名稱（原本選了就顯示成別的名稱）→ PATCH。
+
+### 起因（Bruce 2026-10-12，附 5 張照片）
+
+> 匯入 RM81002_JDZ_CSOT14.0(G140EF06)…_20260910.hex（KGS），TFT 接線圖「確定此架構」→ 只送 R1 → Data Mapping 用 Ocean Pixel 選 X 全部套用 → Data 3 的 Line 1-1 改 R1，B2 顯示在 Line 1-1、3-1，正常；再把 Data 4 的 Line 1-1 也改 R1，就出現異常。
+> 看起來有點像是我明明選的是 R1，但是他卻把它當作是 R3。
+> 不是只解決這個問題，而是要去看所有的演算法有沒有矛盾的地方。
+
+### 根因
+
+1. **鎖定後的「整體平移」是從格子內容推出來的（v1.18.1 起）**：`glCompareStates` 拿每一格「鎖定時位置 − 目前位置」，在 6 的倍數裡取出現最多的那個當作「T 表整體換了一張」。使用者改過的格子位置本來就不同；Data 3 單獨改 R1 時差值不是 6 的倍數（平移 0，看起來正常），Data 4 再改 R1 後差值剛好是 −6，就被當成整張表平移 2 pixel，所有收到的名稱一起偏（R1→R3、R5→R7），「只送 R1」沒有一格亮。實測同一缺陷在 DAZ6139／E501A／E503 Single、EM01／EM02 多種 Preset 都會發生（`check_datamap_roundtrip.js` 在 v1.20.1 上 B3／B4 失敗）。
+   修正：平移只由兩邊的 T 表基準決定，與格子內容無關（`glTOrigin`／`glTShift`）：名稱跟 T 表有關時（MNT force_sel、Mirror 依 code 表換算）＝兩邊 code 6 在第 0 列的位置差（Mirror 時位置＝−1−k），其他（NB GN1／GN2 固定名稱、Auto、Line OD 測試）＝0。
+2. **MNT 在 FORCE_DE_SEL 多位元／0 時（T 表基準由 code 推定，例 Python UI 預設 0x0E、Manual 樣式 (32)），下拉列出會讓 T 表換一張的名稱**：code 超出目前 T 表範圍（≥ 6×(T＋1)）的名稱選下去，推定的 T 就變，整張表名稱一起平移：選 R-4 讀回 R-2，其他格的名稱也跟著變（矩陣 A1／A2／A3／A4 抓到）。
+   修正：`datamap-core.js` `mntKeepT`：這種情況下拉與 All Same Pixel 只列「選了以後 T 表基準不變」的名稱，X 一律保留。one-hot（T 由暫存器決定）與 Auto（T2）不受影響。
+
+3. **前循環（D1 左邊）要畫幾格有兩套規則**：非 Mirror 只認名稱結尾 -1／-2（最多 2 pixel），Mirror 用最小位置但上限 6 格。MNT code 18~29 在 T2 表解出 R-6~B-3（D1 左邊 3~6 pixel），② 選得到、③ 卻沒有格子可畫（接線被當成畫面外，矩陣 B6 抓到）。
+   修正：`pvPreCount` 改成一套——照所有接線目標的最小位置補到整 pixel，不設上限。只有用到 -3 pixel 以外的名稱時圖才會變寬，其他情況與 v1.20.1 相同。
+
+4. **「只送 R1」的提示文字和 Bruce 的定義不同**：Bruce 10/12「只送 R1，不是只送第一個 pixel 的 R，是第一條 V line 由最上到最下的所有 R」。程式本來就是逐列判斷「這格收到的資料是不是 R1（每一列第 1 個 pixel 的 R）」，但提示寫成「影像第 1 個 pixel 的 R」。三語 `dm.hColR1T` 改成「輸入是每一列第 1 個 pixel 的 R（第 1 條 R 垂直線，由最上到最下）…每一列各自判斷」。
+
+### 換算統一（同一件事只留一份）
+
+- 名稱⇄線性位置：`datamap.html` 的 `pvLin`／`pvName` 改呼叫 `datamap-core.js` 的 `linIdx`（新增，`linName` 的反函數）／`linName`。
+- code⇄位置：`pvRawIdx`（Mirror 用）原本自己寫一份和 `mntIdx` 相同的公式，改呼叫 `codeIdx`（＝`mntIdx`＋code 範圍）。
+- R↔B（CHRB）：三處各自的 regex 改呼叫 `rbSwapName`。
+- 鎖定後收到的位置：格內文字（`renderPvTft0`）與 `pvRecvName` 原本各自扣平移，改共用 `pvRecvT`。
+
+### 審查後確認一致、沒有改的地方
+
+- All Same Pixel 照 Python UI 只改主組 24 格；長循環（8 line Zigzag、HSD 4line/4pixel、HSD 8-pixel）的第二組（r2..b3）是另一張表，全部套用 X 後第 5~8 條（或第 3、4 條）line 仍照第二組送資料。這是 PY 原本行為，未改；矩陣測試在這些樣式另外把第二組清成 X 再驗主組。
+- NB（E50x）不分 Mirror：名稱用 PY 的 GN1／GN2（等同 T2）；Mirror＝1 時改用 Kick Off 的 T 表換算，`mntBaseT` 在 NB 上（PY 寫 FORCE_DE_SEL＝0x0E）一律得到 T2，兩邊一致。若匯入的 NB code 是 one-hot 非 T2 的 FORCE_DE_SEL，Mirror 0／1 會用不同 T 表（原廠資料未定義，未改）。
+- EN01 名稱表（原廠 GenDataMappingDefine，每列 T 階數）：選 N 讀回 N、不影響其他格、全部套用後個別改，全部一致。EN01 的 ③ 不畫接線（v1.20.0 決定）。
+- DAZ6111／DAZ7353 Single：② 的 Line 1-2／2-2 可以改，但 ③ 只畫 Line 1-1／2-1（PY 在這兩列也只是調暗、照樣可改）。未改。
+- MNT FORCE_DE_SEL 多位元時，若把「唯一需要較高 T 表」的那格改成 X，推定的 T 會降一張、其他格名稱平移（原廠未定義多位元用哪張表；目前依已點亮 code 推定，v1.17.1 決定）。本版只擋住「選了名稱反而變成別的名稱」的方向。
+
+### 修改
+
+- `datamap.html`：`glCompareStates` 改用 `glTShift`；`pvPreCount` 一套規則；`pvLin`／`pvName`／`pvRawIdx`／R↔B／收到位置改用共用換算；新增測試掛勾 `window.dmRenderPv`（只重畫 ③）。
+- `common/datamap-core.js` v1.3.2：`linIdx`、`codeIdx`、`rbSwapName`、`mntKeepT`（`cellOptions`／`allSameOptions` 使用）。
+- `common/version.js` datamap v1.20.2；`version.js?v=`、`datamap-core.js?v=` 更新。
+- `tools/check_datamap_roundtrip.js`（新）：正反推一致性矩陣（見檔頭）。
+
+### 驗證
+
+- Bruce 的流程（同一個 hex、headless Chrome 實跑）：v1.20.1 Data 4 也設 R1 後沒有任何格亮、格內 R3／R7（與照片相同）；v1.20.2 亮 `1:B2`、`1:R3`、`3:B2`、`3:R3`，四格都收到 R1。iPhone 寬（390 px）同樣結果、頁面沒有橫向捲動。
+- `tools/check_datamap_roundtrip.js`：A 表格層 101 組（型號×Preset）＋EN01 T1~T10，共約 135 萬項；B 接線圖層（每個 Data × 每條 Line × 每個選項、同 Line 多 Data、同 Data 多 Line、整列同值、全部套用後個別改、只送 R1 逐列亮暗與垂直重複）。v1.20.1 上 B3／B4 失敗（選 R1 收到 R3）、A1~A4 在 Manual (32) 失敗；v1.20.2 抽樣模式（每 4 組取 1、Mirror／CHRB 另抽）全過，完整 392 組結果見派工回報。
+- 既有 13 支 datamap 相關檢查（check_datamap、auto、combos、en01、import_lock、kickoff、lod、nbfields、preview、tcon_gate、vlines、em01／nb code import）全過。
+
+---
+
 ## Data Mapping (datamap) v1.20.1 — 2026-10-09 ｜ PATCH
 
 **EN01 表格的列改標「SW 時槽」並說明不是 gate；超過 RD_MODE 時槽數的列標「未用」。**

@@ -517,7 +517,7 @@
 </div>
 <div class="dm-toasts" id="dm-toasts" aria-live="polite"></div>
 
-<script src="common/version.js?v=20261009dm1201"></script>
+<script src="common/version.js?v=20261012dm1202"></script>
 <script src="common/i18n.js?v=20261008dm11825"></script>
 <script>
 (function () {
@@ -627,7 +627,7 @@
     'dm.regByteNone': ['這個 byte 沒有改到任何欄位', 'No field changed by this byte', '这个 byte 没有改到任何栏位'],
     'dm.regByteNf': ['；不屬於任何欄位的 bit（mask 0x{m}）不會寫入', '; bits outside any field (mask 0x{m}) are not written', '；不属于任何栏位的 bit（mask 0x{m}）不会写入'],
     'dm.colR1': ['只送 R1 (1st R Vline)', 'R1 only (1st R Vline)', '只送 R1 (1st R Vline)'],
-    'dm.hColR1T': ['只有收到影像第 1 個 pixel 的 R（R1，資料來源編號）的格子亮；正確架構下只會看到最左一條紅色豎線。R末1 是從行尾數，不算。', 'Only cells receiving the R of the image\'s first pixel (R1, by source number) light; with the right architecture you see just the leftmost red line. "R end 1" counts from the line end and does not count.', '只有收到影像第 1 个 pixel 的 R（R1，数据来源编号）的格子亮；正确架构下只会看到最左一条红色竖线。R末1 是从行尾数，不算。'],
+    'dm.hColR1T': ['輸入是每一列第 1 個 pixel 的 R（第 1 條 R 垂直線，由最上到最下；R1＝資料來源編號）。每一列各自判斷：收到 R1 的格子亮，其餘不亮；正確架構下只會看到最左一條紅色豎線。R末1 是從行尾數，不算。', 'Input: the R of the first pixel on every row (the first R vertical line, top to bottom; R1 = source number). Each row is judged on its own: cells receiving R1 light, others stay dark; with the right architecture you see just the leftmost red line. \"R end 1\" counts from the line end and does not count.', '输入是每一列第 1 个 pixel 的 R（第 1 条 R 竖线，由最上到最下；R1＝数据来源编号）。每一列各自判断：收到 R1 的格子亮，其余不亮；正确架构下只会看到最左一条红色竖线。R末1 是从行尾数，不算。'],   // v1.20.2（Bruce 10/12「只送 R1，不是只送第一個 pixel 的 R，是第一條 V line 由最上到最下的所有 R」）
     'dm.secMore': ['說明與進階', 'Notes & advanced', '说明与进阶'],
     'dm.fHand': ['用手動 force_sel 表', 'use the manual force_sel table', '用手动 force_sel 表'],
     'dm.fMir': ['整行反向送出', 'send each line reversed', '整行反向送出'],
@@ -938,7 +938,7 @@
 <script src="common/common.js?v=20260523"></script>
 <script src="common/subpix-colors.js?v=20261008dm11825"></script>
 <script src="common/xlsx.js?v=20261008dm11825"></script>
-<script src="common/datamap-core.js?v=20261009dm1201"></script>
+<script src="common/datamap-core.js?v=20261012dm1202"></script>
 <script src="common/datamap-lod.js?v=20261008dm11825"></script>
 <script src="common/datamap-auto.js?v=20261008dm11825"></script>
 <script src="common/i2c-mbus.js?v=20261008dm11825"></script>
@@ -964,6 +964,7 @@
   S.cur = DM.emptyState(S.model);
   window.dmState = S;
   window.dmRender = function () { render(); };   // v1.15.0 回歸測試用（直接放暫存器值後重畫）
+  window.dmRenderPv = function () { renderPreview(); };   // v1.20.2 測試用：只重畫 ③（tools/check_datamap_roundtrip.js 矩陣，避免每次重建整頁表格）
 
   /* ── 訊息：一律進 ③ 記錄；重要的再 toast ── */
   function log(kind, text) {
@@ -1350,17 +1351,29 @@
     return r + ':0:' + c;
   }
   function glTMap(P) { var m = {}; if (!P || !P.ok) return m; pvWiresSpec(P, false, false).forEach(function (w) { m[w.k + ':' + w.gi + ':' + w.p] = w.off ? null : w.t; }); return m; }
+  /* v1.20.2（Bruce 10/12「Data 3 的 Line 1-1 改 R1 正常；Data 4 的 Line 1-1 也改 R1 就異常」「明明選的是 R1，卻把它當作是 R3」）：
+     根因：v1.18.1 起鎖定後的「整體平移」是拿每一格「鎖定時位置 − 目前位置」取眾數推出來的，但使用者改過的格子位置本來就不同
+     （Data 3、Data 4 鎖定時是 B2、B3 這類位置，改成 R1 後差值各不相同）；只要有兩格以上的差值剛好是 6 的倍數，就被當成「整張 T 表換了」，
+     所有收到的名稱一起偏 2 pixel（R1→R3、R5→R7），只送 R1 也就沒有一格亮。
+     改成：整體平移只由兩邊的 T 表基準決定（與格子內容無關）——名稱跟 T 表有關的情況（MNT 的 force_sel 表、Mirror 時依 code 表換算）
+     平移＝兩邊 code 6 在第 0 列的位置差（Mirror 時位置＝−1−k，方向跟著反），其他（NB 的 GN1／GN2 固定名稱表、Auto、Line OD 測試）＝0。 */
+  function glTOrigin(P, st) {
+    if (!P || !P.ok || P.lod || P.auto || !st) return 0;
+    if (DM.MODELS[P.m].kind !== 'mnt' && !P.mirror) return 0;
+    var k = DM.mntIdx(DM.mntBaseT(st, P.NG === 2 ? 'dual' : 'single').t, 6);
+    return P.mirror ? -1 - k : k;
+  }
+  function glTShift(Pg, Gs, Pc, Cs) { return glTOrigin(Pc, Cs) - glTOrigin(Pg, Gs); }
   /* 比對：兩邊各自推出位置 t；T 表只決定整體編號（每換一張表整體平移 2 pixel＝6 個子像素），所以允許整體平移 6 的倍數（取出現最多的那個位移）再逐格比 */
   function glCompareStates(Gs, Cs) {
-    var Pg = pvModelState(Gs), Pc = pvModelState(Cs), tg = glTMap(Pg), tc = glTMap(Pc), raw = [], cnt = {};
+    var Pg = pvModelState(Gs), Pc = pvModelState(Cs), tg = glTMap(Pg), tc = glTMap(Pc), raw = [];
     for (var r = 0; r < 4; r++) for (var c = 0; c < 6; c++) {
       var vg = DM.cellView(S.model, Gs, r, c); if (vg.blank) continue;
       var a = tg[glCellKey(Pg, r, c)], kc = glCellKey(Pc, r, c), b = tc[kc]; if (a === undefined) continue;
       var dd = (a === null || b === null || b === undefined || Pg.NG !== Pc.NG) ? null : b - a;
-      if (dd !== null && dd % 6 === 0) cnt[dd] = (cnt[dd] || 0) + 1;
       raw.push({ r: r, c: c, d: dd, k: kc, a: a, b: b, want: vg.std ? vg.txt : '0x' + hex(vg.raw, 2) });
     }
-    var best = 0, bn = -1; Object.keys(cnt).forEach(function (k) { if (cnt[k] > bn || (cnt[k] === bn && Math.abs(+k) < Math.abs(best))) { bn = cnt[k]; best = +k; } });
+    var best = glTShift(Pg, Gs, Pc, Cs);
     var keys = {}, ok = 0, cells = raw.map(function (x) { var vc = DM.cellView(S.model, Cs, x.r, x.c), same = x.d === best; if (same) ok++; else keys[x.k] = 1;
       return { r: x.r, c: x.c, same: same, want: x.want, now: vc.blank ? '—' : (vc.std ? vc.txt : '0x' + hex(vc.raw, 2)), k: x.k, pa: x.a, pb: x.b === null || x.b === undefined ? '—' : x.b - best }; });
     return { n: raw.length, ok: ok, cells: cells, keys: keys, shift: best };
@@ -1680,11 +1693,11 @@
     if (!P.ok || P.auto || !s || !(s.chrb | 0) || !DM.fieldById(P.m, 'chrb')) return P;   // v1.18.21：NB 也有 CHRB（.model「Swap Red / Blue output data」）
     P.chrb = 1;
     P.rows.forEach(function (r) { r.names = r.names.map(function (c) { if (c.off) return c; var t = c.t !== undefined ? c.t : pvLin(c.name); if (t === null) return c;
-      return { name: c.name.replace(/^[RB]/, function (x) { return x === 'R' ? 'B' : 'R'; }), off: false, t: t, raw: c.raw || c.name }; }); });
+      return { name: DM.rbSwapName(c.name), off: false, t: t, raw: c.raw || c.name }; }); });
     return P;
   }
   /* v1.17.1：Mirror 名稱＝整行反轉（S2−1−t），不再每 6×gate 一組各自反轉；組內結果相同，跨組的 code（全民 0x17）落在相鄰的 B-1（Bruce 10/8） */
-  function pvRawIdx(T, code) { code = code | 0; if (code > 29) return null; return 3 * (2 * (T - 1) - 2 * Math.floor(code / 6)) + code % 6; }
+  function pvRawIdx(T, code) { return DM.codeIdx(T, code); }   // v1.20.2：與 ② 表格同一個 code⇄位置換算（datamap-core.js mntIdx）
   /* v1.17.1：Mirror 名稱＝整行反轉（S2−1−t），不再每 6×gate 一組各自反轉；組內結果相同，跨組的 code（全民 0x17）落在相鄰的 B-1（Bruce 10/8） */
   function pvSpanRev(P, t) { return P.mirror - 1 - t; }
   /* v1.18.21（Bruce 10/8「Mirror 的做法不是早就是拿 NB 的 Kickoff 來驗證嗎？」）：Mirror 換算本來就是依 RM81010（NB）Kick Off「Data hand mode」
@@ -1873,13 +1886,15 @@
        ・警示只有兩種：同一列同一顆被兩條以上接到（衝突 ⇒ 橘框＋!）；名稱指向畫面上沒有的子像素（線尾「!名稱」）。X／非標準 ⇒ TFT 灰、不接線。
        ・前循環：用到 -2 ⇒ 顯示 R-2…B-1；只有 -1 ⇒ 顯示 R-1…B-1；都沒有 ⇒ 收起，從 R1 開始。 */
   var PV_CH = ['R', 'G', 'B'];
-  function pvLin(name) { var m = /^([RGB])(-?\d+)$/.exec(name || ''); if (!m) return null; var p = +m[2]; return (p > 0 ? p - 1 : p) * 3 + PV_CH.indexOf(m[1]); }
-  function pvName(lin) { var px = Math.floor(lin / 3), c = lin - px * 3; return PV_CH[c] + (px >= 0 ? px + 1 : px); }
+  function pvLin(name) { return DM.linIdx(name); }   // v1.20.2：唯一換算在 datamap-core.js
+  function pvName(lin) { return DM.linName(lin); }
+  /* v1.20.2（Bruce 10/12 全面審查，矩陣 B6 抓到）：前循環（D1 左邊）要畫幾格，原本 Mirror 與非 Mirror 各一套規則：
+     非 Mirror 只認名稱結尾是 -1／-2（最多 2 pixel）、Mirror 用最小位置但上限 6 格 ⇒ MNT code 18~29 解出的 R-6~B-3（T2 表，D1 左邊 3~6 pixel）
+     在 ② 選得到、③ 卻沒有格子可畫（接線被當成畫面外）。改成一套：照所有接線目標的最小位置，補到整 pixel（每 pixel 3 格），不設上限。 */
   function pvPreCount(P) {
-    if (P.mirror) { var mn = 0; P.rows.forEach(function (r) { r.names.forEach(function (c) { if (c && !c.off && c.t < mn) mn = c.t; }); }); return Math.min(P.pre.length, mn < -3 ? 6 : (mn < 0 ? 3 : 0)); }
-    var u2 = false, u1 = false;
-    P.rows.forEach(function (r) { r.names.forEach(function (c) { if (c && !c.off) { if (/-2$/.test(c.name)) u2 = true; else if (/-1$/.test(c.name)) u1 = true; } }); });
-    return Math.min(P.pre.length, u2 ? 6 : (u1 ? 3 : 0));
+    var mn = 0;
+    P.rows.forEach(function (r) { r.names.forEach(function (c) { if (c && !c.off) { var t = c.t !== undefined ? c.t : pvLin(c.name); if (t !== null && t < mn) mn = t; } }); });
+    return mn < 0 ? 3 * Math.ceil(-mn / 3) : 0;
   }
   /* ── v1.5.0：「模擬 Source Driver 輸出對調」（只在 ③）：每 6 條一組，組內 1↔3、4↔6（D1↔D3、D4↔D6、D7↔D9…），2、5 不變；
      只影響預覽，不改 ②、匯出 script、寫入 TCON。TFT 放在 drain 目標那一側。
@@ -1905,8 +1920,9 @@
   function pvSwapIdx(p) { return 6 * Math.floor(p / 6) + PV_SWAP[p % 6]; }
   function pvUd(NG, gi) { return NG === 3 ? 'g' + (gi + 1) : (gi ? 'd' : 'u'); }
   /* v1.18.1：鎖定接線時，收到的資料用鎖定接線的命名表示（位置 rt 扣掉整體平移；CHRB 再換 R↔B），顏色比對和格內顯示一致 */
-  function pvRecvName(P, rt) { if (rt === null || rt === undefined) return null; var t = rt - (P.recvShift || 0), n = pvName(P.mirror ? pvSpanRev(P, t) : t);
-    return P.recvP && P.recvP.chrb ? n.replace(/^[RB]/, function (x) { return x === 'R' ? 'B' : 'R'; }) : n; }
+  function pvRecvT(P, rt) { return rt - (P.recvShift || 0); }   // v1.20.2：收到的位置換成鎖定接線的編號（renderPvTft0 格內文字與 pvWiresSpec 共用）
+  function pvRecvName(P, rt) { if (rt === null || rt === undefined) return null; var t = pvRecvT(P, rt), n = pvName(P.mirror ? pvSpanRev(P, t) : t);
+    return P.recvP && P.recvP.chrb ? DM.rbSwapName(n) : n; }
   function pvWiresSpec(P, swap, rev) {
     var out = [], nD = pvNDof(P.period);
     P.rows.forEach(function (r) {
@@ -2102,7 +2118,7 @@
     var dLab = function (p) { if (!FL) return 'D' + (p + 1); var k = p - (nD - n) + 1; return 'Dn' + (k > 0 ? '+' + k : (k < 0 ? '−' + (-k) : '')); };
     var shownPos = function (s0) { return FL ? s0 - pSub * (NGR - 1) : s0; };
     var dofOf = function (p) { var d0 = pvDrvRev ? pvRevIdx(P, p) : p; if (swap) d0 = pvSwapIdx(d0); return (d0 % n) + 1; };
-    var DX = swap || pvDrvRev || !!P.recv, PR = P.recvP || P, RSH = P.recvShift || 0;   // 格內寫收到的資料、接線圖標 TCON Data
+    var DX = swap || pvDrvRev || !!P.recv, PR = P.recvP || P;   // 格內寫收到的資料、接線圖標 TCON Data
     var G0 = []; for (var i0 = 0; i0 < n; i0++) G0.push(i0 * per);
     var c0 = pvCost(G0, spec, smin, mainMax, n), pl = pvPlace(spec, smin, mainMax, per, n), Gm = pl.G, labs = {};
     var G = []; for (var gp = 0; gp < nD; gp++) G.push(Gm[gp % n] + pSub * Math.floor(gp / n));   // v1.18.24：每個週期整組平移 pSub
@@ -2199,10 +2215,10 @@
         /* v1.17.2：SHL 反向時格內寫「這顆實際收到的資料」（同一組內對稱那條線的資料） */
         var dwR = ins.filter(function (w) { return !w.rep; })[0] || ins[0];
         var posNm = phys;
-        if (DX && dwR) phys = dwR.rt === null || dwR.rt === undefined ? 'X' : (FLIP ? pvEndNm(pvNmCur(shownPos(dwR.rt))) : pvNm0(shownPos(dwR.rt - RSH)));
+        if (DX && dwR) phys = dwR.rt === null || dwR.rt === undefined ? 'X' : (FLIP ? pvEndNm(pvNmCur(shownPos(dwR.rt))) : pvNm0(shownPos(pvRecvT(P, dwR.rt))));
         var endJ = +phys.slice(2), endTip = FLIP && dwR && /末/.test(phys) ? tt(endJ > 0 ? 'dm.pvEndTip' : 'dm.pvEndTipOut', { k: dofOf(dwR.p), j: phys.slice(2), o: -endJ, c: phys.charAt(0) }) + '；' : '';
         /* v1.17.0：格內寫「這顆實際收到的資料」（CHRB＝1 時 R↔B 後的名稱）；沒有 CHRB 時＝位置名稱，畫面和舊版相同 */
-        var dn = (P.recv ? P.recvP && P.recvP.chrb : P.chrb) && ins.length ? phys.replace(/^[RB]/, function (x) { return x === 'R' ? 'B' : 'R'; }) : phys, rbx = dn !== phys;
+        var dn = (P.recv ? P.recvP && P.recvP.chrb : P.chrb) && ins.length ? DM.rbSwapName(phys) : phys, rbx = dn !== phys;
         phys = dn;
         /* 鎖定時：格內「收到的資料」用面板（鎖定接線）的命名表示，和這格要的不一樣就標 ≠ */
         var lockNe = !!(P.recv && dwR && phys !== posNm);

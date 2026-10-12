@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   datamap-core.js — Data Mapping 共用核心（v1.3.1，2026-10-09）
+   datamap-core.js — Data Mapping 共用核心（v1.3.2，2026-10-12）
    ───────────────────────────────────────────────────────────────────────────
    給 datamap.html 與 tools/check_datamap.js 共用：瀏覽器下 window.TCONDataMap，node 下 module.exports。
    不碰 DOM、不碰 WebSocket；I2C 只透過呼叫端傳進來的 io（io.read(addr,len)、io.write(addr,bytes)）。
@@ -635,6 +635,12 @@
        ・Mirror＝1：送到 D1 起第 p＝−1−k 顆，名稱照原廠 Pixel mapping 檢視（每組 6×gate 數顆左右反轉；資料顏色＝code 的顏色）。 */
   function linName(k) { var px = Math.floor(k / 3), c = k - px * 3; return 'RGB'.charAt(c) + (px >= 0 ? px + 1 : px); }
   function mntIdx(T, code) { return 3 * (2 * (T - 1) - 2 * Math.floor(code / 6)) + code % 6; }
+  /* v1.3.2（Bruce 10/12「要去看所有的演算法有沒有矛盾的地方…統一」）：名稱⇄線性位置、code⇄位置、R↔B 的唯一換算。
+     datamap.html 原本各自另寫一份（pvLin／pvName／pvRawIdx 與三處 R↔B regex），改成全部呼叫這裡，避免日後只改一邊。
+     linIdx 是 linName 的反函數（R1＝0、G1＝1、B1＝2、R2＝3…；R-1＝−3、B-1＝−1）；codeIdx＝mntIdx 加上 code 範圍（0~29，其餘＝null）。 */
+  function linIdx(name) { var m = /^([RGB])(-?\d+)$/.exec(name || ''); if (!m) return null; var p = +m[2]; return (p > 0 ? p - 1 : p) * 3 + 'RGB'.indexOf(m[1]); }
+  function codeIdx(T, code) { code = code | 0; return code > 29 ? null : mntIdx(T, code); }
+  function rbSwapName(n) { return String(n).replace(/^[RB]/, function (x) { return x === 'R' ? 'B' : 'R'; }); }
   /* v1.17.0 T 表（Bruce 10/7「81010 的 Kickoff…可以選 T1、T2、T3、T4，也有一個 register 來設定吧」）：
      RM81010_Kick_Off_Check_20210805.xlsx「Data hand mode」A1「FORCE_DE_SEL 182h[7:4]:」、D1:G1＝0001／0010／0100／1000（code 表 D～G 欄＝T1～T4），
      AN7:AQ7「FORCE_DE_SEL 3F2h[7:4]｜FORCE_DE_SEL：0010(default) NOTE:FORCE_DE_EN=1｜2」⇒ FORCE_DE_EN＝1 時 FORCE_DE_SEL 的 one-hot 位元選 D1~D6 用哪張 T 表；
@@ -787,7 +793,17 @@
     var v = cellView(key, s, row, col);
     if (!v.editable) return [];
     var d = rowDict(key, row, gateOf(key, s), s);
-    return namesOf(d).map(function (n) { return { name: n, value: d[n] }; });
+    return mntKeepT(key, s, namesOf(d), function (n) { return editCell(key, s, row, col, n); }).map(function (n) { return { name: n, value: d[n] }; });
+  }
+  /* v1.3.2（Bruce 10/12 全面審查，矩陣測試 A1／A2 抓到）：MNT 的 T 表基準由 code 推定時（FORCE_DE_EN＝1 且 FORCE_DE_SEL 多位元或 0，
+     mntBaseT why＝multi／zero；例 Python UI 預設 0x0E、Manual 樣式 (32)），下拉裡有些名稱的 code 超出目前那張 T 表的範圍（code ≥ 6×(T＋1)），
+     選下去推定的 T 就換一張，整張表的名稱一起平移 2 pixel：選 R-4 讀回 R-2，而且其他格的名稱也跟著變。
+     ⇒ 這種情況下拉（含 All Same Pixel）只列「選了以後 T 表基準不變」的名稱；X 一律保留。FORCE_DE_SEL one-hot（T 由暫存器決定）／Auto（T2）不受影響。 */
+  function mntKeepT(key, s, names, apply) {
+    if (MODELS[key].kind !== 'mnt') return names;
+    var g = gateOf(key, s); if (g !== 'single' && g !== 'dual') return names;
+    var b = mntBaseT(s, g); if (b.why !== 'multi' && b.why !== 'zero') return names;
+    return names.filter(function (n) { if (n === 'X') return true; var r = apply(n); return !!r && mntBaseT(r.state, g).t === b.t; });
   }
   /* 下拉選某個名稱。與 editCell 的差別只有一處：Dual 的 Line 1-2／2-2 接受 GN2 名稱（R5／R6…），
      其餘（含 Single 鏡射、連動欄位）完全走 editCell。 */
@@ -807,7 +823,7 @@
   function allSameOptions(key, s) {
     if (MODELS[key].kind === 'en01') return [];
     var se = semOf(key), g = gateOf(key, s);
-    if (MODELS[key].kind === 'mnt' && (g === 'single' || g === 'dual')) return namesOf(rowDict(key, 0, g, s));
+    if (MODELS[key].kind === 'mnt' && (g === 'single' || g === 'dual')) return mntKeepT(key, s, namesOf(rowDict(key, 0, g, s)), function (n) { return allSame(key, s, n); });
     if (se === 'e50x') return g === 'dual' ? namesOf(GN2) : (g === 'single' ? namesOf(GN1) : []);
     return namesOf(inputDict(key)).filter(function (n) { return n in GN2; });
   }
@@ -1275,7 +1291,7 @@
     emptyState: emptyState, cloneState: cloneState, decode: decode, encode: encode, encodeFields: encodeFields,
     changedIds: changedIds, diffRegs: diffRegs, regsOf: regsOf, maskedMerge: maskedMerge,
     gateOf: gateOf, gateText: gateText, cellView: cellView, editCell: editCell, applyNames: applyNames, allSame: allSame,
-    mntName: mntName, mntIdx: mntIdx, linName: linName, mntBaseT: mntBaseT, mntTOf: mntTOf, mntInRange: mntInRange, mntRel: mntRel, mntCands: mntCands, mntMirT: mntMirT,
+    mntName: mntName, mntIdx: mntIdx, linName: linName, linIdx: linIdx, codeIdx: codeIdx, rbSwapName: rbSwapName, mntBaseT: mntBaseT, mntTOf: mntTOf, mntInRange: mntInRange, mntRel: mntRel, mntCands: mntCands, mntMirT: mntMirT,
     setGate: setGate, setHand: setHand, pyNormalize: pyNormalize, pyNames: pyNames, cks: cks, preLabels: preLabels,
     inputDict: inputDict, colorOfName: colorOfName, codeAddrs: codeAddrs, byteOf: byteOf, regNote: regNote, fieldsAt: fieldsAt,
     applyPreset: applyPreset, matchPreset: matchPreset, PRESET_SECOND: PRESET_SECOND, presetHasSecond: presetHasSecond,
