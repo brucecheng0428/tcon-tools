@@ -158,7 +158,7 @@ console.log('── v1.12.0 Hand 關 ③ 一定有圖或明確原因');
   ok(g01.length === 24 && g23.length === 24 && g01[0][0].endsWith('r0_0') && g01[1][0].endsWith('g0_0') && g01[6][0].endsWith('r0_1') && g01[0][1] === String(w.dmState.cur.c0) && g01[0][2] === '0x' + hex(w.dmState.cur.c0, 2) && g01[0][3] === '0x0483', 'Hand：StringGrid_01／_23 各 24 列，順序 r0_i g0_i … b1_i（同原廠），r0_0 值＝② Line 1-1 Data 1、位址 0x0483');
   ok(mr.find(r => /^Force_sel_en/.test(r[0]))[1] === 'Manual' && /StringGrid_rt7_data_mapping_01 r0_0\t10\t0x0A/.test(w.dmState.manualText || ''), 'Force_sel_en＝Manual；複製文字含 r0_0＝10（G2）');
   fire($('dm-model'), 'EM01');
-  ok(!$('dm-manual').classList.contains('hidden') && /EM01 原廠工具沒有 Type 清單/.test(manRows()[0][1]), 'EM01：手動對照沒有 Type_select（原廠工具沒有清單）');
+  ok(!$('dm-manual').classList.contains('hidden') && /EM01 瑞鼎 UI 沒有 Type 清單/.test(manRows()[0][1]), 'EM01：手動對照沒有 Type_select（瑞鼎 UI 沒有清單；2026-10-12 原廠工具→瑞鼎 UI）');
   fire($('dm-model'), 'E503');
   ok($('dm-manual').classList.contains('hidden'), 'E503 不顯示 EM01／EM02 的手動對照');
   if (EM02) {

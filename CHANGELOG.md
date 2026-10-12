@@ -2,6 +2,87 @@
 
 ---
 
+## Data Mapping (datamap) v1.22.0 — 2026-10-12 ｜ MINOR
+
+同一個 commit 另進版：I2C v1.34.2、DG v2.4.9、dgself v2.7.7、wfg v4.54.1（各自條目在本條下方）。
+
+**datamap：每張卡片可收摺、I2C 連線狀態收摺時也看得到（綠色）、TFT 接線圖獨立成卡、連不上 I2C Bridge 時給下載。全站：I2C Bridge 下載入口統一成共用元件 `common/i2c-bridge.js`；「原廠 UI」改「瑞鼎 UI」並加發佈關卡。**
+
+判定依據：`docs/VERSIONING.md` §1。datamap 多了收摺、全部展開／收摺、頁首 I2C 狀態、無 Bridge 下載提示（新能力，既有操作與結果不變；TFT 圖換到獨立卡，元素與功能不變）⇒ MINOR。i2c／dg／dgself／wfg 只有字樣與下載連結組法修正（dg／dgself 被 I2C Bridge 端出來時連結原本會 404）⇒ PATCH。
+
+### 起因（Bruce 2026-10-12）
+> Data Mapping 幫我做成每張卡片都可以收摺起來。然後如果 i2c 有連線的話，就算收摺起來也要顯示綠色的那個，連線要很清楚。另外，收折起來，我還是要可以看到這個卡片的最主要的名稱，讓人一看就知道。另外，TFT 接線圖，我需要把它獨立成另外一張卡片。可以單獨不收折，或收折。
+
+> 為什麼這一頁如果沒有 I2C bridge 的話，沒有像其他要使用到 I2C 的做法一樣，可以去下載這個 I2C bridge 的壓縮包？
+
+> 網頁裡面有寫到原廠 UI 的，不要寫原廠，寫瑞鼎 UI
+
+### datamap v1.22.0
+- 收摺：每張 `.card.stp` 的標題列整列可點（Enter／Space 亦可，觸控區 ≥ 44px），左側箭頭；收摺只藏內容，標題列（卡片名稱、狀態、I2C 徽章）照常。狀態用 `data-fold` 屬性（`renderSteps`／`renderPreview` 會整個改寫 className，不能用 class）。TCON Register 確認原本是 `<details>`，沿用 open。記憶在 `localStorage['dm.fold.v1']`（try/catch，讀不到＝全部展開）。頁首固定列有「全部展開／全部收摺」。展開 ③／TFT 卡時重畫預覽；跳轉（SD Out／TCON Out／接線圖）目標卡收摺中會先展開。
+- I2C 狀態：頁首固定列＋① 標題列各一個徽章（`I2CBridge.badge`），來源只有既有的 `S.linked` 加連線中／連不到／被關掉三個旗標：已連線＝綠（發光）、連線中＝黃、未連線＝灰、找不到 Bridge／已斷線＝紅；render() 時即時更新。
+- 沒有 I2C Bridge：按連線失敗 ⇒ ① 內出現 `I2CBridge.mountNeed`（下載鈕＋「下載 → 解壓 → 雙擊 i2c-bridge.exe → 按連線」＋I2C 頁說明連結）；連線中被關掉同樣顯示（標「已關閉或斷線」）。未連線時「連線」旁常駐一個小的「沒有 I2C Bridge？下載 vX」連結。開通道失敗（Bridge 在）不出下載提示。
+- TFT 接線圖獨立卡 `#card-tft`（③ 與 TCON Register 之間）：V 方向 Line 數、畫面樣式（只送 R1…）、接線圖、說明與圖例搬進來；③ 保留預覽來源、Driver／面板設定、比對結果、確定此架構、16 種配置。`#dm-pv-tfth` 改成新卡標題列（跳轉目標不變），鎖定外框兩張卡同步（`dm-locked`）。③ 不能畫（Tri／EN01）時 `#dm-tftbody` 一起藏、顯示 `dm.tftNa`。元素 id 與事件全部不變。
+- 根因（為何 datamap 沒有下載入口）：下載包資料 `HELPER_PKG` 早就是單一來源，但「提示怎麼顯示、連結怎麼組」每頁各寫一套（i2c.html `i2ctNeedHelper`／`i2ctFillHelperCard`、dg-selftest.html `dstRenderDl`、dg.html 選擇畫面下載列）；datamap v1.0.0 只照抄了 WebSocket 協定，連不上時只 toast「連不上 I2C Bridge」。
+
+### 共用元件 `common/i2c-bridge.js`（新）
+- `PORT`、`WS_URL`、`ONLINE_BASE`、`dlHref()`、`fillDl()`、`mountNeed()`、`badge()`、三語字串。
+- i2c.html、dg-selftest.html、dg.html、datamap.html 都載入它；下載連結一律 `I2CBridge.dlHref()`。
+- 統一前的差異：頁面被 I2C Bridge 端出來（127.0.0.1）時，i2c.html 會改指線上網址，dg.html／dg-selftest.html 用相對路徑（那裡沒有 data/，會 404）⇒ 統一後都指線上網址。i2c.html 的完整下載卡（SHA、LNA 診斷）與 dg-selftest 的狀態碼表保留各自的版面，只換連結來源。
+
+### 「原廠 UI」→「瑞鼎 UI」
+- 只改使用者看得到的字（去註解版同一行也有該字樣才改；註解保留歷史原文）。指瑞鼎軟體的「原廠 UI／原廠 TCON UI／原廠工具／原廠程式」與英文 vendor UI／tool／program 改成「瑞鼎 UI」「Raydium UI」：datamap.html、datamap-lod.js、dg.html、dg-selftest.html、i2c-guide（三語）、wfg-guide（繁／簡）、i18n.js（i2c Flash 說明）。
+- 不是瑞鼎產品的不寫「瑞鼎」：CA-410 測試頁的「原廠 UI」改「CA-410 的電腦端軟體」；wfg 邏輯分析儀的「原廠 UI」改成同頁既有用語「原廠軟體」。
+- 保留：原廠圖／原廠表／原廠 Register Table／原廠 xlsx／原廠預設 T4／原廠規格（dg-measure 量測儀）／原廠 timing 文件／原廠實測等——指原廠資料或規格，不是 UI 名稱。
+- 防再犯：`tools/check_no_vendor_ui.mjs` 掃去註解後的發佈內容，出現「原廠 UI」（含 TCON／EM0x／Python UI、簡體、英文 vendor UI）就失敗；已接進 `.github/workflows/pages.yml`「去註解」之後，不過就不發佈。
+
+### 測試
+- 新增 `tools/check_datamap_fold.js`（49 項）：收摺／展開／Enter／全部展開收摺、收摺時名稱仍在、localStorage 還原與讀寫丟例外、I2C（沒有 Bridge／未連線／已連線／被關掉／使用者斷線）× 卡片收摺展開、TFT 卡（鎖定、只送 R1、收摺中改設定後展開重畫、跳轉自動展開、EN01）。
+- 新增 `tools/check_i2c_bridge_ui.js`：i2c／dg-selftest／datamap／dg × 沒有 Bridge／未連線／已連線，下載連結＝`dlHref()` 且壓縮包存在、無 Bridge 有提示；127.0.0.1 來源指線上網址。假 Bridge 在 `tools/fake_i2c_bridge.js`。
+- `check_datamap_preview.js`、`check_datamap_tcon_gate.js` 卡片順序加入 `card-tft`；其餘 check_datamap*、i2c_tool_selftest、dg_selftest_i2c、i2c_spiflash_selftest 照舊。
+- 截圖（桌面 1280／iPhone 390）：全部展開、全部收摺、I2C 連線中全部收摺、只展開 TFT 卡、沒有 Bridge。
+
+---
+
+## I2C 讀寫測試 (i2c) v1.34.2 — 2026-10-12 ｜ PATCH
+
+隨 datamap v1.22.0 同一個 commit。
+
+判定依據：§1 只改字樣與內部組法，操作與結果不變 ⇒ PATCH。
+- I2C Bridge 的 port、WS 位址、線上網址、下載連結改讀 `common/i2c-bridge.js`（所有 I2C 頁同一份）；畫面與行為不變（127.0.0.1 時仍指線上網址）。
+- Flash 說明「和原廠程式／原廠讀出的 bin 比對」→「和瑞鼎 UI 讀出的 bin 比對」（Bruce 10/12「網頁裡面有寫到原廠 UI 的，不要寫原廠，寫瑞鼎 UI」）。
+
+---
+
+## Digital Gamma (dg) v2.4.9 — 2026-10-12 ｜ PATCH
+
+隨 datamap v1.22.0 同一個 commit。
+
+判定依據：§1 修正錯誤連結＋字樣 ⇒ PATCH。
+- 選擇畫面的「下載 I2C Bridge」連結改由 `I2CBridge.dlHref()` 組：頁面被 I2C Bridge 端出來（127.0.0.1）時原本是相對路徑、那裡沒有 data/ 會 404，改指線上網址（與 i2c.html 相同）。
+- 「對應原廠 UI 的 Remove L0 Leakage」→「對應瑞鼎 UI 的…」。
+
+---
+
+## TCON 自檢畫面量測 (dgself) v2.7.7 — 2026-10-12 ｜ PATCH
+
+隨 datamap v1.22.0 同一個 commit。
+
+判定依據：§1 修正錯誤連結＋字樣 ⇒ PATCH。
+- 「下載 I2C Bridge」連結改由 `I2CBridge.dlHref()` 組（127.0.0.1 時指線上網址，原本會 404）；port 讀共用檔。
+- 「原廠 UI 在這種情況會…」→「瑞鼎 UI…」（三語）。
+- tests/dgself 93 情境 1331 項全過（去註解版）。
+
+---
+
+## 面板訊號模擬與取樣 (wfg) v4.54.1 — 2026-10-12 ｜ PATCH
+
+隨 datamap v1.22.0 同一個 commit。
+
+判定依據：§1 只改字樣 ⇒ PATCH。
+- 邏輯分析儀換手提示的「原廠 UI」→ 同頁既有用語「原廠軟體」（那是分析儀廠商的軟體，不是瑞鼎，所以不寫「瑞鼎」；但依 Bruce 10/12 不再寫「原廠 UI」）。共 4 處（含 i18n `wfg.laLinkBtnTitle`）。
+
+---
+
 ## Data Mapping (datamap) v1.21.0 — 2026-10-12 ｜ MINOR
 
 **Line OD 相關畫面先隱藏（單一開關 `FEATURE_LINE_OD`），程式與資料保留；Data Mapping 完整後再回來改 Line OD。**

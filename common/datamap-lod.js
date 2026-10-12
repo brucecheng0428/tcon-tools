@@ -88,26 +88,26 @@
     { name: '20.Tri+ZZ+RRRLLL', img: '20.Tri-gate+Zig-Zag_LLLRRR_RRRLLL', g: 'tri', P: 1, A: 1, L: [['R-1', 'G-1', 'B-1'], ['R1', 'G1', 'B1']], d: 'Tri-Gate＋Zig-Zag RRRLLL：Line 1-1~1-3 接右邊、Line 2-1~2-3 接左邊（與 19 相反）。', warn: '原廠 19、20 用同一張圖（檔案內容相同，只畫了 LLLRRR）＝20 的圖錯；名稱依命名原理推出 RRRLLL，與暫存器值一致。' },
     { name: '21.Tri, BOE', img: '21.BOE Tri-gate', g: 'tri', P: 6, A: 6, L: [['R1 G1 B1 R2 G2 B2', 'R3 G3 B3 R4 G4 B4', 'R5 G5 B5 R6 G6 B6']], d: 'BOE Tri-Gate：一列子像素三條 gate；6 條 Data 線管 6 個 pixel（18 顆）：Line k-1 送 pixel 1、2，k-2 送 pixel 3、4，k-3 送 pixel 5、6（每條 Data 線接的 3 顆分散在 6 個 pixel 範圍內）。沒有 Zig-Zag（LLL）。' },
     { name: '22.HSD+RBG/GRB', img: '22.HSD_RBG-GBR', g: 'dual', P: 3, A: 2, L: [['R1 B1 G2', 'G1 R2 B2']], d: 'Dual Gate（HSD）：Data n 上 gate 接 R1／B1／G2…、下 gate 接 G1／R2／B2…，每條 Data 線只接左右緊鄰兩顆；兩條 line 相同。' },
-    { name: '23.HSD+RBG/GRB+LR', img: '23.HSD_RBG-GBR+Zig-Zag_LR', g: 'dual', P: 3, A: 2, L: [['R1 B1 G2', 'G1 R2 B2'], ['G-1 R1 B1', 'B-1 G1 R2']], d: '同 22，2N+1 整排往右一條（Zig-Zag LR）。與原廠預設樣式 (23) 的 ② 值一致。' },
+    { name: '23.HSD+RBG/GRB+LR', img: '23.HSD_RBG-GBR+Zig-Zag_LR', g: 'dual', P: 3, A: 2, L: [['R1 B1 G2', 'G1 R2 B2'], ['G-1 R1 B1', 'B-1 G1 R2']], d: '同 22，2N+1 整排往右一條（Zig-Zag LR）。與瑞鼎 UI 預設樣式 (23) 的 ② 值一致。' },
     { name: '24.HSD+RRB/GBG', img: '24.HSD_RRB-GBG', g: 'dual', P: 3, A: 2, L: [['R1 R2 B2', 'G1 B1 G2']], d: 'Dual Gate（HSD）RRB／GBG：上 gate R1 R2 B2…、下 gate G1 B1 G2…；兩條 line 相同。' },
     { name: '25.HSD+RRB/GBG+LR', img: '25.HSD_RRB-GBG+Zig-Zag_LR', g: 'dual', P: 3, A: 2, L: [['R1 R2 B2', 'G1 B1 G2'], ['B-1 R1 R2', 'G-1 G1 B1']], d: '同 24，2N+1 往右一條。' },
     { name: '26.HSD+RRB/GBG+LR+RB_chg', img: '26.HSD_RRBGBG_LR_RB_chg', g: 'dual', P: 3, A: 2, L: [['B1 B2 R2', 'G1 R1 G2'], ['R-1 B1 B2', 'G-1 G1 R1']], d: '同 25 但 R、B 對換（BBR／GRG）。' },
     { name: '27.HSD+GGB/RBR+2RRRL', img: '27.HSD_GGB-RBR+Zig-Zag_2RRRL', g: 'dual', P: 3, A: 2, L: [['G-1 B-1 G1', 'R-1 R1 B1'], ['B-1 G1 G2', 'R1 B1 R2']], d: 'Dual Gate GGB／RBR：2N 上 gate 從 Data 3 起 G1 G2 B2…、下 gate 從 Data 2 起 R1 B1 R2…；依命名原理實際是 2N 接右、2N+1 接左（RL）。', warn: '名稱尾的「2RRRL」無法用 L／R 逐列定義直接解讀（實際接線是每條 line R、L 交替＝RL）；接線與暫存器 48 值一致，名稱的寫法待設計者確認。' },
-    { name: '28.HSD+BRG/GRB+LR', img: '28.HSD_BRG-GBR+Zig-Zag_2RRRL', g: 'dual', P: 3, A: 2, L: [['B1 R1 G2', 'G1 B2 R2'], ['G-1 B1 R1', 'R-1 G1 B2']], d: 'Dual Gate BRG／GBR：上 gate B1 R1 G2…、下 gate G1 B2 R2…；2N+1 往右一條。與原廠預設樣式 (28) 的 ② 值一致。' },
+    { name: '28.HSD+BRG/GRB+LR', img: '28.HSD_BRG-GBR+Zig-Zag_2RRRL', g: 'dual', P: 3, A: 2, L: [['B1 R1 G2', 'G1 B2 R2'], ['G-1 B1 R1', 'R-1 G1 B2']], d: 'Dual Gate BRG／GBR：上 gate B1 R1 G2…、下 gate G1 B2 R2…；2N+1 往右一條。與瑞鼎 UI 預設樣式 (28) 的 ② 值一致。' },
     { name: '29.HSD+GGR-GGR-GGB-GGB/RBR-BBR-BBR-RBR+2RRRL', img: '29.HSD+GGR-GGR-GGB-GGB_RBR-BBR-BBR-RBR+ZZ+2RRRL', g: 'dual', P: 12, A: 8,
       L: [['G-1 B-1 G1 G2 R3 G3 G4 R5 G5 G6 B6 G7', 'R-1 R1 B1 R2 B2 B3 R4 B4 B5 R6 R7 B7'], ['B-1 G1 G2 R3 G3 G4 R5 G5 G6 B6 G7 G8', 'R1 B1 R2 B2 B3 R4 B4 B5 R6 R7 B7 R8']],
-      d: 'Dual Gate，週期 12 條 Data 線（8 pixel）：D1~D12 都是主循環，D13 起才重複；上 gate 以 G 為主、下 gate 以 R／B 為主；實際是 2N 接右、2N+1 接左（RL）。D1~D6 與原廠預設樣式 (29) 相同，D7~D12＝預設樣式 (29) 第二組＋4 pixel。',
+      d: 'Dual Gate，週期 12 條 Data 線（8 pixel）：D1~D12 都是主循環，D13 起才重複；上 gate 以 G 為主、下 gate 以 R／B 為主；實際是 2N 接右、2N+1 接左（RL）。D1~D6 與瑞鼎 UI 預設樣式 (29) 相同，D7~D12＝預設樣式 (29) 第二組＋4 pixel。',
       warn: '原廠圖欄寬不一致（合併儲存格），2N+1 下 gate 有一格空白（應為 B5）＝圖錯；「2RRRL」同 27 無法直接解讀。以暫存器值（48 值一致）與預設樣式兩組（24/24）為準。' },
     { name: '30.4pixels/4line, BOE+LRLR', img: '30.BOE_', g: 'dual', P: 6, A: 4,
       L: [['R1 R2 B2 G3 R4 B4', 'G1 B1 G2 R3 B3 G4'], ['G-1 G1 B1 G2 G3 B3', 'B-1 R1 R2 B2 R3 R4'], ['G1 R2 B2 R3 R4 B4', 'R1 B1 G2 G3 B3 G4'], ['G-1 G1 B1 G2 G3 B3', 'B-1 R1 R2 B2 R3 R4']],
       d: 'BOE HSD，4 條 line 一循環：4N+1、4N+3 往右一條（LRLR），4N 與 4N+2 的上下 gate 換顏色。',
-      warn: 'D1~D6 的 Line 1、2 與原廠「預設樣式」(31) 相同、不是 (30)：RApp_TX.h 的 (30)／(31) 兩筆值和名稱對調了（預設樣式 (31) 第一組＝這裡 Line 1、2，第二組＝Line 3、4，24/24 一致；Line OD 這邊的名稱、圖、暫存器三者一致）。' },
+      warn: 'D1~D6 的 Line 1、2 與瑞鼎 UI「預設樣式」(31) 相同、不是 (30)：RApp_TX.h 的 (30)／(31) 兩筆值和名稱對調了（預設樣式 (31) 第一組＝這裡 Line 1、2，第二組＝Line 3、4，24/24 一致；Line OD 這邊的名稱、圖、暫存器三者一致）。' },
     { name: '31.HSD BOE+4pixel/4line', img: '31.HSD BOE_4pixel4line', g: 'dual', P: 6, A: 4,
       L: [['R1 G3 B1 R4 G2 B4', 'R3 G1 B3 R2 G4 B2'], ['R1 G3 B1 R4 G2 B4', 'R3 G1 B3 R2 G4 B2'], ['R3 G1 B3 R2 G4 B2', 'R1 G3 B1 R4 G2 B4'], ['R3 G1 B3 R2 G4 B2', 'R1 G3 B1 R4 G2 B4']],
       d: 'BOE HSD（原廠圖標題「HSD RGB 4pix 4 line」）：每條 Data 線固定一個顏色（R G B R G B），上下 gate 接同色但隔一個 pixel；4N+2、4N+3 上下對換。',
-      warn: '週期是 6 條 Data 線（Dual 每條 2 顆 ⇒ 6 條＝12 顆＝4 pixel），不是 12 條：D7~D12＝D1~D6 往右 4 pixel。照 ② 的 RGB 條紋位置畫，drain 會跨 1~2 顆；實際面板可能不是 RGB 條紋排列。與原廠「預設樣式」(30) 兩組相同（見 30 的說明）。' },
+      warn: '週期是 6 條 Data 線（Dual 每條 2 顆 ⇒ 6 條＝12 顆＝4 pixel），不是 12 條：D7~D12＝D1~D6 往右 4 pixel。照 ② 的 RGB 條紋位置畫，drain 會跨 1~2 顆；實際面板可能不是 RGB 條紋排列。與瑞鼎 UI「預設樣式」(30) 兩組相同（見 30 的說明）。' },
     { name: '32.HSD BOE+GBG/RRB+LR', img: '32.HSD BOE_GBGRRB_LR', g: 'dual', P: 3, A: 2, L: [['G1 B1 G2', 'R1 R2 B2'], ['G-1 G1 B1', 'B-1 R1 R2']], d: 'BOE HSD GBG／RRB：上 gate G1 B1 G2…、下 gate R1 R2 B2…；2N+1 往右一條。',
-      warn: '原廠「預設樣式」(32) 的 ② 值＝這張圖再做 D1↔D3、D4↔D6 對調：用 (32) 的 code 時要勾「模擬 Source Driver 輸出對調」才對得上這張圖（與蘇坤 BOE B4 27" 的結論相同）。' }
+      warn: '瑞鼎 UI「預設樣式」(32) 的 ② 值＝這張圖再做 D1↔D3、D4↔D6 對調：用 (32) 的 code 時要勾「模擬 Source Driver 輸出對調」才對得上這張圖（與蘇坤 BOE B4 27" 的結論相同）。' }
   ];
   var CH = ['R', 'G', 'B'];
   function lin(n) { var m = /^([RGB])(-?\d+)$/.exec(n || ''); if (!m) return null; var p = +m[2]; return (p > 0 ? p - 1 : p) * 3 + CH.indexOf(m[1]); }
