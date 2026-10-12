@@ -34,7 +34,10 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   console.log('    前 4 名：' + r0.slice(0, 4).map(r => r.key + '[' + r.cells[5] + '/' + r.cells[6] + ']').join('  '));
   ok(r0[0].key === 'rfgn1' && r0[0].ok === '1', '第 1 名＝CH1 最右＋正向＋RGB＋輸出對調「無」、資料與顏色全對（' + r0[0].cells.slice(1, 7).join(',') + '）');
   const sw = r0.find(r => r.key === 'rrgs1');
-  ok(sw && /✗ 錯/.test(sw.cells[5]) && sw.cells[6] === '✓' && r0.indexOf(sw) > r0.findIndex(r => r.ok === '0') - 1 && r0.filter(r => r.ok === '1').every(r => r0.indexOf(r) < r0.indexOf(sw)), '「最右＋反向＋RGB＋對調有」顏色全對但資料錯 ⇒ 排在所有全對之後（' + sw.cells[0] + '）');
+  /* v1.23.2（Bruce 10/12）：子像素位置固定，SHL／輸出對調只改 drain ⇒ 資料一定正確，差別在最長 drain；全對的列依最長 drain 由短到長 */
+  const okRows = r0.filter(r => r.ok === '1'), mxs = okRows.map(r => +r.cells[7]);
+  ok(sw && sw.cells[5] === '✓' && sw.cells[6] === '✓' && +sw.cells[7] > +r0[0].cells[7] && r0.indexOf(sw) > 0 && mxs.every((v, i) => !i || v >= mxs[i - 1] - 1e-9) && r0.slice(0, okRows.length).every(r => r.ok === '1'),
+    'v1.23.2「最右＋反向＋RGB＋對調有」資料、顏色都對但最長 drain ' + (sw && sw.cells[7]) + ' > 第 1 名 ' + r0[0].cells[7] + ' ⇒ 排在後面（' + (sw && sw.cells[0]) + '）；全對的 ' + okRows.length + ' 列依最長 drain 由短到長、排在所有不全對之前');
   ok(r0.findIndex(r => r.ok === '0') === r0.filter(r => r.ok === '1').length, '全對的都在前面，有錯的不可能當第一名');
   const errs = r0.map(r => (r.cells[5].match(/\d+/) || [0])[0] * 1 + (r.cells[6].match(/\d+/) || [0])[0] * 1);
   ok(errs.every((e, i) => i === 0 || r0[i - 1].ok !== r0[i].ok || errs[i - 1] <= e), '同一段內錯的格數由少到多（不會 12 格錯排在 8 格錯前面）：' + errs.join(','));
@@ -54,10 +57,12 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   ok(scrolled[0] === 'dm-drv-sec', '並捲到 Source Driver 設定');
   ok(rows()[0].cur && /目前套用/.test(rows()[0].cells[0]) && rows().filter(r => r.cur).length === 1, '第 1 名標「目前套用」（只有一列）');
   ok($('dm-pv-sugbtn').classList.contains('hidden') && /目前就是第 1 名/.test($('dm-pv-sugok').textContent), '套用建議按鈕隱藏，顯示「目前就是第 1 名」');
-  const tr2 = $('dm-pv-combotbl').querySelector('tr[data-combo="lfbn1"]');
+  /* v1.23.2：「資料正確」＝格子收到的資料＝固定子像素軸名稱 ⇒ 舊的第 2 名 lfbn1（CH1 最左＋BGR 的左右鏡像）資料不再算對；改用目前排第 2 的全對列 */
+  const tr2 = $('dm-pv-combotbl').querySelectorAll('tr[data-combo]')[1], k2 = tr2.getAttribute('data-combo');
+  ok($('dm-pv-combotbl').querySelector('tr[data-combo="lfbn1"]').getAttribute('data-ok') === '0', 'v1.23.2：lfbn1（CH1 最左＋BGR、Mirror 1）是左右鏡像 ⇒ 資料不對（data-ok＝0）');
   tr2.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); await sleep(30);
-  ok($('dm-pv-first').value === 'l' && $('dm-pv-stripe').value === 'bgr', '鍵盤 Enter 也能套用（CH1 最左＋BGR）');
-  ok($('dm-pv-sugbtn').classList.contains('hidden') && /資料與顏色全對（第 2 名）/.test($('dm-pv-sugok').textContent), 'v1.18.18：套用第 2 名（也全對）⇒ 不再出現「套用建議」，顯示「✓ 資料與顏色全對（第 2 名）」');
+  ok(tr2.getAttribute('data-ok') === '1' && $('dm-pv-first').value === k2.charAt(0) && $('dm-pv-drv').value === (k2.charAt(1) === 'r' ? 'r' : 'f') && $('dm-pv-stripe').value === (k2.charAt(2) === 'b' ? 'bgr' : 'rgb'), '鍵盤 Enter 也能套用第 2 名（' + k2 + '）');
+  ok($('dm-pv-sugbtn').classList.contains('hidden') && /資料與顏色全對（第 2 名）/.test($('dm-pv-sugok').textContent), 'v1.18.18：套用第 2 名（也全對）⇒ 不再出現「套用建議」，顯示「✓ 資料與顏色全對（第 2 名）」：' + $('dm-pv-sugok').textContent);
   console.log('展開／收合');
   ok($('dm-pv-combos').open && $('dm-pv-combos').closest('section').querySelector('#dm-pv-physrow'), '未鎖定：預設展開，位置在「比對結果」（Driver／面板下方）');
   $('dm-pv-lock').click(); await sleep(50);

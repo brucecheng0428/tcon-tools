@@ -2,6 +2,46 @@
 
 ---
 
+## Data Mapping (datamap) v1.23.2 — 2026-10-12 ｜ PATCH
+
+**⚠ 輸出變更：TFT 接線圖未鎖定時子像素軸固定（畫面由左到右遞增、最左＝表格用到的最小編號），Source 輸出對調／SHL 只改 drain 連線、不再改格內名稱；排列組合統計依此重算最長 drain，蘇坤 code 第一名改為「CH1 最左＋正向＋RGB＋輸出對調」（最長 drain 5.5 → 1.5，與參考圖一致）。卡片改名：「面板排列預覽」→「排列組合相關設定」、「比對結果」→「排列結果」、「32 種配置比較」→「排列組合統計」。**
+
+判定依據：Bruce 指為錯誤（「你目前顯示出來的接線圖是錯的。這就是有問題」）⇒ `docs/VERSIONING.md` §2 案例 7「修正為應有行為」PATCH＋`⚠ 輸出變更`（同一組設定的接線圖、比較表名次與最長 drain 會和舊版不同）。也可視為案例 8「換定義」（MAJOR），依 R2-3「不確定就編較低級別」取 PATCH，記錄供覆核。改名只動文字（案例 3 微調）。
+
+### 起因（Bruce 2026-10-12）
+
+> 在還沒有鎖定 TFT 接線圖的架構之前，subpixel 順序應該要嚴格遵守：最左邊的一定要是最小的…依序往右是 R1、G1、B1、R2、G2、B2，這個是要固定的。然後如果我改變像是 source output 的輸出對調，對調以後，subpixel 這邊的位置是不可以變的，這樣才能顯示出最長 drain 的部分，那才是正確結果。
+> 在 32 種排列組合的結果，理論上應該是你只要用到第一名的建議，就應該要跟蘇坤的 Data Mapping 圖一致才對。
+> 玻璃做出來就是固定的，唯一可以變動的就是設定 RGB 改為 BGR
+
+### 定義對照與根因
+| 項目 | v1.23.1（舊） | Bruce 定義（v1.23.2） |
+|---|---|---|
+| 子像素格內名稱 | 收到的資料（`DX`：對調／SHL 時改寫）、Mirror 時整行反轉（`pvSpanRev`）、CH1 在右時名稱平移週期（`shownPos`，出現 R-13 之類） | 固定軸：畫面由左到右連續遞增，最左＝表格用到的最小編號補到整 pixel；收到的資料不同時在格子下緣小字 `←名稱` |
+| 輸出對調／SHL | drain 固定接 `r.names[p]`，只改「這條線收到哪筆資料」⇒ 被算成「資料錯」 | 第 p 條線收到 TCON Data `swap(rev(p))`（`pvLineSrc`，單一來源），drain 接到那筆資料在 ② 指定的子像素 ⇒ 資料一定正確，差別反映在 drain 長度 |
+| 排列組合統計線長 | `cost[sw]` 只隨輸出對調算，且 drain 目標不隨對調變 ⇒ 對調／SHL 的線長永遠和不對調相同 | 每種 SHL × 輸出對調各自照 `pvLineSrc` 重新接 drain、`pvPlace` 算最長 drain／左右不均 |
+| 資料正確 | 資料有送到 ② 指定的格子（`pvDataBad`） | 另加：格子收到的資料＝固定子像素軸名稱（`pvOrientBad`），鏡像／R↔B 不算對 |
+| 排序 | 資料與顏色全對 → 錯格數 → 最長 drain → … | 不變；全對的列依最長 drain 由短到長 |
+
+根因：v1.17.4 把「輸出對調／SHL」定義成「drain 固定、只改收到的資料」，與 Bruce 的「子像素固定、只改連線」相反；同一個定義散在 `pvWiresSpec`、`renderPvTft0`（格內名稱 `DX`、`dofOf`、Data 線 `data-src`）、`pvCombos`（`cost[sw]`）三處，造成蘇坤 code 正確組合 `lfgs0` 被算成資料錯 14 格、顏色錯 10 格（第 25 名），第一名 `lfgn0` 最長 drain 5.5。
+
+### 內容
+- 新增 `pvLineSrc(P, p, swap, rev)`：線 → TCON Data 的唯一換算；`pvWiresSpec`、TFT 圖小字（TCON Out）、Data 線 `data-src`、`pvCombos` 全部改用它。
+- 鎖定接線（`P.recv`）沿用同一索引：鎖定當下接線＝畫面所見，之後只有 ② 改變才標 `≠`。
+- 子像素軸名稱單一來源 `pvAxisLab`（renderPvTft0 格子名稱與排名的資料檢查共用）：不翻圖＝位置名稱（最左＝表格用到的最小編號補到整 pixel）；CH1 在右整張翻時，由主循環資料最小編號的那格對齊、往畫面右邊遞增，比它的 pixel（最多從 R1 起）更左的空位不寫名稱；BGR 時每個 pixel 內名稱 B G R（`pvAxisLin`）。只看 ② 的資料，SHL／對調／CHRB 都不動軸。收到的資料和軸名不同時，格子下緣小字 `←名稱`。
+- 「資料正確」改為：每條主循環 drain 接到的格子，收到的資料名稱＝那格的子像素軸名稱（`pvOrientBad`，加在原本鎖定時的 `pvDataBad` 上）。舊定義只看「資料有沒有送到 ② 指定的格子」，左右鏡像（例 CH1 在右＋Mirror 0）或 R↔B 的組合也會被算全對。
+- Auto Mode 的 CHRB＝1（例 RT7 (26) HSD+RRB/GBG+LR+RB_chg）改成和 Hand Mode `pvChrb` 同一定義：玻璃接線＝CHRB＝0 的接線（`AUTO.rbSwap` 換回），只有收到的資料 R↔B（`pvAutoModel`）。v1.12.0～v1.23.1 把 R↔B 套在接線目標上，drain 跟著換到另一顆，造成 (26) 的最長 drain 3.5（參考圖 25.HSD+RRB_GBG+LR 為 1.5）。鎖定比對 `posNm` 同步：鎖定接線 CHRB＝1 時「該收到的資料」也是 R↔B 後的名稱。
+- 無型號特例分支：所有型號、Hand／Auto 走同一組函式（新增 `pvLineSrc`、`pvAxisLin`、`pvDataAt`、`pvAxisLab`、`pvOrientBad`；修改 `pvWiresSpec`、`pvDataBad`、`pvPhysMis`、`pvCombos`、`pvAutoModel`、`renderPvTft0`）。
+- 改名（三語）：`dm.stpPv`、`dm.secRes`、`dm.pvCombosSum`／`dm.pvCombosSumN`、`dm.en01Pv`。
+
+### 驗證
+- 蘇坤 code（`BOE_B4_27.0_QHD_100Hz_2port_3pair_mLVDS(RM80103.PC_EM02_蘇坤)/Code/V01/…CKS_02AB27.BIN`）：第 1 名 `lfgs0`（CH1 最左＋正向＋RGB＋輸出對調、Mirror 0）最長 drain 1.5，套用後第 1／2 列 24 條 drain 與 `DataMapping/DataMapping_DualGate_BOE_HSD(…).png` 逐條一致；舊版第 1 名 `lfgn0` 5.5、正確組合排第 25。
+- 全民 code：第 1 名維持 `rfgn1`（CH1 最右＋正向＋RGB＋無對調、Mirror 1，最長 drain 0.5）。
+- 8 組有 DataMapping 參考圖的 BOE MNT code（蘇坤、全民、鄭逸、仁惠、溥哲 FHD320、欣悅、B4 FHD165、B4 QHD100 RM80120）：新版第 1 名最長 drain 都 ≤ 參考圖；舊版有 5 組比參考圖長（5.5／3.5／2.5／3.5／5.5 vs 1.5／1.5／0.5／1.5／1.5）。
+- 新增 `tools/check_datamap_axis.js`（全部型號 × Preset／Gate × Mirror × CHRB × 16 種點列套用；給 `--sukun` 加跑蘇坤參考圖對照）；`check_datamap_preview／kickoff／combos／lod／en01` 中斷言舊定義（對調只改收到的資料、舊卡片名稱）的項目改成新定義。
+
+---
+
 ## Data Mapping (datamap) v1.23.1 — 2026-10-12 ｜ PATCH
 
 **Benchmark 反推表格移除「匯出 JSON」「匯入 JSON」按鈕與相關程式；localStorage 自動保存（依型號／設定分組）與「清空重來」保留。**
