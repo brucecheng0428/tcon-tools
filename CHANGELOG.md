@@ -2,6 +2,46 @@
 
 ---
 
+## Data Mapping (datamap) v1.23.0 — 2026-10-12 ｜ MINOR
+
+**② Data Mapping 表格新增「Benchmark」反推表格：與原表格同格位、第一次全部 X；填完按「套用到主表」寫回原表格（寫前確認、可「復原」一次）。**
+
+判定依據：`docs/VERSIONING.md` §1 判定表「新增獨立功能、舊的一切照舊」⇒ MINOR（接在 v1.22.0 卡片收摺之後）。原表格的格位、下拉、輸出、匯出 script、暫存器值都不變（只把建表／畫格程式參數化，原表格 id 與行為相同）。
+
+### 起因（Bruce 2026-10-12）
+
+> 我在調 Data Mapping 卡片的 Data Mapping 表格那邊，還需要做一個 Benchmark 的按鈕。按下去的話，下方會再多一個表格。也就是在工具那邊不是有一個 All Same Pixel，我全部按X以後，可以一個一個從 Data Mapping 表格裡面改成 R1，然後去看它實際上顯示到底是 B1、G1 還是其他 subpixel。我確認以後就可以填在新增的那張表格。對應的位置填完(所以benchmark的表格跟原始的表格其實是一樣，預設第一次打開時，全部都是X)、整個 Benchmark 都出來之後，最好還有一個「一鍵 Copy 回實際 Data Mapping 表格」的按鈕，這樣就可以完成逆向的反推
+
+按鈕與視窗名稱依 Bruce 10/12 定案：按鈕「套用到主表」（桌面與手機同一個；滑鼠提示「把 Benchmark 結果套用到 Data Mapping 表格」）、確認視窗標題「套用到主表？」、復原按鈕「復原」。
+
+### 名詞（與 10/12 已確認的「只送 R1＝第 1 條 V-line 由上到下所有 R」同一套命名）
+
+- 原表格某格選 **R1**＝TCON 在這個 Line／Data 時槽送出「輸入影像第 1 個 pixel 的 R 資料」。
+- Benchmark 某格填 **B1**＝這個時槽的資料實際亮在「第 1 個 pixel 的 B 子像素位置」（看面板或 ③ 接線圖得到）。
+- 要讓面板顯示正確，這個時槽就該送 B1 的資料 ⇒「套用到主表」＝把 Benchmark 每格的名稱原樣寫回原表格同一格。
+
+### 內容
+
+1. ② 表格標題列加「Benchmark」按鈕（可再按收起）；展開時在表格下方出現 Benchmark 表格。Benchmark 區塊的收合照 v1.22.0 卡片收摺規範：標題列整列可點／Enter／Space、觸控區 ≥ 44px、同一個箭頭 `.dm-foldcar`、展開與收合狀態記在 localStorage；② 卡片收摺時整塊一起藏。
+2. 同一套程式：`buildGrid`／`renderGrid`（含 EN01 的 `buildGridEn01`／`renderGridEn01`）改成吃目標參數 G（畫到哪張表、用哪份 state、選了交給誰）；原表格＝`GRID_MAIN`（id、事件、行為與 v1.21.0 相同），Benchmark＝`GRID_BENCH`（id 前綴 `dm-b`）。Benchmark 的 state＝目前設定為底 → All Same Pixel X → 逐格用 `DM.pickCell`／`DM.en01Pick` 填存下來的名稱，因此 Data × Line 格位、下拉選項、顏色、T 標示、Gate／Preset／Mirror／CHRB 決定的格位規則都和原表格一致。
+3. 黃框：原表格最後改的那格（反推時就是剛改成 R1 的那格）在 Benchmark 同一格加黃框，上方一行寫「目前測試：…」。接線圖結果自動帶入 Benchmark **未做**（見下方「待確認」）。
+4. 「套用到主表」：全部填完 ⇒ 確認視窗寫會寫幾格；還有 X ⇒ 視窗寫未填格數，可「只套用已填的 n 格」或取消。套用以目前 state 為底逐格 `pickCell`，再走 `commit()`（和手選同一條路：第二組同步、T 表、接線圖、暫存器、匯出、連線即時寫入都照常）。名稱在目前設定下選不到的格子列在提示裡、不寫。
+5. 「復原」：回到套用前一次（`commit(..., noSync／noLod)` 原樣回去；連線即時寫入時一樣寫回 TCON）。
+6. 保存：只存名稱，依「型號｜Gate｜Mirror｜CHRB｜Panel.Sub panel」分組存 localStorage（`tcon.datamap.bench.v1`，讀寫包 try/catch；存不了會提示改用匯出）；「清空重來」只清目前這組；「匯出 JSON」匯出全部組、「匯入 JSON」合併（同組覆蓋）。
+
+### 待確認（未自行假設）
+
+- 「把 ③ 接線圖顯示結果帶入 Benchmark」：接線圖每格標的是「位置名稱」與「收到的資料」，Bruce 要填的是「實際亮的子像素」。要帶入的是哪一個（位置名稱？還是鎖定接線後的反推？）、未鎖定時接線圖是理想推論不是實測，是否可當 Benchmark 的來源，需 Bruce 決定後再做。
+
+### 測試
+
+- 新增 `tools/check_datamap_bench.js`（jsdom，localStorage 用記憶體替身；可 `BM_SHARD=i/n` 分片、`BM_ONLY` 篩選）：全部型號 × Preset（MNT）／Gate（NB、EN01）× Mirror × CHRB 共 494 組。S1 主表全 X 時兩張表逐格（值、可否選、class、選項清單、T 標示、列名、表頭）相同、第一次打開全部 X；S2 Benchmark 逐格用 UI 下拉選名稱 → 套用 ⇒ 主表名稱＝Benchmark；S3 復原＝套用前全部欄位；S4 只填 3 格 ⇒ 視窗標題「套用到主表？」與未填格數、取消不變、只套用已填、復原。另測全部填完的確認視窗、localStorage 分組保存／換 Gate／換型號／重新載入、匯出匯入、黃框、收合。EN01 在 jsdom 重建 288 格選單約 45 秒（Chrome 實測打開 50ms、每次選 6ms），所以一組跑完整 24 列、其餘用 P1 段 6 列。結果（v1.23.0，rebase 到 v1.22.0 之後）：4,581 項通過、0 失敗（另一片在中途改分片前已跑的 20 組也是 0 失敗）。
+- 原表格行為不變：同一組 state 分別給 v1.22.0（d017da6）與本版，494 組 × ② 原表格 HTML、③ 接線圖 SVG、TCON Register 表、圖例、All Same 選單，再各用 UI 改一格後重比＋state 比對 ⇒ 4,954 項逐字相同、0 不同。
+- 既有測試（本版）：check_datamap 282、auto 92、combos 37、en01 65、fold 50、kickoff 15、lod 161、nbfields 17、preview 48、vlines 184,716 checks、jump_realmouse 16 全過；roundtrip `--quick` 4 片 ALL PASS（完整版單機約 2.5 小時，未跑完）；tcon_gate 62 過 1 失敗（「改 Mirror ⇒ … 34 個欄位，0 個已修改」，v1.22.0 基準同一項同樣失敗，為既有問題）；import_lock、svg_rep、svg_vs_tag 需要外部 code 檔參數，未跑（基準同）。
+- 截圖（headless Chrome 自有 profile，桌面 1280／iPhone 390）：Benchmark 展開＋黃框、未填完確認視窗、套用後。
+
+---
+
 ## Data Mapping (datamap) v1.22.0 — 2026-10-12 ｜ MINOR
 
 同一個 commit 另進版：I2C v1.34.2、DG v2.4.9、dgself v2.7.7、wfg v4.54.1（各自條目在本條下方）。
