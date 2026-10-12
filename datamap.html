@@ -437,9 +437,6 @@
           <button class="sbtn pri" id="dm-bench-apply" data-i18n="dm.bmApply" data-i18n-title="dm.bmApplyT" title="把 Benchmark 結果套用到 Data Mapping 表格">套用到主表</button>
           <button class="sbtn hidden" id="dm-bench-undo" data-i18n="dm.bmUndo" data-i18n-title="dm.bmUndoT" title="">復原</button>
           <button class="sbtn" id="dm-bench-clear" data-i18n="dm.bmClear">清空重來</button>
-          <button class="sbtn" id="dm-bench-exp" data-i18n="dm.bmExp">匯出 JSON</button>
-          <button class="sbtn" id="dm-bench-imp" data-i18n="dm.bmImp">匯入 JSON</button>
-          <input type="file" id="dm-bench-file" accept=".json,application/json" class="hidden">
         </div>
       </div>
     <div class="stp-note hidden" id="dm-xline"></div>
@@ -588,7 +585,7 @@
 </div>
 <div class="dm-toasts" id="dm-toasts" aria-live="polite"></div>
 
-<script src="common/version.js?v=20261012dm1230"></script>
+<script src="common/version.js?v=20261012dm1231"></script>
 <script src="common/i18n.js?v=20261012dm1220"></script>
 <script>
 (function () {
@@ -1033,11 +1030,7 @@
     'dm.bmClearT': ['清空這組 Benchmark？', 'Clear this Benchmark?', '清空这组 Benchmark？'],
     'dm.bmClearD': ['目前型號／設定這組的 {n} 格會全部回到 X（其他型號／設定存的不受影響）。', 'All {n} filled cells for the current model / settings go back to X (other models / settings are kept).', '目前型号／设定这组的 {n} 格会全部回到 X（其他型号／设定存的不受影响）。'],
     'dm.bmClearYes': ['清空', 'Clear', '清空'],
-    'dm.bmExp': ['匯出 JSON', 'Export JSON', '导出 JSON'],
-    'dm.bmImp': ['匯入 JSON', 'Import JSON', '导入 JSON'],
-    'dm.bmImpOk': ['已匯入 Benchmark：{n} 組設定', 'Benchmark imported: {n} setting sets', '已导入 Benchmark：{n} 组设定'],
-    'dm.bmImpBad': ['不是 Benchmark JSON 檔', 'Not a Benchmark JSON file', '不是 Benchmark JSON 文件'],
-    'dm.bmNoStore': ['瀏覽器不能保存（localStorage 無法使用），Benchmark 只留在這個分頁；請用「匯出 JSON」備份', 'The browser cannot store data (localStorage unavailable); the Benchmark lives in this tab only — use Export JSON', '浏览器不能保存（localStorage 无法使用），Benchmark 只留在这个分页；请用「导出 JSON」备份']
+    'dm.bmNoStore': ['瀏覽器不能保存（localStorage 無法使用），Benchmark 只留在這個分頁，關閉分頁就會消失', 'The browser cannot store data (localStorage unavailable); the Benchmark lives in this tab only, lost when the tab closes', '浏览器不能保存（localStorage 无法使用），Benchmark 只留在这个分页，关闭分页就会消失']
   };
   var L = ['zh-TW', 'en', 'zh-CN'];
   Object.keys(D).forEach(function (k) { var o = {}; L.forEach(function (l, i) { o[l] = D[k][i]; }); I18N[k] = o; });
@@ -2698,18 +2691,6 @@
     if (force) { go(); return; }
     ask(tt('dm.bmClearT'), tt('dm.bmClearD', { n: (BM.last && BM.last.n) || 0 }), tt('dm.bmClearYes'), tt('dm.askNo2'), go, function () {});
   }
-  function benchExport() {
-    var o = { format: 'tcon-tools datamap benchmark', v: 1, tool: (window.TOOL_VERSIONS && TOOL_VERSIONS.datamap) || '', exported: new Date().toISOString(), all: BM.all };
-    download('datamap_benchmark_' + stamp() + '.json', JSON.stringify(o, null, 1), 'application/json');
-  }
-  function benchImportText(txt) {
-    var o; try { o = JSON.parse(txt); } catch (e) { o = null; }
-    if (!o || o.format !== 'tcon-tools datamap benchmark' || !o.all || typeof o.all !== 'object') { toast('e', tt('dm.bmImpBad')); return 0; }
-    var n = 0;
-    Object.keys(o.all).forEach(function (k) { var e = o.all[k]; if (e && e.names && typeof e.names === 'object') { var N = {}; Object.keys(e.names).forEach(function (c) { if (/^\d+-\d+$/.test(c) && typeof e.names[c] === 'string') N[c] = e.names[c]; }); BM.all[k] = { names: N, at: +e.at || Date.now() }; n++; } });
-    bmSave(); toast('ok', tt('dm.bmImpOk', { n: n })); log('n', 'Benchmark 匯入 ' + n + ' 組'); renderBench();
-    return n;
-  }
   function bindBench() {
     $('dm-bench-tog').addEventListener('click', function () { BM.open = !BM.open; if (BM.open) BM.fold = false; bmSave(); renderBench(); });
     var hd = $('dm-bench-h'), fold = function () { BM.fold = !BM.fold; bmSave(); renderBench(); };
@@ -2718,16 +2699,10 @@
     $('dm-bench-apply').addEventListener('click', benchApplyAsk);
     $('dm-bench-undo').addEventListener('click', benchUndo);
     $('dm-bench-clear').addEventListener('click', function () { benchClear(false); });
-    $('dm-bench-exp').addEventListener('click', benchExport);
-    $('dm-bench-imp').addEventListener('click', function () { $('dm-bench-file').value = ''; $('dm-bench-file').click(); });
-    $('dm-bench-file').addEventListener('change', function () {
-      var f = this.files && this.files[0]; if (!f) return;
-      var rd = new FileReader(); rd.onload = function (e) { benchImportText(String(e.target.result || '')); }; rd.readAsText(f);
-    });
   }
   /* 測試／自動化入口 */
   window.dmBench = { key: bmKey, state: benchState, cells: bmCells, names: bmNames, pick: onBenchPick, apply: benchApply, undo: benchUndo, clear: function () { benchClear(true); },
-    exportObj: function () { return { format: 'tcon-tools datamap benchmark', v: 1, all: JSON.parse(JSON.stringify(BM.all)) }; }, importText: benchImportText,
+    _setNames: function (N) { if (N && Object.keys(N).length) BM.all[bmKey()] = { names: N, at: Date.now() }; else delete BM.all[bmKey()]; bmSave(); renderBench(); },
     open: function (on) { BM.open = on !== false; BM.fold = false; bmSave(); renderBench(); }, view: bmView, lsKey: BM_LS };
   function onCodeText(a, txt) {
     if (imgAddrs().indexOf(a) < 0 || S.ro) { render(); return; }

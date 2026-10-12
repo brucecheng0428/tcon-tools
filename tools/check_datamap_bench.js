@@ -102,7 +102,7 @@ const ok = (c, g, m) => { cnt[g] = (cnt[g] || 0) + 1; if (c) pass++; else { fail
     if (uiCells.length < cells.length) {
       const N = Object.assign({}, B.names());
       cells.slice(uiCells.length).forEach(([r, c]) => { const o = DM.en01Defs(tabs()[r]).map(x => x.name).filter(x => x !== 'X'); N[r + '-' + c] = o[(r * 7 + c * 3) % o.length]; });
-      B.importText(JSON.stringify({ format: 'tcon-tools datamap benchmark', v: 1, all: { [B.key()]: { names: N, at: Date.now() } } }));
+      B._setNames(N);
       ok(+$('dm-bench').getAttribute('data-filled') === cells.length, 'S2', v.n + ' EN01 288 格填入後已填數＝' + $('dm-bench').getAttribute('data-filled'));
     }
     const bnames = allNames(v.k, B.state());
@@ -139,7 +139,7 @@ const ok = (c, g, m) => { cnt[g] = (cnt[g] || 0) + 1; if (c) pass++; else { fail
   }
   console.log('round-trip 組合 ' + nRT + '，Benchmark 格數合計 ' + nCells + '；無可填格（Gate 關／Tri／組合不符，只比結構）' + nEmpty);
 
-  /* ── 全部填完時的確認視窗、localStorage 分型號／設定保存、匯出匯入、黃框 ── */
+  /* ── 全部填完時的確認視窗、localStorage 分型號／設定保存、黃框 ── */
   if (SH[0] === 0) {
     const k = 'E503'; setModel(k);
     const s0 = DM.setGate(k, DM.setHand(k, DM.emptyState(k), true), 'Dual-Gate'), X = sameX(k, s0);
@@ -167,10 +167,8 @@ const ok = (c, g, m) => { cnt[g] = (cnt[g] || 0) + 1; if (c) pass++; else { fail
     ok(!w2.document.getElementById('dm-bench').classList.contains('hidden') && +w2.document.getElementById('dm-bench').getAttribute('data-filled') === cells.length, 'ls', '重新載入後：Benchmark 仍展開、E503 Dual 的 ' + cells.length + ' 格還在');
     dom2.window.close();
     /* 匯出 → 清空全部 → 匯入 */
-    const ex = B.exportObj(), nKeys = Object.keys(ex.all).length;
-    B.clear(); ok(+$('dm-bench').getAttribute('data-filled') === 0, 'json', '清空重來 ⇒ 0 格');
-    ok(B.importText(JSON.stringify(ex)) === nKeys && +$('dm-bench').getAttribute('data-filled') === cells.length, 'json', '匯入 JSON ⇒ ' + nKeys + ' 組還原');
-    ok(B.importText('{"x":1}') === 0, 'json', '不是 Benchmark JSON ⇒ 拒絕');
+    ok(!$('dm-bench-exp') && !$('dm-bench-imp') && !$('dm-bench-file'), 'nojson', 'v1.23.1：沒有匯出／匯入 JSON（Bruce 10/12「Benchmark 的表格不用匯出 JSON 跟匯入 JSON」）');
+    B.clear(); ok(+$('dm-bench').getAttribute('data-filled') === 0, 'nojson', '清空重來 ⇒ 0 格');
     /* 黃框：原表格最後改的格（全 X 後改 Line 2-1 Data 4 ＝ R1） */
     show(X); fire($('dm-c2-3'), 'R1');
     const hits = Array.from(d.querySelectorAll('#dm-bgrid .dm-bhit')).map(s => s.id);
