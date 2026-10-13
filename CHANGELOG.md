@@ -14,7 +14,7 @@
 ### 內容
 - `datamap-core.js`：`deSelBase`（基準＝最小的 T）、`tUse(key, s)` 取代 v1.24.0 的 `mntTUse`：從基準 T 起，Dual 下 gate 用基準＋1（line buffer）；MNT 另依 code 表範圍（code≥6×(T＋1) 往上找）；用到的 T 不在可用集合 ⇒ 警告。NB 名稱是固定 GN1／GN2 表 ⇒ 只看 gate。
 - datamap.html：輸入框旁與下拉改顯示「14（0x0E）→ 可用 T2 | T3 | T4，基準 T2」；FORCE_DE_EN＝1 就顯示 T 使用分析（含 one-hot），標題註明「T＝line buffer」；MNT 表格目前的名稱基準（`mntBaseT`，多 bit 時依 code 反推）與 RD 的「最小 T」不同時列警告（例：全民 0x1F 表格用 T2、RD 基準 T1），名稱解讀不改、待確認。
-- NB：FORCE_DE_EN／FORCE_DE_SEL 兩列改成依型號欄位顯示（原本 `dm-mntonly`）。E501A／E501B／E503／DAZ6138／DAZ6139 的 code 本來就有解（`FORCE_DE_SEL` 在 Hand Mode 那個 byte 的 [7:4]，PY `dm_handmode_en_addr_3e_dict`：RM81000 0x322、RM81010 0x3F2、DAZ6138／6139 0x182），只是畫面藏起來；現在與 MNT 同一套列、可改、4 bit（下拉只到 T4）。照原廠 Python UI（PY:29267-29280）改表格時仍會把 FORCE_DE_SEL 寫回 0x0E，分析區註明。DAZ6111／DAZ7353 硬體沒有 FORCE_DE_SEL（PY 用 HAND_LINE_SEL_EN＋LINE0~7_TYPE_SEL），不顯示。
+- NB：FORCE_DE_EN／FORCE_DE_SEL 兩列改成依型號欄位顯示（原本 `dm-mntonly`）。E501A／E501B／E503／DAZ6138／DAZ6139 的 code 本來就有解（`FORCE_DE_SEL` 在 Hand Mode 那個 byte 的 [7:4]，PY `dm_handmode_en_addr_3e_dict`：RM81000 0x322、RM81010 0x3F2、DAZ6138／6139 0x182），只是畫面藏起來；現在與 MNT 同一套列、可改、4 bit（下拉只到 T4）。照瑞鼎 Python UI（PY:29267-29280）改表格時仍會把 FORCE_DE_SEL 寫回 0x0E，分析區註明。DAZ6111／DAZ7353 硬體沒有 FORCE_DE_SEL（PY 用 HAND_LINE_SEL_EN＋LINE0~7_TYPE_SEL），不顯示。
 
 ### 測試
 - `tools/check_datamap_desel.js` 改成 RD 定義（14 Dual 用 T2、T3；5 Dual 下 gate 缺 T2 警告；code 超出最大 T 警告；E503 4 bit；DAZ7353 不顯示）。
@@ -11363,7 +11363,7 @@ FT4232H**」，它多一個 phase 讓資料線在時脈上升**之前**先建立
 
 ### 三相可切換，預設開
 
-Bruce 提的反面假說**有效且已納入**：「原廠 Python UI 與 EM02 TCON UI 好像都沒用
+Bruce 提的反面假說**有效且已納入**：「瑞鼎 Python UI 與 EM02 TCON UI 好像都沒用
 三相，會不會不用才讀得對？」⇒ 不替他選邊，給開關讓他一次量完兩種。
 
 - debug 區一個「三相時脈」勾選（**一行，沒有說明段落**），預設勾起
