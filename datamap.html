@@ -428,7 +428,7 @@
         <div class="dm-frow dm-fieldrow hidden" data-need="chrb"><span class="dm-fl">CHRB <i class="dm-i" data-i18n-title="dm.hChrbT" title="">ⓘ</i></span><span class="dm-fc"><label class="dm-chk dm-hand"><input type="checkbox" id="f-chrb"> <span data-i18n="dm.fChrb">R、B 資料對調</span></label></span></div>
         <div class="dm-frow dm-fieldrow hidden" data-need="chwb"><span class="dm-fl">CHWB <i class="dm-i" data-i18n-title="dm.hChwbT" title="">ⓘ</i></span><span class="dm-fc"><label class="dm-chk dm-hand"><input type="checkbox" id="f-chwb"> <span data-i18n="dm.fChwb">RGB 資料反相</span></label></span></div>
         <div class="dm-frow dm-fieldrow hidden" data-need="deEn"><span class="dm-fl">FORCE_DE_EN <i class="dm-i" data-i18n-title="dm.hDeT" title="">ⓘ</i></span><span class="dm-fc"><label class="dm-chk dm-hand"><input type="checkbox" id="f-deEn"> <span data-i18n="dm.fDe">用 FORCE_DE_SEL 指定 T1 起始欄</span></label></span></div>
-        <div class="dm-frow dm-fieldrow hidden" data-need="deSel"><span class="dm-fl">FORCE_DE_SEL <i class="dm-i" data-i18n-title="dm.hTselT" title="">ⓘ</i></span><span class="dm-fc"><input type="number" id="f-deSel" class="dm-in" style="width:64px" min="0" max="63"> <span class="dm-dests" id="f-deSelTs"></span> <select id="f-tsel" class="dm-sel" data-i18n-title="dm.hTselT" title=""><option value="0" data-i18n="dm.tselUnk">起始欄未確定</option><option value="m" id="f-tsel-m" hidden></option><option value="1">T1 從第1欄（0x01）</option><option value="2">T1 從第2欄（0x02）</option><option value="3">T1 從第3欄（0x04）</option><option value="4">T1 從第4欄（0x08）</option><option value="5">T1 從第5欄（0x10）</option><option value="6">T1 從第6欄（0x20）</option></select></span></div>
+        <div class="dm-frow dm-fieldrow hidden" data-need="deSel"><span class="dm-fl">FORCE_DE_SEL <i class="dm-i" data-i18n-title="dm.hTselT" title="">ⓘ</i></span><span class="dm-fc"><input type="number" id="f-deSel" class="dm-in" style="width:64px" min="0" max="63"> <span class="dm-dests" id="f-deSelTs"></span></span></div>
         <div class="dm-frow dm-fieldrow hidden" data-need="rvsL"><span class="dm-fl">READ_RVS <i class="dm-i" data-i18n-title="dm.hRvsT" title="">ⓘ</i></span><span class="dm-fc"><input id="f-rvs" class="dm-in" style="width:84px" placeholder="0x0000"> <span class="dm-sub" data-i18n="dm.fRvs">各 port 反向讀取</span></span></div>
       </div>
       <div class="dm-sub dm-sumline hidden" id="dm-tsum"></div>
@@ -607,7 +607,7 @@
 </div>
 <div class="dm-toasts" id="dm-toasts" aria-live="polite"></div>
 
-<script src="common/version.js?v=20261013dm1272"></script>
+<script src="common/version.js?v=20261013dm1273"></script>
 <script src="common/i18n.js?v=20261012dm1220"></script>
 <script>
 (function () {
@@ -1407,13 +1407,11 @@
   function renderDeSelPreview(v) { var el = $('f-deSelTs'); if (el) el.textContent = '（0x' + hex(v & 0xFF, 2) + '）→ ' + deSelLabel(v); }
   var LINE_NM = ['Line 1-1', 'Line 1-2', 'Line 2-1', 'Line 2-2'];
   function renderDeSel(s, g0, bt) {
-    var b = deBits(), v = (s.deSel | 0) & ((1 << b) - 1), ts = DM.deSelTs(v, b), mo = $('f-tsel-m'), sel = $('f-tsel'), mnt = isMnt();
-    Array.prototype.forEach.call(sel.options, function (o) { if (/^[1-6]$/.test(o.value)) o.hidden = +o.value > b; });
+    /* v1.27.3（Bruce 10/13「Force DE SEL 應該只要輸入數值跟對應的註解就好了，不用下拉選單」）：拿掉 T 下拉，只留數值輸入框＋旁邊即時說明；NB／MNT 同一套。 */
+    var b = deBits(), v = (s.deSel | 0) & ((1 << b) - 1), ts = DM.deSelTs(v, b), mnt = isMnt();
     renderDeSelPreview(v);
-    var one = ts.length === 1, de = !!(s.deEn | 0);
-    if (de && !one) { mo.hidden = false; mo.textContent = '0x' + hex(v, 2) + ' → ' + deSelLabel(v); sel.value = 'm'; }
-    else { mo.hidden = true; mo.textContent = ''; sel.value = de && one ? String(ts[0]) : '0'; }
-    sel.setAttribute('data-ts', ts.join(','));
+    var de = !!(s.deEn | 0);
+    $('f-deSelTs').setAttribute('data-ts', ts.join(','));
     var box = $('dm-tuse');
     if (!de) { box.classList.add('hidden'); box.innerHTML = ''; return; }
     var u = DM.tUse(S.model, s, g0), cellNm = function (c) { return LINE_NM[c.row] + ' Data' + (c.col + 1) + (mnt ? '（' + c.code + '）' : ''); };
@@ -1845,7 +1843,7 @@
     /* v1.24.0（Bruce 10/13「NB 跟 MNT 的 TCON 能做到一樣的設定介面是最好的」）：FORCE_DE_EN／FORCE_DE_SEL 依型號欄位顯示（MNT＋E50x／DAZ613x 同一套） */
     var hasDe = !!DM.fieldById(S.model, 'deSel');
     if (hasDe) {
-      ['f-deEn', 'f-deSel', 'f-tsel'].forEach(function (id) { $(id).disabled = !!S.ro; });
+      ['f-deEn', 'f-deSel'].forEach(function (id) { $(id).disabled = !!S.ro; });
       $('f-deEn').checked = !!S.cur.deEn;
       $('f-deSel').max = (1 << DM.fieldById(S.model, 'deSel').bits) - 1; if (document.activeElement !== $('f-deSel')) $('f-deSel').value = S.cur.deSel | 0;
     }
@@ -1860,7 +1858,7 @@
       + (function () { var rv = rvsVal(S.cur), mi = S.cur.mirror | 0, want = mi ? rvsFull() : 0; return rv !== want ? ' ' + tt('dm.rvsWarn', { m: mi, v: hex(rv, 4), w: hex(want, 4) }) : ''; })();
     $('dm-tsum').setAttribute('data-rvswarn', rvsVal(S.cur) !== ((S.cur.mirror | 0) ? rvsFull() : 0) ? 1 : 0);
     $('dm-tsum').setAttribute('data-why', bt.why);
-    ['f-mirror', 'f-chrb', 'f-chwb', 'f-deEn', 'f-deSel', 'f-tsel', 'f-rvs'].forEach(function (id) { $(id).disabled = !!S.ro; });
+    ['f-mirror', 'f-chrb', 'f-chwb', 'f-deEn', 'f-deSel', 'f-rvs'].forEach(function (id) { $(id).disabled = !!S.ro; });
     var s = S.cur, sp = $('f-subPanel'), items = DM.SUB_PANEL[s.panel | 0] || [];
     sp.innerHTML = ''; items.forEach(function (x, i) { var o = document.createElement('option'); o.value = i; o.textContent = i + ': ' + x; sp.appendChild(o); });
     if ((s.subPanel | 0) >= items.length) { var o2 = document.createElement('option'); o2.value = s.subPanel; o2.textContent = s.subPanel + ': ?'; sp.appendChild(o2); }
@@ -3558,7 +3556,6 @@
     /* v1.17.2（Bruce 10/8）：Mirror 與 READ_RVS 連動，照原廠工具：EM01 RApp_TX.cpp:8859-8880、EM02 RApp_TX.cpp:8699-8719、E512 RApp_TX.cpp:8443-8463
        勾 mirror 時 rt7+0x46／0x47 一起寫 0xFF／0xFF，取消寫 0x00／0x00（NB model 註解同義：RM8100x model:8887-8888「MIRROR=0, READ_RVS=00／MIRROR=1, READ_RVS=FF」） */
     $('f-mirror').addEventListener('change', function () { var ns = DM.cloneState(S.cur), on = this.checked ? 1 : 0; ns.mirror = on; rvsSet(ns, on ? rvsFull() : 0); commit(ns, 'mirror＋read_rvs'); });
-    $('f-tsel').addEventListener('change', function () { if (this.value === 'm') return; var n = +this.value, ns = DM.cloneState(S.cur); if (n) { ns.deEn = 1; ns.deSel = 1 << (n - 1); } else { ns.deEn = 0; } commit(ns, 'T table T' + (n || 'auto')); });
     /* v1.18.2（Bruce 10/8）：Mirror 反轉單位（待 RD 確認）；只影響 ③ 的格內 pixel 編號，不進 state、不影響匯出 */
     $('f-chrb').addEventListener('change', function () { setF('chrb', this.checked ? 1 : 0); });
     $('f-chwb').addEventListener('change', function () { setF('chwb', this.checked ? 1 : 0); });
