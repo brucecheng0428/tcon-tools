@@ -51,7 +51,8 @@ const ok = (c, m) => { if (c) pass++; else { fail++; console.log('  ✗ ' + m); 
   /* 三級亮度：有 D1~D6 ⇒ main；只有 D7~D12 ⇒ rep；沒有 ⇒ dummy（所有 dummy 同一個灰色，非 dummy 的顏色照實體位置） */
   const tierOk = () => { const rs = QA('rect[data-pv]'), fills = {}; let ok2 = true;
     rs.forEach(r => { const ins = r.getAttribute('data-in').split(',').filter(Boolean).map(x => +x.slice(1, -1)), tr = r.getAttribute('data-tier');
-      const pre = /-/.test(r.getAttribute('data-pv').split(':')[1]), exp = !pre && ins.some(n => n <= 6) ? 'main' : (ins.length ? 'rep' : 'dummy'); if (tr !== exp) ok2 = false;
+      const pre = /-/.test(r.getAttribute('data-pv').split(':')[1]), exp = ins.some(n => n <= 6) ? 'main' : (ins.length ? 'rep' : 'dummy'); if (tr !== exp) ok2 = false;
+      if (pre !== (r.getAttribute('stroke-dasharray') !== 'none')) ok2 = false;   /* v1.26.2：亮暗只看有沒有主循環接到；dummy（負索引）一律虛線框、其他不虛線 */
       const key = tr === 'dummy' ? 'dummy' : r.getAttribute('data-pv').split(':')[1][0]; (fills[key] = fills[key] || new Set()).add(r.getAttribute('fill'));
       if (tr === 'rep' && +r.getAttribute('fill-opacity') >= 1) ok2 = false; });
     return ok2 && Object.values(fills).every(s => s.size === 1) && (!fills.dummy || [...fills.dummy][0] === '#262c36') && (!fills.R || [...fills.R][0] !== '#262c36'); };
@@ -65,7 +66,7 @@ const ok = (c, m) => { if (c) pass++; else { fail++; console.log('  ✗ ' + m); 
   /* v1.22.0（Bruce 10/12）：TFT 接線圖拆成獨立卡 card-tft，接在 ③ 後面 */
   ok(cards.join(',') === 'card-src,card-dm,card-pv,card-tft,card-reg,card-out', '卡片順序 ①②③＋TFT 接線圖＋TCON Register 確認＋④：' + cards.join(','));
   ok(/^v1\.([4-9]|[12]\d)\./.test(w.TOOL_VERSIONS.datamap), 'datamap 版號 v1.4 以上：' + w.TOOL_VERSIONS.datamap);
-  ok(!$('dm-pv-rows') && $('card-tft').querySelectorAll('svg').length === 1 + $('dm-pv-legend').querySelectorAll('svg').length && !$('card-pv').querySelector('svg'), 'TFT 卡內只有一張 TFT 圖（③ 不再含圖）');
+  ok(!$('dm-pv-rows') && $('card-tft').querySelectorAll('svg').length === 1 + $('dm-pv-legend').querySelectorAll('svg').length + $('dm-pv-keylg').querySelectorAll('svg').length && !$('card-pv').querySelector('svg'), 'TFT 卡內只有一張 TFT 圖（③ 不再含圖）');
 
   console.log('── Auto');
   fire($('dm-model'), 'E503');
@@ -97,7 +98,7 @@ const ok = (c, m) => { if (c) pass++; else { fail++; console.log('  ✗ ' + m); 
   ok(/衝突/.test(ctl) && /D1、D5/.test(ctl) && cg.getAttribute('data-tip') === ctl && cg.querySelectorAll('text').length === 2, '衝突格：格內只有 G2 和 !，title 寫出來源：' + ctl);
   fire($('dm-c0-0'), 'R-1');
   ok(npre() === 3 && !!rect(1, 'R-1') && !rect(1, 'R-2') && !!Q('line[data-sep]'), '改成 R-1 ⇒ 前循環 R-1…B-1 即時出現（-2 不出現）');
-  ok(rect(1, 'R-1').getAttribute('data-tier') === 'rep' && rect(1, 'G-1').getAttribute('data-tier') === 'dummy' && tierOk(), '前循環有接到（R-1←D1）也只用暗色；沒接到（G-1）是暗灰');
+  ok(rect(1, 'R-1').getAttribute('data-tier') === 'main' && rect(1, 'R-1').getAttribute('stroke-dasharray') !== 'none' && rect(1, 'G-1').getAttribute('data-tier') === 'dummy' && tierOk(), 'v1.26.2 前循環（dummy）有接到（R-1←D1）＝亮色＋虛線框；沒接到（G-1）＝暗灰＋虛線框');
   ok(!!wire(1, 1, 'u', 'R-1') && st(1, 'R-1') === 'ok[D1u]' && sidesOk(), 'D1 接到 R-1，TFT 側正確');
   fire($('dm-c0-0'), 'B-2');
   ok(npre() === 6 && !!rect(1, 'R-2'), '改成 B-2 ⇒ 前循環 R-2…B-1 全部出現');
