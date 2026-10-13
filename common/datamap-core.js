@@ -669,7 +669,8 @@
     if (s.deEn | 0) for (var b = 0; b < 6; b++) if (v === (1 << b)) return { t: b + 1, why: 'onehot' };
     /* FORCE_DE_EN＝0（auto de phase）：EM02 原廠 RT7 清單 33 型（de_en＝0）算出的 Line OD 只有以 T2 解碼才和原廠 Line OD Type 一致
        （tools/check_datamap_auto.js；EM02 RApp_TX.h:533-566 ⇔ RApp_Table.h Line OD）⇒ auto 時以 T2 解讀（依 EM02 反推；EM01／E512 比照推定）。 */
-    if (!(s.deEn | 0)) return { t: 2, why: 'auto' };
+    /* v1.27.0（Woody 10/13 回信）：reg_force_de_en＝0 ⇒ 1D1G 從第 1 欄（T1）、Zigzag／HSD 從第 2 欄（T2）；其他（LTPS）沿用第 2 欄（推定）。 */
+    if (!(s.deEn | 0)) return { t: (s.panel | 0) === 0 ? 1 : 2, why: 'auto' };
     /* v1.26.0（Bruce 10/13 決定，依 RD：「data 永遠都是從 T1 開始…14 代表最前面那一行不用，T1 移到第二行才開始用；31 其實 T1 就在最前面那行」）：
        多 bit ⇒ T1 起始欄＝最小設 1 的 bit＋1（0x0E＝第 2 欄、0x1F＝第 1 欄），不再依 code 反推（取代 v1.17.1「24 格都在範圍內的最低那張」）。
        全民 0x1F 因此從第 1 欄解讀，名稱會用到 R-3～R-6 等左側 dummy（Bruce：全民的 DataMapping 參考圖少畫了前面的 dummy，不可當驗證基準）。
@@ -688,7 +689,8 @@
   function mntInTable(T, code) { code = code | 0; return code === 31 || (code >= 0 && code < Math.min(30, 6 * (T + 1))); }
   function mntRel(gate, row) { return gate === 'dual' && (row & 1) ? 1 : 0; }
   /* Mirror＝1：名稱整行反轉後＝Kick Off 命名往後 gate 數張表（Single＋1、Dual＋2），範圍也照那張表判斷 */
-  function mntMirT(s, gate) { return (s && (s.mirror | 0)) ? (gate === 'dual' ? 2 : 1) : 0; }
+  /* v1.27.0（Woody 10/13：BOE 分頁 INDEX 17..12 在第 1 欄＝B-3 G-3 R-3 B-4 G-4 R-4，Mirror 範例也是直接查 Pool 表）：Mirror 不改變名稱與 T 表 ⇒ 恆為 0（保留介面） */
+  function mntMirT(s, gate) { return 0; }
   function mntCands(s, gate) {
     var v = (s.deSel | 0) & 0x3F, ts = [], mo = mntMirT(s, gate); for (var b = 0; b < 6; b++) if (v & (1 << b)) ts.push(b + 1);
     return ts.map(function (T) { var n = 0; for (var i = 0; i < 24; i++) if (!mntInRange(T + mo + mntRel(gate, Math.floor(i / 6)), s['c' + i])) n++; return { t: T, out: n }; });
@@ -729,7 +731,7 @@
     if (code === 31) return 'X';
     if (code < 0 || code > 29) return null;
     var dual = gate === 'dual', T = (base || 2) + (dual && (row & 1) ? 1 : 0), k = mntIdx(T, code);
-    if (mirror) { var S2 = dual ? 12 : 6, p = -1 - k; k = S2 - 1 - p; }   /* v1.17.1：整行反轉（不再每 6×gate 一組各自反轉）⇒ 跨組的 code 落在相鄰位置（全民 0x17＝B-1，Bruce 10/8）；等同 Kick Off 命名的「基準＋gate 數」那張 T */
+    /* v1.27.0：Mirror 不再平移名稱（取代 v1.17.1 的 +6×gate）；名稱＝Pool 表直接查（Woody BOE 分頁） */   /* v1.17.1：整行反轉（不再每 6×gate 一組各自反轉）⇒ 跨組的 code 落在相鄰位置（全民 0x17＝B-1，Bruce 10/8）；等同 Kick Off 命名的「基準＋gate 數」那張 T */
     return linName(k);
   }
   var _mntDicts = {};

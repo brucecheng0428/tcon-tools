@@ -123,6 +123,33 @@
 
 ---
 
+## Data Mapping (datamap) v1.27.0 — 2026-10-13 ｜ MINOR ｜ ⚠ 輸出變更
+
+**⚠ 輸出變更：Mirror＝1 的 code，② 顯示的名稱不再平移（全民 Line 1＝B-3 G-3 R-3 B-4 G-4 R-4，原為 B-1 G-1 R-1 B-2 G-2 R-2）；FORCE_DE_EN＝0 的 1D1G 改從第 1 欄（T1）解讀。** code 值、匯出 script 不變。
+
+判定依據：解碼規則依瑞鼎 RD（Woody）回信修正，名稱會變 ⇒ MINOR＋⚠。
+
+### 起因（Woody 2026-10-13 回信「RE: data mapping」14:29／16:15／17:18，附 EM01A1_rt7_register_force_mapping.xlsx 新增 BOE 分頁）
+- reg_force_de_en＝0（自動）：1D1G DE＝T1（第 1 欄）；Zigzag、HSD DE＝T2（第 2 欄）。reg_force_de_en＝1 才看 reg_force_de_sel[5:0]（EM01 0x0445、EM02 0x04C5；de_en：EM01 0x0402[0]、EM02 0x0482[0]）。
+- BOE 分頁：0_0001→T1 在第 1 欄、0_0010→第 2 欄…1_0000→第 5 欄、1_1111→第 1 欄（T1～T9 連續）；INDEX 17,16,15,14,13,12 在 T1＝Gate1 B-3 G-3 R-3 B-4 G-4 R-4，16,15,14,13,12,23＝Gate2 G-3 R-3 B-4 G-4 R-4 B-5 ⇒ 名稱是 Pool 表直接查，Mirror 不平移。
+- Excel Mirror＝1 範例（15,16,17,12,13,14）也是直接查表：第 2 欄＝dummy（顯示 0）、第 3 欄＝R2 G2 B2 R1 G1 B1。
+- 全民（17..12）：T1、T2＝dummy（輸出 0），T3＝B2 G2 R2 B1 G1 R1。
+
+### 修正
+- `datamap-core.js`：`mntName` 拿掉 Mirror 的 +6×gate 平移（v1.17.1 起）；`mntMirT` 恆為 0（T 使用分析、範圍不再因 Mirror 換表）；`mntBaseT` auto：panel 0（1D1G）＝第 1 欄，其他＝第 2 欄（LTPS 沿用第 2 欄，推定）。
+- `datamap.html`：③ Mirror 位置仍整行反轉，名稱改為直接查表（`pvSpanRev`）；軸基準 `pvTableRef` 不再 +6×gate。
+- 排列組合排序：Mirror 不平移後「TCON Mirror 0＋Driver 反接」與 Mirror 1 都會資料全對 ⇒ 「Mirror 不必改 TCON」移到最長 drain 之後、左右線長差之前（改 TCON 的成本高於 0.5 格線長差）。全民第 1 名仍是 CH1 最右＋正向＋RGB＋無＋Mirror 1、最長 drain 0.5、左移 7 格（與 v1.26.5 相同）。
+- 測試：kickoff 加 Woody BOE Gate1／Gate2、T1/T2 dummy＋T3＝B2 G2 R2 B1 G1 R1；desel 加 auto 1D1G／Zigzag／HSD 起始欄與 Mirror 不平移名稱。
+- 蘇坤（axis S5）：第 1 名（CH1 最左＋正向＋RGB＋對調＋Mirror 0、最長 drain 1.5）與參考圖接線不變。v1.23.3 的「rrgs1 判資料錯」「全對組合都是 Mirror 0」是建立在 Mirror 名稱平移上，改成「Mirror 1 的全對組合最長 drain 都不小於 1.5、第 1 名不需改 TCON」。
+- 新測試 `tools/check_datamap_boe.js`（Bruce 10/13：「BOE 分頁就是針對全民的 code 特別做的…data mapping 那個表格要跟 BOE 這邊的設定完全一樣」）：BOE 分頁抽成內建 FX（給 `--boe` 時用 openpyxl 重抽、先比 FX＝檔案）；Pool 表 210 格（Mirror 0／1）＝mntName、起始欄表 7 列＝mntBaseT、`--qm` 匯入全民 ② 24 格＝BOE Gate1／Gate2（_2／_3 與 _0／_1 同 INDEX）。
+- ③ Mirror 說明（dm.pvMirror 三語）改為「名稱照 Pool 表直接查、不因 Mirror 平移」。
+
+### 未決（待 Woody）
+- FORCE_DE_SEL 不連續的 bit（例 0x05＝T1|T3）時 T 怎麼對應欄位：回信沒提，仍沿用「最小 bit 起、連續欄」推定。
+- LTPS 在 auto 時的起始欄：回信只提 1D1G／Zigzag／HSD。
+
+---
+
 ## Data Mapping (datamap) v1.26.5 — 2026-10-13 ｜ PATCH
 
 判定依據：Bruce 要求排名表顯示整組平移量（v1.26.4 已把平移納入搜尋）⇒ PATCH（顯示）。

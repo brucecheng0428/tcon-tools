@@ -189,6 +189,10 @@ for (const k of ['E503', 'E501A', 'E501B', 'DAZ6138', 'DAZ6139', 'EM01', 'EM02',
     ok(!m.hasAttribute('hidden'), '① 的小下載連結按下也跳說明視窗');
     dom.window.close();
   }
+  /* v1.27.0（Woody 10/13）：reg_force_de_en＝0 ⇒ 1D1G 從第 1 欄（T1）、Zigzag／HSD 從第 2 欄（T2）；Mirror 不平移名稱 */
+  { const b = p => DM.mntBaseT(Object.assign(DM.emptyState('EM01'), { deEn: 0, panel: p }), 'single').t;
+    ok(b(0) === 1 && b(1) === 2 && b(2) === 2, 'v1.27.0 auto：1D1G＝第 1 欄、Zigzag＝第 2 欄、HSD＝第 2 欄：' + [b(0), b(1), b(2)].join(','));
+    ok(DM.mntName('single', 0, 17, 1, 1) === DM.mntName('single', 0, 17, 0, 1) && DM.mntName('single', 0, 17, 1, 1) === 'B-3', 'v1.27.0 Mirror 不平移名稱：code 17 第 1 欄＝B-3（Mirror 0／1 相同）'); }
   console.log((fail ? '✗' : '✓') + ' check_datamap_desel ' + pass + ' pass / ' + fail + ' fail');
   process.exit(fail ? 1 : 0);
 })().catch(e => { console.log('✗ ' + (e && e.stack || e)); process.exit(1); });
