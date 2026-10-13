@@ -131,7 +131,7 @@ console.log('── code 表（D2:R31）＝網頁 T 表解碼');
     w.dmState.cur = Object.assign(DM.cloneState(w.dmState.cur), { rvsL: 0, rvsH: 1 }); w.dmRender();
     okRef($('dm-tsum').getAttribute('data-rvswarn') === '1' && /READ_RVS＝0x0100/.test($('dm-tsum').textContent) && /0xFFFF/.test($('dm-tsum').textContent), 'Mirror＝1 但 READ_RVS＝0x0100 ⇒ ② 提示和原廠工具寫入值（0xFFFF）不同');
     w.dmState.cur = Object.assign(DM.cloneState(w.dmState.cur), { rvsL: 0xFF, rvsH: 0xFF }); w.dmRender();
-    fire($('f-tsel'), '3');
+    w.dmState.cur = Object.assign(DM.cloneState(w.dmState.cur), { deEn: 1, deSel: 4 }); w.dmRender();
     okRef(w.dmState.cur.deEn === 1 && w.dmState.cur.deSel === 4 && $('dm-c0-0').getAttribute('data-t') === '3', 'T 表選 T3 ⇒ 寫 FORCE_DE_EN＝1、FORCE_DE_SEL＝0x04，每格標 T3');
     fire($('dm-hand'), true);
     w.dmState.cur = Object.assign(DM.cloneState(w.dmState.cur), { deEn: 1, deSel: 31 }); w.dmRender();
@@ -195,7 +195,7 @@ console.log('── code 表（D2:R31）＝網頁 T 表解碼');
       const rv = $('f-rvs').value; fire($('f-rvs'), '0x0000');
       okRef(svg() === v0 && /READ_RVS＝0x0000/.test($('dm-pvflags').textContent), 'READ_RVS 改 0x0000 ⇒ ③ 不變（原廠未定義它和 force_sel 名稱的關係，不模擬），③ 標示目前值');
       fire($('f-rvs'), rv);
-      fire($('f-tsel'), '3');
+      w.dmState.cur = Object.assign(DM.cloneState(w.dmState.cur), { deEn: 1, deSel: 4 }); w.dmRender();
       okRef(svg() !== v0 && $('dm-c0-0').getAttribute('data-t') === '3' && [0, 1, 2, 3].map(gridTxt).join('|') !== g0, 'T 表改 T3 ⇒ ② 名稱與 ③ 接線一起變');
       w.dmState.cur = Object.assign(DM.cloneState(w.dmState.cur), { deEn: st0.deEn, deSel: st0.deSel }); w.dmRender();
       okRef(svg() === v0, 'T 表改回（FORCE_DE_SEL 0x1F）⇒ ③ 回到原圖');
@@ -232,7 +232,7 @@ console.log('── code 表（D2:R31）＝網頁 T 表解碼');
       $('dm-pv-lock').click();
       okRef($('dm-pv-lock').getAttribute('data-locked') === '0' && $('dm-pv-tft').innerHTML === svgU, '解除鎖定 ⇒ 回到 v1.17.5 畫法（和鎖定前逐字相同）');
       /* v1.18.6（Bruce 10/8）：鎖定後 Driver／面板／型號停用，TCON（② 全部）可改；同型號匯入只改 TCON 值、保留鎖定；清除匯入保留鎖定；換型號要先解鎖 */
-      const HW = ['dm-model', 'dm-pv-swap', 'dm-pv-first', 'dm-pv-drv', 'dm-pv-stripe', 'dm-pv-lod'], TC = ['f-mirror', 'f-chrb', 'f-chwb', 'dm-hand', 'f-deEn', 'f-tsel', 'f-rvs'];
+      const HW = ['dm-model', 'dm-pv-swap', 'dm-pv-first', 'dm-pv-drv', 'dm-pv-stripe', 'dm-pv-lod'], TC = ['f-mirror', 'f-chrb', 'f-chwb', 'dm-hand', 'f-deEn', 'f-deSel', 'f-rvs'];
       const first0 = $('dm-pv-first').value, stripe0 = $('dm-pv-stripe').value;
       $('dm-pv-lock').click();
       okRef(HW.every(id => $(id).disabled) && TC.every(id => !$(id).disabled) && QA2('.dm-locknote:not(.hidden)').length === 3 && $('dm-gate').disabled && $('dm-gate').getAttribute('data-hwlock') === '1' && $('dm-drv-form').classList.contains('dm-hwlocked') && $('dm-pan-form').classList.contains('dm-hwlocked') && /解除鎖定後才能改/.test($('dm-pv-drv').title),
