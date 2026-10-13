@@ -218,6 +218,13 @@
   #dm-tuse details summary { cursor: pointer; }
   #dm-tuse .dm-tuse-l { margin: 2px 0 0 1.2em; }
   #dm-tuse .dm-tuse-w { color: #fbbf24; }
+  /* v1.27.1 依 T 展開整行 */
+  #dm-texp table { border-collapse: collapse; margin: 4px 0 2px 1.2em; font-size: 12px; }
+  #dm-texp th, #dm-texp td { border: 1px solid rgba(148,163,184,.35); padding: 2px 6px; text-align: left; white-space: nowrap; }
+  #dm-texp td.dum { color: #94a3b8; border-style: dashed; }
+  #dm-texp td .dn { color: #94a3b8; }
+  #dm-texp td .dl { display: block; font-size: 11px; color: #94a3b8; }
+  #dm-texp summary { cursor: pointer; }
   .dm-tt .dm-tt-n { display: none; }
   @media (max-width: 700px) { .dm-tt .dm-tt-w { display: none; } .dm-tt .dm-tt-n { display: inline; } }
   .dm-tt { white-space: nowrap; }
@@ -427,6 +434,7 @@
       <div class="dm-sub dm-sumline hidden" id="dm-tsum"></div>
       <!-- v1.24.0（Bruce 10/13「force_DE_SEL 的數值其實是多個 T 幾在做 OR，那有辦法去解析、分析並了解 T 幾到底是怎麼使用嗎？」）：T 使用分析（DM.tUse） -->
       <div class="dm-sub dm-sumline hidden" id="dm-tuse"></div>
+      <div class="dm-sub dm-sumline hidden" id="dm-texp"></div>
       <div class="dm-sub dm-sumline hidden" id="dm-automan"></div>
       <div class="dm-lodst hidden" id="dm-lodrow"><span class="dm-k">Line OD</span><span id="dm-lodstat"></span>
         <button class="sbtn hidden" id="dm-lodfix" data-i18n="dm.lodFix">依 RT7 修正 Line OD</button>
@@ -599,7 +607,7 @@
 </div>
 <div class="dm-toasts" id="dm-toasts" aria-live="polite"></div>
 
-<script src="common/version.js?v=20261013dm1270"></script>
+<script src="common/version.js?v=20261013dm1271"></script>
 <script src="common/i18n.js?v=20261012dm1220"></script>
 <script>
 (function () {
@@ -697,6 +705,12 @@
     'dm.hStripeT': ['由左往右看，Checklist 視角：CF 朝上、X-PCB 朝下。只影響預覽。', 'Left to right as seen in the checklist: CF up, X-PCB down. Preview only.', '由左往右看，Checklist 视角：CF 朝上、X-PCB 朝下。只影响预览。'],
     'dm.tselUnk': ['起始欄未確定', 'Start column not determined', '起始栏未确定'],
     'dm.pvCRule': ['排序（含 TCON Mirror）：資料與顏色全對 → 錯的格數少 → 最長 drain 短 → Mirror 不必改 → 左右線長差小 → 同分依序：輸出對調「無」、SHL 正向、RGB、CH1 最左', 'Order (incl. TCON Mirror): data and colours all correct → fewer wrong cells → shorter longest drain → Mirror unchanged → smaller left/right length difference → ties: no swap, SHL forward, RGB, CH1 left', '排序（含 TCON Mirror）：数据与颜色全对 → 错的格数少 → 最长 drain 短 → Mirror 不必改 → 左右线长差小 → 同分依序：输出对调「无」、SHL 正向、RGB、CH1 最左'],
+    'dm.tExpT': ['依 T 展開整行', 'Line expanded by T', '依 T 展开整行'],
+    'dm.tExpHead': ['同一組 code 在 T1～T4 各查 Pool 表一欄（T1＝第 {b} 欄）', 'the same codes looked up in the Pool table for T1–T4 (T1 = column {b})', '同一组 code 在 T1～T4 各查 Pool 表一栏（T1＝第 {b} 栏）'],
+    'dm.tExpRow': ['列', 'Row', '列'],
+    'dm.tExpCol': ['第 {c} 欄', 'col {c}', '第 {c} 栏'],
+    'dm.tExpDummy': ['dummy（輸出 0）', 'dummy (outputs 0)', 'dummy（输出 0）'],
+    'dm.tExpNote': ['Tn＝起始欄往右 n−1 欄（Dual 下 gate 再＋1）；灰字＝負號 pixel（dummy），6 格全是 dummy 的段標「dummy（輸出 0）」（依瑞鼎 RD 10/13 回信推論，待確認）。只顯示，不影響 ③。', 'Tn = start column + n−1 (Dual lower gate +1); grey = negative pixels (dummy); a segment whose 6 cells are all dummy is marked "dummy (outputs 0)" (inferred from Raydium RD reply 10/13, to be confirmed). Display only; does not affect ③.', 'Tn＝起始栏往右 n−1 栏（Dual 下 gate 再＋1）；灰字＝负号 pixel（dummy），6 格全是 dummy 的段标「dummy（输出 0）」（依瑞鼎 RD 10/13 回信推论，待确认）。只显示，不影响 ③。'],
     'dm.pvCData': ['資料正確', 'Data correct', '数据正确'],
     'dm.hCDataT': ['每格收到的是不是要送到這格的資料（不是別條線的 pixel）', 'Whether each cell gets the data meant for it, not another line\'s pixel', '每格收到的是不是要送到这格的数据（不是别条线的 pixel）'],
     'dm.hCColorT': ['每格收到資料的顏色和玻璃顏色是否相同', 'Whether the received colour matches the glass colour of each cell', '每格收到数据的颜色和玻璃颜色是否相同'],
@@ -1425,6 +1439,36 @@
     box.setAttribute('data-basediff', mnt && bt && u.base !== null && bt.t !== u.base ? bt.t + '/' + u.base : '');
     box.classList.remove('hidden');
   }
+  /* v1.27.1（Bruce 10/13 決定，對照 同事A 回信 14:29 第 3 點「T1 是 dummy…T2 是 dummy…T3 是 B2 G2 R2 B1 G1 R1」）：
+     MNT＋Hand Mode：② 每一列的同一組 code，依 T1～T4 往右各查 Pool 表一欄（T1＝起始欄、Tn＝起始欄＋n−1；Dual 下 gate 再＋1），
+     6 格全是負號 pixel ⇒ 標「dummy（輸出 0）」（負號＝dummy 輸出 0 依 同事A 第 2、3 點推論，待 RD 確認）。只顯示、不影響 ③。 */
+  function renderTExp(s, g0) {
+    var box = $('dm-texp'); if (!box) return;
+    if (!s || !isMnt() || !(s.hand | 0)) { box.classList.add('hidden'); box.innerHTML = ''; return; }
+    var gate = g0 === 'dual' ? 'dual' : 'single', base = DM.mntBaseT(s, gate).t, NT = 4, rows = [], dumSeg = [];
+    var hd = '<tr><th>' + esc(tt('dm.tExpRow')) + '</th>';
+    for (var T = 1; T <= NT; T++) hd += '<th>T' + T + '（' + esc(tt('dm.tExpCol', { c: base + T - 1 })) + '）</th>';
+    hd += '</tr>';
+    for (var r = 0; r < 4; r++) {
+      var rh = $('dm-rh' + r), tr = '<tr><th>' + esc(rh ? rh.textContent : 'Line ' + (r + 1)) + '</th>';
+      for (var T2 = 1; T2 <= NT; T2++) {
+        var nm = [], neg = 0, real = 0;
+        for (var c = 0; c < 6; c++) {
+          var code = s['c' + (r * 6 + c)] | 0, n = DM.mntName(gate, r, code, 0, base + T2 - 1);
+          if (n === null) n = '0x' + hex(code, 2);
+          if (/^[RGB]-\d/.test(n)) neg++; else if (n !== 'X') real++;
+          nm.push(/^[RGB]-\d/.test(n) ? '<span class="dn">' + esc(n) + '</span>' : esc(n));
+        }
+        var dum = real === 0 && neg > 0;
+        if (dum) dumSeg.push(r + ':' + T2);
+        tr += '<td' + (dum ? ' class="dum"' : '') + ' data-t="' + T2 + '" data-row="' + r + '">' + (dum ? esc(tt('dm.tExpDummy')) + '<span class="dl">' + nm.join(' ') + '</span>' : nm.join(' ')) + '</td>';
+      }
+      rows.push(tr + '</tr>');
+    }
+    box.innerHTML = '<details open><summary><b>' + esc(tt('dm.tExpT')) + '</b> ' + esc(tt('dm.tExpHead', { b: base })) + '</summary><table>' + hd + rows.join('') + '</table><div class="dm-tuse-l">' + esc(tt('dm.tExpNote')) + '</div></details>';
+    box.setAttribute('data-base', base); box.setAttribute('data-dummy', dumSeg.join(','));
+    box.classList.remove('hidden');
+  }
   function renderLegend() {
     if (isEn01()) {
       var sw0 = function (n) { var c = CELL_RGB[colorKeyOf(n)]; return '<span class="sw" style="background:' + rgbCss(c) + ';color:' + SP.textOn(c[0], c[1], c[2]) + '">' + esc(n) + '</span>'; };
@@ -1807,6 +1851,7 @@
     }
     var g0 = DM.gateOf(S.model, S.cur), bt = mnt ? DM.mntBaseT(S.cur, g0) : null;
     if (hasDe) renderDeSel(S.cur, g0, bt); else { $('dm-tuse').classList.add('hidden'); $('dm-tuse').innerHTML = ''; }
+    renderTExp(S.cur, g0);
     if (!mnt) return;
     $('dm-tsum').textContent = tt('dm.tSum', { de: S.cur.deEn | 0, sel: '0x' + hex(S.cur.deSel | 0, 2), t: bt.t, why: tt('dm.tWhy_' + bt.why),
       rows: g0 === 'dual' ? 'Line x-1（上 gate）T1＝第 ' + bt.t + ' 欄、Line x-2（下 gate）T2＝第 ' + (bt.t + 1) + ' 欄' : 'Line 1~4 都是 T1＝第 ' + bt.t + ' 欄', m: S.cur.mirror | 0 })

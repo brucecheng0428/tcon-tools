@@ -82,6 +82,14 @@ function done() { console.log((fail ? '✗' : '✓') + ' check_datamap_boe ' + p
   }
   ok(nOk === nCmp, '② 全部 ' + nCmp + ' 格名稱＝BOE 分頁（' + nOk + '/' + nCmp + '）');
   console.log('    合計 ' + nOk + '/' + nCmp + ' 格一致');
+  /* v1.27.1：② 下方「依 T 展開整行」＝同事A 14:29 第 3 點（INDEX 17..12：T1、T2＝dummy 輸出 0，T3＝B2 G2 R2 B1 G1 R1） */
+  { const bx = $('dm-texp'), cell = (r, T) => bx && bx.querySelector('td[data-row="' + r + '"][data-t="' + T + '"]');
+    const txt = (r, T) => { const c = cell(r, T); return c ? (c.classList.contains('dum') ? 'dummy' : c.textContent.trim()) : null; };
+    console.log('    依 T 展開（_0）：' + [1, 2, 3, 4].map(T => 'T' + T + '＝' + txt(0, T)).join('｜'));
+    console.log('    依 T 展開（_1）：' + [1, 2, 3, 4].map(T => 'T' + T + '＝' + txt(1, T)).join('｜'));
+    ok(bx && !bx.classList.contains('hidden') && txt(0, 1) === 'dummy' && txt(0, 2) === 'dummy' && txt(0, 3) === 'B2 G2 R2 B1 G1 R1',
+      'v1.27.1 依 T 展開整行（_0）＝同事A：T1、T2 dummy（輸出 0）、T3＝B2 G2 R2 B1 G1 R1：' + [1, 2, 3].map(T => txt(0, T)).join(' | '));
+    ok(txt(0, 4) === 'B4 G4 R4 B3 G3 R3' && txt(1, 3) === 'G2 R2 B1 G1 R1 B-1', 'v1.27.1 T4（_0）＝B4 G4 R4 B3 G3 R3、T3（_1）＝G2 R2 B1 G1 R1 B-1（照 Pool 表往右一欄）：' + txt(0, 4) + ' / ' + txt(1, 3)); }
   dom.window.close();
   done();
 })().catch(e => { console.log('✗ ' + (e && e.stack || e)); process.exit(1); });

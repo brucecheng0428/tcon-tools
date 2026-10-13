@@ -123,6 +123,21 @@
 
 ---
 
+## Data Mapping (datamap) v1.27.1 — 2026-10-13 ｜ PATCH
+
+判定依據：新增顯示（不改解碼、不改 ③）⇒ PATCH。
+
+### 起因（Bruce 2026-10-13 決定）
+> 第三點，依你建議可以加。（加上依 T 展開整行的顯示，T1～T4 各一欄、標出 dummy／輸出 0 的段，讓畫面能直接對照 同事A 的答案）
+
+### 內容
+- ② 下方（T 使用分析之後）新增「依 T 展開整行」：MNT＋Hand Mode 時，② 每一列的同一組 code 依 T1～T4 各查 Pool 表一欄（T1＝起始欄、Tn＝起始欄＋n−1；Dual 下 gate 再＋1）。負號 pixel 灰字；6 格全是負號的段標「dummy（輸出 0）」（虛線框）。只顯示，不影響 ③。
+- 全民：_0 的 T1、T2＝dummy（輸出 0），T3＝B2 G2 R2 B1 G1 R1，和 同事A 14:29 第 3 點一致。
+- `check_datamap_boe` 加這兩項檢查。
+- 「負號＝dummy、輸出 0」依 同事A 回信第 2、3 點推論，待 RD 確認（列入要問 同事A 的清單）。
+
+---
+
 ## Data Mapping (datamap) v1.27.0 — 2026-10-13 ｜ MINOR ｜ ⚠ 輸出變更
 
 **⚠ 輸出變更：Mirror＝1 的 code，② 顯示的名稱不再平移（全民 Line 1＝B-3 G-3 R-3 B-4 G-4 R-4，原為 B-1 G-1 R-1 B-2 G-2 R-2）；FORCE_DE_EN＝0 的 1D1G 改從第 1 欄（T1）解讀。** code 值、匯出 script 不變。
