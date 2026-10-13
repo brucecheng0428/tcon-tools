@@ -123,6 +123,22 @@
 
 ---
 
+## Data Mapping (datamap) v1.27.4 — 2026-10-13 ｜ PATCH
+
+判定依據：匯入後的預設顯示調整（不改解碼、不改 code）⇒ PATCH。
+
+### 起因（Bruce 2026-10-13）
+> Data Mapping 的網頁在「匯入 Code」的部分改為「匯入」以後，32 種排列組合自動選到第一名的那一組。並且這 32 種排列組合，在匯入 Code 後改為預設收折的。
+
+### 內容
+- 匯入 code 完成後自動套用排列組合統計第 1 名（Driver CH1 位置、SHL、子像素排列、輸出對調；接線圖照該組合的最佳整組平移畫），排列組合統計區塊收摺（點標題可展開；鎖定／解鎖的既有收摺規則不變）。
+- 第 1 名若需要改 TCON Mirror：不自動改剛匯入的 code，改套「不需改 TCON」的最高名次（`#dm-pv-combos[data-autopick]` 會標 `/not1st`）。接線鎖定時不自動套用。
+- 全民：自動套用 CH1 在最右＋正向＋RGB＋無（Mirror 1、最長 drain 0.5、左移 7 格）；蘇坤：CH1 在最左＋正向＋RGB＋輸出對調（Mirror 0、最長 drain 1.5）。
+- Bruce 補充「第一名有改到 tcon code 和不會改到的兩種，以不會改到的為優先」：排序本來就是「最長 drain → 不必改 TCON → 左右線長差」，自動套用再排除需改 TCON 的列。實測兩組都有 drain 並列：全民第 2 名 lrgn0（0.5，Mirror 0 需改 TCON）、蘇坤第 2 名 rrgs1（1.5，Mirror 1 需改 TCON），自動套用都選第 1 名（不需改 TCON）。排名表 TCON Mirror 欄對需改的列標「需改 TCON」。
+- 測試：boe 加「匯入全民 ⇒ 自動套用 rfgn1、統計收摺」；combos 的「未鎖定預設展開」改為「匯入後預設收摺」；kickoff 兩段沿用預設 Driver／面板的測試在匯入後先套回 CH1 最左＋正向＋RGB＋無。
+
+---
+
 ## Data Mapping (datamap) v1.27.3 — 2026-10-13 ｜ PATCH
 
 判定依據：移除用不到的 UI（下拉選單），解碼與輸出不變 ⇒ PATCH。

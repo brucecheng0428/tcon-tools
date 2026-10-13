@@ -285,9 +285,10 @@ console.log('── code 表（D2:R31）＝網頁 T 表解碼');
       fire($('f-mirror'), !$('f-mirror').checked); $('dm-pv-lock').click(); }
     /* v1.18.7（Bruce 10/8）：鎖定後的畫面樣式：全白（預設）／只送紅／綠／藍：依收到的資料亮、亮的用實體子像素顏色 */
     { const cm = $('dm-pv-colmode'), btn = c => cm.querySelector('button[data-col="' + c + '"]'), cells = () => QA('rect[data-tier="main"], rect[data-tier="rep"]');
-      const svgU = $('dm-pv-tft').innerHTML;
       ok(cm.classList.contains('hidden'), 'v1.18.7 未鎖定時不顯示畫面樣式按鈕');
       w.dmImportBytes(new Uint8Array(fs.readFileSync(QM)), path.basename(QM)); await new Promise(r => setTimeout(r, 80));
+      w.dmApplyCombo('lfgn', false);   // v1.27.4 匯入後會自動套用第 1 名；這段沿用原本的預設 Driver／面板（CH1 最左＋正向＋RGB＋無）
+      const svgU = $('dm-pv-tft').innerHTML;   // v1.27.4：未鎖定畫法改在套用預設 Driver／面板之後取
       $('dm-pv-lock').click();
       ok(!cm.classList.contains('hidden') && btn('').getAttribute('aria-pressed') === 'true' && QA('[data-col]').length === 0, 'v1.18.7 鎖定後出現「全白／只送紅／只送綠／只送藍」，預設全白（全都送，畫面和鎖定時相同）');
       const chk = c => { const on = QA('rect[data-col="on"]'), off = QA('rect[data-col="off"]'); return on.length > 0 && off.length > 0 && on.every(r => r.getAttribute('data-dn')[0] === c && r.getAttribute('fill') !== 'none') && off.every(r => r.getAttribute('fill') === 'none' && r.getAttribute('data-dn')[0] !== c); };
@@ -331,6 +332,7 @@ console.log('── code 表（D2:R31）＝網頁 T 表解碼');
   /* v1.18.9（Bruce 10/8）：EM01 Auto 1D1G 鎖定 ⇒ 改 Zigzag type1~8 再只送紅：每列依 L（不錯位⇒R 資料在 R 位置亮紅）／R（錯一條⇒R 資料在 G 位置亮綠）；列數要畫滿該 Type 的週期 */
   console.log('── v1.18.9 EM01 Auto 1D1G 鎖定後改 Zigzag');
   { fire($('dm-model'), 'EM01'); if ($('dm-hand').checked) fire($('dm-hand'), false); fire($('dm-em01pm'), '0');
+    w.dmApplyCombo('lfgn', false);   // v1.27.4：前面匯入後自動套用過第 1 名；這段以預設 Driver／面板測
     $('dm-pv-lock').click(); fire($('dm-em01pm'), '1');
     const PAT = ['LR', 'RL', 'LLRR', 'RRLL', 'LRRL', 'RLLR', 'LLLLRRRR', 'RRRRLLLL'], got = [];
     let good = $('dm-pv-lock').getAttribute('data-locked') === '1';
