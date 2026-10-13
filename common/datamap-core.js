@@ -690,22 +690,32 @@
      ⇒ bit n ＝ T(n+1)，與 Bruce 的例子一致（3＝T1|T2、5＝T1|T3、14＝T2|T3|T4）。原廠只定義 one-hot；多 bit 時晶片怎麼用（OR？取最低？）原廠資料沒寫。 */
   function deSelTs(v, bits) { v = (v | 0) & ((1 << (bits || 6)) - 1); var ts = []; for (var b = 0; b < (bits || 6); b++) if (v & (1 << b)) ts.push(b + 1); return ts; }
   function deSelText(v, bits) { var ts = deSelTs(v, bits); return ts.length ? ts.map(function (t) { return 'T' + t; }).join(' | ') : ''; }
-  /* T 使用分析：多個 T 時，每格的 code 只在「code＜6×(T＋1)」的 T 表有定義（mntInRange；Kick Off／E512 code 表）。
-     每格取「設了的 T 裡，能解這個 code 的最低那張」＝這格用到的 T；設了但沒有任何格子用到的 T 列為「沒用到」；
-     沒有任何設了的 T 能解的格子列為「超出」。X（31）不需要 T，不列。依 code 表範圍推定，不是晶片實測。 */
-  function mntTUse(s, gate) {
-    var g = gate || mntGateOfS(s), ts = deSelTs(s && s.deSel, 6), mo = mntMirT(s, g), per = {}, out = [], need = [];
-    ts.forEach(function (t) { per[t] = []; });
+  /* v1.24.0 T 使用分析（Bruce 10/13 轉述 RD 原話：「它一樣是 OR 的概念，就是你到底會用到哪幾個 T，只是它會從你所選的 T 裡面最小的 T 開始用…
+     設定 14…最小的會是在 T2，也就是從 T2 開始推…某些 data mapping 下它除了 T2 以外還會用到 T3…最多用到 T4…要看它的 line buffer（那個 T 其實是 line buffer 的意思）」）：
+     ・可用 T＝遮罩中為 1 的 bit（bit n＝T(n+1)）；基準 T＝其中最小者；最多到其中最大者。
+     ・每條 gate 一個 line buffer：Single 只用基準；Dual 的下 gate（Line x-2）用基準＋1（與 mntTOf 相同）。
+     ・MNT 另依 code 表範圍：某格的 code 在該 T 表沒有定義（code≥6×(T＋1)）⇒ 往上找到第一張有定義的 T（＝這格要用到更大的 line buffer）。
+       NB（E50x／DAZ613x）的名稱是固定的 GN1／GN2 表，不隨 T 變 ⇒ 只用 gate 規則。
+     ・用到的 T 不在可用集合（沒設那個 bit、或超過最大 T）⇒ 列為警告。X（31）不需要 T，不列。依 RD 定義＋code 表推定，未經實機量測。 */
+  function deSelBase(v, bits) { var ts = deSelTs(v, bits); return ts.length ? ts[0] : null; }
+  function tUse(key, s, gate) {
+    var m = MODELS[key], mnt = m && m.kind === 'mnt', bits = (fieldById(key, 'deSel') || { bits: 6 }).bits;
+    var g = gate || gateOf(key, s), ts = deSelTs(s && s.deSel, bits), base = ts.length ? ts[0] : null;
+    var mo = mnt ? mntMirT(s, g) : 0, per = {}, warn = [], cells = [];
+    if (base === null) return { base: null, ts: ts, used: [], per: per, warn: warn, unused: ts.slice(), cells: cells, gate: g, bits: bits };
     for (var i = 0; i < 24; i++) {
       var row = Math.floor(i / 6), col = i % 6, code = s['c' + i] | 0, rel = mntRel(g, row);
       if (code === 31) continue;
-      var cell = { i: i, row: row, col: col, code: code }, minT = null;
-      for (var T = 1; T <= 6; T++) if (mntInRange(T + mo + rel, code)) { minT = T; break; }
-      cell.minT = minT; need.push(cell);
-      var by = null; for (var k = 0; k < ts.length; k++) if (mntInRange(ts[k] + mo + rel, code)) { by = ts[k]; break; }
-      if (by) per[by].push(cell); else out.push(cell);
+      if (!mnt && g === 'single' && (row & 1)) continue;   // NB Single：Line x-2＝Line x-1 的複本
+      var T = base + rel;
+      if (mnt) { while (T <= 15 && !mntInRange(T + mo, code)) T++; if (T > 15) T = null; }
+      var cell = { i: i, row: row, col: col, code: code, t: T };
+      cells.push(cell);
+      if (T === null || ts.indexOf(T) < 0) warn.push(cell);
+      if (T !== null) (per[T] = per[T] || []).push(cell);
     }
-    return { gate: g, ts: ts, per: per, unused: ts.filter(function (t) { return !per[t].length; }), out: out, cells: need };
+    var used = Object.keys(per).map(Number).sort(function (a, b) { return a - b; });
+    return { base: base, ts: ts, used: used, per: per, warn: warn, unused: ts.filter(function (t) { return used.indexOf(t) < 0; }), cells: cells, gate: g, bits: bits };
   }
   function mntName(gate, row, code, mirror, base) {
     if (code === 31) return 'X';
@@ -1313,7 +1323,7 @@
     emptyState: emptyState, cloneState: cloneState, decode: decode, encode: encode, encodeFields: encodeFields,
     changedIds: changedIds, diffRegs: diffRegs, regsOf: regsOf, maskedMerge: maskedMerge,
     gateOf: gateOf, gateText: gateText, cellView: cellView, editCell: editCell, applyNames: applyNames, allSame: allSame,
-    mntName: mntName, mntIdx: mntIdx, linName: linName, linIdx: linIdx, codeIdx: codeIdx, rbSwapName: rbSwapName, mntBaseT: mntBaseT, mntTOf: mntTOf, mntInRange: mntInRange, mntRel: mntRel, mntCands: mntCands, mntMirT: mntMirT, deSelTs: deSelTs, deSelText: deSelText, mntTUse: mntTUse,
+    mntName: mntName, mntIdx: mntIdx, linName: linName, linIdx: linIdx, codeIdx: codeIdx, rbSwapName: rbSwapName, mntBaseT: mntBaseT, mntTOf: mntTOf, mntInRange: mntInRange, mntRel: mntRel, mntCands: mntCands, mntMirT: mntMirT, deSelTs: deSelTs, deSelText: deSelText, deSelBase: deSelBase, tUse: tUse,
     setGate: setGate, setHand: setHand, pyNormalize: pyNormalize, pyNames: pyNames, cks: cks, preLabels: preLabels,
     inputDict: inputDict, colorOfName: colorOfName, codeAddrs: codeAddrs, byteOf: byteOf, regNote: regNote, fieldsAt: fieldsAt,
     applyPreset: applyPreset, matchPreset: matchPreset, PRESET_SECOND: PRESET_SECOND, presetHasSecond: presetHasSecond,

@@ -2,6 +2,25 @@
 
 ---
 
+## Data Mapping (datamap) v1.25.0 — 2026-10-13 ｜ MINOR
+
+判定依據：`docs/VERSIONING.md` §1 新增功能（NB 型號新增 FORCE_DE_EN／FORCE_DE_SEL 設定列、T 使用分析改用 RD 定義）⇒ MINOR。表格名稱解讀、匯出 script、寫入規則不變，不掛 `⚠ 輸出變更`。
+
+### 起因（Bruce 2026-10-13，轉述 RD 原話）
+> 它一樣是 OR 的概念，就是你到底會用到哪幾個 T，只是它會從你所選的 T 裡面最小的 T 開始用。假設我設定 14…最小的會是在 T2…在某些 data mapping 下，它除了 T2 以外還會用到 T3…最多用到 T4…要看它的 line buffer（那個 T 其實是 line buffer 的意思）。
+> 是不是像 E503 這些 NB 的，怎麼沒有 force_de_sel 的設定…應該要加上來才對。
+> NB 跟 MNT 的 TCON 能做到一樣的設定介面是最好的，不要明明可以一樣，卻有不同的設定介面。
+
+### 內容
+- `datamap-core.js`：`deSelBase`（基準＝最小的 T）、`tUse(key, s)` 取代 v1.24.0 的 `mntTUse`：從基準 T 起，Dual 下 gate 用基準＋1（line buffer）；MNT 另依 code 表範圍（code≥6×(T＋1) 往上找）；用到的 T 不在可用集合 ⇒ 警告。NB 名稱是固定 GN1／GN2 表 ⇒ 只看 gate。
+- datamap.html：輸入框旁與下拉改顯示「14（0x0E）→ 可用 T2 | T3 | T4，基準 T2」；FORCE_DE_EN＝1 就顯示 T 使用分析（含 one-hot），標題註明「T＝line buffer」；MNT 表格目前的名稱基準（`mntBaseT`，多 bit 時依 code 反推）與 RD 的「最小 T」不同時列警告（例：全民 0x1F 表格用 T2、RD 基準 T1），名稱解讀不改、待確認。
+- NB：FORCE_DE_EN／FORCE_DE_SEL 兩列改成依型號欄位顯示（原本 `dm-mntonly`）。E501A／E501B／E503／DAZ6138／DAZ6139 的 code 本來就有解（`FORCE_DE_SEL` 在 Hand Mode 那個 byte 的 [7:4]，PY `dm_handmode_en_addr_3e_dict`：RM81000 0x322、RM81010 0x3F2、DAZ6138／6139 0x182），只是畫面藏起來；現在與 MNT 同一套列、可改、4 bit（下拉只到 T4）。照原廠 Python UI（PY:29267-29280）改表格時仍會把 FORCE_DE_SEL 寫回 0x0E，分析區註明。DAZ6111／DAZ7353 硬體沒有 FORCE_DE_SEL（PY 用 HAND_LINE_SEL_EN＋LINE0~7_TYPE_SEL），不顯示。
+
+### 測試
+- `tools/check_datamap_desel.js` 改成 RD 定義（14 Dual 用 T2、T3；5 Dual 下 gate 缺 T2 警告；code 超出最大 T 警告；E503 4 bit；DAZ7353 不顯示）。
+
+---
+
 ## Data Mapping (datamap) v1.24.0 — 2026-10-13 ｜ MINOR
 
 判定依據：`docs/VERSIONING.md` §1 新增功能（FORCE_DE_SEL 換算、T 使用分析、連線區步驟說明）⇒ MINOR；既有操作與輸出（匯出 script、寫入、表格名稱）不變，不掛 `⚠ 輸出變更`。
