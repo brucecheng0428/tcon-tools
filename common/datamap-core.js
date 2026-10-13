@@ -35,7 +35,7 @@
       顯示：PY:28990-29022；改選：PY:29849-29923（Single → PANEL_MODE=1、RD_MODE=0；Dual → 2、1；Tri → 3、2；
       DAZ 只有 PANEL_MODE）。Single 時 Line 1-2／2-2 ＝ Line 1-1／2-1 的複本、不能改（PY:12521-12526、
       29753-29776），底色 (50,50,50)（PY:10603-10609）；Tri 全部暗、不能改。
-   ④ 每次改動 PY 都會順手寫：FORCE_DE_EN ＝ Hand Mode、FORCE_DE_SEL[7:4] ＝ 0xE（DAZ613x／E50x，PY:29267-29280）；
+   ④ 每次改動 PY 都會順手寫：FORCE_DE_EN ＝ Hand Mode（DAZ613x／E50x）、FORCE_DE_SEL[7:4] ＝ 0xE（v1.25.1 起只套 E503，Bruce 10/13 更正；PY:29267-29280 程式碼寫五型）；
       DAZ 的 HAND_LINE_SEL_EN ＝ Hand Mode 與 Line 0~7 type（PY:29253-29315）。網頁照做（只在使用者動作時）。
    ⑤ I2C：PY:32326-32700，slave 0x3E、2-byte offset；DAZ613x／E50x／E503 先 i2c_open_mbus_to_cbus（PY:31832，
       7E:AB←CD；E503 再 3E:0059←1E）。網頁：E503 只在 Check T-CON 確認是 E503 才下 0059。
@@ -770,7 +770,11 @@
   /* PY 每次改動都會順手寫的連動欄位（PY:29230-29315）。只用在使用者動作之後。 */
   function pyNormalize(key, s) {
     var m = MODELS[key]; if (m.kind !== 'nb') return s;
-    if (m.sem === 'e50x') { s.deEn = s.hand ? 1 : 0; s.deSel = 0xE; }
+    /* v1.25.1（Bruce 10/13 更正：「force_de_sel 強制設 14，只有 NB 是這樣子做，而且只有 E503 才這樣做，其他的沒有強制喔，MNT tcon 更沒有強制」）：
+       FORCE_DE_SEL＝0xE 只套 E503（RM81000~RM81004）；E501A／E501B／DAZ6138／DAZ6139 保留使用者的值（MNT 本來就不經這裡）。
+       註：瑞鼎 Python UI V5.0.4 write_dm_info_to_code（PY:29267-29280）程式碼的型號集合寫的是 DAZ6138／6139／RM81010／RM81011／RM81000~04 五型都寫 0xE，
+       與 Bruce 的實際認知不同，以 Bruce 更正為準。FORCE_DE_EN＝Hand Mode 的連動不變。 */
+    if (m.sem === 'e50x') { s.deEn = s.hand ? 1 : 0; if (m.e503) s.deSel = 0xE; }
     else {
       s.lineEn = s.hand ? 1 : 0;
       if (s.lineEn) {
