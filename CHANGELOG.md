@@ -2,6 +2,43 @@
 
 ---
 
+## TCON 自檢畫面量測 (dgself) v2.7.8 — 2026-10-13 ｜ PATCH
+
+判定依據：§1 修正錯誤（即時更新 T-CON RGB LUT 在 I2C Bridge 慢路徑必定逾時）⇒ R1 PATCH。同一個 commit 另進 DG v2.4.10。
+
+### 起因（Bruce 2026-10-13，Barry 來信「DG tool error」）
+- Barry 在 dg.html 第 4 部分按「即時更新 T-CON RGB LUT」：「更新之前要先讀回 T-CON 裡目前這張表，而這一步沒有成功（讀取中斷：I2C Bridge 逾時未回覆（read）），所以一個位元組都沒有送出去。」附 code `RM80103.PC_newcode.v2_EEPROM64K_CKS_02AA7A_CKS_02AB45.bin` 與 EM02 UI 讀 DGLUT 正常的截圖（LUT mode offset、10bit、LUT Size 597）。
+- Bruce 補充：「是不是跟他的那個 LUT mode 設定是 offset 還是 target 有關係？」以及硬性規則：「原本讀出來的 LUT mode 是 offset，它就要是 offset 的寫法；如果是 target，就要是用 target 的寫法，不可以改動。」
+
+### 定義對照
+- code 的 LUT mode：sys `0x005D` bit3（0＝offset、1＝target）、bit2（res）；`dgm_lut_size`＝sys `0x57–0x58`、`dgm_lut_addr`＝`0x45–0x46`（EM02 `RApp_BIN_Header.h:676/699`）。Barry 的 code：`0x005D=0x01` ⇒ DG_EN on、offset、10-bit 主表（6-bit offset），size 597、addr 0x0A1D —— 與他的 UI 截圖一致；code 內 LUT 解出的 R/G/B[0..23] 與截圖逐值相同。
+- 網頁讀表：與原廠 `RApp_Table_LoadFormMemory(TABLE_GAMMA)` 同一路徑（slave 0x48、0x40010000、每 channel 0x800、偶／奇交錯）。原廠 `Memory_To_Data_Gamma()` 把 OFFSET_6BIT 與 TARGET_10BIT 放同一個 case（SRAM 只存 target 值）⇒ **讀取與 offset／target 無關，mode 不是這次的根因**。
+- 網頁寫回：`dstLutWriteSpec()` 只依暫存器讀到的 mode 決定排法與長度（offset 6/8-bit＝597/783、target 10/12-bit＝975/1161），讀不到 mode 就停住；offset 表不能表示時擋下（不夾、不轉 target）；DG_EN 開關只准動 bit0。審查結果：沒有任何路徑會把 offset 改成 target 或改長度；網頁也不寫 EEPROM code（只寫 SRAM）。
+
+### 根因
+- I2C Bridge 找不到 `DLL_I2C_BCB.dll` 時退回 libMPSSE 逐 byte 路徑（`i2c_bridge.c` `i2c_open()` vendor → SLOW），實測每 byte 15～16 ms。DG LUT 的 AHB 讀取一段 256 byte ⇒ 約 4.1 秒，超過 `dstSend()` 固定的 4000 ms ⇒ 「逾時未回覆（read）」。寫入一段 256 byte 同理。暫存器讀寫只有 1～3 byte，所以連線、量測都正常，只有讀表／寫表必死。
+- 同一條資料流第二處：DG 那一頁等自檢頁回結果用固定 180 秒總時長；慢路徑下 EM01 DG-10bit 一次更新（讀 12 KB＋寫 4644 byte＋再讀 12 KB）約 470 秒，必定先逾時（見 DG v2.4.10）。
+
+### 修正
+- `dstSend()` 等待上限 ＝ 4000 ms ＋ byte 數 × 32 ms（`dstWsWaitMs()`；32 ms ≈ 實測最壞 16.5 ms 的兩倍）。read 用 `len`、寫入用 `data.length`，其餘指令維持 4000 ms。不是拿掉逾時：bridge 真的掛住，256 byte 那一段最多 12.2 秒就報。
+- 即時更新流程裡的兩次讀表（① 先讀回、④ 讀回核對）每讀完一段就把進度送給 DG（stage `read`／`verify`），讀表本身沒改。
+
+### 驗證
+- `tests/dgself`（`run.py --jobs 6`）：1331 passed, 0 failed（93 情境）。
+- 另寫一次性驗證（不進 repo）94 項全過：Barry code 的 mode／長度／截圖逐值；網頁 offset 6-bit 打包 Barry 原表與 code 內 597 byte 逐位元組相同；四種 mode × 6 格位置 × RGB＝72 組「改一格 → 打包 → 寫回 code 影像 → 原廠解碼」逐值相同、長度不變、LUT 區外 0 byte 變動、mode byte 不變；DG_EN 256 值 × 開關 bit2/bit3 不變；mode 讀不到停住；模擬慢路徑（每 byte 16 ms）HEAD 版 256 byte 讀取重現逾時、新版 read／rawwrite 都等到、bridge 不回仍 4.1 秒報錯。
+- 未驗：Barry 的實機（需他用新版重試）。target 模式的 code 手上沒有實檔，以同一份 code 改 mode byte 當夾具測格式。
+
+---
+
+## Digital Gamma (dg) v2.4.10 — 2026-10-13 ｜ PATCH
+
+判定依據：§1 修正錯誤 ⇒ R1 PATCH。隨 dgself v2.7.8 同一個 commit。
+
+- 第 4 部分「即時更新 T-CON RGB LUT」的等待改成「自檢頁多久沒有任何動靜」：握手後每收到一則進度就重新起算 180 秒（`dgP4PushProgress()`），不再是從握手起算的固定總時長。根因：I2C Bridge 慢路徑每 byte 約 16 ms，EM01 DG-10bit 一次更新約 470 秒，固定 180 秒一定先到。文案本來就寫「超過 {s} 秒沒有回應」，不變。
+- 驗證：見 dgself v2.7.8（D1／D2：每 150 ms 一則進度、上限 300 ms ⇒ 900 ms 不逾時；停止回報 ⇒ 逾時）。
+
+---
+
 ## Data Mapping (datamap) v1.26.2 — 2026-10-13 ｜ PATCH
 
 **⚠ 輸出變更（畫面）：接線圖上 ② 表格用到的 subpixel 一律亮色，包括 R1 左邊的負索引格子。**

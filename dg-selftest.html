@@ -15,7 +15,7 @@
 <link rel="stylesheet" href="common/common.css?v=20260903help">
 <link rel="stylesheet" href="common/done-step.css?v=20261001dst275">
 <!-- 🔴 version.js 必須最先載入（common/version.js 開頭那條規則）。 -->
-<script src="common/version.js?v=20261012dst277"></script>
+<script src="common/version.js?v=20261013dst278"></script>
 <script src="common/i2c-bridge.js?v=20261012ib100"></script>
 <style>
   /* ═══ 本頁專屬樣式 ════════════════════════════════════════════════════════
@@ -2198,7 +2198,28 @@ if (typeof I18N === 'object' && I18N) {
 /* ═══ 常數 ═══════════════════════════════════════════════════════════════ */
 var DST_PORT      = (typeof I2CBridge !== 'undefined' && I2CBridge) ? I2CBridge.PORT : 8899;   // 2026-10-12：與其他 I2C 頁同一份（common/i2c-bridge.js）
 var DST_WS_URL    = 'ws://127.0.0.1:' + DST_PORT + '/ws';
-var DST_WS_MS     = 4000;      // 單筆命令等 I2C Bridge 回覆的上限
+var DST_WS_MS     = 4000;      // 單筆命令等 I2C Bridge 回覆的上限（不含搬資料的時間，見下）
+/* 🔴 v2.7.8（Barry 2026-10-13「DG tool error」：第 4 部分「即時更新 T-CON RGB LUT」跳
+   「讀取中斷：I2C Bridge 逾時未回覆（read）」）：每則的等待上限依**這一則要搬幾個 byte** 加長。
+   ── 根因 ──────────────────────────────────────────────────────────────────
+     I2C Bridge 找不到 DLL_I2C_BCB.dll 時退回 libMPSSE 逐 byte 路徑（i2c_bridge.c
+     `i2c_open()`：vendor → DGH_MODE_SLOW），實測每 byte 15～16 ms（CHANGELOG「讀取速度會從每 byte
+     15~16 ms…」、bridge log `Sleep(1) = 16.3 ms`）。DG LUT 的 AHB 讀取一段 256 byte（DST_LUT_CHUNK）
+     ⇒ 約 4.1 秒，超過原本固定的 4000 ms；寫入那一段（DST_LUT_WCHUNK 256 byte）同理。
+     暫存器讀寫只有 1～3 byte，所以連線、量測都正常，只有讀表／寫表會死 —— 與回報的畫面一致。
+     與 LUT mode（offset／target）無關：讀取兩種模式走同一條路（原廠 `Memory_To_Data_Gamma()`
+     OFFSET_6BIT 與 TARGET_10BIT 同一個 case）。
+   ── 修法 ──────────────────────────────────────────────────────────────────
+     上限 ＝ DST_WS_MS ＋ byte 數 × DST_WS_MS_PER_BYTE（32 ms ＝ 實測最壞 16.5 ms 的約兩倍）。
+     不是拿掉逾時：真的掛住時，256 byte 那一段最多 12.2 秒就會報。快路徑（DLL_I2C_BCB／raw MPSSE）
+     本來就在 1 秒內回，不受影響。 */
+var DST_WS_MS_PER_BYTE = 32;
+function dstWsWaitMs(obj) {
+  var n = 0;
+  if (obj && obj.type === 'read') n = Math.max(0, obj.len | 0);
+  else if (obj && obj.data && obj.data.length) n = obj.data.length;
+  return DST_WS_MS + n * DST_WS_MS_PER_BYTE;
+}
 var DST_NEED_PROTO = 1;        // 本頁只用 read／write／open／ping，proto 1 就夠
 var DST_OPEN_RETRIES = 5;      // 開通道自動重試（前一兩次可能回 0 channel）
 var DST_OPEN_RETRY_MS = 500;
@@ -3135,7 +3156,7 @@ function dstSend(obj) {
     var id = ++dstWsSeq; obj.id = id;
     var timer = setTimeout(function () {
       if (dstWsPending[id]) { delete dstWsPending[id]; reject(new Error(dstT('dst.errTimeout', { type: obj.type }))); }
-    }, DST_WS_MS);
+    }, dstWsWaitMs(obj));   // v2.7.8：依 byte 數加長（見 DST_WS_MS_PER_BYTE）
     dstWsPending[id] = { resolve: resolve, reject: reject, timer: timer };
     try { dstWs.send(JSON.stringify(obj)); }
     catch (e) { clearTimeout(timer); delete dstWsPending[id]; reject(e); }
@@ -3952,6 +3973,9 @@ async function dstLutSetBus(b, on) {
     stuck ? 'o' : 'e');
   return stuck;
 }
+/* v2.7.8：讀表期間每讀完一段就呼叫一次（只有「即時更新」那條路會掛上，把進度轉給 DG，
+   讓 DG 那一頁的等待以「多久沒有動靜」計，而不是一個固定總時長）。平常是 null。 */
+var dstLutReadTick = null;
 /* 分段讀 AHB 視窗。**每一段都明確給位址**（4-byte offset），不靠循序讀的隱式遞增。 */
 async function dstLutReadAhb(memSlave, base, len) {
   var out = [], done = 0;
@@ -3964,6 +3988,7 @@ async function dstLutReadAhb(memSlave, base, len) {
     if (d.length < n) throw new Error('AHB short read at +' + done + ': wanted ' + n + ', got ' + d.length);
     for (var i = 0; i < n; i++) out.push(d[i] & 0xFF);
     done += n;
+    if (dstLutReadTick) { try { dstLutReadTick(n); } catch (eT) { /* 回報失敗不影響讀取 */ } }
   }
   return out;
 }
@@ -4237,7 +4262,14 @@ async function dstReadDgLut() {
       畫面上如實呈現，不得宣稱它一定成功。
    ═══════════════════════════════════════════════════════════════════════════ */
 
-var DST_LUT_WCHUNK = 256;   // 每則寫入的位元組上限（I2C Bridge 的 RAW_MAX_DATA）
+var DST_LUT_WCHUNK = 256;
+/* v2.7.8：寫入流程裡的兩次讀表（① 先讀回、④ 讀回核對）把進度轉給 DG。
+   讀表本身一個字都沒改（同一支 `dstReadDgLut()`），只是在讀的期間掛上 `dstLutReadTick`。 */
+async function dstLutReadWithProg(onProg, stage) {
+  var got = 0;
+  dstLutReadTick = onProg ? function (n) { got += n; onProg(stage, got, 0); } : null;
+  try { await dstReadDgLut(); } finally { dstLutReadTick = null; }
+}   // 每則寫入的位元組上限（I2C Bridge 的 RAW_MAX_DATA）
 
 /* 12-bit 兩筆 → 3 byte。位元排法照 `Table_DGM_target_12bit_RGB_st`
    （EM02 `RApp_Table.h:2754-2760`，EM01 的 `Table_GAMMA_DG_RGB_st` `:2247-2250` 逐欄相同）：
@@ -4630,7 +4662,7 @@ async function dstWriteDgLut(payload, onProg) {
        🔴 走的是**產品既有的那一支 `dstReadDgLut()`**，不另寫一份規格判定 ——
           筆數、深度、LUT_MODE、要停住的條件，全部自動與讀取那條路一致。
           順便也證明這條匯流排此刻是通的，才敢往裡面寫。 */
-    await dstReadDgLut();
+    await dstLutReadWithProg(onProg, 'read');
     if (!dstLut) {
       return { ok: false, stage: 'read1', whyKey: 'dst.lwReadFirst',
                vars: { detail: dstLutErr ? dstT(dstLutErr.stepKey, { detail: dstLutErr.detail }) : '?' } };
@@ -4729,7 +4761,7 @@ async function dstWriteDgLut(payload, onProg) {
 
     /* ④ 立刻讀回核對。🔴 **一定要讀**：寫進去了不等於生效。 */
     if (onProg) onProg('verify', 0, 1);
-    await dstReadDgLut();
+    await dstLutReadWithProg(onProg, 'verify');
     if (!dstLut) {
       return { ok: false, stage: 'verify', whyKey: 'dst.lwVerifyRead',
                vars: { detail: dstLutErr ? dstT(dstLutErr.stepKey, { detail: dstLutErr.detail }) : '?' } };

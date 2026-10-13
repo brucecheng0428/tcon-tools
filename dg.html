@@ -2795,7 +2795,7 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20261012dg249"></script>
+<script src="common/version.js?v=20261013dg2410"></script>
 <script src="common/i2c-bridge.js?v=20261012ib100"></script>
 <script src="common/done-step.js?v=20261001dg247"></script>
 <script src="common/i18n.js?v=20261012dg249"></script>
@@ -12979,13 +12979,17 @@
           證明對面是自檢頁（舊版自檢頁不送 ack，但它會送 write／verify）。用
           `stage === 'ack'` 當唯一入口的話，拿著舊版自檢分頁的人會在 4 秒後被誤判
           成「不是自檢頁」—— 那是把相容性問題做成了誤殺。 */
-    if (!DG_P4_PUSH_PEND.acked) {
-      DG_P4_PUSH_PEND.acked = true;
-      if (DG_P4_PUSH_PEND.timer) clearTimeout(DG_P4_PUSH_PEND.timer);
-      DG_P4_PUSH_PEND.timer = setTimeout(function () {
-        dgP4PushDone(dgT('dg.p4PushTimeout', { s: Math.round(DG_P4_PUSH_WAIT_MS / 1000) }), false);
-      }, DG_P4_PUSH_WAIT_MS);
-    }
+    /* 🔴 v2.4.10（Barry 2026-10-13「DG tool error」）：**每一則回話都重新起算**，
+       等的是「自檢頁多久沒有任何動靜」，不是從握手起算的固定總時長。
+       根因：I2C Bridge 走逐 byte 慢路徑時每 byte 約 16 ms，EM01 DG-10bit 一次更新
+       （先讀 12 KB ＋ 寫 4644 byte ＋ 再讀 12 KB）約 470 秒，固定 180 秒一定先到；
+       自檢頁 v2.7.8 起讀表時每段都回報進度，所以「還在動」與「掛住」分得開。
+       文案本來就寫「超過 {s} 秒沒有回應」，語意不變。 */
+    DG_P4_PUSH_PEND.acked = true;
+    if (DG_P4_PUSH_PEND.timer) clearTimeout(DG_P4_PUSH_PEND.timer);
+    DG_P4_PUSH_PEND.timer = setTimeout(function () {
+      dgP4PushDone(dgT('dg.p4PushTimeout', { s: Math.round(DG_P4_PUSH_WAIT_MS / 1000) }), false);
+    }, DG_P4_PUSH_WAIT_MS);
     if (d.stage === 'verify') dgP4PushSay(dgT('dg.p4PushVerify'), '');
     else if (d.stage === 'write') dgP4PushSay(dgT('dg.p4PushGoing', { done: d.done, total: d.total }), '');
     return true;
