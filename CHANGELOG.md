@@ -2,6 +2,52 @@
 
 ---
 
+## Digital Gamma (dg) v2.4.11 — 2026-10-13 ｜ PATCH ｜ ⚠ 輸出變更
+
+**⚠ 輸出變更：接著自檢頁、T-CON 是 Offset 模式時，DG 輸出的 RGB LUT（表格、一鍵複製、下載、即時更新）一律是合法的 Offset 表；本來就合法的表逐值不變。**
+
+判定依據：§1 修正錯誤（Offset 機台算出不合法的表、整張寫不進去）⇒ R1 PATCH；輸出值會變的情況標 ⚠。同一個 commit 另進 dgself v2.7.9。
+
+### 起因（Bruce 2026-10-13，同事B 實機照片）
+- 第 4 部分「即時更新」紅字：「這一顆 T-CON 目前是 Offset 模式，前 252 筆只能記錄『比前一筆多多少』，最多 63。第 1 筆的 B 從 0 跳到 500（差 500）超過了，所以整張都沒寫。」
+- Bruce：「他在測試的時候故意把量測儀器對著天空……offset 有這個限制，所以應該說要反過來：如果是有 offset 限制的話，不管再怎麼變，你的 DGLUT 還是要符合 LUT 的定義才對啊，也就是 Offset 開啟的定義才對。」
+
+### 對照瑞鼎 EM02 UI 原始碼（App/Table/RApp_Table.cpp）
+- 打包基準：第 0 筆的 offset 也是「跟 0 比」（`RApp_Table_GAMMA_OFFSET_LUT_Gen()` :12081 `u16DataTemp0 = 0`；解碼 `BIN_To_Data_Gamma` 第 0 組 `+ 0`）。網頁一致，同事B code 的 597 byte 用網頁打包逐位元組相同 ⇒ **「0 跳到 500」不是起點算錯，是算出來的表本身在第 1 筆跳了 500**。
+- 6-bit 欄位、只能 ≥ 0、上限 63（8-bit 為 255）、前 252 筆差分／252～256 絕對值：網頁一致。
+- 不合格時原廠的作法：`RApp_Table_GAMMA_LUT_Case_Check_Handler()`（:11919）正向＋反向各一輪改表（夾上限；第 0 筆不大於下一筆；1～251 筆：超過前一筆＋MAX ⇒ 前一筆＋MAX、小於前一筆 ⇒ 前一筆、大於下一筆 ⇒ 下一筆），`GAMMA_OFFSET_LUT_Gen` 再以 `值 − min(前一筆, 值)` 夾 MAX。
+
+### 修正
+- `common/dglut-fmt.js` 新增 `TCONDgLutFmt.offsetFit()`（照上面兩支逐行，回傳 T-CON 實際會存的表＋逐筆調整明細）與 `fitText()`。**單一來源**：DG 計算輸出與自檢頁寫入共用。
+- dg.html：`dgOutLutBody()`（表格、一鍵複製、下載、即時更新、更新指紋的唯一出口）經 `dgLutFmtFit()`：自檢頁說機台是 Offset、且輸出深度＝機台深度 ⇒ 套 `offsetFit`（10-bit ⇒ MAX 63／上限 1023；12-bit ⇒ 255／4095）。Target 模式由既有 `dgScaleDepth()` 夾在 0～2^depth−1，不另外動。機台模式不明（沒接自檢頁／舊版自檢頁）⇒ 不動。
+- dg.html：計算完成的說明多兩行（有才顯示）：
+  - `⚠ 量測資料異常，請確認量測儀器有對準畫面後重新量測：…`（`dgGrayAnomaly()`：最亮÷最暗 < 10、最高階 < 最亮 80%、相鄰下降 > 5% 的次數 > 階數 5%，任一成立）。只警告，不擋計算。
+  - `⚠ T-CON 是 Offset 模式（前 252 筆每筆最多比前一筆多 63、不能下降）：算出來的表有 N 筆不符合…，輸出已依瑞鼎 UI 規則修成合法表：B[1] 500→0…`；合法時顯示 `✓ … 輸出的表符合 Offset 格式`。
+- dg.html：收 `dg-ic-info` 時記下 `lutMode`。
+
+### 驗證
+- 見 dgself v2.7.9。
+
+---
+
+## TCON 自檢畫面量測 (dgself) v2.7.9 — 2026-10-13 ｜ PATCH
+
+判定依據：§1 修正錯誤 ⇒ R1 PATCH。隨 DG v2.4.11 同一個 commit。
+
+- 送給 DG 的 IC 資訊多帶 `lutMode`（DG_EN byte 的 target 位：'offset'／'target'；讀不到 null）。
+- 即時更新寫入：offset 模式不再「擋下整張不寫」，改成照瑞鼎 UI 規則調整（同一支 `TCONDgLutFmt.offsetFit`）後寫入並讀回核對；有調整時結果訊息接一句 `⚠ … 已照瑞鼎 UI 的規則調整後才寫入…調整：B[1] 500→2…`（DG 也收到同一句）。DG v2.4.11 起送來的表本來就合法 ⇒ 這裡通常原樣出去，只是舊版 DG／其他來源的安全網。mode 與長度（597／783／975／1161）依暫存器，不變。
+- 🔴 2026-09-23「Offset 不合格擋下、不夾」的裁量由 Bruce 2026-10-13 指示改為照瑞鼎 UI 調整並明示；`dstLutOffsetCheck()` 留著（只剩夾具用）。
+
+### 驗證
+- 新情境（tests/dgself，headless Chrome）：
+  - W-OFF／W-TGT／W-OK（自檢頁＋SRAM 模擬：slave 0x48 寫入收齊後照 IC 規則解開、放回偶／奇交錯讀取排法；起始 SRAM＝同事B code 的表）：照片情境 B[1]=500 在 offset ⇒ 寫入成功、讀回相符、597 byte、0x005D 不變、T-CON 的表＝瑞鼎 C 原文獨立移植算出的表、畫面與 DG 都有調整明細；target ⇒ 975 byte、不調整；合法表 ⇒ 不調整。
+  - DO-SKY／SKYT／NORM／OLD／RAND（dg.html）：儀器對天空（亮度平坦）、target、正常 γ2.2、舊版自檢頁、同事B 機台表＋亂跳亮度＋原始計算 B[1]=500：輸出 256 筆全部是合法 Offset 表（第 0 筆 ≤63、1～251 每筆 0～63、≤1023）、更新指紋用同一張；量測異常警告在 SKY／SKYT／RAND 出現、NORM 不出現；RAND 顯示「B[1] 500→0」。
+- `offsetFit` 對照瑞鼎 C 原文獨立移植：6-bit／8-bit × 6 類表（正常、尖峰、雜訊、平坦、隨機、下降）× 100，共 1200 組逐值相同、0 筆不合法、合法表再套一次不變。
+- 前一輪一次性驗證 94/94 仍過（四種 mode × 改一格 72 組來回、同事B code 逐位元組、慢路徑逾時）。
+- tests/dgself 全套：見 commit 訊息。
+
+---
+
 ## TCON 自檢畫面量測 (dgself) v2.7.8 — 2026-10-13 ｜ PATCH
 
 判定依據：§1 修正錯誤（即時更新 T-CON RGB LUT 在 I2C Bridge 慢路徑必定逾時）⇒ R1 PATCH。同一個 commit 另進 DG v2.4.10。

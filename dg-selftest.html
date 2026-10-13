@@ -15,7 +15,7 @@
 <link rel="stylesheet" href="common/common.css?v=20260903help">
 <link rel="stylesheet" href="common/done-step.css?v=20261001dst275">
 <!-- 🔴 version.js 必須最先載入（common/version.js 開頭那條規則）。 -->
-<script src="common/version.js?v=20261013dst278"></script>
+<script src="common/version.js?v=20261013dst279"></script>
 <script src="common/i2c-bridge.js?v=20261012ib100"></script>
 <style>
   /* ═══ 本頁專屬樣式 ════════════════════════════════════════════════════════
@@ -1443,7 +1443,7 @@
 <script src="common/common.js?v=20260923dst1190"></script>
 <!-- v2.6.0：「匯出 Excel」—— 與 DG 第 3 部分「下載新產出 RGB LUT 檔」同一個格式表與同一個產生器 -->
 <script src="common/xlsx.js?v=20260930dst260"></script>
-<script src="common/dglut-fmt.js?v=20260930dst260"></script>
+<script src="common/dglut-fmt.js?v=20261013dst279"></script>
 <script src="common/done-step.js?v=20261001dst275"></script>
 <script>
 /* ═════════════════════════════════════════════════════════════════════════
@@ -1662,6 +1662,12 @@ if (typeof I18N === 'object' && I18N) {
     'zh-TW': '讀回來核對，第 {i} 筆的 {ch} 對不上：送出去是 {want}，讀回來是 {got}（共 {n} 筆對不上）。T-CON 裡不是這一張新表，請不要量。',
     'en': 'The read-back check failed: entry {i} channel {ch} sent {want} but came back {got} ({n} entries differ in total). The T-CON does not hold this new table. Do not measure.',
     'zh-CN': '读回来核对，第 {i} 笔的 {ch} 对不上：送出去是 {want}，读回来是 {got}（共 {n} 笔对不上）。T-CON 里不是这一张新表，请不要量。'
+  };
+  /* v2.7.9：offset 模式照瑞鼎 UI 規則調整過的說明（接在 dst.lwOk 後面）。 */
+  I18N['dst.lwOffAdj'] = {
+    'zh-TW': '⚠ 這一顆 T-CON 是 Offset 模式：前 {n} 筆每一筆最多只能比前一筆多 {max}、不能下降。算出來的表有 {cnt} 筆不符合（R {r}、G {g}、B {b} 筆），已照瑞鼎 UI 的規則調整後才寫入，T-CON 裡與這一輪要量的都是調整後的表。調整：{list}；調整最大的一筆：{big}。',
+    'en': '⚠ This T-CON is in Offset mode: across the first {n} entries each one may rise at most {max} above the one before and may not drop. {cnt} entries of the calculated table did not fit (R {r}, G {g}, B {b}); they were adjusted by the Raydium UI rule before writing, so the T-CON holds — and this round measures — the adjusted table. Changes: {list}; largest: {big}.',
+    'zh-CN': '⚠ 这一颗 T-CON 是 Offset 模式：前 {n} 笔每一笔最多只能比前一笔多 {max}、不能下降。算出来的表有 {cnt} 笔不符合（R {r}、G {g}、B {b} 笔），已照瑞鼎 UI 的规则调整后才写入，T-CON 里与这一轮要量的都是调整后的表。调整：{list}；调整最大的一笔：{big}。'
   };
   I18N['dst.lwOk'] = {
     'zh-TW': 'T-CON 裡現在是新的 RGB LUT —— 已經逐筆讀回核對，{n} 筆全部相符。',
@@ -3512,6 +3518,9 @@ function dstIcInfoPayload() {
        板子上的就是那一顆，拿母顆的 key 過去會讓 DG 選到錯的目標 TCON。 */
     icKey: eff ? eff.key : (dstIc ? dstIc.key : ''),
     lutDepth: depth,
+    /* 2026-10-13（dgself v2.7.9）：LUT 模式（DG_EN byte 的 target 位：'offset'／'target'；讀不到 null）。
+       DG 計算輸出時據此把表約束成這個模式的合法表（offset：前 252 筆每筆最多 +MAX、不下降）。 */
+    lutMode: (dstDg && (dstDg.target === 'offset' || dstDg.target === 'target')) ? dstDg.target : null,
     /* 🔴 「讀不到」有三種完全不同的原因，要分開講 —— 使用者才知道下一步該做什麼：
          · 還沒認出 IC        ⇒ 先把治具接上、等它認出來
          · 這一顆沒有 LUT 規格 ⇒ 這一顆本來就讀不了，不是接線問題
@@ -4451,6 +4460,38 @@ function dstLutPackOffCh(vals, entries, bits) {
    🔴 索引在外、channel 在內（與原廠 channel 在外的迴圈順序不同，**刻意**）：
       這樣回報的一定是**編號最小**的那一筆，使用者才對得上他表上的位置。
    回 null ＝ 通過；否則回第一筆不合格的 `{ i, ch, prev, cur, diff, max }`。 */
+/* ═══ 🔴 v2.7.9（Bruce 2026-10-13，同事B 實機「第 1 筆的 B 從 0 跳到 500」）══════════════════
+   offset 模式：表不符合格式時**照瑞鼎 UI 的規則調整後再送**（仍是 offset、長度不變），
+   並把「哪幾筆、從多少改成多少」講在畫面上。取代 v1.15.0 的「擋下、整張不寫」。
+   Bruce 原話：照瑞鼎 UI 的做法「把表改成符合格式再送出」，並在畫面明確提示哪些筆被調整、
+   調整多少，讓使用者知道量到的是調整後的表。（2026-09-23「擋下不夾」那一條就此作廢。）
+
+   ── 規則逐行照 EM02 `App/Table/RApp_Table.cpp`（E512 同名函式相同，見 v1.15.0 ④）──────────
+   ① `RApp_Table_GAMMA_LUT_Case_Check_Handler()`（:11919）改的是**表本身**，每個 channel：
+        先正向 idx 0→256、再反向 idx 256→0，各跑一次同一組規則：
+          · 先夾上限（OFFSET_6BIT 1023／OFFSET_8BIT 4095）
+          · idx 0：比下一筆大 ⇒ 改成下一筆
+          · 1 ≤ idx < 252：比前一筆多超過 MAX（63／255）⇒ 前一筆＋MAX；
+                           比前一筆小 ⇒ 前一筆；比下一筆大 ⇒ 下一筆（三條依序）
+          · idx ≥ 252：只夾上限（那幾筆送的是絕對值）
+   ② `RApp_Table_GAMMA_OFFSET_LUT_Gen()`（:12071）算送出去的 offset：
+        idx 0 ⇒ 值本身（基準是 0，與原廠 `BIN_To_Data_Gamma` 的 `u16DataTemp0 + 0` 一致）；
+        其餘 ⇒ 值 − min(前一筆, 值)，再夾到 MAX。⇒ 經過 ① 之後若還有下降，該筆 offset 是 0。
+   ⇒ T-CON 實際拿到的前 252 筆 ＝ ② 的 offset 逐筆累加；252～256 ＝ ① 之後的絕對值。
+      本支回傳的就是這一張「實際生效的表」，打包（`dstLutPackOffCh`）與讀回核對都用它，
+      所以打出來的位元組與瑞鼎 UI 送出去的逐位元組相同。
+   🔴 「第 1 筆從 0 跳到 500」不是我們把起點當成 0 的錯：原廠第 0 筆的 offset 也是跟 0 比
+      （:12081 `u16DataTemp0 = 0`），而且 同事B 的 code 用這條規則打包逐位元組相同（驗證見 CHANGELOG）。
+      是算出來的表本身在第 1 筆就跳了 500，超過 offset 6-bit 一筆最多 +63 的能力。
+   回傳 { rgb:{r,g,b}（實際生效的表）, list:[{ch,i,from,to}], n, perCh:{R,G,B}, maxAbs:{…} }。 */
+function dstLutOffsetFit(sent, offMax, valMax) {
+  /* 2026-10-13：規則搬到 common/dglut-fmt.js（TCONDgLutFmt.offsetFit），DG 計算輸出與本頁寫入同一支。
+     DG v2.4.11 起送來的表本來就合法 ⇒ 這裡通常是「原樣出去」，只在舊版 DG／手動來源時才會調整。 */
+  return TCONDgLutFmt.offsetFit(sent, offMax, valMax, DST_LUT_OFF_N);
+}
+/* 畫面上那一句的「明細」：前 8 筆 `B[1] 500→2`，其餘只講還有幾筆。 */
+function dstLutFitText(fit) { return TCONDgLutFmt.fitText(fit, 8); }
+
 function dstLutOffsetCheck(rgb, offMax) {
   var chans = ['r', 'g', 'b'], i, ci, a, prev, d;
   for (i = 0; i < DST_LUT_OFF_N; i++) {
@@ -4707,26 +4748,27 @@ async function dstWriteDgLut(payload, onProg) {
     /* 🔴 最後一筆（附加末筆）＝ 2^depth − 1。這不是我們發明的：本頁 `dstLutIdentity()`
        的末筆、DG「計算」那一步印的附加末筆，用的都是同一個值。 */
     for (ci = 0; ci < 3; ci++) sent[chans[ci]].push(spec.valMax);
-    /* v2.7.0：留下來給之後的讀回比對（dstLutChk）。在這裡記（檢查過、還沒寫）：
-       它代表「DG 要 T-CON 裡是哪一張表」—— 寫到一半失敗時更需要它來抓出不一致。 */
-    dstLutSent = { r: sent.r.slice(), g: sent.g.slice(), b: sent.b.slice(), main: main, icKey: ic.key };
-
-    /* ═══ 🔴 v1.15.0（B）：offset 模式 ⇒ 送出去之前先驗這張表能不能用 offset 表示。
-       不合格**不寫、也不夾**（整段理由在 `dstLutOffsetCheck()` 上方）。
-       🔴 這一關在打包之前 —— 打包那一支若拿到不合格的表會靜默產生一張錯的 bin，
-          長度還是 597／783，`size !== expect` 那一關抓不到。 */
+    /* ═══ 🔴 v2.7.9：offset 模式 ⇒ 照瑞鼎 UI 的規則把表調成符合格式（`dstLutOffsetFit()`），
+       送出去與讀回核對的都是**調整後實際生效的那張**；調了哪些筆寫進 log 與結果訊息。
+       mode 與長度一律不變（597／783 仍由 `dstLutWriteSpec()` 依暫存器決定）。
+       🔴 這一步在打包之前：打包那一支只會照 offset 打，表不合格就會靜默打錯。 */
+    var fitAdj = null;
     if (spec.offMax != null) {
-      var ob = dstLutOffsetCheck(sent, spec.offMax);
-      if (ob) {
-        dstLog('!  DG LUT write: table not representable as ' + spec.label
-          + ' -> index ' + ob.i + ' ch' + ob.ch + ' ' + ob.prev + ' -> ' + ob.cur
-          + ' (step ' + ob.diff + ', max ' + ob.max + ')  [no clamping applied]', 'e');
-        return { ok: false, stage: 'payload',
-                 whyKey: (ob.diff < 0) ? 'dst.lwOffDrop' : 'dst.lwOffStep',
-                 vars: { i: ob.i, ch: ob.ch, prev: ob.prev, cur: ob.cur,
-                         diff: ob.diff, max: ob.max, n: DST_LUT_OFF_N } };
+      var fit = dstLutOffsetFit(sent, spec.offMax, spec.valMax);
+      if (fit.n) {
+        fitAdj = fit;
+        sent = fit.rgb;
+        dstLog('!  DG LUT write: ' + spec.label + ' cannot hold the calculated table as-is -> adjusted '
+          + fit.n + ' entries by the Raydium UI rule (R ' + fit.perCh.R + ', G ' + fit.perCh.G + ', B ' + fit.perCh.B + '): '
+          + fit.list.slice(0, 20).map(function (t) { return t.ch + '[' + t.i + '] ' + t.from + '->' + t.to; }).join(', ')
+          + (fit.n > 20 ? ', …' : ''), 'w');
       }
     }
+    /* v2.7.0：留下來給之後的讀回比對（dstLutChk）。在這裡記（檢查過、還沒寫）：
+       它代表「DG 要 T-CON 裡是哪一張表」—— 寫到一半失敗時更需要它來抓出不一致。
+       v2.7.9：offset 模式被調整過時，記的是**調整後實際生效的那張**（T-CON 裡會是它）。 */
+    dstLutSent = { r: sent.r.slice(), g: sent.g.slice(), b: sent.b.slice(), main: main, icKey: ic.key,
+                   adjusted: fitAdj ? fitAdj.n : 0 };
 
     var bin = dstLutBuildBin(sent, spec);
     dstLog('== write DG LUT: ' + ic.key + ' ' + spec.label
@@ -4775,10 +4817,14 @@ async function dstWriteDgLut(payload, onProg) {
                        n: d.n < 0 ? '>8' : d.n } };
     }
     dstLog('== DG LUT verified: ' + main + ' entries x3 match what was sent', 'o');
+    /* v2.7.9：調整過就把明細一起帶回去（畫面與 DG 都要講「量到的是調整後的表」）。 */
+    var adjVars = fitAdj ? { cnt: fitAdj.n, r: fitAdj.perCh.R, g: fitAdj.perCh.G, b: fitAdj.perCh.B,
+                             n: DST_LUT_OFF_N, max: spec.offMax, list: dstLutFitText(fitAdj),
+                             big: fitAdj.maxAbs.ch + '[' + fitAdj.maxAbs.i + '] ' + fitAdj.maxAbs.from + '→' + fitAdj.maxAbs.to } : null;
     dstLutWriteLast = { ok: true, n: main, entries: spec.entries, depth: spec.depth,
-                        icKey: ic.key, label: spec.label, bytes: bin.length };
+                        icKey: ic.key, label: spec.label, bytes: bin.length, adj: adjVars };
     return { ok: true, stage: 'done', n: main, entries: spec.entries, depth: spec.depth,
-             icKey: ic.key, label: spec.label, bytes: bin.length };
+             icKey: ic.key, label: spec.label, bytes: bin.length, adj: adjVars };
   } catch (e) {
     dstLog('!  DG LUT write aborted: ' + dstErrMsg(e), 'e');
     return { ok: false, stage: 'error', whyKey: 'dst.lwWriteFail', vars: { detail: dstErrMsg(e) } };
@@ -8697,6 +8743,7 @@ async function dstDgOnLutWrite(d) {
         —— 另找地方就會有「漏清一條路」的那一天。 */
   dstLutVerified = res.ok ? dstLut : null;
   var text = res.ok ? dstT('dst.lwOk', { n: res.n }) : dstT(res.whyKey, res.vars || {});
+  if (res.ok && res.adj) text += ' ' + dstT('dst.lwOffAdj', res.adj);   // v2.7.9：offset 調整明細
   dstSay('dst-say-steps', text);
   post({ type: 'dg-lut-write-result', ok: !!res.ok, stage: res.stage,
          text: text, n: res.n || 0, entries: res.entries || 0, depth: res.depth || 0,
