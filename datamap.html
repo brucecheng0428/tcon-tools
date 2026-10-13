@@ -607,7 +607,7 @@
 </div>
 <div class="dm-toasts" id="dm-toasts" aria-live="polite"></div>
 
-<script src="common/version.js?v=20261013dm1274"></script>
+<script src="common/version.js?v=20261013dm1275"></script>
 <script src="common/i18n.js?v=20261012dm1220"></script>
 <script>
 (function () {
@@ -904,6 +904,7 @@
     'dm.autoMan': ['② 的 force_sel＝原廠 RT7 Manual 樣式「{n}」，Panel Mode 應設：{f}。', '② force_sel equals vendor RT7 manual style "{n}"; panel settings should be: {f}. ', '② 的 force_sel＝原厂 RT7 Manual 样式「{n}」，Panel Mode 应设：{f}。'],
     'dm.autoManOk': ['✓ 目前相同', '✓ current values match', '✓ 目前相同'],
     'dm.autoManBad': ['⚠ 目前不同：{d}（可在上方「RT7 Type Select」重選此樣式，一次套用全部欄位）', '⚠ current differs: {d} (re-select this style in "RT7 Type Select" above to set all fields at once)', '⚠ 目前不同：{d}（可在上方「RT7 Type Select」重选此样式，一次套用全部栏位）'],
+    'dm.rt7AutoName': ['Auto：{p}＋{s}（chrb＝{c}、mirror＝{mi}）', 'Auto: {p} + {s} (chrb={c}, mirror={mi})', 'Auto：{p}＋{s}（chrb＝{c}、mirror＝{mi}）'],
     'dm.rt7User': ['(33) User define', '(33) User define', '(33) User define'],
     'dm.rt7NoteOff': ['Hand Mode 關（Auto 樣式）：TCON 依 {f} 自動決定接線；選 Manual 樣式會自動開 Hand Mode 並填入兩組 force_sel 表', 'Hand Mode off (Auto style): the TCON derives wiring from {f}; picking a Manual style turns Hand Mode on and fills both force_sel sets', 'Hand Mode 关（Auto 样式）：TCON 依 {f} 自动决定接线；选 Manual 样式会自动开 Hand Mode 并填入两组 force_sel 表'],
     'dm.rt7NoteOn': ['Hand Mode 開（Manual）：TCON 用下方 force_sel 表；表格與原廠樣式完全相同才顯示該樣式，否則顯示 User define；選 Auto 樣式會自動關 Hand Mode', 'Hand Mode on (Manual): the TCON uses the force_sel table below; a vendor style is shown only when everything matches, otherwise User define; picking an Auto style turns Hand Mode off', 'Hand Mode 开（Manual）：TCON 用下方 force_sel 表；表格与原厂样式完全相同才显示该样式，否则显示 User define；选 Auto 样式会自动关 Hand Mode'],
@@ -1751,15 +1752,22 @@
        （項目依 Panel_mode 由 RApp_TX.cpp:8916-8984 填，載入時 :9300-9359 同樣填）；寫入 rt7+0x00：panel_mode[2:1]＝ItemIndex、sub_panel_mode[7:5]＝ItemIndex（:9174-9175，mask 0xE6），
        rd_mode（0x0504[7:6]）依 Panel_mode＝0／0／1／2（:8916-8945）；換 Panel_mode 時 sub 一律回第一項（ItemIndex＝0）。 */
     var em01a = m === 'EM01' && !S.cur.hand;
-    $('dm-em01box').classList.toggle('hidden', !em01a); sel.classList.toggle('hidden', em01a);
-    if (em01a) {
-      $('dm-autolbl').textContent = 'Panel_mode／sub_panel_mode（EM01 瑞鼎 UI）';
+    /* v1.27.5（Bruce 10/13「RT7 顯示名稱依你建議」）：MNT Auto（force_sel_en＝0）時晶片依 panel_mode＋sub_panel_mode（＋mirror／chrb）自動決定排列
+       （EM02A1_RegisterBank.model:18192「0: auto setting data mapping」），RT7 Type 清單只是原廠 UI 的預設組合表（RApp_TX.h:530-567，讀檔後全欄反查，
+       force_de_en／force_de_sel 不同就落到 (33)）⇒ Auto 時那格改顯示「Auto：<Panel_mode>＋<子類型>（chrb＝x、mirror＝y）」，EM02／E512 也比照 EM01 顯示 Panel_mode／子類型。
+       只改顯示；接線、排名照舊。Hand 開維持原本 RT7 清單。 */
+    var mntAuto = f === 'mnt' && !S.cur.hand;
+    $('dm-em01box').classList.toggle('hidden', !mntAuto); sel.classList.toggle('hidden', em01a);
+    if (mntAuto) {
       var pmS = $('dm-em01pm'), sbS = $('dm-em01sub'), pm = S.cur.panel | 0, sb = S.cur.subPanel | 0, SPL = DM.SUB_PANEL[pm] || [];
       pmS.innerHTML = ''; ['1D1G', 'Zigzag', 'HSD', 'LTPS'].forEach(function (n, k) { pmS.appendChild(optEl(String(k), n)); }); pmS.value = String(pm);
       sbS.innerHTML = ''; SPL.forEach(function (n, k) { sbS.appendChild(optEl(String(k), n)); });
       if (sb >= SPL.length) sbS.appendChild(optEl(String(sb), tt('dm.em01SubNa', { n: sb })));
       sbS.value = String(sb); sbS.disabled = SPL.length <= 1 || !!S.ro || S.busy; pmS.disabled = !!S.ro || S.busy;
       $('dm-em01lbl').textContent = tt('dm.em01Lbl', { p: pm, s: sb, r: S.cur.rd | 0 });
+    }
+    if (em01a) {
+      $('dm-autolbl').textContent = 'Panel_mode／sub_panel_mode（EM01 瑞鼎 UI）';
       $('dm-autonote').textContent = tt('dm.em01Note');
       $('dm-automan').textContent = ''; $('dm-automan').className = 'dm-sub hidden';
       return;
@@ -1767,10 +1775,12 @@
     if (f === 'mnt') {
       $('dm-autolbl').textContent = 'RT7 Type Select';
       var pi = S.rt7User ? -1 : AUTO.rt7Match(m, S.cur);
+      var aName = mntAuto ? tt('dm.rt7AutoName', { p: ['1D1G', 'Zigzag', 'HSD', 'LTPS'][S.cur.panel | 0] || ('panel ' + (S.cur.panel | 0)), s: (DM.SUB_PANEL[S.cur.panel | 0] || [])[S.cur.subPanel | 0] || ('sub ' + (S.cur.subPanel | 0)), c: S.cur.chrb | 0, mi: S.cur.mirror | 0 }) : '';
+      if (mntAuto) { $('dm-autolbl').textContent = 'RT7 Type'; sel.appendChild(optEl('a', aName)); }
       DM.PRESETS.forEach(function (p, k) { sel.appendChild(optEl('p' + k, p.name + (p.set.hand ? '　·　Manual' : ''))); });
       sel.appendChild(optEl('u', tt('dm.rt7User')));
-      sel.value = pi >= 0 ? 'p' + pi : 'u';
-      sel.setAttribute('data-rt7', pi);
+      sel.value = mntAuto ? 'a' : (pi >= 0 ? 'p' + pi : 'u');
+      sel.setAttribute('data-rt7', pi); sel.setAttribute('data-autoname', aName);
     } else {
       $('dm-autolbl').textContent = 'Auto Mode：Data Mapping Type';
       var i = AUTO.match(m, S.cur);
@@ -3527,6 +3537,7 @@
     $('dm-pv-vl').addEventListener('change', function () { pvVlSet(this.value); log('n', '③ V 方向 Line 數 ← ' + PV_NL_MIN); renderPreview(); });   // v1.19.0
     $('dm-auto').addEventListener('change', function () {
       var v = this.value, m = S.model;
+      if (v === 'a') return;   // v1.27.5：Auto 顯示列（目前 panel／sub），不寫值
       if (v === 'u') { S.rt7User = true; log('n', 'RT7 Type Select ← (33) User define'); render(); return; }
       if (v.charAt(0) === 'p') {
         var k = +v.slice(1), p = DM.PRESETS[k]; if (!p) return;

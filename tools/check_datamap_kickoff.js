@@ -328,7 +328,7 @@ console.log('── code 表（D2:R31）＝網頁 T 表解碼');
     fire(pm, '1'); fire(sb, '2'); const sZ = w.dmState.cur.subPanel; fire(pm, '2');
     ok(sZ === 2 && (w.dmState.cur.subPanel | 0) === 0 && sb.value === '0' && /0400 /.test(w.dmBuildScript().text) , 'v1.18.8 Zigzag type3 → 換 HSD ⇒ sub 回第一項 type1（照原廠 ItemIndex＝0），匯出寫 rt7+0x00');
     fire($('dm-model'), 'EM02'); if ($('dm-hand').checked) fire($('dm-hand'), false);
-    ok($('dm-em01box').classList.contains('hidden') && !$('dm-auto').classList.contains('hidden'), 'v1.18.8 EM02 Auto 仍是單一 RT7 Type Select 清單（不變）'); }
+    ok(!$('dm-em01box').classList.contains('hidden') && !$('dm-auto').classList.contains('hidden') && $('dm-auto').value === 'a' && /^Auto：/.test($('dm-auto').selectedOptions[0].text), 'v1.27.5 EM02 Auto：RT7 Type 顯示「' + $('dm-auto').selectedOptions[0].text + '」，並比照 EM01 顯示 Panel_mode／子類型'); }
   /* v1.18.9（Bruce 10/8）：EM01 Auto 1D1G 鎖定 ⇒ 改 Zigzag type1~8 再只送紅：每列依 L（不錯位⇒R 資料在 R 位置亮紅）／R（錯一條⇒R 資料在 G 位置亮綠）；列數要畫滿該 Type 的週期 */
   console.log('── v1.18.9 EM01 Auto 1D1G 鎖定後改 Zigzag');
   { fire($('dm-model'), 'EM01'); if ($('dm-hand').checked) fire($('dm-hand'), false); fire($('dm-em01pm'), '0');
