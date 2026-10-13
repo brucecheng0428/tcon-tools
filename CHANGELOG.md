@@ -23,6 +23,9 @@
 - 「可用 T 數＝設 1 的 bit 數」抽查（~/BOEMNT、~/TCON/Model 共 813 個 .bin，去重後 40 組，其中 Hand 開＋FORCE_DE_EN＝1 的 8 組：EM02 HSD 0x0E ×3、EM01 HSD 0x0E、E503 Dual 0x0E、EM01 全民 0x1F ×3）：實際用到的欄數（Single 1、Dual 2）都 ≤ 可用數（0x0E＝3、0x1F＝5），沒有需要超過的；只照 Excel 表列範圍算，全民也只要 2～4 欄 ≤ 5。不連續 bit 只見於一份 FORCE_DE_EN＝0 的 E503 code（0x0A，不作用），對應方式仍待 RD 確認。
 - `check_datamap_desel` 加：EM01 全民型（Mirror 1／0）、EM02 HSD 0x0E、EM02 Single、E503 Dual，各檢查「亮的格子收到的資料集合＝表格名稱集合」與「負索引格子一律虛線框」。
 
+### 已知錯誤（2026-10-13，Bruce）
+- 全民（EM01 Zigzag、FORCE_DE_SEL＝0x1F、code 原本 Mirror 1）在 v1.26.x 的排列組合統計第 1 名是「CH1 在最左＋反向＋RGB＋Mirror 改 0」，Bruce 指出不對：第 1 名應維持 code 原本的 Mirror 1。待 Woody 來信提供全民正確排列後，依信中內容修正演算法（通用規則、無型號特例）；在那之前程式不改。
+
 ---
 
 ## Data Mapping (datamap) v1.26.1 — 2026-10-13 ｜ PATCH
