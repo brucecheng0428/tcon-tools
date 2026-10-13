@@ -599,7 +599,7 @@
 </div>
 <div class="dm-toasts" id="dm-toasts" aria-live="polite"></div>
 
-<script src="common/version.js?v=20261013dm1264"></script>
+<script src="common/version.js?v=20261013dm1265"></script>
 <script src="common/i18n.js?v=20261012dm1220"></script>
 <script>
 (function () {
@@ -670,6 +670,10 @@
     'dm.pvCG': ['第 {n} 名', '#{n}', '第 {n} 名'],
     'dm.pvCColor': ['顏色正確', 'Colour correct', '颜色正确'],
     'dm.pvCMax': ['最長 drain', 'Longest drain', '最长 drain'],
+    'dm.pvCShift': ['Data 線整組平移', 'Data line group shift', 'Data 线整组平移'],
+    'dm.hCShiftT': ['所有 Data 線一起往左／右移幾格（1 格＝1 個子像素）時最長 drain 最短；畫面方向，0＝原本位置。每個組合都掃描平移量取最佳。', 'How many sub-pixels all Data lines move together (screen direction) to get the shortest longest drain; 0 = original position. Scanned for every combination.', '所有 Data 线一起左／右移几格时最长 drain 最短；0＝原本位置。'],
+    'dm.pvShL': ['左移 {n} 格', 'left {n}', '左移 {n} 格'],
+    'dm.pvShR': ['右移 {n} 格', 'right {n}', '右移 {n} 格'],
     'dm.pvCBal': ['左右線長差', 'Left/right length difference', '左右线长差'],
     'dm.pvCOri': ['CH1＝Mirror 方向', 'CH1 = Mirror side', 'CH1＝Mirror 方向'],
     'dm.hMirT': ['整行反向送出；② 名稱與 ③ 接線跟著換。', 'Sends the line reversed; ② names and ③ wiring follow.', '整行反向送出；② 名称与 ③ 接线跟着换。'],
@@ -2392,16 +2396,16 @@
       /* v1.23.2（Bruce 10/12 同事C code：第一名資料、顏色都對但最長 drain 太長）：v1.23.1 以前 drain 長度只隨輸出對調算（cost[sw]），
          SHL／CH1 位置不影響線長、輸出對調也只把資料換到別條線（算成資料錯）⇒ 「對調後 drain 變短且資料正確」的組合永遠排不上來。
          改成每種 SHL × 輸出對調各自照 pvLineSrc 重新接 drain、算線長（CH1 位置只是整張左右翻，線長不變）；子像素軸固定。 */
-      var cost = {}, dbad = {};
+      var cost = {}, dbad = {}, gsh = {};
       [false, true].forEach(function (fr) { [false, true].forEach(function (rv) { [false, true].forEach(function (sw) {
         var key = fr + '' + rv + '' + sw, sp = pvWiresSpec(Pm, sw, rv), n = Pm.period, smin = -pvPreCount(Pm), mm = Math.max(11, n * Pm.NG - 1);
-        cost[key] = pvPlace(sp, smin, mm, Pm.NG, n).cost; dbad[key] = pvDataBad(Pm, sw, rv);
+        var plc = pvPlace(sp, smin, mm, Pm.NG, n); cost[key] = plc.cost; gsh[key] = plc.G ? plc.G[0] : 0; dbad[key] = pvDataBad(Pm, sw, rv);   // v1.26.5：記下整組平移量（起點格）
       }); }); });
       [false, true].forEach(function (fr) { [false, true].forEach(function (rv) { [false, true].forEach(function (bg) { [false, true].forEach(function (sw) {
         if (locked && (fr !== pvFirstRight || rv !== pvDrvRev || bg !== pvBGR || sw !== pvSwapOn)) return;
         var rl = pvRLOf(fr), r = pvPhysMis(Pm, rl, bg, sw, rv), ck = fr + '' + rv + '' + sw, db = dbad[ck] + pvOrientBad(Pm, sw, rv, fr, bg);
         var dk = (fr ? 'r' : 'l') + (rv ? 'r' : 'f') + (bg ? 'b' : 'g') + (sw ? 's' : 'n');
-        out.push({ first: fr, rev: rv, bgr: bg, swap: sw, rl: rl, mirror: m, mirChg: m !== curM, hasMir: hasMir, mis: r.n, dbad: db, ok: !r.n && !db, tot: r.tot, mx: cost[ck][0], bal: cost[ck][1], dkey: dk, key: dk + (hasMir ? String(m) : '') });
+        out.push({ first: fr, rev: rv, bgr: bg, swap: sw, rl: rl, mirror: m, mirChg: m !== curM, hasMir: hasMir, mis: r.n, dbad: db, ok: !r.n && !db, tot: r.tot, mx: cost[ck][0], bal: cost[ck][1], sh: fr ? -gsh[ck] : gsh[ck], dkey: dk, key: dk + (hasMir ? String(m) : '') });
       }); }); }); });
     });
     /* 排序（固定、和目前選取無關）：① 資料與顏色全對 → ② 錯的格數少 → ③ 最長 drain 短 → ④ 左右線長差小 → 同分依序：
@@ -2441,13 +2445,13 @@
     var ori = tt(C.curM ? 'dm.pvOriM1' : 'dm.pvOriM0');
     $('dm-pv-combosum').textContent = tt('dm.pvCombosSumN', { n: C.list.length });
     var th = function (k, tip) { return '<th' + (tip ? ' title="' + esc(tt(tip)) + '"' : '') + '>' + esc(tt(k)) + (tip ? ' <i class="dm-i">ⓘ</i>' : '') + '</th>'; };
-    var h = '<thead><tr>' + th('dm.pvCGroup') + th('dm.pvFirst') + th('dm.pvDrv') + th('dm.pvStripe') + th('dm.pvSwapS') + th('dm.pvCData', 'dm.hCDataT') + th('dm.pvCColor', 'dm.hCColorT') + th('dm.pvCMax') + th('dm.pvCBal', 'dm.hBalT') + (C.hasMir ? th('dm.pvCMir', 'dm.hCMirT') : '') + '</tr></thead><tbody>';
+    var h = '<thead><tr>' + th('dm.pvCGroup') + th('dm.pvFirst') + th('dm.pvDrv') + th('dm.pvStripe') + th('dm.pvSwapS') + th('dm.pvCData', 'dm.hCDataT') + th('dm.pvCColor', 'dm.hCColorT') + th('dm.pvCMax') + th('dm.pvCBal', 'dm.hBalT') + (C.hasMir ? th('dm.pvCMir', 'dm.hCMirT') : '') + th('dm.pvCShift', 'dm.hCShiftT') + '</tr></thead><tbody>';
     var bad = function (n) { return n ? '✗ ' + tt('dm.pvCBad', { n: n }) : '✓'; };
     var locked = hwLocked();
     C.order.forEach(function (k, gi) { C.groups[k].forEach(function (c) {
       h += '<tr data-combo="' + c.key + '" data-group="' + (gi + 1) + '" data-ok="' + (c.ok ? 1 : 0) + '" class="dm-crow' + (c === cur ? ' dm-ccur' : '') + (c.ok ? ' dm-cok' : '') + '" data-mirror="' + (C.hasMir ? c.mirror : '') + '" tabindex="0" title="' + esc(tt(locked ? 'dm.pvCApplyMirT' : 'dm.pvCApplyT')) + '">' +
         '<td>' + tt('dm.pvCG', { n: gi + 1 }) + (c === cur ? ' <span class="dm-ccurtag">' + esc(tt('dm.pvCCur')) + '</span>' : '') + '</td><td>' + (c.first ? tt('dm.pvFirstR') : tt('dm.pvFirstL')) + '</td><td>' + (c.rev ? tt('dm.pvDrvR') : tt('dm.pvDrvF')) + '</td><td>' + (c.bgr ? 'BGR' : 'RGB') + '</td><td>' + (c.swap ? '有' : '無') + '</td>' +
-        '<td data-col="data">' + bad(c.dbad) + '</td><td data-col="color">' + bad(c.mis) + '</td><td>' + c.mx + '</td><td>' + c.bal + '</td>' + (C.hasMir ? '<td data-col="mirror"' + (c.mirChg ? ' class="dm-cmirchg"' : '') + '>' + c.mirror + (c.mirChg ? ' <span class="dm-ctcon">' + esc(tt('dm.pvCNeedTcon')) + '</span>' : '') + '</td>' : '') + '</tr>';
+        '<td data-col="data">' + bad(c.dbad) + '</td><td data-col="color">' + bad(c.mis) + '</td><td>' + c.mx + '</td><td>' + c.bal + '</td>' + (C.hasMir ? '<td data-col="mirror"' + (c.mirChg ? ' class="dm-cmirchg"' : '') + '>' + c.mirror + (c.mirChg ? ' <span class="dm-ctcon">' + esc(tt('dm.pvCNeedTcon')) + '</span>' : '') + '</td>' : '') + '<td data-col="shift" data-sh="' + c.sh + '">' + esc(c.sh === 0 ? '0' : tt(c.sh < 0 ? 'dm.pvShL' : 'dm.pvShR', { n: Math.abs(c.sh) })) + '</td></tr>';
     }); });
     $('dm-pv-combotbl').innerHTML = h + '</tbody>';
     $('dm-pv-sugok').textContent = '';
