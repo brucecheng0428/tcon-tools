@@ -28,37 +28,40 @@ ok(DM.deSelText(5, 6) === 'T1 | T3', '5 → T1 | T3（' + DM.deSelText(5, 6) + '
 ok(DM.deSelText(14, 6) === 'T2 | T3 | T4', '14 → T2 | T3 | T4（' + DM.deSelText(14, 6) + '）');
 ok(DM.deSelText(0, 6) === '' && DM.deSelText(64, 6) === '', '0／超出 6 bit → 空');
 
-console.log('── ① T 使用分析');
-function st(codes, extra) { const s = Object.assign({ deEn: 1, deSel: 0, mirror: 0, panel: 1 }, extra || {}); for (let i = 0; i < 24; i++) s['c' + i] = codes[i]; return s; }
+console.log('── ① T 使用分析（RD 定義：從最小的 T 開始用，T＝line buffer）');
+function st(codes, extra) { const s = Object.assign({ hand: 1, deEn: 1, deSel: 0, mirror: 0, panel: 1, rd: 0 }, extra || {}); for (let i = 0; i < 24; i++) s['c' + i] = codes[i]; return s; }
+ok(DM.deSelBase(14, 6) === 2 && DM.deSelBase(3, 6) === 1 && DM.deSelBase(5, 6) === 1 && DM.deSelBase(0, 6) === null, '基準＝最小的 T：14→T2、3→T1、5→T1、0→無');
 {
-  /* Single、code 0~11 ⇒ T1 範圍 code<12 全涵蓋；設 T1|T3 ⇒ T1 用 24 格（X 不算）、T3 沒用到 */
-  const codes = Array.from({ length: 24 }, (_, i) => i % 12);
-  const u = DM.mntTUse(st(codes, { deSel: 5 }), 'single');
-  ok(u.ts.join() === '1,3' && u.per[1].length === 24 && u.per[3].length === 0 && u.unused.join() === '3' && !u.out.length, '5（T1|T3）、code<12：T1 用 24 格、T3 設了沒用到');
+  /* RD 例：14、Dual、code 都在範圍內 ⇒ 上 gate 用 T2、下 gate 用 T3；T4 沒用到 */
+  const u = DM.tUse('EM02', st(Array(24).fill(0), { deSel: 14, panel: 2, rd: 1 }));
+  ok(u.base === 2 && u.used.join() === '2,3' && u.unused.join() === '4' && !u.warn.length, '14 Dual：用到 T2、T3（最多可到 T4，T4 沒用到）：' + u.used.join());
 }
 {
-  /* code 12~17 只有 T≥2 有定義；設 T1|T2 ⇒ <12 歸 T1、12~17 歸 T2 */
-  const codes = Array.from({ length: 24 }, (_, i) => (i < 12 ? i : 12 + (i % 6)));
-  const u = DM.mntTUse(st(codes, { deSel: 3 }), 'single');
-  ok(u.per[1].length === 12 && u.per[2].length === 12 && !u.unused.length, '3（T1|T2）：12 格 T1、12 格 T2');
-  ok(u.per[2].every(c => c.code >= 12 && c.minT === 2), 'T2 那 12 格的 code 都 ≥12、最低需要 T2');
+  const u = DM.tUse('EM02', st(Array(24).fill(0), { deSel: 14 }));
+  ok(u.used.join() === '2' && u.per[2].length === 24, '14 Single、code 小：只用 T2');
 }
 {
-  /* code 24~29 需要 T≥4；設 T1|T2 ⇒ 超出；X（31）不列 */
+  /* code 18~23 在 T2 沒定義（T2 範圍 code<18）⇒ 要用 T3 */
+  const codes = Array.from({ length: 24 }, (_, i) => (i < 12 ? i : 18 + (i % 6)));
+  const u = DM.tUse('EM02', st(codes, { deSel: 14 }));
+  ok(u.used.join() === '2,3' && u.per[3].length === 12 && u.per[3].every(c => c.code >= 18), '14 Single、code 18~23：那 12 格要用 T3');
+}
+{
+  /* 5＝T1|T3、Dual ⇒ 下 gate 需要 T2，不在可用 ⇒ 警告 */
+  const u = DM.tUse('EM02', st(Array(24).fill(0), { deSel: 5, panel: 2, rd: 1 }));
+  ok(u.base === 1 && u.warn.length === 12 && u.warn.every(c => c.t === 2 && (c.row & 1)), '5 Dual：下 gate 要 T2、沒設 ⇒ 12 格警告');
+}
+{
+  /* 3＝T1|T2、code 24~29 要 T4 ⇒ 超過最大 T 警告；X 不列 */
   const codes = Array.from({ length: 24 }, (_, i) => (i < 6 ? 24 + i : (i < 12 ? 31 : i - 12)));
-  const u = DM.mntTUse(st(codes, { deSel: 3 }), 'single');
-  ok(u.out.length === 6 && u.out.every(c => c.minT === 4), '3（T1|T2）、code 24~29：6 格超出、需要 T4');
-  ok(u.cells.length === 18, 'X（31）不列入（24−6＝18）');
+  const u = DM.tUse('EM02', st(codes, { deSel: 3 }));
+  ok(u.warn.length === 6 && u.warn.every(c => c.t === 4), '3、code 24~29：要 T4，超過最大 T2 ⇒ 6 格警告');
+  ok(u.cells.length === 18, 'X（31）不列入');
 }
 {
-  /* Dual：下 gate（Line x-2）用基準＋1 ⇒ code 12~17 在下 gate 只要 T1 */
-  const codes = Array.from({ length: 24 }, (_, i) => 12 + (i % 6));
-  const u = DM.mntTUse(st(codes, { deSel: 3, panel: 2 }), 'dual');
-  ok(u.per[1].every(c => c.row & 1) && u.per[1].length === 12 && u.per[2].every(c => !(c.row & 1)) && u.per[2].length === 12, 'Dual：code 12~17 下 gate 歸 T1、上 gate 歸 T2');
-}
-{
-  const u = DM.mntTUse(st(Array(24).fill(0), { deSel: 14 }), 'single');
-  ok(u.ts.join() === '2,3,4' && u.per[2].length === 24 && u.unused.join() === '3,4', '14（T2|T3|T4）、全 code 0：T2 用 24 格，T3、T4 沒用到');
+  /* NB E503（4 bit）：只看 gate；Dual 14 ⇒ T2、T3 */
+  const u = DM.tUse('E503', st(Array(24).fill(0), { deSel: 14, panel: 2, rd: 1 }));
+  ok(u.bits === 4 && u.base === 2 && u.used.join() === '2,3', 'E503 Dual 14：T2、T3（NB 名稱固定，只看 gate）');
 }
 
 /* ── ② ③ 頁面 ── */
@@ -84,22 +87,22 @@ function st(codes, extra) { const s = Object.assign({ deEn: 1, deSel: 0, mirror:
     const set = (o) => { Object.assign(S.cur, o); w.dmRender(); };
     for (let i = 0; i < 24; i++) S.cur['c' + i] = i < 12 ? i : 12 + (i % 6);
     set({ hand: 1, deEn: 1, deSel: 3 });
-    ok(/T1 \| T2/.test($('f-deSelTs').textContent), '輸入 3 ⇒ 輸入框旁「' + $('f-deSelTs').textContent + '」');
-    ok($('f-tsel').value === 'm' && /T1 \| T2（0x03）/.test($('f-tsel-m').textContent) && !$('f-tsel-m').hidden, '下拉顯示「' + $('f-tsel-m').textContent + '」');
-    ok(!$('dm-tuse').classList.contains('hidden') && /T 使用分析/.test($('dm-tuse').textContent), 'T 使用分析顯示');
-    ok($('dm-tuse').getAttribute('data-per') === '1:12,2:12', 'T 使用分析：' + $('dm-tuse').getAttribute('data-per'));
+    ok(/可用 T1 \| T2，基準 T1/.test($('f-deSelTs').textContent), '輸入 3 ⇒ 輸入框旁「' + $('f-deSelTs').textContent + '」');
+    ok($('f-tsel').value === 'm' && /0x03 → 可用 T1 \| T2，基準 T1/.test($('f-tsel-m').textContent) && !$('f-tsel-m').hidden, '下拉顯示「' + $('f-tsel-m').textContent + '」');
+    ok(!$('dm-tuse').classList.contains('hidden') && /line buffer/.test($('dm-tuse').textContent), 'T 使用分析顯示（含 T＝line buffer）');
+    ok($('dm-tuse').getAttribute('data-base') === '1' && $('dm-tuse').getAttribute('data-used') === '1,2', 'T 使用分析：基準 T1、用到 ' + $('dm-tuse').getAttribute('data-used') + '（' + $('dm-tuse').getAttribute('data-per') + '）');
     set({ deSel: 5 });
     ok(/T1 \| T3/.test($('f-deSelTs').textContent) && /T1 \| T3/.test($('f-tsel-m').textContent), '5 ⇒ T1 | T3（輸入框旁＋下拉）');
-    ok($('dm-tuse').getAttribute('data-out') === '0', '5：沒有超出（' + $('dm-tuse').getAttribute('data-per') + '）');
+    ok($('dm-tuse').getAttribute('data-warn') === '12', '5：code 12~17 要 T2、沒設 ⇒ 12 格警告（' + $('dm-tuse').getAttribute('data-per') + '）');
     set({ deSel: 14 });
-    ok(/T2 \| T3 \| T4/.test($('f-deSelTs').textContent) && /T2 \| T3 \| T4/.test($('f-tsel-m').textContent), '14 ⇒ T2 | T3 | T4');
-    ok($('dm-tuse').getAttribute('data-unused') === '3,4', '14：T3、T4 設了但沒用到（' + $('dm-tuse').getAttribute('data-unused') + '）');
+    ok(/（0x0E）→ 可用 T2 \| T3 \| T4，基準 T2/.test($('f-deSelTs').textContent) && /可用 T2 \| T3 \| T4，基準 T2/.test($('f-tsel-m').textContent), '14 ⇒「' + $('f-deSelTs').textContent + '」');
+    ok($('dm-tuse').getAttribute('data-used') === '2' && $('dm-tuse').getAttribute('data-unused') === '3,4', '14 Single、code<18：只用 T2，T3、T4 沒用到');
     // 打字即時換算（還沒 change）
     $('f-deSel').value = '6'; $('f-deSel').dispatchEvent(new w.Event('input'));
     ok(/T2 \| T3/.test($('f-deSelTs').textContent), '打字 6（未離開欄位）⇒ 即時「' + $('f-deSelTs').textContent + '」');
     // one-hot ⇒ 下拉選 T 本身、不顯示分析
     set({ deSel: 4 });
-    ok($('f-tsel').value === '3' && $('f-tsel-m').hidden && $('dm-tuse').classList.contains('hidden'), 'one-hot 4 ⇒ 下拉＝T3、不顯示分析');
+    ok($('f-tsel').value === '3' && $('f-tsel-m').hidden && $('dm-tuse').getAttribute('data-base') === '3', 'one-hot 4 ⇒ 下拉＝T3、分析基準 T3');
     // 下拉選 T2 ⇒ 寫成 one-hot
     $('f-tsel').value = '2'; $('f-tsel').dispatchEvent(new w.Event('change')); await sleep(20);
     ok((S.cur.deSel | 0) === 2 && (S.cur.deEn | 0) === 1, '下拉選 T2 ⇒ FORCE_DE_SEL＝0x02');
@@ -112,6 +115,15 @@ function st(codes, extra) { const s = Object.assign({ deEn: 1, deSel: 0, mirror:
     set({ hand: 0 }); await sleep(20);
     ok(Array.from(d.querySelectorAll('.dm-tt')).every(e => e.textContent === ''), 'Hand Mode 關（空白格）⇒ 不留舊的 T 標示');
     ok($('dm-lg-tt') && /右下角/.test($('dm-lg-tt').textContent), '圖例說明格子右下角標示');
+    // NB（E503）：同一套 FORCE_DE_EN／FORCE_DE_SEL 列
+    $('dm-model').value = 'E503'; $('dm-model').dispatchEvent(new w.Event('change')); await sleep(80);
+    const row = id => $(id).closest('.dm-frow');
+    ok(!row('f-deSel').classList.contains('hidden') && !row('f-deEn').classList.contains('hidden'), 'E503：FORCE_DE_EN／FORCE_DE_SEL 列顯示（與 MNT 同一套）');
+    ok(+$('f-deSel').max === 15 && Array.from($('f-tsel').options).filter(o => /^[5-6]$/.test(o.value)).every(o => o.hidden), 'E503：4 bit（max 15），下拉只到 T4');
+    Object.assign(w.dmState.cur, { hand: 1, deEn: 1, deSel: 14, panel: 2, rd: 1 }); w.dmRender();
+    ok(/可用 T2 \| T3 \| T4，基準 T2/.test($('f-deSelTs').textContent) && $('dm-tuse').getAttribute('data-used') === '2,3' && /0x0E/.test($('dm-tuse').textContent), 'E503 Dual 14：可用 T2|T3|T4、基準 T2、用到 T2、T3；註明改表格會寫回 0x0E');
+    $('dm-model').value = 'DAZ7353'; $('dm-model').dispatchEvent(new w.Event('change')); await sleep(80);
+    ok(row('f-deSel').classList.contains('hidden') && $('dm-tuse').classList.contains('hidden'), 'DAZ7353（沒有 FORCE_DE_SEL，用 HAND_LINE_SEL）：不顯示');
     dom.window.close();
   }
   console.log('── ③ 連線提示（沒有 Bridge）');
