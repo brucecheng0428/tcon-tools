@@ -599,7 +599,7 @@
 </div>
 <div class="dm-toasts" id="dm-toasts" aria-live="polite"></div>
 
-<script src="common/version.js?v=20261013dm1263"></script>
+<script src="common/version.js?v=20261013dm1264"></script>
 <script src="common/i18n.js?v=20261012dm1220"></script>
 <script>
 (function () {
@@ -2255,7 +2255,12 @@
   function pvBetter(a, b) { for (var i = 0; i < 3; i++) { if (a[i] < b[i] - 1e-9) return true; if (a[i] > b[i] + 1e-9) return false; } return false; }
   function pvPlace(spec, smin, smax, per, n) {
     var best = null, bestC = null;
-    for (var g0 = smin; g0 <= Math.max(smin, per); g0++) {
+    /* v1.26.4（Bruce 10/13「為什麼不能把 subpixel 的位置往左邊移，移到跟 Data line 比較靠近？全部往左移不是都會平均變短嗎？」）：
+       原本 Data 線整組的起點只試 smin～per（假設主循環接的子像素在 R1 附近）；v1.26.0 起全民等 code 接的是 R1 左邊的 dummy，
+       CH1 在右（翻圖）時整組 Data 線被卡在 R1 那一側、drain 全部拉長。改成起點範圍涵蓋所有接線目標（子像素順序不變，只是整組 Data 線相對子像素軸的位置可調）。 */
+    var tmax = per;
+    spec.forEach(function (w) { if (w.p < n && !w.off && w.t !== null && w.t >= smin && w.t <= smax && w.t > tmax) tmax = w.t; });
+    for (var g0 = smin; g0 <= Math.max(smin, per, Math.ceil(tmax)); g0++) {
       var G = []; for (var i = 0; i < n; i++) G.push(g0 + i * per);
       var c = pvCost(G, spec, smin, smax, n); if (!bestC || pvBetter(c, bestC)) { bestC = c; best = G; }
     }

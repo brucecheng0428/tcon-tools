@@ -85,6 +85,26 @@
 
 ---
 
+## Data Mapping (datamap) v1.26.4 — 2026-10-13 ｜ PATCH
+
+**⚠ 輸出變更：③ 接線圖與排列組合統計的 Data 線位置可整組移到接線目標附近；全民第 1 名最長 drain 6.5 → 0.5。**
+
+判定依據：Bruce 指出線長不合理 ⇒ R1 PATCH。
+
+### 起因（Bruce 2026-10-13）
+> 為什麼不能把 subpixel 的位置往左邊移，移到跟 Data line 比較靠近？因為你這樣平均都變長了，其實全部往左移，不是都會平均變短嗎？（「3px」為語音輸入誤字，原意 subpixel）
+
+### 根因與修正
+- `pvPlace` 找 Data 線整組起點時只試 smin～per（假設主循環接的子像素在 R1 附近）。v1.26.0 起全民等 code 接的是 R1 左邊的 dummy；CH1 在右（翻圖）時，整組 Data 線被卡在 R1 那一側，drain 全部往同一邊拉長（最長 6.5）。
+- 改成起點範圍涵蓋所有主循環接線目標：子像素順序與玻璃軸不變，只是 Data 線整組相對子像素軸的位置可調（＝Bruce 說的整體平移），仍以「最長 drain → 左右差 → 總長」取最佳。通用規則、無特例。
+
+### 驗證
+- 全民（0x1F、Mirror 1）：第 1 名維持 CH1 最右＋正向＋RGB＋無對調＋Mirror 1，最長 drain 6.5 → 0.5，Data 線緊鄰 B-1…R-2。
+- 同事C：check_datamap_axis --peerc 29327 pass／0 fail（S5 第 1 名與最長 drain 1.5 不變）。
+- kickoff 27、desel 124、check_datamap 282、preview 48、combos 28、nbfields 17、lod 161、fold 50、auto 92、en01 65、tcon_gate 63、svg_rep 72038、vlines 185716：0 fail。
+
+---
+
 ## Data Mapping (datamap) v1.26.3 — 2026-10-13 ｜ PATCH
 
 **⚠ 輸出變更：目前 code 是 Mirror 1 的 MNT 型號，排列組合統計的「資料正確」改以目前 code 的名稱為基準；全民第 1 名回到維持 Mirror 1。目前是 Mirror 0 的 code（同事C、RM80120 等）不變。**
