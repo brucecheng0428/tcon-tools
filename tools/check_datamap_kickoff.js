@@ -87,6 +87,11 @@ console.log('── code 表（D2:R31）＝網頁 T 表解碼');
       const lin = rows.map(r => r.map(n => DM.linIdx(n)));
       const contig = lin.every(a => { const s = a.slice().sort((x, y) => x - y); return new Set(a).size === 6 && s[5] - s[0] === 5; });
       ok(contig, 'v1.26.0 全民（0x1F，T1 從第 1 欄）：每列 6 格名稱連續、無重疊：' + rows.map(r => r.join(' ')).join(' | '));
+      /* v1.27.0（同事A 10/13 回信＋Excel BOE 分頁）：INDEX 17..12 在第 1 欄＝Gate1 B-3 G-3 R-3 B-4 G-4 R-4；16..12,23＝Gate2 G-3 R-3 B-4 G-4 R-4 B-5（Mirror 不平移名稱）；
+         同一組 INDEX 往後各 T：T1、T2 為 dummy、T3＝B2 G2 R2 B1 G1 R1（同事A 14:29 第 3 點）。 */
+      ok(rows[0].join(' ') === 'B-3 G-3 R-3 B-4 G-4 R-4' && rows[1].join(' ') === 'G-3 R-3 B-4 G-4 R-4 B-5', 'v1.27.0 全民 ②＝同事A BOE 分頁 Gate1／Gate2：' + rows[0].join(' ') + ' / ' + rows[1].join(' '));
+      { const byT = [1, 2, 3].map(T => [17, 16, 15, 14, 13, 12].map(c => DM.mntName('single', 0, c, 1, T)).join(' '));
+        ok(byT[0].split(' ').every(n => /-/.test(n)) && byT[1].split(' ').every(n => /-/.test(n)) && byT[2] === 'B2 G2 R2 B1 G1 R1', 'v1.27.0 同事A：T1、T2＝dummy，T3＝B2 G2 R2 B1 G1 R1：' + byT.join(' | ')); }
       ok(/T1 起始欄：第 1 欄/.test($('dm-tsum').textContent), 'v1.26.0 全民：T1 從第 1 欄開始（' + $('dm-tsum').textContent.slice(0, 40) + '）');
       const firstRow = d.querySelector('#dm-pv-combos tbody tr'); ok(firstRow && /✓✓/.test(firstRow.textContent.replace(/\s+/g, '')) && !/需改 TCON/.test(firstRow.textContent), 'v1.26.3 全民：排列組合第 1 名資料、顏色都正確，且維持 code 原本的 Mirror 1（不需改 TCON）：' + (firstRow ? firstRow.textContent.replace(/\s+/g, ' ').trim().slice(0, 60) : '—')); }
     okRef(s.hand === 1 && s.panel === 1 && s.mirror === 1 && [17, 16, 15, 14, 13, 12].every((v, i) => s['c' + i] === v), '匯入：Hand 開、Zigzag、mirror 1、_0＝17,16,15,14,13,12');

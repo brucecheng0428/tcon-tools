@@ -92,8 +92,9 @@ const ok = (c, g, m) => { cnt[g] = (cnt[g] || 0) + 1; if (c) pass++; else { fail
     const all = rowsOf(), first = all[0], corr = all.findIndex(r => r.key === 'lfgs0');
     ok(first.key === 'lfgs0' && first.cells[5] === '✓' && first.cells[6] === '✓' && +first.cells[7] === 1.5, 'S5', '第 1 名＝CH1 最左＋正向＋RGB＋輸出對調、Mirror 0、資料／顏色 ✓、最長 drain 1.5（' + first.key + ' ' + first.cells.slice(1, 10).join(',') + '）');
     ok(all.filter(r => r.ok === '1' && +r.cells[7] < 1.5).length === 0, 'S5', '沒有比 1.5 更短的全對組合');
-    { const r2 = all.find(r => r.key === 'rrgs1'); ok(r2 && r2.cells[5] !== '✓' && r2.ok === '0', 'S5', 'v1.23.3：rrgs1（CH1 最右＋反向＋對調＋Mirror 1，最左收到 R5 不是 R-1）判資料錯：' + (r2 && r2.cells[5])); }
-    ok(all.filter(r => r.ok === '1').every(r => r.cells[9].charAt(0) === '0'), 'S5', 'v1.23.3：同事C所有全對組合都是 Mirror 0（Mirror 1 時最左收到的不是最小 pixel）');
+    /* v1.27.0（同事A 10/13：Mirror 不平移名稱）：取代 v1.23.3 兩條（rrgs1 判錯、全對都是 Mirror 0）。Mirror 1＋Driver 反接在物理上等同 Mirror 0，可以全對；
+       要求改成：Mirror 1 的全對組合不會比第 1 名好（最長 drain ≥ 1.5），第 1 名不需改 TCON。 */
+    ok(all.filter(r => r.ok === '1' && r.cells[9].charAt(0) === '1').every(r => +r.cells[7] >= 1.5) && !/需改/.test(first.cells[9]), 'S5', 'v1.27.0：Mirror 1 的全對組合最長 drain 都不小於第 1 名 1.5，第 1 名不需改 TCON（' + all.filter(r => r.ok === '1').map(r => r.key + ':' + r.cells[7]).join(' ') + '）');
     w.dmApplyCombo(first.key, false);
     /* 參考圖（BOE B4 27" QHD DataMapping_DualGate_BOE_HSD）：Data 線在 R1 左、G1|B1、R2|G2…；第 1 列上 TFT→右邊第二顆、下 TFT→右邊第一顆；
        第 2 列往左錯一條：上 TFT→左邊第二顆、下 TFT→左邊第一顆 ⇒ 依序 (D1：G1/R1｜G-1/B-1)、(D2：B1/R2｜G1/R1)、(D3：G2/B2｜B1/R2)… */
