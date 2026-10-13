@@ -2795,14 +2795,14 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20261013dg2410"></script>
+<script src="common/version.js?v=20261013dg2411"></script>
 <script src="common/i2c-bridge.js?v=20261012ib100"></script>
 <script src="common/done-step.js?v=20261001dg247"></script>
 <script src="common/i18n.js?v=20261012dg249"></script>
 <!-- v1.68.1：xlsx 產生器（原本在本頁，現在與 dg-selftest.html 共用）。
      🔴 必須在本頁的 inline script 之前載入。 -->
 <script src="common/xlsx.js?v=20260923dg1754"></script>
-<script src="common/dglut-fmt.js?v=20260930dg232"></script>
+<script src="common/dglut-fmt.js?v=20261013dg2411"></script>
 <script src="common/common.js?v=20260923dg1754"></script>
 <script>
 /* ════════════════════════════════════════════════════════════════════════
@@ -13885,7 +13885,54 @@
     if (!lastLut) return null;
     var body = lastLut.slice(0, lastLut.length - 1);
     var from = lastCtx ? lastCtx.cfg.hw : dgReadCfg().hw;
-    return dgScaleDepth(body, from, dgOutBit());
+    return dgLutFmtFit(dgScaleDepth(body, from, dgOutBit()), dgOutBit());
+  }
+
+  /* ═══ 🔴 v2.4.11（Bruce 2026-10-13，Barry 實機）：輸出一律是 T-CON 這個 LUT 模式的合法表 ═══════
+     Bruce：「如果是有 offset 限制的話，不管再怎麼變，你的 DGLUT 還是要符合 LUT 的定義才對啊，
+     也就是 Offset 開啟的定義才對。」—— Barry 量測時儀器沒對準畫面，算出 B 第 1 筆 0→500，
+     offset 6-bit 一筆最多 +63，自檢頁寫入時整張被擋。
+     ⇒ 約束放在**計算輸出**這一個出口（表格、一鍵複製、下載、即時更新全部走 dgOutLutBody），
+        不是寫入時才擋。規則與自檢頁寫入同一支 `TCONDgLutFmt.offsetFit()`（照瑞鼎 UI 原始碼）。
+     · offset：自檢頁送來的 IC 資訊說是 offset、且輸出深度 ＝ 機台深度 ⇒ 套 offsetFit
+       （10-bit ⇒ 6-bit offset，MAX 63、上限 1023；12-bit ⇒ 8-bit offset，MAX 255、上限 4095）。
+     · target：值域 0～2^depth−1 由 `dgScaleDepth()` 夾住，本來就合法，不另外動。
+     · 機台模式不知道（沒接自檢頁、或舊版自檢頁）⇒ 不動，`DG_OUT_FIT` 記成 null。
+     調整明細記在 `DG_OUT_FIT`，計算完成那一段會講「哪幾筆、從多少改成多少」。 */
+  var DG_OUT_FIT = null;
+  function dgLutFmtFit(body, outBit) {
+    DG_OUT_FIT = null;
+    if (!body || !DG_IC || DG_IC.lutMode !== 'offset' || DG_IC.lutDepth !== outBit) return body;
+    if (typeof TCONDgLutFmt === 'undefined' || !TCONDgLutFmt.offsetFit) return body;
+    var offMax = (outBit === 12) ? 255 : 63, valMax = Math.pow(2, outBit) - 1;
+    var cols = { r: [], g: [], b: [] };
+    body.forEach(function (r) { cols.r.push(r[0]); cols.g.push(r[1]); cols.b.push(r[2]); });
+    /* 附加末筆 ＝ 2^depth − 1（與自檢頁寫入時補的同一個值），一起進規則、出來再拿掉。 */
+    cols.r.push(valMax); cols.g.push(valMax); cols.b.push(valMax);
+    var fit = TCONDgLutFmt.offsetFit(cols, offMax, valMax, 252);
+    DG_OUT_FIT = { n: fit.n, perCh: fit.perCh, maxAbs: fit.maxAbs, text: TCONDgLutFmt.fitText(fit, 8),
+                   offMax: offMax, depth: outBit };
+    if (!fit.n) return body;
+    return body.map(function (r, i) { return [fit.rgb.r[i], fit.rgb.g[i], fit.rgb.b[i]]; });
+  }
+
+  /* ═══ v2.4.11：白灰階量測資料是否明顯異常（只警告，不擋計算；輸出仍由上面那一支保證合法）═══
+     Bruce 2026-10-13：Barry「故意把量測儀器對著天空，所以它實際上的亮度並不是正確的從 L0 到 L255」。
+     判準（任一成立）：
+       · 亮度範圍過小：最亮 ÷ 最暗（正值）< 10（正常面板白灰階是數百到數千倍）
+       · 最高階不是最亮：最後一階 < 最亮的 80%
+       · 明顯不單調：相鄰兩階亮度下降超過 5%（且超過最亮的 0.5%）的次數 > 階數的 5%
+     回傳 null（正常）或原因字串陣列。 */
+  function dgGrayAnomaly(grayxyY) {
+    var Y = (grayxyY || []).map(function (r) { return +r[2]; }).filter(function (v) { return isFinite(v); });
+    if (Y.length < 8) return null;
+    var max = Math.max.apply(null, Y), pos = Y.filter(function (v) { return v > 0; });
+    var min = pos.length ? Math.min.apply(null, pos) : 0, why = [], drops = 0, i;
+    for (i = 1; i < Y.length; i++) if (Y[i] < Y[i - 1] * 0.95 && (Y[i - 1] - Y[i]) > max * 0.005) drops++;
+    if (!(max > 0) || !(min > 0) || max / min < 10) why.push('亮度範圍過小（最亮 ÷ 最暗 ＝ ' + (min > 0 ? (max / min).toFixed(1) : '—') + '）');
+    if (Y[Y.length - 1] < max * 0.8) why.push('最高階不是最亮（L' + (Y.length - 1) + ' ＝ ' + Y[Y.length - 1].toFixed(3) + '，最亮 ' + max.toFixed(3) + '）');
+    if (drops > Y.length * 0.05) why.push('亮度不單調（下降 ' + drops + ' 次）');
+    return why.length ? why : null;
   }
 
   // 輸出深度／目標 TCON 改動後，表格與格式框要跟著重畫（結果本身不重算）
@@ -13975,7 +14022,11 @@
     var selB = $('dg-outbit');
     if (d.lutDepth === 10 || d.lutDepth === 12) {
       var opt = selB ? dgSelOption(selB, String(d.lutDepth)) : null;
-      if (opt && !opt.disabled) { selB.value = String(d.lutDepth); info.lutDepth = d.lutDepth; }
+      if (opt && !opt.disabled) {
+        selB.value = String(d.lutDepth); info.lutDepth = d.lutDepth;
+        /* v2.4.11：機台的 LUT 模式（自檢頁 v2.7.9 起送；舊版沒有 ⇒ null ⇒ 輸出不做 offset 約束）。 */
+        info.lutMode = (d.lutMode === 'offset' || d.lutMode === 'target') ? d.lutMode : null;
+      }
       else info.lutWhy = '機台是 ' + d.lutDepth + ' bit，但目標 TCON「' + (info.tcon || '未指定')
         + '」不支援這個輸出深度，這一格沒有被動到。';
     } else {
@@ -14071,7 +14122,8 @@
       dgAsResultFrcOverride = dgFrcOverride;
       dgSyncOutCard();                  // v1.14.0：有結果了，輸出卡片這時才出現
       dgRenderOutFmt();
-      dgFillLutTable(dgOutLutBody());   // v1.7.0：表格只給主表，且套用輸出深度
+      dgFillLutTable(dgOutLutBody());   // v1.7.0：表格只給主表，且套用輸出深度（v2.4.11：並約束成機台 LUT 模式的合法表）
+      var dgAnom = dgGrayAnomaly(data.grayxyY);   // v2.4.11
       /* v1.23.0：算完重畫時同樣把檔內色溫帶過去。data.grayT 的第一順位就是輸入框
          第 5 欄（dgGatherData），也就是匯入時寫進去的那一欄；沒有色度的來源就靠它。
          有 x／y 的來源這一份不會被用到（dgRenderMainCharts 的條件），逐值不變。 */
@@ -14082,6 +14134,13 @@
         + '下方表格與「一鍵複製 RGB」只給主表；附加末筆只會出現在下載的 LUT 檔（且由 TCON 格式決定要不要寫）\n'
         + '驅動上限碼 = ' + res.driveCeil + '　附加末筆 = ' + (Math.pow(2, cfg.lutbit) - 1) + '\n'
         + '修表事件 ' + res.log.filter(function (l) { return l.indexOf('Gray ') === 0; }).length + ' 筆\n'
+        /* v2.4.11：量測異常警告與 offset 合法化明細（Bruce 2026-10-13） */
+        + (dgAnom ? '⚠ 量測資料異常，請確認量測儀器有對準畫面後重新量測：' + dgAnom.join('；') + '。輸出的 LUT 仍已限制在 T-CON 格式內。\n' : '')
+        + (DG_OUT_FIT && DG_OUT_FIT.n
+          ? '⚠ T-CON 是 Offset 模式（前 252 筆每筆最多比前一筆多 ' + DG_OUT_FIT.offMax + '、不能下降）：算出來的表有 '
+            + DG_OUT_FIT.n + ' 筆不符合（R ' + DG_OUT_FIT.perCh.R + '、G ' + DG_OUT_FIT.perCh.G + '、B ' + DG_OUT_FIT.perCh.B
+            + ' 筆），輸出已依瑞鼎 UI 規則修成合法表：' + DG_OUT_FIT.text + '。下方表格、複製、下載與即時更新都是修正後的表。\n'
+          : (DG_OUT_FIT ? '✓ T-CON 是 Offset 模式：輸出的表符合 Offset 格式（前 252 筆每筆最多 +' + DG_OUT_FIT.offMax + '、不下降）。\n' : ''))
         + '第 1 部分的 LUT：' + dgPartBadgeInfo('lut').text
         /* v1.22.0：這一行要說對「為什麼是只調 Gamma」。原本寫死「三通道逐列相同」——
            被強制的那條路上 LUT 可能三通道不同，寫死就是在畫面上講一句假話。 */

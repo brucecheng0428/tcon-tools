@@ -114,5 +114,66 @@ var TCONDgLutFmt = (function () {
     return rows;
   }
 
-  return { STYLE: DG_TCON_STYLE, TCON: DG_TCON, fmtFromTcon: dgFmtFromTcon, lutRowsForFmt: dgLutRowsForFmt };
+
+  /* ═══ 🔴 2026-10-13：T-CON LUT 格式約束的單一來源（dg.html 計算輸出與 dg-selftest.html 寫入共用）═══
+     Bruce 2026-10-13：「如果是有 offset 限制的話，不管再怎麼變，你的 DGLUT 還是要符合 LUT 的定義才對」
+     ⇒ T-CON 在 offset 模式時，DG 算出來的表一律先套這一支，輸出（表格、複製、下載、即時更新）都是合法表。
+     規則逐行照 EM02 `App/Table/RApp_Table.cpp`（E512 同名函式相同）：
+       ① `RApp_Table_GAMMA_LUT_Case_Check_Handler()`（:11919）：每個 channel 先正向 idx 0→256、
+          再反向 256→0，各跑一次：夾上限（6-bit offset 1023／8-bit offset 4095）；
+          idx 0 比下一筆大 ⇒ 下一筆；1 ≤ idx < 252：比前一筆多超過 MAX（63／255）⇒ 前一筆＋MAX，
+          比前一筆小 ⇒ 前一筆，比下一筆大 ⇒ 下一筆（三條依序）；idx ≥ 252 只夾上限。
+       ② `RApp_Table_GAMMA_OFFSET_LUT_Gen()`（:12071）：idx 0 的 offset ＝ 值本身（基準 0，
+          與 `BIN_To_Data_Gamma` 的 `+ 0` 一致）；其餘 ＝ 值 − min(前一筆, 值)，再夾 MAX。
+     ⇒ 回傳 T-CON 實際會存的表：前 252 筆 ＝ ② 的 offset 累加；252～256 ＝ ① 之後的絕對值。
+        合法的表進來原樣出去（逐值不變）。
+     cols：{ r, g, b } 每個 257 筆（主表 256 ＋ 附加末筆）；offMax 63／255；valMax 1023／4095；
+     offN 252（原廠迴圈上界 `:18144`／`:18203`）。
+     回傳 { rgb, list:[{ch,i,from,to}]（依筆數排序）, n, perCh:{R,G,B}, maxAbs }。 */
+  function offsetFit(cols, offMax, valMax, offN) {
+    var chans = ['r', 'g', 'b'], out = {}, list = [], perCh = { R: 0, G: 0, B: 0 }, maxAbs = null, ci;
+    offN = offN || 252;
+    for (ci = 0; ci < 3; ci++) {
+      var src = cols[chans[ci]], v = src.slice(), n = v.length, idx;
+      var rule = function (k) {
+        if (v[k] > valMax) v[k] = valMax;
+        if (v[k] < 0) v[k] = 0;
+        if (k === 0) { if (n > 1 && v[0] > v[1]) v[0] = v[1]; }
+        else if (k < offN) {
+          if (v[k] - v[k - 1] > offMax) v[k] = v[k - 1] + offMax;
+          if (v[k] < v[k - 1]) v[k] = v[k - 1];
+          if (v[k] > v[k + 1]) v[k] = v[k + 1];
+        }
+      };
+      for (idx = 0; idx < n; idx++) rule(idx);
+      for (idx = n - 1; idx >= 0; idx--) rule(idx);
+      var eff = v.slice(), acc = 0;
+      for (idx = 0; idx < offN && idx < n; idx++) {
+        var cur = v[idx], prev = (idx === 0) ? 0 : v[idx - 1];
+        var lo = (prev > cur) ? cur : prev, d = cur - lo;
+        if (d > offMax) d = offMax;
+        acc += d; eff[idx] = acc;
+      }
+      out[chans[ci]] = eff;
+      for (idx = 0; idx < n; idx++) {
+        if (eff[idx] !== src[idx]) {
+          var C = chans[ci].toUpperCase(), it = { ch: C, i: idx, from: src[idx], to: eff[idx] };
+          list.push(it); perCh[C]++;
+          if (!maxAbs || Math.abs(it.to - it.from) > Math.abs(maxAbs.to - maxAbs.from)) maxAbs = it;
+        }
+      }
+    }
+    list.sort(function (a, b) { return a.i - b.i || (a.ch < b.ch ? -1 : a.ch > b.ch ? 1 : 0); });
+    return { rgb: out, list: list, n: list.length, perCh: perCh, maxAbs: maxAbs };
+  }
+  /* 「明細」字串：前 k 筆 `B[1] 500→2`，其餘以 … 表示。 */
+  function fitText(fit, k) {
+    k = k || 8;
+    var a = fit.list.slice(0, k).map(function (t) { return t.ch + '[' + t.i + '] ' + t.from + '→' + t.to; });
+    if (fit.n > k) a.push('…');
+    return a.join('、');
+  }
+
+  return { STYLE: DG_TCON_STYLE, TCON: DG_TCON, fmtFromTcon: dgFmtFromTcon, lutRowsForFmt: dgLutRowsForFmt,
+           offsetFit: offsetFit, fitText: fitText };
 })();
