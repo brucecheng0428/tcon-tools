@@ -101,7 +101,7 @@ console.log('── code 表（D2:R31）＝網頁 T 表解碼');
     ok(QA2('.dm-grid select.dm-oor').length === 0, '全民 24 格都在 code 表定義範圍內（Mirror 名稱整行反轉後，範圍照基準＋1 張表）');
     ok([0, 1, 2, 3].every(r => [0, 1, 2, 3, 4, 5].every(c => $('dm-c' + r + '-' + c).getAttribute('data-t') === '2')) && /基準未確定/.test($('dm-tsum').textContent) && /最低那張/.test($('dm-tsum').textContent) && /T1 2 格超出、T2 全在範圍內、T3 全在範圍內、T4 全在範圍內、T5 全在範圍內/.test($('dm-tsum').textContent)
       && !/預設|當 T2|暫以 T2|與 T2 一致/.test($('dm-tsum').textContent)
-      && QA2('.dm-tt').every(e => e.textContent === 'T2?'),
+      && QA2('.dm-tt').every(e => (e.querySelector('.dm-tt-w') || e).textContent === 'T2·推定'),   // v1.24.0：「T2?」改成看得懂的「T2·推定」（Bruce 10/13）
       'v1.17.1：0x1F 多 bit ⇒ 標「基準未確定」，依已點亮 code 反推（有設的 bit 中 24 格全在範圍內的最低那張＝T2），列出候選 T1~T5；不再說預設 T2（v1.18.13 起不列依據出處）：' + $('dm-tsum').textContent);
     ok(!$('dm-pmrow').classList.contains('hidden') && $('f-mirror').checked && !$('f-chrb').checked && $('dm-pvflags').textContent.indexOf('Mirror＝1') === 0, 'Mirror／CHRB 等設定在 ② 上方（和 Hand Mode 同層）可見；③ 標示 Mirror＝1');
     const sc0 = w.dmBuildScript().text;

@@ -2,6 +2,29 @@
 
 ---
 
+## Data Mapping (datamap) v1.24.0 — 2026-10-13 ｜ MINOR
+
+判定依據：`docs/VERSIONING.md` §1 新增功能（FORCE_DE_SEL 換算、T 使用分析、連線區步驟說明）⇒ MINOR；既有操作與輸出（匯出 script、寫入、表格名稱）不變，不掛 `⚠ 輸出變更`。
+
+### 起因（Bruce 2026-10-13）
+> 第一步驟連線的地方：現在雖然多了 I2C bridge 的下載連結，可是應該要像 I2C 網頁那樣，不是只提供下載，還要教導要怎麼樣應用，最好有步驟的說明，做得跟 I2C 網頁一模一樣。
+> 第二步驟 force_de_sel：輸入的數值要可以轉成 T 幾跟 T 幾 or 使用…設定 3 應該是 T2 跟 T1…設定 5 應該就是 T3 跟 T1…要可以把它顯示在基準未確定的下拉選單裡。右下角多一個 T2上?、T3下? 是什麼意思？force_DE_SEL 是多個 T 在做 OR，有辦法解析 T 幾到底是怎麼使用嗎？
+
+### 內容
+- `common/i2c-bridge.js` v1.1.0：`mountNeed()` 改畫 i2c.html 同一套「沒有 I2C Bridge」提示——下一步一句、i2c.html `#dl` 同樣式的大下載鈕＋原因、三步驟（解壓→雙擊 i2c-bridge.exe→回來按連線）、「同一支程式」、「跑不起來／連不上？」疑難排解；按下載跳出與 i2c.html `#howto` 相同的說明視窗（標題 24px、步驟 22px）。文字直接取 `common/i18n.js` 的 `i2c.howto1~3`、`i2c.howtoTitle`、`i2c.dlShared`、`i2c.tsTitle／tsBody`、`i2c.nxGetBridge`（i2c.html 用的同一份鍵），沒載 i18n.js 的頁面退回模組內備援字。新增 `showHowto／hideHowto／wireHowto`。datamap ① 的「沒有 I2C Bridge？下載」小連結按下也會跳這個說明視窗。
+- `common/datamap-core.js`：`deSelTs／deSelText`（bit n＝T(n+1)，出處：EM02A1_RegisterBank.model force_de_sel「[0]~[5]: de phase 0~5」＋Kick Off「Data hand mode」D1:G1；與 Bruce 例子一致：3＝T1|T2、5＝T1|T3、14＝T2|T3|T4）、`mntTUse`（T 使用分析）。
+- datamap.html：FORCE_DE_SEL 輸入框旁即時顯示「→ T1 | T2」；多 bit 時「基準未確定」下拉改顯示「T1 | T2（0x03）· 顯示用 T2」；FORCE_DE_EN＝1 且多 bit／0 時，T 表摘要下方加「T 使用分析」（每個設了的 T 用到幾格、哪幾格；設了沒用到的 T；超出全部設了的 T 的格子）。
+- 表格格子右下角 `T2上?`／`T3下?` 改成 `T2·上 gate`／`T3·下 gate·推定`（手機窄螢幕用短字 `T2上·推`，避免蓋住格子名稱），圖例加一行說明；Hand Mode 關等空白格不再留上一次的 T 標示。
+
+### 限制（照實寫）
+- 原廠資料只定義 FORCE_DE_SEL 只設一個 bit；多 bit 時晶片實際是 OR、取最低或其他行為沒有資料。T 使用分析是依 code 表範圍（code＜6×(T＋1)）推定，未經實機量測；表格名稱仍用既有的基準 T（`mntBaseT`）顯示，行為不變。
+
+### 測試
+- `tools/check_datamap_kickoff.js` 全民 0x1F 的格子標示斷言由 `T2?` 改為 `T2·推定`（標示文字改了，判定不變）。
+- 新增 `tools/check_datamap_desel.js`：0~63 全部換算、3／5／14 例子、T 使用分析（合成 code）與頁面（jsdom）輸入框／下拉／分析區／格子標示／連線提示步驟與說明視窗。
+
+---
+
 ## Data Mapping (datamap) v1.23.3 — 2026-10-12 ｜ PATCH
 
 **⚠ 輸出變更：排列組合統計的「資料正確」加硬條件「左小右大、最左＝表格最小 pixel」；子像素軸名稱改由表格最小 pixel 起算。同事C code 第 2 名 rrgs1（CH1 最右＋反向＋對調＋Mirror 1）改判資料錯（最左收到 R5，不是 R-1），新第 2 名 lfgn0。**
