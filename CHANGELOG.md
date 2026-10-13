@@ -2,6 +2,29 @@
 
 ---
 
+## Data Mapping (datamap) v1.26.0 — 2026-10-13 ｜ MINOR
+
+**⚠ 輸出變更：MNT 型號 FORCE_DE_EN＝1 且 FORCE_DE_SEL 多 bit 時，表格名稱改從「最小設 1 的 bit」那一欄起算（全民 0x1F：第 2 欄 → 第 1 欄，名稱用到 B-3 等左側 dummy）。0x0E（同事C、RM80120、Python UI 預設）起始欄本來就是第 2 欄，不變。**
+
+判定依據：解讀規則改變（新的 RD 定義）＋顯示用語全面改寫 ⇒ MINOR＋`⚠ 輸出變更`（依 Dispatch 指定 MINOR）。
+
+### 起因（Bruce 2026-10-13）
+> 它不是從 T 幾開始就只能用 T 幾，它永遠都是從 T1 開始，只是從哪一欄開始而已。
+> 之前不是有說過，不要用全民的 Data mapping 參考圖？因為前面其實有多了很多 dummy，全民的那張圖是錯的。……可能會用到 R-4、R-3 之類的嗎？甚至是 R-6、R-5，全民這支。
+> （RD：data 永遠都是從 T1 開始……設定 14 代表最前面那一行不用，T1 移到第二行才開始用；31 其實 T1 就在最前面那行。）
+
+### 內容
+- `datamap-core.js`：`mntBaseT` 多 bit ⇒ T1 起始欄＝最小設 1 的 bit＋1（不再依 code 反推「24 格都在範圍內的最低那張」；值 0 仍反推）。`mntInRange` 改成 code 0~29 每一欄都有定義（Excel／Pool 表空白處照「每 2 pixel 一組、上小下大、往下遞減、無 0」往左延伸到 dummy，mntIdx 公式本來就是這個規律）；新增 `mntInTable`（Excel 表上有列出的範圍，只供說明）。`mntKeepT` 只剩值 0 要擋。
+- datamap.html 用語改成 RD 說法：輸入框旁／下拉「（0x0E）→ T1 從 Pool 第 2 欄開始」、單 bit 選項「T1 從第 N 欄」、「起始欄未確定」；T 表摘要「T1 起始欄：第 N 欄；Line x-1 T1＝第 N 欄、Line x-2 T2＝第 N+1 欄」；T 使用分析（T1、T2…＝同一條 Line 往右分段，列「T1＝第 2 欄（n 格）」）；格子標示「T1·第2欄·上 gate」（窄螢幕「T1欄2上」）；圖例、tooltip、ⓘ 說明同步。拿掉「可用 T2|T3|T4」「基準 T2」等字。
+- Zigzag／HSD 與 1D1G 表的起始欄差異（Excel 範例）未套用，等 同事A 回覆再進一版。
+
+### 驗證
+- 全民不再比 DataMapping 參考圖（Bruce：參考圖少畫左側 dummy）：`check_datamap_kickoff --qm 全民` 原本「＝參考圖」的 61 個斷言改為只列出（okRef，不計），新增：每列名稱連續無重疊、T1 從第 1 欄、排列組合第 1 名資料與顏色正確。
+- `check_datamap_desel` 改成新規則（code 表往左延伸，不再換欄／警告；文字斷言改成「T1 從第 N 欄」、畫面不出現「可用 T／基準 T」）。
+- desel 114、check_datamap 282、kickoff（--qm 全民）27＋參考列出、nbfields 17：0 fail。
+
+---
+
 ## Data Mapping (datamap) v1.25.2 — 2026-10-13 ｜ PATCH
 
 **⚠ 輸出變更：E501A／E501B／DAZ6138／DAZ6139 改表格時 FORCE_DE_SEL 恢復寫回 0x0E（照瑞鼎 Python UI；撤回 v1.25.1 的「只有 E503」）。MNT 不動。**

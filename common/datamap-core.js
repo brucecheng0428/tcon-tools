@@ -670,16 +670,22 @@
     /* FORCE_DE_EN＝0（auto de phase）：EM02 原廠 RT7 清單 33 型（de_en＝0）算出的 Line OD 只有以 T2 解碼才和原廠 Line OD Type 一致
        （tools/check_datamap_auto.js；EM02 RApp_TX.h:533-566 ⇔ RApp_Table.h Line OD）⇒ auto 時以 T2 解讀（依 EM02 反推；EM01／E512 比照推定）。 */
     if (!(s.deEn | 0)) return { t: 2, why: 'auto' };
-    /* 多 bit：在有設的 bit 裡，取 24 格全在 code 表範圍內的最低那張（全民 0x1F ⇒ T2、同事C 0x0E ⇒ T2，依已點亮 code 反推）；值 0 ⇒ T1~T6 全部試
-       ⚠ 2026-10-13 Bruce 要求改成「從最小 bit 起算」；實測全民 0x1F（Mirror 1）以 T1 解讀時 24 格都超出 T1 的 code 表、名稱與 DataMapping 參考圖不符，
-       改動暫緩、回報待決定（見 CHANGELOG v1.25.2）。 */
-    var f = mntFitT(s, gate || mntGateOfS(s), v || 0);
-    return { t: f.t, why: v ? 'multi' : 'zero', fit: f.out };
+    /* v1.26.0（Bruce 10/13 決定，依 RD：「data 永遠都是從 T1 開始…14 代表最前面那一行不用，T1 移到第二行才開始用；31 其實 T1 就在最前面那行」）：
+       多 bit ⇒ T1 起始欄＝最小設 1 的 bit＋1（0x0E＝第 2 欄、0x1F＝第 1 欄），不再依 code 反推（取代 v1.17.1「24 格都在範圍內的最低那張」）。
+       全民 0x1F 因此從第 1 欄解讀，名稱會用到 R-3～R-6 等左側 dummy（Bruce：全民的 DataMapping 參考圖少畫了前面的 dummy，不可當驗證基準）。
+       值 0（沒有設任何 bit）⇒ 仍依 code 反推。回傳值 t＝起始欄（＝mntIdx 用的欄號）。 */
+    if (v) { var lo = 0; while (!(v & (1 << lo))) lo++; return { t: lo + 1, why: 'multi', fit: 0 }; }
+    var f = mntFitT(s, gate || mntGateOfS(s), 0);
+    return { t: f.t, why: 'zero', fit: f.out };
   }
   function mntTOf(s, gate, row) { return mntBaseT(s, gate).t + (gate === 'dual' && (row & 1) ? 1 : 0); }
   /* v1.17.1：code 表有定義的範圍（Kick Off「Data hand mode」D2:R31／E512_V512 圖解 code 表：T 欄只列到 code＜6×(T＋1)，再往左＝空白），
      多 bit FORCE_DE_SEL 時逐一列出候選基準 T 的超出格數（原廠未定義多 bit 用哪張；換基準只會整體平移 2 pixel 的倍數） */
-  function mntInRange(T, code) { code = code | 0; return code === 31 || (code >= 0 && code < Math.min(30, 6 * (T + 1))); }
+  /* v1.26.0：Excel code 表（Kick Off「Data hand mode」、E512／EM01A1 diagram、Pool 表）每欄只列到 code＜6×(欄＋1)，最左只畫到 R-2；
+     Bruce 10/13（附瑞鼎 UI 照片）：空白處都是負的，照「每 2 pixel 一組、上小下大、往下遞減、沒有 0」延伸，可以用到 R-3、R-4…R-6 等左側 dummy；
+     mntIdx 的公式本來就是這個規律 ⇒ code 0~29 在每一欄都有定義。mntInTable 保留「Excel 表上有列出」的範圍，只作說明用。 */
+  function mntInRange(T, code) { code = code | 0; return code === 31 || (code >= 0 && code < 30); }
+  function mntInTable(T, code) { code = code | 0; return code === 31 || (code >= 0 && code < Math.min(30, 6 * (T + 1))); }
   function mntRel(gate, row) { return gate === 'dual' && (row & 1) ? 1 : 0; }
   /* Mirror＝1：名稱整行反轉後＝Kick Off 命名往後 gate 數張表（Single＋1、Dual＋2），範圍也照那張表判斷 */
   function mntMirT(s, gate) { return (s && (s.mirror | 0)) ? (gate === 'dual' ? 2 : 1) : 0; }
@@ -841,7 +847,7 @@
   function mntKeepT(key, s, names, apply) {
     if (MODELS[key].kind !== 'mnt') return names;
     var g = gateOf(key, s); if (g !== 'single' && g !== 'dual') return names;
-    var b = mntBaseT(s, g); if (b.why !== 'multi' && b.why !== 'zero') return names;
+    var b = mntBaseT(s, g); if (b.why !== 'zero') return names;   // v1.26.0：多 bit 的起始欄固定＝最小 bit，不隨格子改變 ⇒ 只剩值 0 要擋
     return names.filter(function (n) { if (n === 'X') return true; var r = apply(n); return !!r && mntBaseT(r.state, g).t === b.t; });
   }
   /* 下拉選某個名稱。與 editCell 的差別只有一處：Dual 的 Line 1-2／2-2 接受 GN2 名稱（R5／R6…），
@@ -1330,7 +1336,7 @@
     emptyState: emptyState, cloneState: cloneState, decode: decode, encode: encode, encodeFields: encodeFields,
     changedIds: changedIds, diffRegs: diffRegs, regsOf: regsOf, maskedMerge: maskedMerge,
     gateOf: gateOf, gateText: gateText, cellView: cellView, editCell: editCell, applyNames: applyNames, allSame: allSame,
-    mntName: mntName, mntIdx: mntIdx, linName: linName, linIdx: linIdx, codeIdx: codeIdx, rbSwapName: rbSwapName, mntBaseT: mntBaseT, mntTOf: mntTOf, mntInRange: mntInRange, mntRel: mntRel, mntCands: mntCands, mntMirT: mntMirT, deSelTs: deSelTs, deSelText: deSelText, deSelBase: deSelBase, tUse: tUse,
+    mntName: mntName, mntIdx: mntIdx, linName: linName, linIdx: linIdx, codeIdx: codeIdx, rbSwapName: rbSwapName, mntBaseT: mntBaseT, mntTOf: mntTOf, mntInRange: mntInRange, mntInTable: mntInTable, mntRel: mntRel, mntCands: mntCands, mntMirT: mntMirT, deSelTs: deSelTs, deSelText: deSelText, deSelBase: deSelBase, tUse: tUse,
     setGate: setGate, setHand: setHand, pyNormalize: pyNormalize, pyNames: pyNames, cks: cks, preLabels: preLabels,
     inputDict: inputDict, colorOfName: colorOfName, codeAddrs: codeAddrs, byteOf: byteOf, regNote: regNote, fieldsAt: fieldsAt,
     applyPreset: applyPreset, matchPreset: matchPreset, PRESET_SECOND: PRESET_SECOND, presetHasSecond: presetHasSecond,
