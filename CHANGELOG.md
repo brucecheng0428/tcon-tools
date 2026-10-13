@@ -123,6 +123,25 @@
 
 ---
 
+## Data Mapping (datamap) v1.27.5 — 2026-10-13 ｜ PATCH
+
+判定依據：只改 Auto 模式的 Type 名稱顯示，接線、排名不變 ⇒ PATCH。
+
+### 起因（Bruce 2026-10-13）
+> 都已經說是用 Auto 了，Auto 就應該是照 BOE 的那個 Type 4 Z-ZAG。……RT7 顯示名稱依你建議。
+
+### 依據
+- EM02A1_RegisterBank.model:18192 reg_force_sel_en「0: disable (auto setting data mapping)」；:18128 sub_panel_mode；:18200 force_de_en 是獨立的 de phase 開關。
+- EM02 UI：Type_select 清單（RApp_TX.h:530-567）是預設組合表，讀檔後全欄反查（RApp_TX.cpp:10947-11091，含 force_de_en／force_de_sel），不全符就 (33)；Panel_mode／子類型直接讀暫存器顯示（:9112-9118、:9176）。同事Q（HSD＋type4+BOE zigzag＋chrb＝1、force_de_en＝1／0x0E）在 UI＝(33)，網頁原本只比 4 欄＝(26)。
+
+### 內容
+- MNT Auto（Hand 關）時，RT7 Type 那格顯示「Auto：<Panel_mode>＋<子類型>（chrb＝x、mirror＝y）」（例：Auto：HSD＋type4+BOE zigzag（chrb＝1、mirror＝0）），不再顯示 26／27／33；清單仍可選原廠預設組合。
+- EM02／E512 Auto 也比照 EM01 顯示 Panel_mode＋子類型下拉（可改）。EM01 Auto 維持原樣。Hand 開維持原本 RT7 清單（全欄比對）。
+- 接線與排名不變（同事Q第 1 名、全民 BOE 24/24 與第 1 名 Mirror 1、同事C 1.5 已驗證）。
+- 測試：kickoff「EM02 Auto 仍是單一清單」改為「EM02 Auto 顯示 Auto：… 並顯示 Panel_mode／子類型」。auto 測試的 MNT Auto 選項改驗「Auto：…」＋data-rt7（原廠預設組合索引）。
+
+---
+
 ## Data Mapping (datamap) v1.27.4 — 2026-10-13 ｜ PATCH
 
 判定依據：匯入後的預設顯示調整（不改解碼、不改 code）⇒ PATCH。
