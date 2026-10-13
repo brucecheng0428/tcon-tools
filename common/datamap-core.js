@@ -685,6 +685,28 @@
     var v = (s.deSel | 0) & 0x3F, ts = [], mo = mntMirT(s, gate); for (var b = 0; b < 6; b++) if (v & (1 << b)) ts.push(b + 1);
     return ts.map(function (T) { var n = 0; for (var i = 0; i < 24; i++) if (!mntInRange(T + mo + mntRel(gate, Math.floor(i / 6)), s['c' + i])) n++; return { t: T, out: n }; });
   }
+  /* v1.24.0（Bruce 10/13「設定 3 應該是 T2 跟 T1 兩個是 or；設定 5 就是 T3 跟 T1」）：FORCE_DE_SEL 換算成 T 組合。
+     規格：EM02A1_RegisterBank.model force_de_sel 6 bit「[0]~[5]: de phase 0~5」＋Kick Off「Data hand mode」D1:G1＝0001／0010／0100／1000＝T1～T4
+     ⇒ bit n ＝ T(n+1)，與 Bruce 的例子一致（3＝T1|T2、5＝T1|T3、14＝T2|T3|T4）。原廠只定義 one-hot；多 bit 時晶片怎麼用（OR？取最低？）原廠資料沒寫。 */
+  function deSelTs(v, bits) { v = (v | 0) & ((1 << (bits || 6)) - 1); var ts = []; for (var b = 0; b < (bits || 6); b++) if (v & (1 << b)) ts.push(b + 1); return ts; }
+  function deSelText(v, bits) { var ts = deSelTs(v, bits); return ts.length ? ts.map(function (t) { return 'T' + t; }).join(' | ') : ''; }
+  /* T 使用分析：多個 T 時，每格的 code 只在「code＜6×(T＋1)」的 T 表有定義（mntInRange；Kick Off／E512 code 表）。
+     每格取「設了的 T 裡，能解這個 code 的最低那張」＝這格用到的 T；設了但沒有任何格子用到的 T 列為「沒用到」；
+     沒有任何設了的 T 能解的格子列為「超出」。X（31）不需要 T，不列。依 code 表範圍推定，不是晶片實測。 */
+  function mntTUse(s, gate) {
+    var g = gate || mntGateOfS(s), ts = deSelTs(s && s.deSel, 6), mo = mntMirT(s, g), per = {}, out = [], need = [];
+    ts.forEach(function (t) { per[t] = []; });
+    for (var i = 0; i < 24; i++) {
+      var row = Math.floor(i / 6), col = i % 6, code = s['c' + i] | 0, rel = mntRel(g, row);
+      if (code === 31) continue;
+      var cell = { i: i, row: row, col: col, code: code }, minT = null;
+      for (var T = 1; T <= 6; T++) if (mntInRange(T + mo + rel, code)) { minT = T; break; }
+      cell.minT = minT; need.push(cell);
+      var by = null; for (var k = 0; k < ts.length; k++) if (mntInRange(ts[k] + mo + rel, code)) { by = ts[k]; break; }
+      if (by) per[by].push(cell); else out.push(cell);
+    }
+    return { gate: g, ts: ts, per: per, unused: ts.filter(function (t) { return !per[t].length; }), out: out, cells: need };
+  }
   function mntName(gate, row, code, mirror, base) {
     if (code === 31) return 'X';
     if (code < 0 || code > 29) return null;
@@ -1291,7 +1313,7 @@
     emptyState: emptyState, cloneState: cloneState, decode: decode, encode: encode, encodeFields: encodeFields,
     changedIds: changedIds, diffRegs: diffRegs, regsOf: regsOf, maskedMerge: maskedMerge,
     gateOf: gateOf, gateText: gateText, cellView: cellView, editCell: editCell, applyNames: applyNames, allSame: allSame,
-    mntName: mntName, mntIdx: mntIdx, linName: linName, linIdx: linIdx, codeIdx: codeIdx, rbSwapName: rbSwapName, mntBaseT: mntBaseT, mntTOf: mntTOf, mntInRange: mntInRange, mntRel: mntRel, mntCands: mntCands, mntMirT: mntMirT,
+    mntName: mntName, mntIdx: mntIdx, linName: linName, linIdx: linIdx, codeIdx: codeIdx, rbSwapName: rbSwapName, mntBaseT: mntBaseT, mntTOf: mntTOf, mntInRange: mntInRange, mntRel: mntRel, mntCands: mntCands, mntMirT: mntMirT, deSelTs: deSelTs, deSelText: deSelText, mntTUse: mntTUse,
     setGate: setGate, setHand: setHand, pyNormalize: pyNormalize, pyNames: pyNames, cks: cks, preLabels: preLabels,
     inputDict: inputDict, colorOfName: colorOfName, codeAddrs: codeAddrs, byteOf: byteOf, regNote: regNote, fieldsAt: fieldsAt,
     applyPreset: applyPreset, matchPreset: matchPreset, PRESET_SECOND: PRESET_SECOND, presetHasSecond: presetHasSecond,
