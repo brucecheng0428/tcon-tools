@@ -239,6 +239,10 @@
     align-items: center; justify-content: center;
   }
   .dg-modal.open { display: flex; }
+  /* v2.4.12：放大檢視（#dg-modal：圖表／表格）一定疊在其他浮動視窗上面。它在 DOM 裡排在最前面，
+     同為 z-index 900 時會被後面的 #dg-modal-gray／-lut／-conf… 蓋住 —— 從那些視窗裡按 ⤢ 會開在後面、
+     看不到也點不到「關閉」。Escape 也改成先收它（見 init 的 keydown）。 */
+  #dg-modal { z-index: 950; }
   .dg-modal-box {
     display: flex; flex-direction: column; width: 100%; max-width: 900px; max-height: 100%;
     background: var(--card); border: 1.5px solid #334155; border-radius: 12px; overflow: hidden;
@@ -1006,7 +1010,7 @@
     var h = (location.hash || '').replace('#', '');
     if (!m && (h === 'cmp' || h === 'dg-cmp')) m = 'cmp';
     /* v2.3.0：?view=cmp ＝「光學資料比較」唯讀檢視（量測頁視窗的「查看光學資料比較 ↗」開的）。
-       第一次 paint 就只剩比較分頁，見 dgInit() 裡 DG_VIEW 那一段。 */
+       第一次 paint 就只剩比較分頁，見 dgInit() 裡 DG_VIEW_ONLY 那一段。 */
     var v = p.get('view');
     if (v === 'cmp' || v === 'compare') { m = 'cmp'; document.documentElement.setAttribute('data-dg-view', 'cmp'); }
     if (!m) m = sessionStorage.getItem('dg_active_mode') || '';
@@ -2795,7 +2799,7 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20261013dg2411"></script>
+<script src="common/version.js?v=20261013dg2412"></script>
 <script src="common/i2c-bridge.js?v=20261012ib100"></script>
 <script src="common/done-step.js?v=20261001dg247"></script>
 <script src="common/i18n.js?v=20261012dg249"></script>
@@ -10689,9 +10693,11 @@
 
   // 浮動視窗現在有兩種內容（表格／圖表），關閉走同一個入口分派。
   function dgModalClose() {
+    /* v2.4.12：收尾（清圖例、縮放堆疊、解綁）若出錯也一定要把視窗關掉 —— 關閉鈕不能因為
+       清理步驟的例外而失效（Bruce 10/13「點了關閉按鈕也關不掉」）。例外照樣丟出，console 看得到。 */
     if (DG_ZOOM_CHART) {
-      dgChartZoomClose();
-      $('dg-modal').classList.remove('open');
+      try { dgChartZoomClose(); }
+      finally { DG_ZOOM_CHART = null; $('dg-modal').classList.remove('dg-modal-chart'); $('dg-modal').classList.remove('open'); }
       return;
     }
     dgGridCloseModal();
@@ -10995,6 +11001,8 @@
          關掉 ＝ 不收，而且在等它的那條匯入流程要接著跑（dgUniAnswer 會執行 done）。 */
       var uni = $('dg-modal-uni');
       if (uni && uni.classList.contains('open')) { dgUniAnswer(false); return; }
+      /* v2.4.12：放大檢視疊在最上層（CSS #dg-modal z-index 950），Escape 先收它，不去收它底下那個視窗。 */
+      if ($('dg-modal').classList.contains('open')) { dgModalClose(); return; }
       var stepModals = ['dg-modal-lut', 'dg-modal-gray', 'dg-modal-prim', 'dg-modal-slot', 'dg-modal-conf'];
       for (var i = 0; i < stepModals.length; i++) {
         var sm = $(stepModals[i]);
@@ -11925,7 +11933,7 @@
   }
   var dgDoneReadyT = 0;
   function dgDoneStepsSync() {
-    if (typeof TCONDoneStep === 'undefined' || DG_VIEW) return;
+    if (typeof TCONDoneStep === 'undefined' || DG_VIEW_ONLY) return;
     /* 載入頁面時（自動還原上一次的資料）只收、不捲；那一陣子過去之後才開始「往後走 ⇒ 捲到新的那一步」。 */
     if (!DG_DONE_READY && !dgDoneReadyT) dgDoneReadyT = setTimeout(function () { DG_DONE_READY = true; }, 800);
     var cur = dgFsCur(), need = DG_PARTS_BY_TONE[dgToneMode()], typing = false;
@@ -14498,14 +14506,18 @@
      沒有路由、沒有第二份狀態 —— DG_SLOTS 與 DG_CCT_MODE 都是同一份，切分頁不動它們。 */
   var DG_MODE = 'main';
   /* v2.3.0：dg.html?view=cmp ＝「光學資料比較」唯讀檢視（見 dgViewInit）。載入當下定案、之後不變。 */
-  var DG_VIEW = (function () {
+  /* v2.4.12：原名 DG_VIEW，與上方放大檢視的縮放堆疊 `var DG_VIEW = {}` 同名（同一個 IIFE，var 會合併成一個），
+     這裡的 true／false 蓋掉了那個物件 ⇒ 放大檢視按「關閉」時 DG_VIEW[id] = [] 在 strict mode 丟 TypeError，
+     視窗關不掉（Bruce 10/13「放大以後就關不掉」「點了關閉按鈕也關不掉」）；滾輪／框選／還原也一起壞。
+     🔴 改名成 DG_VIEW_ONLY，DG_VIEW 只留給縮放堆疊。tests/dgself ZM 情境會檢查 DG_VIEW 是物件、頂層 var 不重名。 */
+  var DG_VIEW_ONLY = (function () {
     try { var v = new URLSearchParams(location.search).get('view'); return v === 'cmp' || v === 'compare'; }
     catch (e) { return false; }
   })();
   var DG_VIEW_N = -1;   // 唯讀檢視目前顯示幾組（-1 ＝ 讀不到存檔）；驗證用
 
   function dgSwitchMode(mode) {
-    if (DG_VIEW) mode = 'cmp';   // v2.3.0：唯讀檢視只有比較分頁
+    if (DG_VIEW_ONLY) mode = 'cmp';   // v2.3.0：唯讀檢視只有比較分頁
     // v1.31.0：多一個 'conv'（RGB LUT 深度轉換）
     if (mode !== 'main' && mode !== 'cmp' && mode !== 'conv') mode = 'main';
     DG_MODE = mode;
@@ -16436,7 +16448,7 @@
     /* 量測頁把結果送回來。🔴 只收同源、且格式對得上的訊息 —— origin 是明確比對，
        量測頁那一端送出時也不用 '*'。 */
     window.addEventListener('message', function (e) {
-      if (DG_VIEW) return;   // v2.3.0：唯讀檢視不收任何訊息（不可能變成第二個 DG）
+      if (DG_VIEW_ONLY) return;   // v2.3.0：唯讀檢視不收任何訊息（不可能變成第二個 DG）
       if (e.origin !== window.location.origin) return;
       var d = e.data;
       /* v1.46.0：版號回報。🔴 來源必須真的是我們手上那個量測分頁 ——
@@ -16915,7 +16927,7 @@
        🔴 所以這一段套的是 dgAsCompose(wrap, **null**)：共用的那一份配一份空白主分頁。 */
     /* v2.3.0：唯讀檢視到這裡就停 —— 不做下面的還原橫幅、不掛輸入掛點、**不打開自動保存**
        （_dgAsEnabled 一直是 false ⇒ 這個分頁一個位元組都不會寫回存檔）。 */
-    if (DG_VIEW) { dgViewInit(); return; }
+    if (DG_VIEW_ONLY) { dgViewInit(); return; }
     _dgAsWrap = dgAsReadWrap();
     if (_dgAsWrap) {
       var _asOk = false;
@@ -17424,7 +17436,7 @@
     asClear: function () { return dgAsClear(); },           // 就是清除鈕的 onclick
     asEnabled: function () { return _dgAsEnabled; },
     // v2.3.0 驗證用（唯讀）：是不是唯讀比較檢視、目前顯示幾組
-    viewMode: function () { return DG_VIEW; },
+    viewMode: function () { return DG_VIEW_ONLY; },
     viewCount: function () { return DG_VIEW_N; },
     asBarText: function () {
       var bar = $('dg-auto-bar'), t = $('dg-auto-text');

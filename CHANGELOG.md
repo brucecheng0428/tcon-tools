@@ -2,6 +2,44 @@
 
 ---
 
+## Digital Gamma (dg) v2.4.12 — 2026-10-13 ｜ PATCH ｜ 圖表放大檢視按「關閉」關不掉
+
+**判定依據**：R1 PATCH（修正錯誤，既有功能恢復，沒有新增能力）。
+
+### 起因（Bruce 2026-10-13）
+- 「在 DG 網頁那邊，如果要查看圖表，放大以後就關不掉。這個問題請趕快解決。」補充：「目前是點了關閉按鈕也關不掉」。
+
+### 根因
+- dg.html 同一個 IIFE 裡 `var DG_VIEW` 宣告了兩次：放大檢視的縮放堆疊 `var DG_VIEW = {}`（v1.x 起），
+  與 v2.3.0（451dda6）加的唯讀檢視旗標 `var DG_VIEW = (function(){ … return true/false })()`。
+  var 會合併成同一個變數，後者在載入時把物件蓋成 `false`。
+- 按「關閉」→ `dgModalClose()` → `dgChartZoomClose()` 執行 `DG_VIEW[id] = []`，strict mode 對 boolean 設屬性丟
+  `TypeError: Cannot create property 'dg-chart4' on boolean 'false'`，後面的 `classList.remove('open')` 沒跑到 ⇒ 視窗關不掉。
+  點暗色區、Escape 走同一個函式，一樣關不掉；放大後滾輪縮放、框選、「⟲ 還原」也都因為寫同一個物件而丟錯。
+  影響期間：dg v2.3.0 ～ v2.4.11。
+
+### 修正
+- 唯讀檢視旗標改名 `DG_VIEW_ONLY`（6 處），`DG_VIEW` 只留給縮放堆疊；`dgApi.viewMode()` 照舊回傳旗標。
+- `dgModalClose()`：圖表收尾放進 try/finally，清理步驟就算出錯也一定把視窗關掉（例外照樣丟到 console）。
+- `#dg-modal`（圖表／表格放大檢視）z-index 900 → 950：它在 DOM 最前面，同為 900 時會被後面的
+  第 1～4 部分視窗、比較分頁視窗蓋住；Escape 也改成先收放大檢視，再收底下的視窗。
+
+### 全面審查
+- dg.html IIFE 頂層 `var/let/const/function` 名稱逐一比對重名：只有 `DG_VIEW` 一組（已修）。
+- 共用同一個殼 `#dg-modal` 的入口：圖表放大（⤢ 鈕、點縮圖、縮圖框選）、表格放大（`dgGridOpenModal`，開啟前會呼叫
+  `dgChartZoomClose`，原本一樣會丟錯）、關閉三條路（關閉鈕／暗色區／Escape）全部走 `dgModalClose`。
+- 其他浮動視窗（lut／gray／slot／prim／pq／conf／info）的關閉鈕：各自的 handler，未受影響，已一併實測。
+- 開視窗沒有鎖 body 捲動（沒有 overflow:hidden），關閉後頁面捲動正常。
+
+### 驗證
+- 新增 tests/dgself 情境 `ZM`（`ZM_chart_zoom_close.js`）：7 張圖（主分頁圖一～四、比較分頁圖一～三）×
+  開法 2（⤢ 鈕／API）× 縮放前置 4（無／滾輪放大／滾輪＋上一層／滾輪＋還原）× 關法 3（關閉鈕／暗色區／Escape）＝168 格＋7 次重開，
+  每格驗關得掉、關閉鈕在最上層（elementFromPoint）、縮放層數歸零、沒有 JS 錯誤；另驗表格放大 3 種關法、圖表→表格切換、
+  放大檢視疊在 6 個其他視窗之上且 Escape／關閉鈕先收它、7 個其他視窗的關閉鈕、關閉後頁面可捲動。
+- 舊版（HEAD f103398 的 dg.html）跑 ZM：失敗（DG_VIEW 是 boolean）；新版全過。
+
+---
+
 ## Digital Gamma (dg) v2.4.11 — 2026-10-13 ｜ PATCH ｜ ⚠ 輸出變更
 
 **⚠ 輸出變更：接著自檢頁、T-CON 是 Offset 模式時，DG 輸出的 RGB LUT（表格、一鍵複製、下載、即時更新）一律是合法的 Offset 表；本來就合法的表逐值不變。**
