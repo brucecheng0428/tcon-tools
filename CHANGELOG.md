@@ -39,6 +39,33 @@
 
 ---
 
+## Data Mapping (datamap) v1.26.3 — 2026-10-13 ｜ PATCH
+
+**⚠ 輸出變更：目前 code 是 Mirror 1 的 MNT 型號，排列組合統計的「資料正確」改以目前 code 的名稱為基準；全民第 1 名回到維持 Mirror 1。目前是 Mirror 0 的 code（蘇坤、RM80120 等）不變。**
+
+判定依據：修正 v1.26.x 已知錯誤（Bruce 指為錯）⇒ R1 PATCH。
+
+### 起因
+- Bruce 10/13：「全民那邊。現在第一名的組合居然 mirror 要把它改成等於 0，這樣是不對的。」
+- Woody（Bruce 轉述＋照片）：Excel Data mapping 範例「數字的部分有四欄，對應到就是 T1 到 T4，而對應到右邊的表格也是分四欄去對……這個是指一整條、一整列的 line，它的 Data Mapping 是如何去排列的。」
+
+### 根因
+- `pvTableRef`（③ 子像素軸與「資料正確」的基準）自 v1.23.3 起，目前 code 為 Mirror 1 時改取「Mirror 0 解讀」的最小 pixel，前提是「Mirror 1 的名稱不是 pixel 索引」。
+- Woody Excel「Zigzag」mirror=1 範例在一整條 line 上輸出的就是 R2 G2 B2 R1 G1 B1（第一欄空出），Mirror 1 解出的名稱就是實際驅動的 pixel ⇒ 前提不成立。
+- v1.26.0 起起始欄固定（最小 bit）後，Mirror 0 解讀的名稱比 Mirror 1 整組左移 2 pixel（Single）；拿它當基準，全民目前的 Mirror 1 配置最左收到的不是「最小 pixel」⇒ 判資料錯，第 1 名變成要改 Mirror 0。
+
+### 修正
+- `pvTableRef` 一律取目前 code 解讀的最小 pixel（32 種組合仍共用同一基準）。無型號特例。
+
+### 驗證
+- 全民（0x1F、Mirror 1）：第 1 名＝維持 Mirror 1（kickoff 新增斷言：第 1 名資料顏色全對且不需改 TCON）。
+- 蘇坤（Mirror 0）基準不變：check_datamap_axis --sukun 29327 pass／0 fail（含 S5 蘇坤參考圖 7 項）。
+- 全民第 1 名＝CH1 最右＋正向＋RGB＋無對調＋Mirror 1（目前套用，最長 drain 6.5）。
+- kickoff 27、desel 124、check_datamap 282、preview 48、combos 28、nbfields 17、lod 161、fold 50：0 fail。
+- 備註：`pvTableRef` 對 Mirror 1 取「Mirror 0 解讀最小 pixel＋6×gate」，因為 ③ 內部 Mirror 1 的列存的是整行反轉後的位置；兩者相等（mntName：Mirror 1 名稱＝Mirror 0 名稱＋6×gate）。
+
+---
+
 ## Data Mapping (datamap) v1.26.2 — 2026-10-13 ｜ PATCH
 
 **⚠ 輸出變更（畫面）：接線圖上 ② 表格用到的 subpixel 一律亮色，包括 R1 左邊的負索引格子。**

@@ -599,7 +599,7 @@
 </div>
 <div class="dm-toasts" id="dm-toasts" aria-live="polite"></div>
 
-<script src="common/version.js?v=20261013dm1262"></script>
+<script src="common/version.js?v=20261013dm1263"></script>
 <script src="common/i18n.js?v=20261012dm1220"></script>
 <script>
 (function () {
@@ -2325,12 +2325,16 @@
   }
   /* 軸的基準 pixel：排列組合統計同時比 TCON Mirror 0／1，32 種組合共用同一個基準（pvTableRef）⇒ 切 Mirror 不會讓「最左」跟著變（Bruce「最左邊的一定要是最小的」）。 */
   function pvTableRef(P) {
-    /* 基準＝Mirror 0 解讀下 ② 名稱（＝位置名稱）的最小編號、往下取整 pixel：Mirror 1 的名稱是原廠 Pixel mapping view 的整行反轉名稱（例 蘇坤 G4…），
-       不是 pixel 索引；Mirror 0 的名稱就是 pixel 索引。所有型號同一套（Mirror 欄位不存在或 Auto／Line OD 測試 ⇒ 用目前接線名稱）。 */
+    /* v1.26.3（Bruce 10/13 轉述 Woody：Excel Data mapping 範例左側 4 欄＝T1～T4、右側＝一整條 line 的排列）：基準＝目前 code（目前 Mirror）解讀下 ② 名稱的最小編號、往下取整 pixel。
+       v1.23.3～v1.26.2 改用「Mirror 0 解讀」當基準，理由是「Mirror 1 的名稱不是 pixel 索引」；Woody 的 Excel「Zigzag」工作表 mirror=1 範例（code 15,16,17,12,13,14）
+       在一整條 line 上輸出的就是 R2 G2 B2 R1 G1 B1（第一欄空出、從下一欄開始）⇒ Mirror 1 解出的名稱就是實際驅動的 pixel，該前提不成立。
+       v1.26.0 起起始欄固定（最小 bit），切 Mirror 名稱會整組平移，再用 Mirror 0 當基準會讓目前 Mirror 1 的 code（全民 0x1F）被判資料錯、第 1 名變成要改 Mirror 0（Bruce 指為錯）。
+       32 種組合仍共用同一個基準（目前 code 的解讀），所以排名不隨畫面上選的 Driver／面板改變；只有改 code 的 Mirror 才會換基準（那是另一份 code）。 */
     if (P._tref !== undefined) return P._tref;
-    var P0 = P;
-    if (!P.lod && !P.auto && S.cur && (S.cur.mirror | 0) && DM.fieldById(S.model, 'mirror') && pvMirOk(P)) { var A = pvMirAlt(0); if (A && A.ok && A.period) P0 = A; }
-    return (P._tref = pvTableMin(P0));
+    /* ③ 內部 Mirror 1 的列存的是整行反轉後的位置（pvMirror：-1-k），不是 ② 的名稱 ⇒ 取 Mirror 0 解讀的最小 pixel 再右移 gate 數張表（6×gate），
+       等於目前 Mirror 1 code 在 ② 的最小名稱（Mirror 1 名稱＝Mirror 0 名稱＋6×gate，mntName）。目前 Mirror 0 時就是目前解讀本身。 */
+    if (!P.lod && !P.auto && S.cur && (S.cur.mirror | 0) && DM.fieldById(S.model, 'mirror') && pvMirOk(P)) { var A = pvMirAlt(0); if (A && A.ok && A.period) return (P._tref = pvTableMin(A) + 6 * (P.NG || 1)); }
+    return (P._tref = pvTableMin(P));
   }
   function pvAxisEdge(ts, fl) {
     var e = null; ts.forEach(function (t) { if (t === null || t === undefined) return; if (e === null || (fl ? t > e : t < e)) e = t; });

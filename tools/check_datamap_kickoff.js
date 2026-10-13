@@ -88,7 +88,7 @@ console.log('── code 表（D2:R31）＝網頁 T 表解碼');
       const contig = lin.every(a => { const s = a.slice().sort((x, y) => x - y); return new Set(a).size === 6 && s[5] - s[0] === 5; });
       ok(contig, 'v1.26.0 全民（0x1F，T1 從第 1 欄）：每列 6 格名稱連續、無重疊：' + rows.map(r => r.join(' ')).join(' | '));
       ok(/T1 起始欄：第 1 欄/.test($('dm-tsum').textContent), 'v1.26.0 全民：T1 從第 1 欄開始（' + $('dm-tsum').textContent.slice(0, 40) + '）');
-      const firstRow = d.querySelector('#dm-pv-combos tbody tr'); ok(firstRow && /✓✓/.test(firstRow.textContent.replace(/\s+/g, '')), 'v1.26.0 全民：排列組合第 1 名資料、顏色都正確：' + (firstRow ? firstRow.textContent.replace(/\s+/g, ' ').trim().slice(0, 60) : '—')); }
+      const firstRow = d.querySelector('#dm-pv-combos tbody tr'); ok(firstRow && /✓✓/.test(firstRow.textContent.replace(/\s+/g, '')) && !/需改 TCON/.test(firstRow.textContent), 'v1.26.3 全民：排列組合第 1 名資料、顏色都正確，且維持 code 原本的 Mirror 1（不需改 TCON）：' + (firstRow ? firstRow.textContent.replace(/\s+/g, ' ').trim().slice(0, 60) : '—')); }
     okRef(s.hand === 1 && s.panel === 1 && s.mirror === 1 && [17, 16, 15, 14, 13, 12].every((v, i) => s['c' + i] === v), '匯入：Hand 開、Zigzag、mirror 1、_0＝17,16,15,14,13,12');
     okRef($('dm-pv-first').value === 'l' && $('dm-pv-drv').value === 'f' && $('dm-pv-stripe').value === 'rgb' && !$('dm-pv-swap').checked && +$('dm-pv-tft').getAttribute('data-mis') > 0
       && !$('dm-pv-sugbtn').classList.contains('hidden') && /建議：CH1 在最右＋正向＋RGB/.test($('dm-pv-sugbtn').textContent),
