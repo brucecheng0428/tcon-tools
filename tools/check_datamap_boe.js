@@ -59,6 +59,11 @@ function done() { console.log((fail ? '✗' : '✓') + ' check_datamap_boe ' + p
   fire($('dm-model'), 'EM01'); ask();
   w.dmImportBytes(new Uint8Array(fs.readFileSync(QM)), path.basename(QM)); ask();
   await new Promise(r => setTimeout(r, 100));
+  /* v1.27.4：匯入後自動套用排列組合第 1 名（全民＝CH1 最右＋正向＋RGB＋無＋Mirror 1），統計區收摺 */
+  { const box = $('dm-pv-combos'), first = d.querySelector('#dm-pv-combotbl tr[data-combo]'), cur = d.querySelector('#dm-pv-combotbl tr.dm-ccur');
+    ok(box && !box.open && first && cur === first && box.getAttribute('data-autopick') === first.getAttribute('data-combo') && first.getAttribute('data-combo') === 'rfgn1'
+      && $('dm-pv-tft').getAttribute('data-maxlen') === '0.5' && $('dm-pv-tft').getAttribute('data-mis') === '0',
+      'v1.27.4 匯入全民 ⇒ 自動套用第 1 名 ' + (first && first.getAttribute('data-combo')) + '（目前套用＝第 1 名、最長 drain ' + $('dm-pv-tft').getAttribute('data-maxlen') + '）、排列組合統計收摺＝' + !box.open); }
   const s = w.dmState.cur, gate = (DM.gateOf && DM.gateOf('EM01', s)) || 'single', T1 = DM.mntBaseT(s, gate).t;
   ok((s.deEn | 0) === 1 && T1 === 1, '全民 de_en＝' + s.deEn + '、de_sel＝0x' + hex2(s.deSel) + ' ⇒ T1 在第 ' + T1 + ' 欄（BOE「DE T1」＝第 1 欄）');
   ok((s.mirror | 0) === 1, '全民 Mirror＝1（BOE 答案是 Mirror 1 的 code 直接查表）');

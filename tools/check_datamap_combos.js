@@ -67,7 +67,9 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   ok(tr2.getAttribute('data-ok') === '1' && $('dm-pv-first').value === k2.charAt(0) && $('dm-pv-drv').value === (k2.charAt(1) === 'r' ? 'r' : 'f') && $('dm-pv-stripe').value === (k2.charAt(2) === 'b' ? 'bgr' : 'rgb'), '鍵盤 Enter 也能套用第 2 名（' + k2 + '）');
   okRef($('dm-pv-sugbtn').classList.contains('hidden') && /資料與顏色全對（第 2 名）/.test($('dm-pv-sugok').textContent), 'v1.18.18：套用第 2 名（也全對）⇒ 不再出現「套用建議」，顯示「✓ 資料與顏色全對（第 2 名）」：' + $('dm-pv-sugok').textContent);
   console.log('展開／收合');
-  ok($('dm-pv-combos').open && $('dm-pv-combos').closest('section').querySelector('#dm-pv-physrow'), '未鎖定：預設展開，位置在「比對結果」（Driver／面板下方）');
+  /* v1.27.4（Bruce 10/13）：匯入 code 後排列組合統計預設收摺（使用者可展開） */
+  ok(!$('dm-pv-combos').open && $('dm-pv-combos').closest('section').querySelector('#dm-pv-physrow'), 'v1.27.4 匯入後預設收摺，位置在「比對結果」（Driver／面板下方）');
+  $('dm-pv-combos').open = true;
   $('dm-pv-lock').click(); await sleep(50);
   ok($('card-pv').classList.contains('dm-locked') && !$('dm-pv-combos').open, '按鎖定 ⇒ 自動收合');
   $('dm-pv-combos').open = true; fire('dm-pv-stripe', 'bgr'); await sleep(30);
