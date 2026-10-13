@@ -64,12 +64,12 @@ ok(DM.deSelBase(14, 6) === 2 && DM.deSelBase(3, 6) === 1 && DM.deSelBase(5, 6) =
   ok(u.bits === 4 && u.base === 2 && u.used.join() === '2,3', 'E503 Dual 14：T2、T3（NB 名稱固定，只看 gate）');
 }
 
-console.log('── ① FORCE_DE_SEL 強制 0x0E 只套 E503（Bruce 10/13 更正）');
+console.log('── ① FORCE_DE_SEL 強制 0x0E：照瑞鼎 Python UI（PY:29267／29377 集合），MNT 不動');
 for (const k of ['E503', 'E501A', 'E501B', 'DAZ6138', 'DAZ6139', 'EM01', 'EM02', 'E512']) {
   const s0 = Object.assign(DM.emptyState(k), { hand: 1, panel: 2, rd: 1, deEn: 1, deSel: 3 });
   const opts = DM.cellOptions(k, s0, 0, 0), nm = opts.length ? opts.find(o => o.name !== 'X' && o.name !== DM.cellView(k, s0, 0, 0).txt) || opts[0] : null;
   const r = nm ? DM.editCell(k, s0, 0, 0, nm.name) : null;
-  const want = k === 'E503' ? 0xE : 3;
+  const want = ['E503', 'E501A', 'E501B', 'DAZ6138', 'DAZ6139'].includes(k) ? 0xE : 3;
   ok(r && (r.state.deSel | 0) === want, k + ' 改一格（' + (nm && nm.name) + '）⇒ FORCE_DE_SEL＝0x' + ((r && r.state.deSel) | 0).toString(16) + '（應為 0x' + want.toString(16) + '）');
 }
 
@@ -130,10 +130,10 @@ for (const k of ['E503', 'E501A', 'E501B', 'DAZ6138', 'DAZ6139', 'EM01', 'EM02',
     ok(!row('f-deSel').classList.contains('hidden') && !row('f-deEn').classList.contains('hidden'), 'E503：FORCE_DE_EN／FORCE_DE_SEL 列顯示（與 MNT 同一套）');
     ok(+$('f-deSel').max === 15 && Array.from($('f-tsel').options).filter(o => /^[5-6]$/.test(o.value)).every(o => o.hidden), 'E503：4 bit（max 15），下拉只到 T4');
     Object.assign(w.dmState.cur, { hand: 1, deEn: 1, deSel: 14, panel: 2, rd: 1 }); w.dmRender();
-    ok(/可用 T2 \| T3 \| T4，基準 T2/.test($('f-deSelTs').textContent) && $('dm-tuse').getAttribute('data-used') === '2,3' && /只有 E503 這樣做/.test($('dm-tuse').textContent), 'E503 Dual 14：可用 T2|T3|T4、基準 T2、用到 T2、T3；註明只有 E503 改表格會寫回 0x0E');
+    ok(/可用 T2 \| T3 \| T4，基準 T2/.test($('f-deSelTs').textContent) && $('dm-tuse').getAttribute('data-used') === '2,3' && /寫回 0x0E/.test($('dm-tuse').textContent), 'E503 Dual 14：可用 T2|T3|T4、基準 T2、用到 T2、T3；註明改表格會寫回 0x0E');
     $('dm-model').value = 'E501A'; $('dm-model').dispatchEvent(new w.Event('change')); await sleep(80);
     Object.assign(w.dmState.cur, { hand: 1, deEn: 1, deSel: 3, panel: 2, rd: 1 }); w.dmRender();
-    ok(/不會改動 FORCE_DE_SEL/.test($('dm-tuse').textContent) && !/只有 E503 這樣做/.test($('dm-tuse').textContent), 'E501A：註明改表格不會改動 FORCE_DE_SEL');
+    ok(/寫回 0x0E/.test($('dm-tuse').textContent), 'E501A：照 Python UI 註明改表格會寫回 0x0E');
     $('dm-model').value = 'DAZ7353'; $('dm-model').dispatchEvent(new w.Event('change')); await sleep(80);
     ok(row('f-deSel').classList.contains('hidden') && $('dm-tuse').classList.contains('hidden'), 'DAZ7353（沒有 FORCE_DE_SEL，用 HAND_LINE_SEL）：不顯示');
     dom.window.close();

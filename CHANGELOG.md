@@ -2,6 +2,32 @@
 
 ---
 
+## Data Mapping (datamap) v1.25.2 — 2026-10-13 ｜ PATCH
+
+**⚠ 輸出變更：E501A／E501B／DAZ6138／DAZ6139 改表格時 FORCE_DE_SEL 恢復寫回 0x0E（照瑞鼎 Python UI；撤回 v1.25.1 的「只有 E503」）。MNT 不動。**
+
+判定依據：Bruce 指為錯誤 ⇒ `docs/VERSIONING.md` R1 PATCH＋`⚠ 輸出變更`。
+
+### 起因（Bruce 2026-10-13）
+> 寫回 force de sel=14 的，你要看 Python UI 有哪些 Tcon 會強制寫回實時，就照著做就對了。Python UI 沒有定義到的就不要去動它。像是 MNT 的 Tcon 在 Python UI 就不會定義，所以沒有定義到就不要動。
+> Force de sel 設定多個 bit，照之前 RD 的說法，應該是要先從最小的 bit 開始解讀啊。
+
+### 1. 強制寫回 0x0E 的型號（逐行核對瑞鼎 Python UI V5.0.4 RomCodeProcessUI.py）
+- `write_dm_info_to_code`：A 檔 PY:29267 `if self.tcon_a_name in {'DAZ6138','DAZ6139','RM81010','RM81011','RM81000','RM81001','RM81002','RM81003','RM81004'}` → PY:29280 `write_value_to_data(..., 0xE, addr, 7, 4)`；B 檔 PY:29377 同集合 → PY:29390。
+- 呼叫點：改表格 PY:28881／28894（`dm_update_all_from_dmrgb_table_change`）、改 Gate PY:29917。
+- 網頁對應：E501A（RM81010）、E501B（RM81011）、E503（RM81000~RM81004）、DAZ6138、DAZ6139 強制；DAZ6111／DAZ7353 沒有 FORCE_DE_SEL；EM01／EM02／E512（PY 沒有）不動。`pyNormalize` 回到 v1.25.0 的行為，註解寫明行號。
+
+### 2. 多 bit 從最小 bit 解讀：實作後驗證不符參考圖，暫緩（未發佈）
+- 8 組有參考圖的 BOE MNT code 掃描：只有全民（EM01，FORCE_DE_EN＝1、0x1F、Mirror 1、Hand 開）受影響——舊基準 T2、最小 bit T1；蘇坤與 RM80120（0x0E）最小 bit＝舊基準＝T2，不變；仁惠（0x0E）、溥哲 EM01（0x1F）Hand 關，表格不作用；鄭逸、溥哲 EM02、欣悅、B4 FHD165 為 FORCE_DE_EN＝0（Auto）。
+- 全民改用 T1 後：24 格的 code 全部超出 T1 的 code 表範圍（候選「T1 24 格超出」），Line 2 名稱由 `G2 R2 B1 G1 R1 B-1` 變成 `G-3 R-3 B-4 G-4 R-4 B-5`，③ 依參考圖的正確配置（CH1 最右＋正向＋RGB）從 24/24 相符變成錯 40 格；check_datamap_kickoff --qm 全民 20 項失敗。
+- ⇒ 名稱解讀維持 v1.17.1 做法（全民 T2 與參考圖一致），程式已加註，待 Bruce／RD 決定（例：最小 bit 是否只代表 line buffer 起點、code 表欄位是否另有對應）。
+
+### 測試
+- `tools/check_datamap_desel.js`：E503／E501A／E501B／DAZ6138／DAZ6139 改一格 ⇒ 0x0E；EM01／EM02／E512 保留原值；分析區文字（NB 寫回 0x0E、MNT 不動）。
+- check_datamap 282、nbfields 17、desel 113、kickoff（--qm 全民）全過。
+
+---
+
 ## Data Mapping (datamap) v1.25.1 — 2026-10-13 ｜ PATCH
 
 **⚠ 輸出變更：E501A／E501B／DAZ6138／DAZ6139 改表格後匯出／寫入的 FORCE_DE_SEL 不再被改成 0x0E，保留原值。**
