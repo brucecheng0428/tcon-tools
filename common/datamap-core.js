@@ -35,7 +35,7 @@
       顯示：PY:28990-29022；改選：PY:29849-29923（Single → PANEL_MODE=1、RD_MODE=0；Dual → 2、1；Tri → 3、2；
       DAZ 只有 PANEL_MODE）。Single 時 Line 1-2／2-2 ＝ Line 1-1／2-1 的複本、不能改（PY:12521-12526、
       29753-29776），底色 (50,50,50)（PY:10603-10609）；Tri 全部暗、不能改。
-   ④ 每次改動 PY 都會順手寫：FORCE_DE_EN ＝ Hand Mode（DAZ613x／E50x）、FORCE_DE_SEL[7:4] ＝ 0xE（v1.25.1 起只套 E503，Bruce 10/13 更正；PY:29267-29280 程式碼寫五型）；
+   ④ 每次改動 PY 都會順手寫：FORCE_DE_EN ＝ Hand Mode、FORCE_DE_SEL[7:4] ＝ 0xE（DAZ613x／E50x，PY:29267-29280／29377-29390；MNT 不在 PY、不動）；
       DAZ 的 HAND_LINE_SEL_EN ＝ Hand Mode 與 Line 0~7 type（PY:29253-29315）。網頁照做（只在使用者動作時）。
    ⑤ I2C：PY:32326-32700，slave 0x3E、2-byte offset；DAZ613x／E50x／E503 先 i2c_open_mbus_to_cbus（PY:31832，
       7E:AB←CD；E503 再 3E:0059←1E）。網頁：E503 只在 Check T-CON 確認是 E503 才下 0059。
@@ -670,7 +670,9 @@
     /* FORCE_DE_EN＝0（auto de phase）：EM02 原廠 RT7 清單 33 型（de_en＝0）算出的 Line OD 只有以 T2 解碼才和原廠 Line OD Type 一致
        （tools/check_datamap_auto.js；EM02 RApp_TX.h:533-566 ⇔ RApp_Table.h Line OD）⇒ auto 時以 T2 解讀（依 EM02 反推；EM01／E512 比照推定）。 */
     if (!(s.deEn | 0)) return { t: 2, why: 'auto' };
-    /* 多 bit：在有設的 bit 裡，取 24 格全在 code 表範圍內的最低那張（全民 0x1F ⇒ T2、同事C 0x0E ⇒ T2，依已點亮 code 反推）；值 0 ⇒ T1~T6 全部試 */
+    /* 多 bit：在有設的 bit 裡，取 24 格全在 code 表範圍內的最低那張（全民 0x1F ⇒ T2、同事C 0x0E ⇒ T2，依已點亮 code 反推）；值 0 ⇒ T1~T6 全部試
+       ⚠ 2026-10-13 Bruce 要求改成「從最小 bit 起算」；實測全民 0x1F（Mirror 1）以 T1 解讀時 24 格都超出 T1 的 code 表、名稱與 DataMapping 參考圖不符，
+       改動暫緩、回報待決定（見 CHANGELOG v1.25.2）。 */
     var f = mntFitT(s, gate || mntGateOfS(s), v || 0);
     return { t: f.t, why: v ? 'multi' : 'zero', fit: f.out };
   }
@@ -770,11 +772,12 @@
   /* PY 每次改動都會順手寫的連動欄位（PY:29230-29315）。只用在使用者動作之後。 */
   function pyNormalize(key, s) {
     var m = MODELS[key]; if (m.kind !== 'nb') return s;
-    /* v1.25.1（Bruce 10/13 更正：「force_de_sel 強制設 14，只有 NB 是這樣子做，而且只有 E503 才這樣做，其他的沒有強制喔，MNT tcon 更沒有強制」）：
-       FORCE_DE_SEL＝0xE 只套 E503（RM81000~RM81004）；E501A／E501B／DAZ6138／DAZ6139 保留使用者的值（MNT 本來就不經這裡）。
-       註：瑞鼎 Python UI V5.0.4 write_dm_info_to_code（PY:29267-29280）程式碼的型號集合寫的是 DAZ6138／6139／RM81010／RM81011／RM81000~04 五型都寫 0xE，
-       與 Bruce 的實際認知不同，以 Bruce 更正為準。FORCE_DE_EN＝Hand Mode 的連動不變。 */
-    if (m.sem === 'e50x') { s.deEn = s.hand ? 1 : 0; if (m.e503) s.deSel = 0xE; }
+    /* v1.25.2（Bruce 10/13「你要看 Python UI 有哪些 Tcon 會強制寫回…就照著做就對了。Python UI 沒有定義到的就不要去動它…MNT 的 Tcon 在 Python UI 就不會定義」）：
+       完全照瑞鼎 Python UI V5.0.4 write_dm_info_to_code：A 檔 PY:29267 集合 {DAZ6138, DAZ6139, RM81010, RM81011, RM81000~RM81004} → PY:29280 寫 FORCE_DE_SEL[7:4]＝0xE；
+       B 檔 PY:29377 同集合 → PY:29390。呼叫點：改表格 PY:28881／28894（dm_update_all_from_dmrgb_table_change）、改 Gate PY:29917。
+       ⇒ 網頁型號 E501A（RM81010）、E501B（RM81011）、E503（RM81000~04）、DAZ6138、DAZ6139（＝sem 'e50x' 的 NB）強制；DAZ6111／DAZ7353 與所有 MNT（PY 沒有）不動。
+       （v1.25.1 曾改成只套 E503，依本則更正撤回。） */
+    if (m.sem === 'e50x') { s.deEn = s.hand ? 1 : 0; s.deSel = 0xE; }
     else {
       s.lineEn = s.hand ? 1 : 0;
       if (s.lineEn) {
