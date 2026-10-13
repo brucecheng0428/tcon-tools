@@ -118,7 +118,7 @@ for (const k of ['E503', 'E501A', 'E501B', 'DAZ6138', 'DAZ6139', 'EM01', 'EM02',
     // 格子標示
     set({ deSel: 3, panel: 2, rd: 1 }); await sleep(20);
     const tts = Array.from(d.querySelectorAll('.dm-tt')).map(e => (e.querySelector('.dm-tt-w') || e).textContent);
-    ok(tts.length && tts.every(t => /^T[12]·第\d欄(·(上|下) gate)?(·推定)?$/.test(t)) && tts.some(t => /推定/.test(t)) && tts.some(t => /^T2·第\d欄·下 gate/.test(t)), '格子標示＝T1／T2＋第幾欄「' + tts.slice(0, 2).join('／') + '」（不再有 ?）');
+    ok(tts.length && tts.every(t => /^T[12]·第\d欄(·(上|下) gate)?$/.test(t)) && tts.some(t => /^T2·第\d欄·下 gate/.test(t)), '格子標示＝T1／T2＋第幾欄、多 bit 不標推定「' + tts.slice(0, 2).join('／') + '」（不再有 ?）');
     ok(!tts.some(t => /\?/.test(t)), '格子標示沒有「?」');
     ok(tts.some(t => /上 gate/.test(t)) && tts.some(t => /下 gate/.test(t)), 'Dual：上 gate／下 gate 都有標');
     set({ hand: 0 }); await sleep(20);
