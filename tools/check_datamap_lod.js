@@ -103,7 +103,7 @@ if (SRC) {
     good = good && !Q('[data-bad]');
     /* 三級亮度依週期：主循環（D1~D週期）接到的 ⇒ main；只有重複組接到 ⇒ rep */
     good = good && QA('rect[data-pv]').every(r => { const ins = r.getAttribute('data-in').split(',').filter(Boolean).map(x => +/^D(\d+)/.exec(x)[1]), pre = /-/.test(r.getAttribute('data-pv').split(':')[1]);
-      return r.getAttribute('data-tier') === (!pre && ins.some(n => n <= per) ? 'main' : (ins.length ? 'rep' : 'dummy')); });
+      return r.getAttribute('data-tier') === (ins.some(n => n <= per) ? 'main'   /* v1.26.2：亮暗只看有沒有主循環接到，前循環（dummy）用虛線框，不再強制暗 */ : (ins.length ? 'rep' : 'dummy')); });
     good = good && JSON.stringify(w.dmState.cur) === cur0 && JSON.stringify(w.dmBuildScript()) === sc0 && ui() === ui0;
     ok(good, 'Type ' + t.name + '：' + t.g + '，' + nl + ' 條 line × ' + NG + ' gate，週期 ' + per + '（畫 D1~D' + nD + '），drain 照反推表、亮度依週期；驗算／命名一致；② 與匯出 script 不變');
   }

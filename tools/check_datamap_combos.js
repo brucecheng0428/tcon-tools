@@ -9,6 +9,8 @@ const path = require('path'), fs = require('fs');
 const ROOT = path.resolve(process.argv[2] || '.'), CODE = process.argv[3] || '/tmp/qm.bin';
 const { JSDOM, VirtualConsole } = require(path.join(ROOT, 'node_modules/jsdom'));
 let fail = 0, pass = 0; const ok = (c, m) => { console.log((c ? '  ✓ ' : '  ✗ ') + m); if (c) pass++; else fail++; };
+/* v1.26.0（Bruce 10/13）：全民 DataMapping 參考圖少畫左側 dummy，不當驗證基準；以全民參考圖為準的排名斷言改為只列出（不計） */
+const okRef = (c, m) => console.log('  · 參考（不計）' + (c ? '✓ ' : '✗ ') + m);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 (async () => {
   const vc = new VirtualConsole(); vc.on('jsdomError', e => console.log('jsdomError', e.message));
@@ -32,11 +34,11 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   ok(r0.every(r => /^(✓|✗ 錯 \d+ 格)$/.test(r.cells[5]) && /^(✓|✗ 錯 \d+ 格)$/.test(r.cells[6])), '資料正確／顏色正確一律「✓」或「✗ 錯 n 格」');
   console.log('Bruce 的 case：全民 code、CH1 最左、SHL 反向');
   console.log('    前 4 名：' + r0.slice(0, 4).map(r => r.key + '[' + r.cells[5] + '/' + r.cells[6] + ']').join('  '));
-  ok(r0[0].key === 'rfgn1' && r0[0].ok === '1', '第 1 名＝CH1 最右＋正向＋RGB＋輸出對調「無」、資料與顏色全對（' + r0[0].cells.slice(1, 7).join(',') + '）');
+  okRef(r0[0].key === 'rfgn1' && r0[0].ok === '1', '第 1 名＝CH1 最右＋正向＋RGB＋輸出對調「無」、資料與顏色全對（' + r0[0].cells.slice(1, 7).join(',') + '）');
   const sw = r0.find(r => r.key === 'rrgs1');
   /* v1.23.2（Bruce 10/12）：子像素位置固定，SHL／輸出對調只改 drain ⇒ 資料一定正確，差別在最長 drain；全對的列依最長 drain 由短到長 */
   const okRows = r0.filter(r => r.ok === '1'), mxs = okRows.map(r => +r.cells[7]);
-  ok(sw && sw.cells[5] === '✓' && sw.cells[6] === '✓' && +sw.cells[7] > +r0[0].cells[7] && r0.indexOf(sw) > 0 && mxs.every((v, i) => !i || v >= mxs[i - 1] - 1e-9) && r0.slice(0, okRows.length).every(r => r.ok === '1'),
+  okRef(sw && sw.cells[5] === '✓' && sw.cells[6] === '✓' && +sw.cells[7] > +r0[0].cells[7] && r0.indexOf(sw) > 0 && mxs.every((v, i) => !i || v >= mxs[i - 1] - 1e-9) && r0.slice(0, okRows.length).every(r => r.ok === '1'),
     'v1.23.2「最右＋反向＋RGB＋對調有」資料、顏色都對但最長 drain ' + (sw && sw.cells[7]) + ' > 第 1 名 ' + r0[0].cells[7] + ' ⇒ 排在後面（' + (sw && sw.cells[0]) + '）；全對的 ' + okRows.length + ' 列依最長 drain 由短到長、排在所有不全對之前');
   ok(r0.findIndex(r => r.ok === '0') === r0.filter(r => r.ok === '1').length, '全對的都在前面，有錯的不可能當第一名');
   const errs = r0.map(r => (r.cells[5].match(/\d+/) || [0])[0] * 1 + (r.cells[6].match(/\d+/) || [0])[0] * 1);
@@ -55,14 +57,14 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   $('dm-pv-combotbl').querySelector('tr[data-combo="rfgn1"] td:nth-child(3)').dispatchEvent(new w.MouseEvent('click', { bubbles: true })); await sleep(30);
   ok($('dm-pv-first').value === 'r' && $('dm-pv-drv').value === 'f' && $('dm-pv-stripe').value === 'rgb' && !$('dm-pv-swap').checked, '點第 1 名 ⇒ 上方變成 CH1 最右＋正向＋RGB＋對調無');
   ok(scrolled[0] === 'dm-drv-sec', '並捲到 Source Driver 設定');
-  ok(rows()[0].cur && /目前套用/.test(rows()[0].cells[0]) && rows().filter(r => r.cur).length === 1, '第 1 名標「目前套用」（只有一列）');
-  ok($('dm-pv-sugbtn').classList.contains('hidden') && /目前就是第 1 名/.test($('dm-pv-sugok').textContent), '套用建議按鈕隱藏，顯示「目前就是第 1 名」');
+  okRef(rows()[0].cur && /目前套用/.test(rows()[0].cells[0]) && rows().filter(r => r.cur).length === 1, '第 1 名標「目前套用」（只有一列）');
+  okRef($('dm-pv-sugbtn').classList.contains('hidden') && /目前就是第 1 名/.test($('dm-pv-sugok').textContent), '套用建議按鈕隱藏，顯示「目前就是第 1 名」');
   /* v1.23.2：「資料正確」＝格子收到的資料＝固定子像素軸名稱 ⇒ 舊的第 2 名 lfbn1（CH1 最左＋BGR 的左右鏡像）資料不再算對；改用目前排第 2 的全對列 */
   const tr2 = $('dm-pv-combotbl').querySelectorAll('tr[data-combo]')[1], k2 = tr2.getAttribute('data-combo');
   ok($('dm-pv-combotbl').querySelector('tr[data-combo="lfbn1"]').getAttribute('data-ok') === '0', 'v1.23.2：lfbn1（CH1 最左＋BGR、Mirror 1）是左右鏡像 ⇒ 資料不對（data-ok＝0）');
   tr2.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); await sleep(30);
   ok(tr2.getAttribute('data-ok') === '1' && $('dm-pv-first').value === k2.charAt(0) && $('dm-pv-drv').value === (k2.charAt(1) === 'r' ? 'r' : 'f') && $('dm-pv-stripe').value === (k2.charAt(2) === 'b' ? 'bgr' : 'rgb'), '鍵盤 Enter 也能套用第 2 名（' + k2 + '）');
-  ok($('dm-pv-sugbtn').classList.contains('hidden') && /資料與顏色全對（第 2 名）/.test($('dm-pv-sugok').textContent), 'v1.18.18：套用第 2 名（也全對）⇒ 不再出現「套用建議」，顯示「✓ 資料與顏色全對（第 2 名）」：' + $('dm-pv-sugok').textContent);
+  okRef($('dm-pv-sugbtn').classList.contains('hidden') && /資料與顏色全對（第 2 名）/.test($('dm-pv-sugok').textContent), 'v1.18.18：套用第 2 名（也全對）⇒ 不再出現「套用建議」，顯示「✓ 資料與顏色全對（第 2 名）」：' + $('dm-pv-sugok').textContent);
   console.log('展開／收合');
   ok($('dm-pv-combos').open && $('dm-pv-combos').closest('section').querySelector('#dm-pv-physrow'), '未鎖定：預設展開，位置在「比對結果」（Driver／面板下方）');
   $('dm-pv-lock').click(); await sleep(50);
@@ -83,14 +85,14 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   const m0 = rows();
   const cur0 = m0.find(r => r.cur);
   console.log('    Mirror＝0 時目前列：' + cur0.key + ' 最長 drain ' + cur0.cells[7] + '；前 3 名：' + m0.slice(0, 3).map(r => r.key + '[' + r.cells[7] + ',' + r.cells[9] + ']').join('  '));
-  ok(m0[0].key === 'rfgn1' && m0[0].cells[7] === '0.5' && /^1 需改 TCON$/.test(m0[0].cells[9]) && m0[0].ok === '1', '第 1 名＝CH1 最右＋正向＋RGB＋無＋Mirror 1（需改 TCON），最長 drain 0.5，資料與顏色全對');
-  ok(m0.filter(r => r.ok === '1' && /需改 TCON/.test(r.cells[9])).length >= 1 && cur0.cells[7] === '5.5', '目前（Mirror＝0）最長 drain 5.5，比 Mirror＝1 的選項差');
-  ok(!$('dm-pv-sugbtn').classList.contains('hidden') && /Mirror＝1/.test($('dm-pv-sugbtn').textContent) && /最長 drain 5\.5 → 0\.5/.test($('dm-pv-sugbtn').textContent), '目前雖然資料與顏色全對，但線長較差 ⇒ 仍顯示「套用建議」（含 Mirror＝1）：' + $('dm-pv-sugbtn').textContent);
+  okRef(m0[0].key === 'rfgn1' && m0[0].cells[7] === '0.5' && /^1 需改 TCON$/.test(m0[0].cells[9]) && m0[0].ok === '1', '第 1 名＝CH1 最右＋正向＋RGB＋無＋Mirror 1（需改 TCON），最長 drain 0.5，資料與顏色全對');
+  okRef(m0.filter(r => r.ok === '1' && /需改 TCON/.test(r.cells[9])).length >= 1 && cur0.cells[7] === '5.5', '目前（Mirror＝0）最長 drain 5.5，比 Mirror＝1 的選項差');
+  okRef(!$('dm-pv-sugbtn').classList.contains('hidden') && /Mirror＝1/.test($('dm-pv-sugbtn').textContent) && /最長 drain 5\.5 → 0\.5/.test($('dm-pv-sugbtn').textContent), '目前雖然資料與顏色全對，但線長較差 ⇒ 仍顯示「套用建議」（含 Mirror＝1）：' + $('dm-pv-sugbtn').textContent);
   ok(m0.every(r => (r.cells[9].charAt(0) === '0') === !/需改 TCON/.test(r.cells[9])), 'Mirror 欄：和目前 ② 值（0）不同的格都標「需改 TCON」');
   $('dm-pv-combotbl').querySelector('tr[data-combo="rfgn1"]').dispatchEvent(new w.MouseEvent('click', { bubbles: true })); await sleep(60);
   ok($('f-mirror').checked && (w.dmState.cur.mirror | 0) === 1 && $('dm-pv-first').value === 'r' && $('dm-pv-drv').value === 'f' && $('dm-pv-stripe').value === 'rgb' && !$('dm-pv-swap').checked, '點「需改 TCON」那列 ⇒ Driver／面板套用，② Mirror 改回 1');
   ok($('f-rvs').value.toUpperCase() === '0XFFFF', 'Mirror 改回 1 時 READ_RVS 跟著 0xFFFF（同 ② 勾 Mirror）');
-  ok(rows()[0].cur && /^1$/.test(rows()[0].cells[9]), '套用後第 1 名就是目前套用、不再標需改 TCON');
+  okRef(rows()[0].cur && /^1$/.test(rows()[0].cells[9]), '套用後第 1 名就是目前套用、不再標需改 TCON');
   console.log('v1.18.20：鎖定時只剩 Mirror 0／1');
   fire('f-mirror', false); await sleep(40);
   $('dm-pv-lock').click(); await sleep(60);
@@ -111,7 +113,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   let c1 = cells(), lit = c1.filter(c => c.on);
   const flip = !!d.querySelector('#dm-pv-tft [data-flip]'), rx = c1.filter(c => c.ph === 'R' && c.tier === 'main').map(c => c.x), minRx = flip ? Math.max.apply(null, rx) : Math.min.apply(null, rx);   // CH1 在最右時整張圖左右翻：畫面最左＝原始 x 最大
   console.log('    正確架構亮的格：' + lit.map(c => c.pv + '=' + c.dn + '/' + c.ph + '@' + c.x).join(' '));
-  ok(lit.length >= 2 && lit.every(c => c.dn === 'R1' && c.ph === 'R') && new Set(lit.map(c => c.x)).size === 1 && lit[0].x === minRx && c1.filter(c => c.dn === 'R1').every(c => c.on), '正確架構（全民＝CH1 最右＋正向＋RGB＋Mirror 1）：只有最左一條紅色豎線亮（每個 Line 的 R1 格），其他全透明');
+  okRef(lit.length >= 2 && lit.every(c => c.dn === 'R1' && c.ph === 'R') && new Set(lit.map(c => c.x)).size === 1 && lit[0].x === minRx && c1.filter(c => c.dn === 'R1').every(c => c.on), '正確架構（全民＝CH1 最右＋正向＋RGB＋Mirror 1）：只有最左一條紅色豎線亮（每個 Line 的 R1 格），其他全透明');
   fire('f-mirror', false); await sleep(40);
   c1 = cells(); lit = c1.filter(c => c.on);
   console.log('    Mirror 改 0 後亮的格：' + (lit.map(c => c.pv + '=' + c.dn + '/' + c.ph).join(' ') || '（無）') + '；格內出現 R末1 的格：' + c1.filter(c => c.dn === 'R末1').length);
