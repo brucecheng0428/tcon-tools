@@ -2,6 +2,15 @@
 
 ---
 
+## Data Mapping (datamap) v1.26.1 — 2026-10-13 ｜ PATCH
+
+判定依據：v1.26.0 遺漏（多 bit 的起始欄已由暫存器決定，格子仍標「推定」）⇒ PATCH。
+
+- 格子右下角「推定」只在 FORCE_DE_SEL＝0 或 FORCE_DE_EN＝0（起始欄依 code／RT7 推出）時顯示；多 bit 依 RD 規則由最小設 1 的 bit 決定，不再標推定。圖例說明同步。
+- `check_datamap_desel`：格子標示斷言改為多 bit 不帶「推定」。
+
+---
+
 ## Data Mapping (datamap) v1.26.0 — 2026-10-13 ｜ MINOR
 
 **⚠ 輸出變更：MNT 型號 FORCE_DE_EN＝1 且 FORCE_DE_SEL 多 bit 時，表格名稱改從「最小設 1 的 bit」那一欄起算（全民 0x1F：第 2 欄 → 第 1 欄，名稱用到 B-3 等左側 dummy）。0x0E（蘇坤、RM80120、Python UI 預設）起始欄本來就是第 2 欄，不變。**
