@@ -2,6 +2,28 @@
 
 ---
 
+## Data Mapping (datamap) v1.25.1 — 2026-10-13 ｜ PATCH
+
+**⚠ 輸出變更：E501A／E501B／DAZ6138／DAZ6139 改表格後匯出／寫入的 FORCE_DE_SEL 不再被改成 0x0E，保留原值。**
+
+判定依據：Bruce 指為錯誤 ⇒ `docs/VERSIONING.md` R1 PATCH＋`⚠ 輸出變更`。
+
+### 起因（Bruce 2026-10-13）
+> force_de_sel 強制設 14，只有 NB 是這樣子做，而且只有 E503 才這樣做，其他的沒有強制喔，MNT tcon 更沒有強制。
+
+### 誤判原因
+- `pyNormalize` 自 v1.0 系列起照瑞鼎 Python UI V5.0.4 `write_dm_info_to_code` 實作：PY:29267 的型號集合是 `{'DAZ6138','DAZ6139','RM81010','RM81011','RM81000'~'RM81004'}`，PY:29280 在這個集合內一律 `write_value_to_data(..., 0xE, addr, 7, 4)`（註解「連同FORCE_DE_SEL強制=0xE」）；PY:1793-1801 只是位址表（FORCE_SEL_EN／FORCE_DE_EN 位址＋「若不開啟，FORCE_DE_SEL預設2」註解），不是強制條件。程式碼字面確實是五型都寫，網頁照抄；v1.25.0 回報又把它寫成五型的既定規則，沒有向 Bruce 確認實際行為。以 Bruce 更正為準。
+- MNT（EM01／EM02／E512）從未強制（`pyNormalize` 對非 NB 直接 return），這次加測試鎖住。
+
+### 內容
+- `datamap-core.js` `pyNormalize`：FORCE_DE_SEL＝0xE 只在 `MODELS[k].e503`（E503，RM81000~RM81004）；FORCE_DE_EN＝Hand 的連動不變。
+- datamap.html T 使用分析：E503 註明「改表格會寫回 0x0E，只有 E503 這樣做」；其他 NB 註明「改表格不會改動 FORCE_DE_SEL」。
+
+### 測試
+- `tools/check_datamap_desel.js` 加：E503 改一格 ⇒ FORCE_DE_SEL＝0x0E；E501A／E501B／DAZ6138／DAZ6139／EM01／EM02／E512 改一格 ⇒ 保留原值；分析區文字依型號。
+
+---
+
 ## Data Mapping (datamap) v1.25.0 — 2026-10-13 ｜ MINOR
 
 判定依據：`docs/VERSIONING.md` §1 新增功能（NB 型號新增 FORCE_DE_EN／FORCE_DE_SEL 設定列、T 使用分析改用 RD 定義）⇒ MINOR。表格名稱解讀、匯出 script、寫入規則不變，不掛 `⚠ 輸出變更`。
