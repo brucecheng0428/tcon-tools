@@ -123,6 +123,20 @@
 
 ---
 
+## Data Mapping (datamap) v1.27.2 — 2026-10-13 ｜ PATCH
+
+判定依據：說明文字依 Bruce 定案修正 ⇒ PATCH。
+
+### 起因（Bruce 2026-10-13）
+> 一定是名稱是負號，它就不是顯示在 AA 區的範圍。會用到負號的，一定是 Driver 的輸出可能有一些限制，它可能要在第七條 Data Line（舉例，不一定是第七條），才是真正輸出到第一條 AA 區的 Data。就是說 R1G1B1 才是真正的第一個顯示出來的 Pixel。
+
+### 內容
+- 「依 T 展開整行」：全是負號的段改標「AA 區外（dummy）」（原「dummy（輸出 0）」）；說明改為「負號＝AA 區外（dummy），R1／G1／B1 起為 AA 區第 1 個 pixel（負號存在是因為 Driver 前幾條 Data line 不對應到 AA 區）」，拿掉「待確認」。
+- ③ 圖例 dummy 兩條（有用到／沒用到）加註「負號＝AA 區外，R1 起為 AA 區第 1 個 pixel」。三語同步。
+- 此題不再列入要問 Woody 的清單。
+
+---
+
 ## Data Mapping (datamap) v1.27.1 — 2026-10-13 ｜ PATCH
 
 判定依據：新增顯示（不改解碼、不改 ③）⇒ PATCH。
