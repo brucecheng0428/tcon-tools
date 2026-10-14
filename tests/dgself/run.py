@@ -149,6 +149,11 @@ SCENARIOS = [
     ('WP-GAMMA',  'WP_white_point.js',        '',                     False, {'__wpCase': 'GAMMA'},      False, 'dg.html'),
     ('WP-EN',     'WP_white_point.js',        '',                     False, {'__wpCase': 'EN'},         False, 'dg.html'),
     ('WP-CN',     'WP_white_point.js',        '',                     False, {'__wpCase': 'CN'},         False, 'dg.html'),
+    # dg v2.5.1：電腦畫面量測頁開始量測後中心紅圈消失（dgmStart 的 running = true 放回；Barry 10/14 第 3 點）
+    ('RG',        'RG_ring_hidden.js',        '?task=7&dest=%E7%AC%AC%202%20%E9%83%A8%E5%88%86', True, {}, False, 'dg-measure.html'),
+    ('RG-SHOT',   'RG_ring_hidden.js',        '?task=7&dest=%E7%AC%AC%202%20%E9%83%A8%E5%88%86', True, {'__rgShot': True}, False, 'dg-measure.html'),
+    # dgself v2.7.10：畫面測試階段不自動讀 DG LUT（對位後才讀）⇒ 重新識別／畫面測試鈕識別完就能按（Barry 10/14 第 2 點）
+    ('TS',        'TS_test_stage_free.js',    '?round=1&job=main',    True,  {}, False),
     ('WP-SHOT',   'WP_white_point.js',        '',                     False, {'__wpCase': 'NEW', '__wpShot': True}, False, 'dg.html'),
 ]
 TIMEOUT = 120   # 秒；最長的 H 約 40 秒
