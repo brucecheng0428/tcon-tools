@@ -142,6 +142,14 @@ SCENARIOS = [
     ('R-SHOT-DECIDE', 'R_round_decide.js',    '',                     False, {'__rCase': 'SHOT-DECIDE'}, False, 'dg.html'),
     ('R-SHOT-VIEW',   'R_round_decide.js',    '',                     False, {'__rCase': 'SHOT-VIEW'},   False, 'dg.html'),
     ('R-SHOT-NEXT',   'R_round_decide.js',    '',                     False, {'__rCase': 'SHOT-NEXT'},   False, 'dg.html'),
+    # dg v2.5.0：白點兩種調法（沿用目前白點／指定新白點，x,y ⇄ 色溫照原廠 CCTForm.cs）；REG 指紋由 v2.4.12 同一份資料取得
+    ('WP-CONV',   'WP_white_point.js',        '',                     False, {'__wpCase': 'CONV'},       False, 'dg.html'),
+    ('WP-REG',    'WP_white_point.js',        '',                     False, {'__wpCase': 'REG', '__wpRegHash': 'e31de798:3544'}, False, 'dg.html'),
+    ('WP-NEW',    'WP_white_point.js',        '',                     False, {'__wpCase': 'NEW'},        False, 'dg.html'),
+    ('WP-GAMMA',  'WP_white_point.js',        '',                     False, {'__wpCase': 'GAMMA'},      False, 'dg.html'),
+    ('WP-EN',     'WP_white_point.js',        '',                     False, {'__wpCase': 'EN'},         False, 'dg.html'),
+    ('WP-CN',     'WP_white_point.js',        '',                     False, {'__wpCase': 'CN'},         False, 'dg.html'),
+    ('WP-SHOT',   'WP_white_point.js',        '',                     False, {'__wpCase': 'NEW', '__wpShot': True}, False, 'dg.html'),
 ]
 TIMEOUT = 120   # 秒；最長的 H 約 40 秒
 CPU_SLOW = float(os.environ.get('DGSELF_CPU_SLOW') or 0)   # 設了（例如 6）＝每頁 CPU 降速 N 倍，用來驗「慢機器也不偶發」
