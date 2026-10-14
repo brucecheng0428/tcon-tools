@@ -57,7 +57,7 @@ ok(DM.deSelBase(14, 6) === 2 && DM.deSelBase(3, 6) === 1 && DM.deSelBase(5, 6) =
 {
   /* v1.27.6：FORCE_DE_EN＝0 ⇒ tUse 用 RD 的 auto 視窗（1D1G 第 1～5 欄、其他第 2～6 欄），不看 FORCE_DE_SEL */
   const a = DM.tUse('EM01', st(Array(24).fill(0), { deEn: 0, deSel: 0x3F, panel: 0 })), b = DM.tUse('EM01', st(Array(24).fill(0), { deEn: 0, deSel: 0x3F, panel: 1 }));
-  ok(a.base === 1 && a.ts.join() === '1,2,3,4,5' && b.base === 2 && b.ts.join() === '2,3,4,5,6' && !a.warn.length && !b.warn.length, 'de_en=0：1D1G 第 1～5 欄、Zigzag 第 2～6 欄（不看 0x3F）');
+  ok(a.base === 1 && a.ts.join() === '1,2,3,4,5' && b.base === 2 && b.ts.join() === '2,3,4,5,6,7' && !a.warn.length && !b.warn.length, 'v1.28.1 de_en=0：1D1G 第 1～5 欄、Zigzag（等同 0x06）第 2～7 欄（不看 0x3F）');
 }
 {
   /* 3＝T1|T2、code 24~29 要 T4 ⇒ 超過最大 T 警告；X 不列 */
@@ -120,7 +120,7 @@ for (const k of ['E503', 'E501A', 'E501B', 'DAZ6138', 'DAZ6139', 'EM01', 'EM02',
     set({ deSel: 0x20 });
     ok($('f-deSelTs').textContent === '（0x20）→ T1 從第 6 欄開始，可用 T1～T5（第 6～10 欄，連續）', '0x20 ⇒「' + $('f-deSelTs').textContent + '」');
     set({ deEn: 0, panel: 1, rd: 0 });
-    ok($('f-deSelTs').textContent === '（0x20）→ FORCE_DE_EN＝0，不看此值：T1 從第 2 欄開始，可用 T1～T5（第 2～6 欄，連續）', 'de_en=0 Zigzag ⇒「' + $('f-deSelTs').textContent + '」');
+    ok($('f-deSelTs').textContent === '（0x20）→ FORCE_DE_EN＝0，不看此值，依 Panel mode 等同 0x06：T1 從第 2 欄開始，可用 T1～T6（第 2～7 欄，連續）', 'de_en=0 Zigzag ⇒「' + $('f-deSelTs').textContent + '」');
     set({ deEn: 1, deSel: 14 });
     // 打字即時換算（還沒 change）
     $('f-deSel').value = '6'; $('f-deSel').dispatchEvent(new w.Event('input'));
@@ -207,7 +207,7 @@ for (const k of ['E503', 'E501A', 'E501B', 'DAZ6138', 'DAZ6139', 'EM01', 'EM02',
   }
   /* v1.27.0（Woody 10/13）：reg_force_de_en＝0 ⇒ 1D1G 從第 1 欄（T1）、Zigzag／HSD 從第 2 欄（T2）；Mirror 不平移名稱 */
   { const b = p => DM.mntBaseT(Object.assign(DM.emptyState('EM01'), { deEn: 0, panel: p }), 'single').t;
-    ok(b(0) === 1 && b(1) === 2 && b(2) === 2, 'v1.27.0 auto：1D1G＝第 1 欄、Zigzag＝第 2 欄、HSD＝第 2 欄：' + [b(0), b(1), b(2)].join(','));
+    ok(b(0) === 1 && b(1) === 2 && b(2) === 2 && b(3) === 3, 'v1.28.1 auto（Woody 10/14 14:44）：1D1G＝第 1 欄、Zigzag＝第 2 欄、HSD＝第 2 欄、LTPS＝第 3 欄：' + [b(0), b(1), b(2), b(3)].join(','));
     ok(DM.mntName('single', 0, 17, 1, 1) === DM.mntName('single', 0, 17, 0, 1) && DM.mntName('single', 0, 17, 1, 1) === 'B-3', 'v1.27.0 Mirror 不平移名稱：code 17 第 1 欄＝B-3（Mirror 0／1 相同）'); }
   console.log((fail ? '✗' : '✓') + ' check_datamap_desel ' + pass + ' pass / ' + fail + ' fail');
   process.exit(fail ? 1 : 0);
