@@ -1361,12 +1361,25 @@
   /* v1.31.3（Bruce 10/14「NB的TCON也需要吧」「預設的情況其實就是 -2 到 4 吧，然後 force de SEL 就填 14」）：
      NB（有 FORCE_DE_SEL 欄位的 E50x／DAZ6138／DAZ6139）PY 固定 de_sel 0xE（RomCodeProcessUI.py:29280）⇒ Pixel 範圍固定 -2～4 ↔ 14；
      Hand 開就顯示同一列；套用任何範圍都寫 FORCE_DE_EN＝1、FORCE_DE_SEL＝14，範圍不是 -2～4 時旁邊一行提示。 */
+  /* v1.31.4（Bruce 10/14「E503 在這個地方連改都不能改，只是顯示讓我看到而已」）：NB 固定 14 的型號 ⇒ 輸入框 disabled＋readonly、沒有套用鈕、FORCE_DE_SEL 欄位唯讀，
+     只顯示「Pixel -2～4」＋一行「此型號固定 14（-2～4）」；pxApply 對這些型號不做任何事。
+     v1.31.4（Bruce 10/14「EN01 你看看是不是可以跟 MNT TCON 一樣，可以改」）：EN01（RM81008）FORCE_DE_SEL＝0x394[7:0]（RM81008.model:11148-11153，註「BOE HSD set 10」），
+     WPF 開 Hand 寫 0x0E（DataMappingModule.cs:272）；「BOE HSD set 10」＝0x0A＝MNT BOE 規則 HSD 等效值（DM.DE_AUTO_SEL[2]）、預設 0x0E＝MNT 預設 14
+     ⇒ 同一套 BOE de phase 規則（bit n＝第 n+1 欄，T1＝最小 bit 欄…最大 bit 欄＋4），Pixel 列與 MNT 共用 DM.deSelForPx／DM.pxForDeSel（8 bit ⇒ 起始欄 1～8）。
+     Gate：Single／Dual／Tri／MUX4／MUX6 才顯示（Dual／Tri 下 gate 列＋1，MUX 同一條 gate ⇒ 不加）。EN01 實機未量測。 */
   function nbPxFix() { return DM.MODELS[S.model].kind === 'nb' && !!DM.fieldById(S.model, 'deSel'); }
+  function en01Px() { return isEn01() && !!DM.fieldById(S.model, 'deSel') && ['single', 'dual', 'tri', 'mux4', 'mux6'].indexOf(DM.gateOf(S.model, S.cur)) >= 0; }
   function renderPx() {
     var row = $('dm-pxrow'); if (!row) return;
-    var g = DM.gateOf(S.model, S.cur), show = (isMnt() && !!DM.fieldById(S.model, 'deSel') && (g === 'single' || g === 'dual' || g === 'tri')) || (nbPxFix() && !!(S.cur.hand | 0));
+    var g = DM.gateOf(S.model, S.cur), fix = nbPxFix(), show = (isMnt() && !!DM.fieldById(S.model, 'deSel') && (g === 'single' || g === 'dual' || g === 'tri')) || (fix && !!(S.cur.hand | 0)) || en01Px();
     row.classList.toggle('hidden', !show);
-    $('dm-pxapply').disabled = !!S.ro || S.busy;
+    row.setAttribute('data-fix', fix ? 1 : 0);
+    ['dm-pxlo', 'dm-pxhi'].forEach(function (id) { $(id).disabled = fix; $(id).readOnly = fix; });
+    $('dm-pxapply').classList.toggle('hidden', fix);
+    $('dm-pxapply').disabled = fix || !!S.ro || S.busy;
+    var res = $('dm-pxres');
+    if (fix) { res.textContent = tt('dm.pxNbFix'); res.classList.remove('over'); res.setAttribute('data-v', 14); res.setAttribute('data-over', 0); res.setAttribute('data-fix', 1); }
+    else if (res.getAttribute('data-fix') === '1') { res.textContent = ''; res.removeAttribute('data-fix'); res.removeAttribute('data-v'); res.removeAttribute('data-over'); }
     if (show) pxSync();
   }
   /* v1.31.0（Bruce 10/14「如果都沒有任何的 code 套用，那預設的情況其實就是 -2 到 4 吧，然後 force de SEL 就填 14，這是預設值」）：
@@ -1387,19 +1400,11 @@
     lo.value = cur.from; hi.value = cur.to;
   }
   function pxApply() {
+    if (nbPxFix()) return;
     var lo = parseInt($('dm-pxlo').value, 10), hi = parseInt($('dm-pxhi').value, 10);
     if (isNaN(lo) && isNaN(hi)) return;
     if (isNaN(lo)) lo = hi; if (isNaN(hi)) hi = lo;
-    if (nbPxFix()) {
-      var nres = $('dm-pxres'), fixed = Math.min(lo, hi) === -2 && Math.max(lo, hi) === 4;
-      nres.textContent = fixed ? '→ 14 (0x0E)' : tt('dm.pxNbFix'); nres.classList.toggle('over', !fixed);
-      nres.setAttribute('data-v', 14); nres.setAttribute('data-over', fixed ? 0 : 1);
-      $('dm-pxlo').value = -2; $('dm-pxhi').value = 4;
-      if ((S.cur.deEn | 0) === 1 && (S.cur.deSel | 0) === 0x0E) return;
-      var nns = DM.cloneState(S.cur); nns.deEn = 1; nns.deSel = 0x0E;
-      log('n', 'Pixel -2～4 → FORCE_DE_SEL ← 0x0E（NB 固定）');
-      commit(nns, 'deEn＋deSel'); return;
-    }
+    if (nbPxFix()) return;   // v1.31.4：NB 固定 14 只顯示、不能改
     var r = DM.deSelForPx(S.model, S.cur, lo, hi), res = $('dm-pxres');
     res.textContent = (r.over ? tt('dm.pxOver', { a: r.from, b: r.to }) + ' ' : '') + '→ ' + r.v + ' (0x' + hex(r.v, 2) + ')' + (r.common ? tt('dm.pxCommon') : '');
     res.classList.toggle('over', r.over); res.setAttribute('data-v', r.v); res.setAttribute('data-over', r.over ? 1 : 0);
@@ -1871,6 +1876,7 @@
     var hasDe = !!DM.fieldById(S.model, 'deSel');
     if (hasDe) {
       ['f-deEn', 'f-deSel'].forEach(function (id) { $(id).disabled = !!S.ro; });
+      if (nbPxFix()) { $('f-deSel').disabled = true; $('f-deSel').readOnly = true; } else $('f-deSel').readOnly = false;   // v1.31.4：NB 固定 14 ⇒ 唯讀顯示
       $('f-deEn').checked = !!S.cur.deEn;
       $('f-deSel').max = (1 << DM.fieldById(S.model, 'deSel').bits) - 1; if (document.activeElement !== $('f-deSel')) $('f-deSel').value = S.cur.deSel | 0;
     }

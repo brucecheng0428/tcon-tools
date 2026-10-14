@@ -1,7 +1,7 @@
 // 用法：node tools/check_datamap_handentry.mjs <repo> [型號,型號…]
 // v1.31.0（Bruce 10/14 實機：勾 Hand Mode Enable 後 ②-2 沒有「Pixel 最小～最大＋套用」那一行；「NB 的 TCON 也需要吧」）：
 //   每個型號 × 每種進入 Hand Mode 的方式（勾 Hand Mode Enable、MNT 的 RT7 Type 選 Manual 樣式、匯入 code 本身 hand＝1）：
-//   ・Pixel 範圍列：MNT（EM01／EM02／E512）Single／Dual／Tri 一定出現；有 FORCE_DE_SEL 的 NB（E50x／DAZ6138／DAZ6139）Hand 開也出現（固定 -2～4 ↔ 14，v1.31.3）；DAZ6111／DAZ7353／EN01 不出現。
+//   ・Pixel 範圍列：MNT（EM01／EM02／E512）Single／Dual／Tri 一定出現；有 FORCE_DE_SEL 的 NB（E50x／DAZ6138／DAZ6139）Hand 開也出現（固定 -2～4 ↔ 14，v1.31.3）；DAZ6111／DAZ7353 不出現；EN01 Hand 開（Single／Dual／Tri／MUX4／MUX6）出現、可調（v1.31.4）。
 //   ・R｜G｜B 面板：真實滑鼠點格子 ⇒ 面板出現、R／G／B 三欄；點一個值 ⇒ 格子與 state 改變。
 //   ・格內只顯示名稱（.dm-tt 隱藏）。
 //   ・All Same R3（整表同名）⇒ 表格內沒有任何元素在跑動畫（呼吸燈只在 TFT 接線圖），TFT 圖的錯誤格才有 dmBreathe。
@@ -34,7 +34,7 @@ const load = async (model, w = 1400) => {
 };
 const state = () => ev(`(function(){var $=function(i){return document.getElementById(i)},s=window.dmState.cur,m=window.dmState.model,row=$('dm-pxrow');
   return JSON.stringify({m:m,hand:s.hand|0,gate:TCONDataMap.gateOf(m,s),kind:TCONDataMap.MODELS[m].kind,nbSel:!!TCONDataMap.fieldById(m,'deSel'),px:!!row&&!row.classList.contains('hidden')&&row.offsetParent!==null})})()`).then(JSON.parse);
-const pxWant = st => (st.kind === 'mnt' && ['single', 'dual', 'tri'].includes(st.gate)) || (st.kind === 'nb' && st.nbSel && st.hand === 1);   // v1.31.3：有 FORCE_DE_SEL 的 NB Hand 開也顯示（固定 -2～4）
+const pxWant = st => (st.kind === 'mnt' && ['single', 'dual', 'tri'].includes(st.gate)) || (st.kind === 'nb' && st.nbSel && st.hand === 1) || (st.kind === 'en01' && ['single', 'dual', 'tri', 'mux4', 'mux6'].includes(st.gate));   // v1.31.4：EN01 同 MNT 可調；v1.31.3：有 FORCE_DE_SEL 的 NB Hand 開也顯示（固定 -2～4）
 const models = JSON.parse(await (async () => { await load('EM01'); return ev(`JSON.stringify([].map.call(document.getElementById('dm-model').options,function(o){return o.value}).filter(Boolean))`); })());
 for (const M of models) {
   if (ONLY && !ONLY.includes(M)) continue;
