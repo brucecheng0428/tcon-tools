@@ -78,6 +78,29 @@
   NEW＝9300K：mode 2、目標白點 x,y 傳入、目標曲線終點與第 40 階都在新白點、目標 Lv＝最高階 Y÷max(b/a)、最高階最亮通道=1 其餘降、圖三基準 9300K；
   GAMMA＝只調 Gamma 時擋下；EN／CN 字面。
 
+## Data Mapping (datamap) v1.31.4 — 2026-10-14 ｜ PATCH ｜ NB 固定 14 型號 Pixel 列改成只顯示；EN01 Pixel 列與 MNT 一樣可調
+
+**判定依據**：§2 案例 1（bug 修正：Bruce 10/14「E503…連改都不能改，只是顯示」＝v1.31.3 可輸入是錯的；EN01 補齊既有 Pixel 列到 FORCE_DE_SEL 已有的欄位）→ PATCH；NB 輸出不變（本來就固定 14），EN01 只有使用者按套用才改 FORCE_DE_SEL。
+
+### 起因
+- Bruce 2026-10-14：「E503 雖然顯示 Pixel 負 2 到 4，但是不要更改…我希望是 E503 在這個地方連改都不能改，只是顯示讓我看到而已」「EN01 你看看是不是可以跟 MNT TCON 一樣，可以改」。
+
+### 定義對照
+- 「Pixel 範圍列」＝② 表格上方 `dm-pxrow`（最小～最大＋套用），換算 FORCE_DE_SEL 用 `DM.deSelForPx`／`DM.pxForDeSel`（單一來源 `DM.pxCovIdx`）。
+- NB 固定 14：PY `write_dm_info_to_code` 對 {DAZ6138, DAZ6139, RM81010, RM81011, RM81000~04} 強制 FORCE_DE_SEL＝0xE（RomCodeProcessUI.py:29267、29280）＝網頁 E503／E501A／E501B／DAZ6138／DAZ6139；集合不含 RM81008（EN01）。
+- EN01 FORCE_DE_SEL：0x394[7:0]、8 bit（RM81008.model:11148-11153，Comment「BOE HSD set 10」）；WPF Hand Mode 開寫 0x0E（Wpf.RomCodeProcessUI/Modules/DataMappingModule.cs:266-273）；datamap-core.js EN01_REG deSel（:198）。
+  「BOE HSD set 10」＝0x0A＝MNT BOE 規則 HSD 等效值（datamap-core.js DE_AUTO_SEL[2]），預設 0x0E＝MNT 預設 14 ⇒ 同一套 de phase 規則（bit n＝第 n+1 欄）。EN01 實機未量測。
+
+### 變更
+- NB 固定 14（E503／E501A／E501B／DAZ6138／DAZ6139）：Pixel 輸入框 disabled＋readonly、套用鈕隱藏、FORCE_DE_SEL 欄位唯讀；只顯示 -2～4 與一行「此型號固定 14（-2～4）」；`pxApply` 對這些型號直接返回（Enter 也無效）。
+- EN01：Hand 開且 Gate＝Single／Dual／Tri／MUX4／MUX6 時顯示 Pixel 列，可輸入、套用、與 FORCE_DE_SEL 雙向聯動（8 bit ⇒ 起始欄 1～8），預設 -2～4／14。
+- MNT（EM01／EM02／E512）不變。
+
+### 測試
+- tools/check_datamap_nbpx.js 改寫：9 型號 Hand 開關；NB 唯讀＋強行套用／Enter 不變；EN01 5 Gate × 9 組範圍套用、FORCE_DE_SEL 1～255 手改 round-trip；MNT 同矩陣（6 bit 1～63）。
+
+---
+
 ## Data Mapping (datamap) v1.31.3 — 2026-10-14 ｜ PATCH ｜ NB 型號 Hand Mode 開時也顯示 Pixel 範圍列（固定 -2～4 ↔ FORCE_DE_SEL 14）；匯入 code 關掉 I2C 提示
 
 **判定依據**：§2 案例 1（bug 修正：Bruce 10/14「為什麼 1.3.2 Tcon 用 E503，我還是看不到…可以設定 -2 到 4 的 Pixel 的地方」）→ PATCH。
