@@ -15,6 +15,7 @@
     Gate Type、Line 1-1～2-2 × Data 1～6、Single 複本列、Hand Mode、Glass／Excel、All Same Pixel、X＝31、GN1／GN2、
     Data Mapping Code、DM CKS。
   ・步驟：① 選 T-CON／匯入 → ② 調 Data Mapping → ③ 面板排列預覽（v1.4.0，唯讀）→ ④ 寫入 TCON 或匯出 script（比照 i2c.html 的步驟式）。
+    v1.28.0 起 ② 拆成 ②-1 Panel mode 設定（#card-pm）＋②-2 Data Mapping 表格（#card-dm）；寬螢幕 TFT 接線圖並排 sticky，窄螢幕「TFT 預覽」浮動小窗。
   ・訊息：狀態寫在各步驟的狀態列；動作結果與錯誤進 ④ 的記錄，重要的再用 toast 提示（不再用 alert）。
   ・v1.4.0 ③ 面板排列預覽（Bruce 10/7 手繪草圖）：每條 Gate Line 充到的子像素方格＋每條 Data 線的 TFT 接線，render() 時一起重畫。
     解讀：② 的「Line x-y × Data n ＝ 名稱」＝ Line x-y 打開時 Data n 充「名稱」那顆子像素
@@ -113,6 +114,31 @@
   .dm-topbar { position: sticky; top: 0; z-index: 31; display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; margin: 0 0 10px; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border, #334155); background: var(--card, #0f172a); }
   .dm-topbar .dm-topsp { flex: 1; }
   .dm-topbar .sbtn { min-height: 32px; }
+  /* v1.28.0（Bruce 10/14「在調的時候也可以即時看到 Data Mapping 的變化」）：
+     寬螢幕（≥1200px）且「TFT 並排」開（html.dm-side）⇒ #dm-live 兩欄：左＝②-1／②-2／③，右＝TFT 接線圖 sticky（不超過視窗高，內容自己捲）。
+     其他情況（窄螢幕或並排關）⇒ 頁首出現「TFT 預覽」，開浮動小窗（固定右下角，可收起、可放大），預設收起不擋操作 */
+  .dm-topbar .sbtn[aria-pressed="true"].dm-sidebtn, #dm-mini-tog[aria-pressed="true"] { outline: 2px solid #60a5fa; }
+  @media (max-width: 1199.98px) { .dm-sidebtn { display: none; } }
+  @media (min-width: 1200px) {
+    html.dm-side .dm-live { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 14px; align-items: start; }
+    html.dm-side .dm-livel { min-width: 0; }
+    html.dm-side .dm-dests { white-space: normal; }
+    html.dm-side .dm-live > #card-tft { position: sticky; top: 58px; max-height: calc(100vh - 66px); overflow: auto; overscroll-behavior: contain; margin-top: 0; }
+  }
+  .dm-mini { position: fixed; z-index: 40; right: 10px; bottom: 10px; width: min(760px, calc(100vw - 20px)); height: 40vh; display: flex; flex-direction: column;
+    border: 1px solid #60a5fa; border-radius: 10px; background: var(--card, #0f172a); box-shadow: 0 10px 30px rgba(0,0,0,.55); }
+  .dm-mini.big { height: 78vh; width: calc(100vw - 20px); }
+  .dm-minihd { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 6px 8px; border-bottom: 1px solid var(--border, #334155); }
+  .dm-minihd .sbtn { min-height: 32px; }
+  .dm-minibody { flex: 1; min-height: 0; overflow: auto; -webkit-overflow-scrolling: touch; background: #0b1424; border-radius: 0 0 10px 10px; padding: 8px; color-scheme: dark; }
+  .dm-tftmini svg { display: block; }
+  .dm-tftmini svg text { font-family: ui-monospace, Menlo, Consolas, monospace; }
+  .dm-tftmini .dm-tco { fill: var(--dm-tcon-out); font-weight: 700; }
+  .dm-tftmini .dm-tco.sw { fill: var(--dm-tcon-out-sw); }
+  .dm-tftmini .dm-sdo { fill: var(--dm-sd-out); }
+  .dm-mininote { color: var(--sub); font-size: 13px; }
+  body.dm-minion .container { padding-bottom: 42vh; }
+  body.dm-minion.dm-minibig .container { padding-bottom: 80vh; }
   .dm-dirtybar { top: 52px !important; }
   .dm-i2chd { margin-left: 4px; }
   .dm-i2cdl { font-size: 12.5px; margin-left: 6px; white-space: nowrap; color: #60a5fa; }
@@ -378,6 +404,7 @@
 <div class="container">
   <!-- v1.22.0（Bruce 10/12）：頁首固定列：I2C 連線狀態（common/i2c-bridge.js 的共用徽章，資料來源＝S.linked）＋全部展開／全部收摺 -->
   <div class="dm-topbar" id="dm-topbar"><span id="dm-i2c-top" class="i2cb-badge i2cb-off" data-i2c="off" role="status" aria-live="polite">I2C</span><span class="dm-topsp"></span>
+    <button class="sbtn dm-sidebtn" id="dm-side-tog" aria-pressed="true" data-i18n="dm.sideTog" data-i18n-title="dm.sideTogT" title="">TFT 並排</button><button class="sbtn hidden" id="dm-mini-tog" aria-pressed="false" aria-controls="dm-mini" data-i18n="dm.miniTog" data-i18n-title="dm.miniTogT" title="">TFT 預覽</button>
     <button class="sbtn" id="dm-fold-open" data-i18n="dm.foldOpenAll">全部展開</button><button class="sbtn" id="dm-fold-close" data-i18n="dm.foldCloseAll">全部收摺</button></div>
   <!-- v1.18.12（Bruce 10/8「匯入 Code 就是在離線作業…i2c 要連線的話，匯入的資料就要重新歸零」）：離線（匯入）／線上（I2C）互斥，頂端顯示目前模式 -->
   <div id="dm-modebar" class="dm-modebar" role="status"><span class="dm-mode-k" id="dm-mode-k"></span><span id="dm-mode-t"></span></div>
@@ -415,12 +442,15 @@
 
   <!-- ② 調 Data Mapping（v1.17.0 版面：Bruce 10/7「排列實在是太亂了…請有條理地把它們列清楚」⇒ 分「Panel mode 設定／Data Mapping 表格（force_sel）／工具／進階與說明」四區；
        設定一律「欄位名｜控制項」一列一個；說明只留一行，細節放 ⓘ 或最下面收合的「說明」。元素 id 不變（JS／測試照舊） -->
-  <div class="card stp" id="card-dm">
-    <div class="stp-hd"><span class="stp-tick" id="tk-dm">○</span><span class="stp-t" data-i18n="dm.stp2">② 調 Data Mapping</span><span class="dm-layerchip tcon" data-i18n="dm.layerTcon">TCON 層</span><span class="stp-st" id="st-dm"></span>
-      <span class="dm-chip dm-push" data-i18n-title="dm.cksTip" title="Python UI 的 DM CKS（Hand Mode 開才有）">DM CKS <b id="dm-cks">—</b></span></div>
+  <!-- v1.28.0（Bruce 10/14「把調 Data Mapping 的那張卡片裡面的 Panel Mode 設定跟 Data Mapping 表格都獨立出來，變成兩張卡片…在調的時候也可以即時看到」）：
+       ② 拆成 ②-1 Panel mode 設定（#card-pm，新卡）與 ②-2 Data Mapping 表格（#card-dm，沿用原 id：tk-dm／st-dm／DM CKS／跳轉／測試照舊）；
+       兩張與 ③ 放進 #dm-live：寬螢幕（≥1200px 且「TFT 並排」開）時左欄調設定、右欄 TFT 接線圖 sticky；其他情況可開「TFT 預覽」浮動小窗。元素 id 不變、計算不變 -->
+  <div class="dm-live" id="dm-live">
+  <div class="dm-livel">
+  <div class="card stp" id="card-pm">
+    <div class="stp-hd"><span class="stp-tick" id="tk-pm">○</span><span class="stp-t" data-i18n="dm.stp2a">②-1 Panel mode 設定</span><span class="dm-layerchip tcon" data-i18n="dm.layerTcon">TCON 層</span><span class="stp-st" id="st-pm"></span></div>
     <div class="dm-alert err hidden" id="dm-ro"></div>
-    <section class="dm-sec">
-      <h3 class="dm-sech" data-i18n="dm.secPanel">Panel mode 設定</h3>
+    <section class="dm-sec dm-sec1">
       <div class="dm-form">
         <div class="dm-frow"><span class="dm-fl">Hand Mode Enable <i class="dm-i" data-i18n-title="dm.hHandT" title="">ⓘ</i></span><span class="dm-fc"><label class="dm-chk dm-hand" id="dm-handbox"><input type="checkbox" id="dm-hand"> <span data-i18n="dm.fHand">用手動 force_sel 表</span></label></span></div>
         <div class="dm-frow"><span class="dm-fl">Gate Type</span><span class="dm-fc"><select id="dm-gate" class="dm-sel"></select><span class="dm-locknote hidden" id="dm-gate-locknote" data-i18n="dm.hwLockedNote">🔒 已鎖定，解鎖後才能改</span></span></div>
@@ -433,15 +463,20 @@
         <div class="dm-frow dm-fieldrow hidden" data-need="rvsL"><span class="dm-fl">READ_RVS <i class="dm-i" data-i18n-title="dm.hRvsT" title="">ⓘ</i></span><span class="dm-fc"><input id="f-rvs" class="dm-in" style="width:84px" placeholder="0x0000"> <span class="dm-sub" data-i18n="dm.fRvs">各 port 反向讀取</span></span></div>
       </div>
       <div class="dm-sub dm-sumline hidden" id="dm-tsum"></div>
-      <!-- v1.24.0（Bruce 10/13「force_DE_SEL 的數值其實是多個 T 幾在做 OR，那有辦法去解析、分析並了解 T 幾到底是怎麼使用嗎？」）：T 使用分析（DM.tUse） -->
-      <div class="dm-sub dm-sumline hidden" id="dm-tuse"></div>
-      <div class="dm-sub dm-sumline hidden" id="dm-texp"></div>
       <div class="dm-sub dm-sumline hidden" id="dm-automan"></div>
       <div class="dm-lodst hidden" id="dm-lodrow"><span class="dm-k">Line OD</span><span id="dm-lodstat"></span>
         <button class="sbtn hidden" id="dm-lodfix" data-i18n="dm.lodFix">依 RT7 修正 Line OD</button>
         <div class="dm-sub" id="dm-loddiff"></div></div>
     </section>
-    <section class="dm-sec">
+  </div>
+
+  <div class="card stp" id="card-dm">
+    <div class="stp-hd"><span class="stp-tick" id="tk-dm">○</span><span class="stp-t" data-i18n="dm.stp2">②-2 Data Mapping 表格</span><span class="dm-layerchip tcon" data-i18n="dm.layerTcon">TCON 層</span><span class="stp-st" id="st-dm"></span>
+      <span class="dm-chip dm-push" data-i18n-title="dm.cksTip" title="Python UI 的 DM CKS（Hand Mode 開才有）">DM CKS <b id="dm-cks">—</b></span></div>
+    <section class="dm-sec dm-sec1">
+      <!-- v1.24.0（Bruce 10/13「force_DE_SEL 的數值其實是多個 T 幾在做 OR，那有辦法去解析、分析並了解 T 幾到底是怎麼使用嗎？」）：T 使用分析（DM.tUse）；v1.28.0 隨表格移到 ②-2 -->
+      <div class="dm-sub dm-sumline hidden" id="dm-tuse"></div>
+      <div class="dm-sub dm-sumline hidden" id="dm-texp"></div>
       <h3 class="dm-sech"><span data-i18n="dm.secGrid">Data Mapping 表格（force_sel）</span><span class="dm-linkchip tco" role="link" tabindex="0" data-jump="pvtc" data-i18n="dm.chipToTc" data-i18n-title="dm.jumpPvT">＝③ TCON Out</span>
         <button class="sbtn" id="dm-restore" data-i18n="dm.rstBtn">回到初始設定</button><span class="dm-sub dm-rstst" id="dm-rstst"></span>
         <button class="sbtn dm-benchbtn" id="dm-bench-tog" aria-expanded="false" aria-controls="dm-bench" data-i18n-title="dm.bmTogT" title=""><span class="dm-bcar" aria-hidden="true"></span>Benchmark</button></h3>
@@ -541,6 +576,7 @@
       <div class="dm-pvwrap"><table class="dm-lodgrid" id="dm-lodgrid"></table></div>
     </div>
   </div>
+  </div><!-- /.dm-livel -->
 
   <!-- v1.22.0（Bruce 10/12「TFT 接線圖，我需要把它獨立成另外一張卡片。可以單獨不收折，或收折」）：從 ③ 拆出成獨立卡片。
        元素 id、事件、資料都不變（renderPreview／renderPvTft 照舊畫進 #dm-pv-tft，鎖定、只送 R1、反推、跳轉照常）；
@@ -571,6 +607,7 @@
       </section>
     </div>
   </div>
+  </div><!-- /#dm-live -->
 
   <!-- v1.18.13（Bruce 10/8「要看就要看全部…獨立出一個卡片…TCON Register 確認」）：列出全部相關暫存器（位址／Byte／bit／名稱／值），
        預設展開、可收合（不記憶）。放 ③ 之後、④ 之前：改 → 看 → 逐項核對 → 匯出。元素 id 沿用 dm-codebox／dm-code／dm-codesum -->
@@ -607,8 +644,14 @@
     <div class="dm-ask-btns"><button class="sbtn" id="dm-ask-no"></button><button class="sbtn pri" id="dm-ask-yes"></button></div></div>
 </div>
 <div class="dm-toasts" id="dm-toasts" aria-live="polite"></div>
+<!-- v1.28.0：TFT 預覽浮動小窗（窄螢幕或關閉並排時用）。內容＝#dm-pv-tft 的複本（同一份渲染結果，MutationObserver 同步），不另算 -->
+<div class="dm-mini hidden" id="dm-mini" role="region" aria-labelledby="dm-mini-t">
+  <div class="dm-minihd"><b id="dm-mini-t" data-i18n="dm.pvTftH">TFT 接線圖</b><span class="dm-sub" id="dm-mini-st"></span><span class="dm-topsp"></span>
+    <button class="sbtn" id="dm-mini-big" aria-pressed="false" data-i18n="dm.miniBig">放大</button><button class="sbtn" id="dm-mini-go" data-i18n="dm.miniGo">到原卡</button><button class="sbtn" id="dm-mini-x" data-i18n="dm.miniX">收起</button></div>
+  <div class="dm-minibody" id="dm-mini-body"><div class="dm-mininote hidden" id="dm-mini-note"></div><div class="dm-tftmini" id="dm-mini-svg"></div></div>
+</div>
 
-<script src="common/version.js?v=20261013dm1275"></script>
+<script src="common/version.js?v=20261014dm1280"></script>
 <script src="common/i18n.js?v=20261012dm1220"></script>
 <script>
 (function () {
@@ -617,7 +660,17 @@
     'dm.title': ['Data Mapping', 'Data Mapping', 'Data Mapping'],
     'dm.subtitle': ['I2C 即時調整、匯入 code、匯出 script', 'Live I2C tuning, code import, script export', 'I2C 实时调整、导入 code、导出 script'],
     'dm.stp1': ['① 選 T-CON／匯入 code', '① Pick the T-CON / import a code', '① 选 T-CON／导入 code'],
-    'dm.stp2': ['② 調 Data Mapping', '② Tune the Data Mapping', '② 调 Data Mapping'],
+    'dm.stp2': ['②-2 Data Mapping 表格', '②-2 Data Mapping table', '②-2 Data Mapping 表格'],
+    'dm.stp2a': ['②-1 Panel mode 設定', '②-1 Panel mode settings', '②-1 Panel mode 设定'],
+    'dm.sideTog': ['TFT 並排', 'TFT side by side', 'TFT 并排'],
+    'dm.sideTogT': ['寬螢幕時 TFT 接線圖放右邊、跟著捲動，左邊調 ②／③ 即時看到變化；關掉＝回到上下排列（可改開 TFT 預覽小窗）', 'On wide screens the TFT wiring sits on the right and follows the scroll while you tune ②/③ on the left; off = stacked layout (use the TFT preview window instead)', '宽屏时 TFT 接线图放右边、跟着滚动，左边调 ②／③ 实时看到变化；关掉＝回到上下排列（可改开 TFT 预览小窗）'],
+    'dm.miniTog': ['TFT 預覽', 'TFT preview', 'TFT 预览'],
+    'dm.miniTogT': ['開／關右下角的 TFT 接線圖小窗（與 TFT 接線圖卡同步）', 'Show / hide the small TFT wiring window (kept in sync with the TFT wiring card)', '开／关右下角的 TFT 接线图小窗（与 TFT 接线图卡同步）'],
+    'dm.miniBig': ['放大', 'Enlarge', '放大'],
+    'dm.miniSmall': ['縮小', 'Shrink', '缩小'],
+    'dm.miniGo': ['到原卡', 'Go to card', '到原卡'],
+    'dm.miniX': ['收起', 'Close', '收起'],
+    'dm.miniNa': ['目前設定沒有 TFT 接線圖（見 TFT 接線圖卡的說明）。', 'No TFT wiring for the current settings (see the TFT wiring card).', '当前设定没有 TFT 接线图（见 TFT 接线图卡的说明）。'],
     'dm.stp3': ['④ 匯出 script', '④ Export a script', '④ 导出 script'],
     'dm.stpPv': ['③ 排列組合相關設定', '③ Arrangement settings', '③ 排列组合相关设定'],
     'dm.pvSub': ['依上方設定即時模擬 Gate Line 與子像素排列', 'Live simulation of gate lines and sub-pixels from the settings above', '依上方设定实时模拟 Gate Line 与子像素排列'],
@@ -1714,6 +1767,9 @@
     $('card-dm').className = 'card stp ' + (bad ? 'err' : (loaded ? 'cur' : ''));
     $('tk-dm').textContent = bad ? '✕' : (loaded ? '✔' : '○');
     $('st-dm').textContent = (s.hand ? DM.gateText(S.model, s) : 'Hand Mode off') + (DM.cks(S.model, s) ? '  ·  DM CKS ' + DM.cks(S.model, s) : '');
+    /* v1.28.0 ②-1 Panel mode 設定（從 ② 拆出）：狀態與 ②-2 同一個判斷 */
+    $('card-pm').className = $('card-dm').className; $('tk-pm').textContent = $('tk-dm').textContent;
+    $('st-pm').textContent = s.hand ? DM.gateText(S.model, s) : 'Hand Mode off';
     /* ③ */
     var live = tconOk() && $('dm-live').checked;
     $('card-out').className = 'card stp ' + (dn ? 'cur' : (loaded && S.last ? 'done' : ''));
@@ -3601,7 +3657,7 @@
   var FOLD_KEY = 'dm.fold.v1';
   function foldLoad() { try { var o = JSON.parse(localStorage.getItem(FOLD_KEY) || '{}'); return o && typeof o === 'object' ? o : {}; } catch (e) { return {}; } }
   function foldSave() { try { var o = {}; foldCards().forEach(function (c) { if (isFolded(c)) o[c.id] = 1; }); localStorage.setItem(FOLD_KEY, JSON.stringify(o)); } catch (e) {} }
-  function foldCards() { return [].slice.call(document.querySelectorAll('.container > .card.stp[id]')); }
+  function foldCards() { return [].slice.call(document.querySelectorAll('.container .card.stp[id]')); }   // v1.28.0：②-1／②-2／③／TFT 包在 #dm-live 內，不再是 .container 的直接子元素
   function foldHd(c) { for (var i = 0; i < c.children.length; i++) if (c.children[i].classList.contains('stp-hd')) return c.children[i]; return null; }
   function foldDetails(c) { var d = c.firstElementChild; return d && d.tagName === 'DETAILS' ? d : null; }
   function isFolded(c) { var d = foldDetails(c); return d ? !d.open : c.getAttribute('data-fold') === '1'; }
@@ -3638,8 +3694,70 @@
     $('dm-fold-close').addEventListener('click', function () { foldAll(true); });
   }
   window.dmFold = { set: function (id, on) { setFold(id, on); }, all: foldAll, isFolded: function (id) { return isFolded($(id)); }, key: FOLD_KEY };
+  /* ── v1.28.0 調設定時即時看 TFT 接線圖（Bruce 10/14）──────────────────────────────
+     ・並排：視窗 ≥1200px 且「TFT 並排」開（預設開，記 localStorage dm.tftside.v1）⇒ html.dm-side，CSS 把 TFT 卡放右欄 sticky。
+     ・小窗：沒有並排時頁首出現「TFT 預覽」，開右下角浮動小窗；內容＝#dm-pv-tft 的複本（cloneNode，去掉 id），
+       由 MutationObserver（只在小窗開著時掛上）在 #dm-pv-tft／#dm-tftnote 變動時同步（同一份 renderPreview 結果，不另算、不會不同步）。
+     ・TFT 卡收摺時預覽仍照常重畫（renderPreview 不看收摺）；開小窗時先重畫一次確保是最新結果。 */
+  var SIDE_KEY = 'dm.tftside.v1', MINI = { on: false, big: false, raf: 0, mo: null };
+  var sideMq = window.matchMedia ? window.matchMedia('(min-width: 1200px)') : null;
+  function sidePref() { try { return localStorage.getItem(SIDE_KEY) !== '0'; } catch (e) { return true; } }
+  function sideActive() { return !!(sideMq && sideMq.matches) && sidePref(); }
+  function miniSync() {
+    MINI.raf = 0; if (!MINI.on) return;
+    var src = $('dm-pv-tft'), box = $('dm-mini-svg'), note = $('dm-mini-note');
+    var na = $('dm-tftbody').classList.contains('hidden');
+    note.classList.toggle('hidden', !na); box.classList.toggle('hidden', na);
+    note.textContent = na ? ($('dm-tftnote').textContent || tt('dm.miniNa')) : '';
+    $('dm-mini-st').textContent = $('st-tft').textContent;
+    if (na) { box.innerHTML = ''; return; }
+    var cp = src.cloneNode(true); cp.removeAttribute('id');
+    box.innerHTML = ''; box.appendChild(cp);
+  }
+  function miniQueue() { if (MINI.on && !MINI.raf) MINI.raf = window.requestAnimationFrame ? window.requestAnimationFrame(miniSync) : setTimeout(miniSync, 16); }
+  function miniSet(on) {
+    MINI.on = !!on && !sideActive();
+    $('dm-mini').classList.toggle('hidden', !MINI.on); document.body.classList.toggle('dm-minion', MINI.on);
+    $('dm-mini-tog').setAttribute('aria-pressed', MINI.on ? 'true' : 'false');
+    /* 只在小窗開著時觀察：關著不留 MutationObserver（大量同步重畫時記錄會留住被換掉的整棵 SVG） */
+    if (MINI.on && !MINI.mo && window.MutationObserver) {
+      MINI.mo = new MutationObserver(miniQueue);
+      MINI.mo.observe($('dm-pv-tft'), { childList: true, subtree: true, attributes: true, characterData: true });
+      MINI.mo.observe($('dm-tftbody'), { attributes: true, attributeFilter: ['class'] });
+      MINI.mo.observe($('dm-tftnote'), { childList: true, subtree: true, characterData: true, attributes: true });
+    } else if (!MINI.on && MINI.mo) { MINI.mo.disconnect(); MINI.mo = null; }
+    if (MINI.on) { renderPreview(); miniSync(); }
+  }
+  function miniBig(on) {
+    MINI.big = !!on; $('dm-mini').classList.toggle('big', MINI.big); document.body.classList.toggle('dm-minibig', MINI.big);
+    var b = $('dm-mini-big'); b.setAttribute('aria-pressed', MINI.big ? 'true' : 'false');
+    b.setAttribute('data-i18n', MINI.big ? 'dm.miniSmall' : 'dm.miniBig'); b.textContent = tt(MINI.big ? 'dm.miniSmall' : 'dm.miniBig');
+  }
+  function sideApply() {
+    var act = sideActive();
+    document.documentElement.classList.toggle('dm-side', act);
+    $('dm-side-tog').setAttribute('aria-pressed', sidePref() ? 'true' : 'false');
+    $('dm-mini-tog').classList.toggle('hidden', act);
+    if (act && MINI.on) miniSet(false);
+  }
+  function liveInit() {
+    $('dm-side-tog').addEventListener('click', function () {
+      try { localStorage.setItem(SIDE_KEY, sidePref() ? '0' : '1'); } catch (e) {}
+      sideApply(); if (sideActive()) renderPreview();
+    });
+    $('dm-mini-tog').addEventListener('click', function () { miniSet(!MINI.on); });
+    $('dm-mini-x').addEventListener('click', function () { miniSet(false); });
+    $('dm-mini-big').addEventListener('click', function () { miniBig(!MINI.big); });
+    $('dm-mini-go').addEventListener('click', function () {
+      var c = $('card-tft'); if (isFolded(c)) setFold(c, false);
+      miniSet(false); var h = $('dm-pv-tfth'); if (h.scrollIntoView) h.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+    if (sideMq) { if (sideMq.addEventListener) sideMq.addEventListener('change', sideApply); else if (sideMq.addListener) sideMq.addListener(sideApply); }
+    sideApply();
+  }
+  window.dmLive = { side: sideActive, mini: function (on) { if (arguments.length) miniSet(on); return MINI.on; }, sync: miniSync, key: SIDE_KEY };
   window._onLangChange = function () { buildModelSelect(); buildLod(); foldTitles(); render(); };
-  buildModelSelect(); buildGate(); buildGrid(); buildLod(); bind(); bindLock(); bindColMode(); foldInit(); bindBench(); render();
+  buildModelSelect(); buildGate(); buildGrid(); buildLod(); bind(); bindLock(); bindColMode(); foldInit(); liveInit(); bindBench(); render();
 })();
 </script>
 </body>
