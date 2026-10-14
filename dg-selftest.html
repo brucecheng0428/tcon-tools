@@ -3234,9 +3234,15 @@ async function dstMbusOpen() {
 async function dstScanIdentify() {
   var chosen = null, chosenSlave = null, results = [];
   var mbus = dstMbus;
-  dstLog('-- scan slaves: ' + DST_SLAVES.map(function (v) { return '0x' + v.toString(16).toUpperCase(); }).join(' -> '));
-  for (var si = 0; si < DST_SLAVES.length; si++) {
-    var sl = DST_SLAVES[si];
+  /* v2.7.10（同事B 10/14 第 2 點，識別要等）：上次認到 IC 的 slave 排第一個、認到已知 IC 就停，
+     不再對沒有裝置的 slave 逐一讀（每一個都要等 I2C Bridge 回覆）。沒有記錄時順序與以前相同。
+     認到的是未知 ID 時照舊往下掃（選第一個有回應的，與以前相同）。 */
+  var order = DST_SLAVES.slice(), last = NaN;
+  try { last = parseInt(localStorage.getItem('dst-last-slave'), 10); } catch (eL) {}
+  if (order.indexOf(last) > 0) { order.splice(order.indexOf(last), 1); order.unshift(last); }
+  dstLog('-- scan slaves: ' + order.map(function (v) { return '0x' + v.toString(16).toUpperCase(); }).join(' -> '));
+  for (var si = 0; si < order.length; si++) {
+    var sl = order[si];
     dstSlave = sl;
     var tag = '0x' + sl.toString(16).toUpperCase();
     try {
@@ -3248,6 +3254,7 @@ async function dstScanIdentify() {
       } else if (d && d.length >= 3) {
         results.push(tag + ' <- ' + hex);
         if (!chosen) { chosen = d; chosenSlave = sl; }
+        if (chosen === d && dstMatchIc(d)) break;   // v2.7.10：已知 IC ⇒ 不再掃其餘 slave
       } else {
         results.push(tag + ' <- ' + (d ? d.length : 0) + 'B');
       }
@@ -3274,6 +3281,7 @@ async function dstScanIdentify() {
   }
   dstSlave = chosenSlave;
   dstIdRaw = chosen;
+  if (dstMatchIc(chosen)) { try { localStorage.setItem('dst-last-slave', String(chosenSlave)); } catch (eS) {} }
   dstIc = dstMatchIc(chosen);
   dstAltIdx = -1;
   if (dstIc) {
@@ -4661,8 +4669,19 @@ function dstRenderLutChk() {
    觸發點沿用既有那組「使用者剛做完一個動作」的時點（dstDgAutoThenStep1：連線／識別／DG 派新工作），
    不另加計時器（理由見 dstStep1CanAuto 上方）。讀法走「讀取 DG LUT」那顆鈕同一支（先看 DG_EN）。
    🔴 上一次讀失敗（dstLutErr）就不自動重試 —— 那時卡上會把「讀取 DG LUT」鈕還給他（dstRenderBtns）。 */
+/* ═══ v2.7.10：自動讀 DG LUT 等到對位之後 ═══════════════════════════════════════
+   同事B 2026-10-14「TCON重新識別按鈕跟畫面測試(WRGB十字)按鈕需要一段時間(約7~8秒)才可按取」。
+   原因：識別完（連線／重新識別）DG_EN 開著時 ① 會自動讀整張 DG LUT（EM02 offset 597 byte，
+   I2C Bridge 慢路徑實測每 byte 15～16 ms，見 v2.7.8），讀表期間 dstLutBusy 讓「重新識別」與
+   白／紅／綠／藍、對位畫面全部停用（v2.0.0 高3：讀表時不插入別的寫入）。而這時使用者正停在
+   「畫面測試」那一步要出圖對位 —— 用得到 LUT 的是下一步。
+   ⇒ 分階段顯示（dstPgOn）時，還在硬體／畫面測試階段就**不自動讀**；第一次按「對位畫面」進到
+   步驟卡（dstPgOnAligned）才自動讀。讀表本身、讀表時不插隊的規則都沒改，只是換到不擋人的時點。
+   第 2 輪以後（對位視為已完成）、直接開這一頁（不分階段）行為不變。 */
+function dstPgBeforeSteps() { var c = dstPgCur(); return c === 'hw' || c === 'test'; }
 function dstLutAutoR2(src) {
   if (!dstIsConf() || dstLut || dstLutErr) return Promise.resolve(false);
+  if (dstPgBeforeSteps()) return Promise.resolve(false);   // v2.7.10：對位後才讀
   if (!(dstLinked && dstIc && dstIc.dgLut)) return Promise.resolve(false);
   if (dstRunning || dstBusy || dstLutBusy || dstLutWriteBusy) return Promise.resolve(false);
   dstLog('== round ' + dstDgRound + ' (' + src + '): DG LUT card is empty -> auto read-back', 'o');
@@ -7270,6 +7289,8 @@ function dstPgOnAligned() {
   dstAlignDone = true;
   dstPgSave('aligned', true);
   dstRenderBtns();
+  /* v2.7.10：識別時延後的 ① 自動讀表，現在才做（條件照 dstStep1CanAuto／dstLutAutoR2，做過的不重做） */
+  if (first) dstStep1Auto('aligned').then(function () { return dstLutAutoR2('aligned'); });
   if (first && dstPgOn() && !dstPgScrolled) {
     dstPgScrolled = true;
     var sc = $('dst-steps-card');
@@ -7579,6 +7600,7 @@ function dstStep1CanAuto() {
      裡、postMessage 沒丟例外的下一行才 true）。沒有 opener 就送不出去 ⇒ 自動跑只會
      佔用匯流排卻完不成任何一步。直接開這一頁的人維持 v1.18.x 的樣子：自己按那顆鈕。 */
   if (!dstDgAlive()) return false;
+  if (dstPgBeforeSteps()) return false;                     // v2.7.10：還在硬體／畫面測試階段 ⇒ 對位後才讀
   if (dstDgNeedLut === false) return false;                 // v2.0.0：這份工作用不到 LUT（高2）
   if (dstStepDone.lut) return false;                       // 這一份工作做過了就不要再送一次
   if (dstLutBusy || dstRunning || dstBusy) return false;   // 正在忙就不插隊

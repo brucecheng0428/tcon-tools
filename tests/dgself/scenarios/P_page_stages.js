@@ -88,7 +88,8 @@
         return dstShowing === 'align' && cardVis('dst-steps-card') && scrolled.indexOf('dst-steps-card') >= 0 && q.top >= -2 && q.top < 220; }, 8000);
       await __still();
       __ok('P3 alignment shown', dstShowing === 'align');
-      __ok('P3 step card appears', cardVis('dst-steps-card') && __vis('dst-go-lut'));
+      /* dgself v2.7.10：① 的自動讀表改在對位後做 ⇒ 對位後 ① 可能已自動完成（縮成 ✓），所以「① 鈕可見」或「① 已完成」都算 */
+      __ok('P3 step card appears', cardVis('dst-steps-card') && (__vis('dst-go-lut') || !!dstStepDone.lut));
       __ok('P3 test card and hardware card collapsed to pale ✓ lines', __cls('dst-test-card', 'dst-pg-done') && __cls('dst-hw-card', 'dst-pg-done')
         && !__vis('dst-align') && !__vis('dst-hwgrp-bridge')
         && document.querySelector('#dst-test-card .dst-pg-ico').textContent === '✓'
