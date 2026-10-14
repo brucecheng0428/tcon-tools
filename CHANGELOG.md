@@ -2,6 +2,37 @@
 
 ---
 
+## Data Mapping (datamap) v1.27.6 — 2026-10-14 ｜ PATCH ｜ FORCE_DE_SEL 可用 T 欄位照 RD 新版 BOE 分頁
+
+**判定依據**：R1 PATCH（修正錯誤的換算規則；起始欄、表格名稱、接線與排名不變，沒有新增能力）。
+
+### 起因（Bruce 2026-10-14）
+- Dispatch 問「要不要派任務照 同事A 的新規則改網頁的 FORCE_DE_SEL」，Bruce：「都依你建議」。
+- 依據（RD 正本）：瑞鼎 RD 同事A 2026-10-14 09:24 回信附檔 `EM01A1_rt7_register_force_mapping.xlsx`「BOE」分頁，reg_force_de_sel 0x00(X)、0x01～0x08、0x10、0x20、0x3F 每列的 T 欄位；回信本文另寫 reg_force_de_en＝0 時 1D1G＝T1（第 1 欄）、Zigzag／HSD／LTPS＝T2（第 2 欄）。
+
+### 定義對照
+- 程式的「欄」＝Pool 表第幾欄（mntIdx／mntName 的欄號）；「T1、T2…」＝同一條 Line 往右的第幾段。BOE 分頁每列的 T1 在哪一欄、Tn 在哪一欄，就是網頁要顯示的「可用 T1～Tn（第 a～b 欄）」。
+- 新規則（BOE 分頁）：force_de_en＝1 ⇒ T1＝最小設 1 的 bit 那欄（bit n＝第 n+1 欄），T2、T3…連續往右、不跳欄，最後一個 T＝最大設 1 的 bit 那欄＋4；可用 T 數＝(最大 bit − 最小 bit)＋5。例：0x05＝第 1～7 欄、0x0E＝第 2～8 欄、0x3F＝第 1～10 欄、0x20＝第 6～10 欄。force_de_en＝0 ⇒ 不看此值，1D1G 第 1～5 欄、其他第 2～6 欄。
+
+### 根因與矛盾點
+1. `DM.deSelTs`（v1.24.0）把「設 1 的 bit」當成可用的欄（0x05＝第 1、3 欄；0x0E＝第 2、3、4 欄），v1.26.2 再把「可用 T 數＝設 1 的 bit 數」寫進說明 ⇒ 與 BOE 分頁每一列（除 one-hot 的 T1 起始欄外）都不同。
+2. `DM.tUse`（T 使用分析）用同一份錯的集合判斷「可用／沒用到／超出」：例 0x05 Dual 的下 gate（第 2 欄）被誤報 12 格「不在可用欄」；0x0E 只列到第 4 欄。
+3. `tUse` 不看 force_de_en：force_de_en＝0 時仍用 FORCE_DE_SEL 的 bit 算可用欄，和 `mntBaseT` 的 auto 規則（1D1G 第 1 欄、其他第 2 欄）是兩套。
+4. 「依 T 展開整行」固定 T1～T4，與可用 T 數無關。
+5. 輸入框旁說明、T 使用分析標頭、tooltip（dm.hTselT）、說明（dm.tUseNote／tUseNoteNb）、警告字（tUseWarnL「不在設 1 的欄」）、tUseUnused「設了但沒用到」三語都是舊說法；`dm.deSelMap`「bit 不連續，對應方式為推定」、`dm.deSelNo`「T{k} 以後不可用」整條作廢。
+6. 格子右下角「推定」對 force_de_en＝0 也標（v1.26.1），但 RD 已定義 auto 的起始欄 ⇒ 只剩 force_de_en＝1 且值 0（BOE 分頁沒定義）才是推定。
+- 不受影響（逐一審查過）：`mntBaseT` 起始欄（多 bit＝最小 bit 那欄，v1.26.0 起已正確）、`mntName`／Pool 表、`mntTOf`（Dual 下 gate＝起始欄＋1）、③ 接線、32 種排列組合排名與 Benchmark 比對（只用起始欄與名稱，不用 T 數）、datamap-auto.js（只用 mntBaseT 起始欄）、`mntCands`（只在值 0 時顯示，改成同一個視窗函式後仍為空）。
+
+### 修法（單一來源）
+- `common/datamap-core.js`：`deSelTs(v, bits)` 改回傳 BOE 規則的連續欄位（ts[i]＝T(i+1) 的欄）；新增 `deAutoBase(s)`（force_de_en＝0 起始欄，mntBaseT 共用）與 `tWin(key, s)`（{base, ts}：force_de_en＝1 用 deSelTs、＝0 用 auto 5 欄）；`tUse` 改用 tWin；`deSelText` 改成「T1～Tn＝第a～b欄」。不分機種（MNT、NB 4 bit 欄位同一規則）。
+- `datamap.html`：輸入框旁說明改用 tWin（force_de_en＝0 時註明「不看此值」）；T 使用分析標頭／T 名稱／警告改連續視窗；依 T 展開整行欄數＝可用 T 數（全民 0x1F＝T1～T9）；只有值 0 標推定；三語字串同步改（hTselT、deSelRange、deSelEn0、tUseBase、tUseUnused、tUseWarnL、tUseNote、tUseNoteNb、tWhy_auto、tWhy_multi、tExpHead、lgTt），刪掉 deSelOnly／deSelMap／deSelNo。
+
+### 測試
+- `tools/check_datamap_boe.js`：內建 FX 換成 10/14 新版 BOE 分頁（12 列，給 `--boe` 時用 openpyxl 重抽並比對＝檔案）；每列 T1～Tn 的欄位逐格＝`DM.tWin`＝`DM.deSelTs`、T 數相同；de_en＝0 的 Zigzag／HSD／LTPS＝第 2～6 欄；0x01～0x3F 全 63 值規則一致；全民 0x1F 依 T 展開欄數＝9。Gate1／Gate2 24/24 維持。
+- `tools/check_datamap_desel.js`：0～63 換算改新規則；0x03／0x05／0x0E／0x3F／0x20／0x06 與 force_de_en＝0 的畫面說明逐字比對；0x05 Dual 不再誤報；4 bit（E503）同一規則。
+
+---
+
 ## Digital Gamma (dg) v2.4.12 — 2026-10-13 ｜ PATCH ｜ 圖表放大檢視按「關閉」關不掉
 
 **判定依據**：R1 PATCH（修正錯誤，既有功能恢復，沒有新增能力）。
