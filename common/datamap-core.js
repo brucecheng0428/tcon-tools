@@ -739,10 +739,21 @@
   var DE_COMMON = [0x0E, 0x1F, 0x01, 0x06, 0x0A, 0x0C, 0x3F];
   function pxIdx(p) { p = p | 0; return p > 0 ? p - 1 : p; }
   function idxPx(i) { return i >= 0 ? i + 1 : i; }
+  /* v1.31.0：起始欄 c 可選 pixel 索引（各 gate 列取交集；Dual／Tri 下 gate 列用 c＋1）——deSelForPx 與 pxForDeSel 共用這一份 */
+  function pxCovIdx(c, g) { var rel = mntRel(g, 1); return [2 * (c + rel) - 10, 2 * c - 1]; }
+  /* v1.31.0（Bruce 10/14「匯入 code 時依 FORCE_DE_EN／FORCE_DE_SEL 反算出目前涵蓋的 pixel 最小～最大」）：deSelForPx 的反方向。
+     FORCE_DE_EN＝0 用 panel 等效值（deAutoSel，與 tWin／tUse 同一規則）；起始欄＝deSelTs 第一欄。 */
+  function pxForDeSel(key, s, gate) {
+    var bits = (fieldById(key, 'deSel') || { bits: 6 }).bits, g = gate || gateOf(key, s);
+    var en = (s.deEn | 0) === 1, v = en ? (s.deSel | 0) : deAutoSel(s), c = deSelTs(v, en ? bits : 6)[0];
+    if (!c) return null;
+    var r = pxCovIdx(c, g);
+    return { v: v, en: en, base: c, from: idxPx(r[0]), to: idxPx(r[1]) };
+  }
   function deSelForPx(key, s, lo, hi, gate) {
     var bits = (fieldById(key, 'deSel') || { bits: 6 }).bits, mask = (1 << bits) - 1, g = gate || gateOf(key, s);
-    var a = pxIdx(Math.min(lo, hi)), b = pxIdx(Math.max(lo, hi)), rel = mntRel(g, 1);
-    function cov(c) { return [2 * (c + rel) - 10, 2 * c - 1]; }
+    var a = pxIdx(Math.min(lo, hi)), b = pxIdx(Math.max(lo, hi));
+    function cov(c) { return pxCovIdx(c, g); }
     function hit(c) { var r = cov(c); return Math.max(0, Math.min(b, r[1]) - Math.max(a, r[0]) + 1); }
     function common(c) { for (var i = 0; i < DE_COMMON.length; i++) { var v = DE_COMMON[i]; if ((v & mask) === v && deSelTs(v, bits)[0] === c) return v; } return 0; }
     var need = b - a + 1, cs = []; for (var c = 1; c <= bits; c++) cs.push(c);
@@ -1399,7 +1410,7 @@
     emptyState: emptyState, cloneState: cloneState, decode: decode, encode: encode, encodeFields: encodeFields,
     changedIds: changedIds, diffRegs: diffRegs, regsOf: regsOf, maskedMerge: maskedMerge,
     gateOf: gateOf, gateText: gateText, cellView: cellView, editCell: editCell, applyNames: applyNames, allSame: allSame,
-    mntName: mntName, mntIdx: mntIdx, linName: linName, linIdx: linIdx, codeIdx: codeIdx, rbSwapName: rbSwapName, mntBaseT: mntBaseT, mntTOf: mntTOf, mntInRange: mntInRange, mntInTable: mntInTable, mntRel: mntRel, mntCands: mntCands, mntMirT: mntMirT, deSelTs: deSelTs, deSelText: deSelText, deSelForPx: deSelForPx, DE_COMMON: DE_COMMON, deSelBase: deSelBase, tWin: tWin, deAutoBase: deAutoBase, deAutoSel: deAutoSel, DE_AUTO_SEL: DE_AUTO_SEL, tUse: tUse,
+    mntName: mntName, mntIdx: mntIdx, linName: linName, linIdx: linIdx, codeIdx: codeIdx, rbSwapName: rbSwapName, mntBaseT: mntBaseT, mntTOf: mntTOf, mntInRange: mntInRange, mntInTable: mntInTable, mntRel: mntRel, mntCands: mntCands, mntMirT: mntMirT, deSelTs: deSelTs, deSelText: deSelText, deSelForPx: deSelForPx, pxForDeSel: pxForDeSel, pxCovIdx: pxCovIdx, DE_COMMON: DE_COMMON, deSelBase: deSelBase, tWin: tWin, deAutoBase: deAutoBase, deAutoSel: deAutoSel, DE_AUTO_SEL: DE_AUTO_SEL, tUse: tUse,
     setGate: setGate, setHand: setHand, pyNormalize: pyNormalize, pyNames: pyNames, cks: cks, preLabels: preLabels,
     inputDict: inputDict, colorOfName: colorOfName, codeAddrs: codeAddrs, byteOf: byteOf, regNote: regNote, fieldsAt: fieldsAt,
     applyPreset: applyPreset, matchPreset: matchPreset, PRESET_SECOND: PRESET_SECOND, presetHasSecond: presetHasSecond,

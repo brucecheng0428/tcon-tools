@@ -2,6 +2,39 @@
 
 ---
 
+## Data Mapping (datamap) v1.31.0 — 2026-10-14 ｜ MINOR ｜ ⚠ 輸出變更 ｜ TFT 接線圖預覽小窗恢復拖曳／TCON Out・SD Out 連結＋接線圖區與小窗四邊拖動改大小＋Pixel 範圍與 FORCE_DE_SEL 雙向聯動、MNT 沒匯入 code 時預設 14
+
+**判定依據**：R3 MINOR（多一件能做的事：四邊／四角拖動改大小；Pixel 範圍輸入框跟著暫存器反算）。小窗互動恢復屬 bugfix。⚠ 輸出變更：MNT（EM01／EM02／E512）沒匯入 code 時 FORCE_DE_SEL 起始值 0→14（0x0E），沒匯入 code 時勾 Hand Mode Enable 會一併設 FORCE_DE_EN＝1；匯出 script 的這兩個欄位因此不同。有匯入 code 或連線時一律依 code／TCON 的值，不變。
+
+### 起因
+- Bruce 10/14：「TFT 接線圖，我還需要在上下左右邊緣，如果滑鼠放過去的話，還可以去拖動改變大小。原本滑鼠放在 sub-pixel 那邊會變成可以拖曳的動作，也要加回來。然後 T-CON Out 跟 SD Out 點擊以後會有超連結的動作，也都需要加回來，要跟原本的一模一樣。」
+- Bruce 10/14 實機（線上 v1.30.0）：勾 Hand Mode Enable 後 ②-2 沒有 Pixel 範圍列；「NB的TCON也需要吧」「如果都沒有任何的 code 套用，那預設的情況其實就是 -2 到 4 吧，然後force de SEL 就填 14，這是預設值」。
+
+### 根因（git 比對 446b37b v1.27.7 → b5c2cf3 v1.30.0）
+- 卡片內 #dm-pv-wrap 的手掌拖曳、圖內 TCON Out／SD Out／Data k／Dn 跳轉在一般與並排 sticky 模式都還在（v1.27.7 與 v1.30.0 同一支 tools/check_datamap_jump_realmouse.mjs 在 900／1400／1920px、原始碼與去註解版皆 16/16）。
+- 掉的是 c8d645e（v1.28.0）新增的「TFT 預覽」浮動小窗：內容是 `#dm-pv-tft.cloneNode(true)` 並移除 id ⇒ cloneNode 不複製事件監聽；小窗容器 #dm-mini-body 沒有 .dm-pvdrag，也沒有綁 v1.6.2 的拖曳；`#dm-pv-tft [data-jump]` 的 pointer 游標與 hover 底線以 id 為範圍 ⇒ 小窗裡 sub-pixel 沒有手掌、拖不動，TCON Out／SD Out 點了沒反應。b5c2cf3（v1.30.0）只加了標題列移動，沒補。
+- Pixel 範圍列：顯示條件是 `isMnt() && 有 deSel 欄位 && gate∈single/dual/tri`，不看 Hand 是怎麼開的；EM01／EM02／E512 用勾選框、RT7 Manual 樣式、匯入 code 三種方式都會出現（線上 v1.30.0 實測 EM01 勾 Hand＝顯示）。截圖上的「Auto Mode：Data Mapping Type＝Hand Mode 開」只出現在 NB 分支（datamap.html renderAuto：MNT 一律顯示「RT7 Type Select」），所以截圖的型號是 NB（E501A／E501B／E503／DAZ6138／DAZ6139 其一），NB 依 v1.30.0 設計不顯示。
+
+### NB 為什麼不接 Pixel 範圍反推（證據）
+- E50x 系 NB（E501A／E501B／E503／DAZ6138／DAZ6139）確實有 FORCE_DE_EN／FORCE_DE_SEL（common/datamap-core.js fieldsOf：FORCE_DE_SEL＝hand2 暫存器 [7:4]），原理與 MNT 相同；但瑞鼎 Python UI V5.0.4 write_dm_info_to_code 每次改表格／改 Gate 都強制寫 FORCE_DE_SEL[7:4]＝0xE（PY:29267→29280、PY:29377→29390；呼叫點 PY:28881／28894／29917，本頁照做在 common/datamap-core.js pyNormalize），可選名稱固定為 GN1／GN2 字典（PY:2831 GN1＝R-2～B4、PY:2836 GN2＝R-2～B6；common/datamap-core.js:143-144），不隨 FORCE_DE_SEL 平移。
+- ⇒ NB 的 Pixel 範圍恆為 -2～4（Dual 下 gate -2～6）、FORCE_DE_SEL 恆為 14：正好就是 Bruce 說的預設值；另設其他值會在下一次編輯被原廠規則寫回 14，所以反推沒有可調的空間，不顯示輸入列。
+- DAZ6111／DAZ7353 沒有 FORCE_DE_SEL，改用 HAND_LINE_SEL_EN（common/datamap-core.js fieldsOf nb 分支）。
+
+### 改動
+- datamap.html：拖曳改成 `pvDragBind(wr)`（v1.18.15 邏輯原封不動），同時掛在 #dm-pv-wrap 與 #dm-mini-body（加 .dm-pvdrag）；小窗 #dm-mini-svg 綁同一個 onJump（click／Enter／Space）；CSS 連結游標／hover 加上 `.dm-tftmini [data-jump]`。跳轉目標、閃爍高亮與 v1.27.7 相同（TCON Out／Data k → Data Mapping 表格＋該欄閃；SD Out／Dn → Source Driver 區框閃）。
+- 新增四邊／四角改大小（rszBind）：#dm-pv-wrap 與 #dm-mini 邊緣 6px 內游標 ns／ew／nwse／nesw-resize（.dm-rszon 蓋過手掌／連結／標題列 move 游標）；拖動時該邊跟著滑鼠（卡片內左／上邊以 margin 讓出空位，小窗以右下角定位），SVG 原尺寸不縮放、超出靠捲動；尺寸存 localStorage dm.tftsize.v1（try/catch），雙擊邊緣恢復預設；「放大／縮小」清掉小窗自訂尺寸；調整大小時不觸發拖曳、不誤跳轉、不移動小窗。
+- common/datamap-core.js：抽出 `pxCovIdx(c, gate)`（起始欄 c 可選 pixel 索引，Dual／Tri 取兩列交集）給 deSelForPx 與新的 `pxForDeSel(key, s)`（FORCE_DE_EN＝0 時用 deAutoSel 等效值，與 tWin／tUse 同一規則）共用。
+- ②-2 Pixel 範圍輸入框雙向聯動（pxSync）：輸入框反推＝目前 FORCE_DE_SEL 就不動（預設 -2～4 ↔ 14）；不相等（匯入 code、手改 FORCE_DE_SEL、Undo）就填入目前起始欄涵蓋範圍；沒匯入 code 且空白 ⇒ -2～4；輸入中不覆寫。換型號／清除匯入／匯入新 code 時重算。
+- MNT 沒匯入 code：FORCE_DE_SEL 起始值 14；勾 Hand Mode Enable 時 FORCE_DE_EN 一併勾（有 code／連線不動）。「回到初始設定」照舊回到初始快照（沒匯入 code 時沒有快照，維持既有提示）。
+- 呼吸燈只套在 TFT 接線圖 `.pv-err`（v1.30.0 原本就如此）；All Same R3 整表的表格格子沒有任何 CSS 動畫（新測試逐型號確認），截圖中閃動的是右側 TFT 圖衝突格。
+
+### 測試
+- tools/check_datamap_tft_interact.mjs（新，headless Chrome＋CDP 真滑鼠）：EM01 Auto／Hand、E503 Hand 的一般／並排／小窗，以及 EM02／E512／E501A／E501B／DAZ6138／DAZ6139／DAZ6111／DAZ7353 的一般（部分含小窗）：sub-pixel 游標 grab、拖曳 40px 捲動且不跳、拖曳中 grabbing；TCON Out／SD Out 標題、Data 1、D1 真點擊跳到正確目標（並確認 pointer 游標）、Enter 鍵；8 個邊角游標、往內 30px 該邊跟著滑鼠、再拖回原尺寸；SVG 不變形；localStorage 存檔、重新載入沿用、雙擊恢復；console 無錯誤。
+- tools/check_datamap_handentry.mjs（新）：每個型號 × 進入 Hand 的方式（勾選框、MNT RT7 Manual 樣式、匯入 code：NB 用合成 ROM 真的 parse、MNT 以 parse 結果注入模擬）× Gate（MNT Single／Dual／Tri）：Pixel 範圍列 MNT 顯示、NB／EN01 不顯示；預設 -2～4／14、改 FORCE_DE_SEL 輸入框跟著反算；R｜G｜B 面板真實點擊；格內只顯示名稱；All Same R3 時表格無動畫、TFT 錯誤格 dmBreathe；小窗標題列拖移。
+- 既有 check_datamap_* 全部重跑（結果見回報）。
+
+---
+
 ## Data Mapping (datamap) v1.30.0 — 2026-10-14 ｜ MINOR ｜ Pixel 範圍反推 FORCE_DE_SEL＋R｜G｜B 選擇面板＋格內只顯示名稱＋TFT 錯誤格呼吸燈＋TFT 預覽小窗可拖曳
 
 **判定依據**：R3 MINOR（多一件能做的事：輸入 pixel 最小～最大一鍵設定 FORCE_DE_SEL；選格方式改成面板但入口不變，寫入／驗證／Undo 同一路徑；既有換算不變）。
