@@ -670,7 +670,8 @@
     /* FORCE_DE_EN＝0（auto de phase）：EM02 原廠 RT7 清單 33 型（de_en＝0）算出的 Line OD 只有以 T2 解碼才和原廠 Line OD Type 一致
        （tools/check_datamap_auto.js；EM02 RApp_TX.h:533-566 ⇔ RApp_Table.h Line OD）⇒ auto 時以 T2 解讀（依 EM02 反推；EM01／E512 比照推定）。 */
     /* v1.27.0（Woody 10/13 回信）：reg_force_de_en＝0 ⇒ 1D1G 從第 1 欄（T1）、Zigzag／HSD 從第 2 欄（T2）；其他（LTPS）沿用第 2 欄（推定）。 */
-    if (!(s.deEn | 0)) return { t: (s.panel | 0) === 0 ? 1 : 2, why: 'auto' };
+    /* v1.27.6：Woody 10/14 回信確認 LTPS 也是第 2 欄（不再是推定）；與 tWin 共用 deAutoBase */
+    if (!(s.deEn | 0)) return { t: deAutoBase(s), why: 'auto' };
     /* v1.26.0（Bruce 10/13 決定，依 RD：「data 永遠都是從 T1 開始…14 代表最前面那一行不用，T1 移到第二行才開始用；31 其實 T1 就在最前面那行」）：
        多 bit ⇒ T1 起始欄＝最小設 1 的 bit＋1（0x0E＝第 2 欄、0x1F＝第 1 欄），不再依 code 反推（取代 v1.17.1「24 格都在範圍內的最低那張」）。
        全民 0x1F 因此從第 1 欄解讀，名稱會用到 R-3～R-6 等左側 dummy（Bruce：全民的 DataMapping 參考圖少畫了前面的 dummy，不可當驗證基準）。
@@ -692,17 +693,38 @@
   /* v1.27.0（Woody 10/13：BOE 分頁 INDEX 17..12 在第 1 欄＝B-3 G-3 R-3 B-4 G-4 R-4，Mirror 範例也是直接查 Pool 表）：Mirror 不改變名稱與 T 表 ⇒ 恆為 0（保留介面） */
   function mntMirT(s, gate) { return 0; }
   function mntCands(s, gate) {
-    var v = (s.deSel | 0) & 0x3F, ts = [], mo = mntMirT(s, gate); for (var b = 0; b < 6; b++) if (v & (1 << b)) ts.push(b + 1);
+    var ts = deSelTs(s.deSel, 6), mo = mntMirT(s, gate);   // v1.27.6：候選欄＝BOE 連續視窗（只在值 0 時顯示 ⇒ 實際為空）
     return ts.map(function (T) { var n = 0; for (var i = 0; i < 24; i++) if (!mntInRange(T + mo + mntRel(gate, Math.floor(i / 6)), s['c' + i])) n++; return { t: T, out: n }; });
   }
   /* v1.24.0（Bruce 10/13「設定 3 應該是 T2 跟 T1 兩個是 or；設定 5 就是 T3 跟 T1」）：FORCE_DE_SEL 換算成 T 組合。
      規格：EM02A1_RegisterBank.model force_de_sel 6 bit「[0]~[5]: de phase 0~5」＋Kick Off「Data hand mode」D1:G1＝0001／0010／0100／1000＝T1～T4
-     ⇒ bit n ＝ T(n+1)，與 Bruce 的例子一致（3＝T1|T2、5＝T1|T3、14＝T2|T3|T4）。原廠只定義 one-hot；多 bit 時晶片怎麼用（OR？取最低？）原廠資料沒寫。 */
-  function deSelTs(v, bits) { v = (v | 0) & ((1 << (bits || 6)) - 1); var ts = []; for (var b = 0; b < (bits || 6); b++) if (v & (1 << b)) ts.push(b + 1); return ts; }
-  function deSelText(v, bits) { var ts = deSelTs(v, bits); return ts.length ? ts.map(function (t) { return 'T' + t; }).join(' | ') : ''; }
+     ⇒ bit n ＝ T(n+1)，與 Bruce 的例子一致（3＝T1|T2、5＝T1|T3、14＝T2|T3|T4）。原廠只定義 one-hot；多 bit 時晶片怎麼用（OR？取最低？）原廠資料沒寫。
+     ※ v1.27.6 起此段的「設 1 的 bit＝可用 T」已作廢，改依 Woody 10/14 BOE 分頁（見下方 deSelTs）。 */
+  /* v1.27.6（Woody 10/14 09:24 新版 EM01A1_rt7_register_force_mapping.xlsx「BOE」分頁 reg_force_de_sel 0x01～0x3F 每列 T 欄位；取代 v1.24.0／v1.26.2 的「可用 T＝設 1 的 bit」）：
+     force_de_en＝1：T1＝最小設 1 的 bit 那欄（bit n＝第 n+1 欄），T2、T3…連續往右不跳欄，最後一個 T＝最大設 1 的 bit 那欄＋4
+     ⇒ 可用 T 數＝(最大 bit − 最小 bit)＋5。0x05＝第 1～7 欄、0x0E＝第 2～8 欄、0x3F＝第 1～10 欄、0x20＝第 6～10 欄。
+     回傳 T1、T2…依序所在的 Pool 欄號（ts[i]＝T(i+1) 的欄）。值 0 ⇒ []（BOE 分頁沒有定義）。tools/check_datamap_boe.js 逐列逐格比對。 */
+  var DE_TAIL = 4;
+  function deSelTs(v, bits) {
+    v = (v | 0) & ((1 << (bits || 6)) - 1); if (!v) return [];
+    var lo = 0, hi = 0, ts = []; while (!(v & (1 << lo))) lo++; for (var b = 0; b < (bits || 6); b++) if (v & (1 << b)) hi = b;
+    for (var c = lo + 1; c <= hi + 1 + DE_TAIL; c++) ts.push(c);
+    return ts;
+  }
+  function deSelText(v, bits) { var ts = deSelTs(v, bits); return ts.length ? 'T1～T' + ts.length + '＝第' + ts[0] + '～' + ts[ts.length - 1] + '欄' : ''; }
+  /* force_de_en＝0（Woody 10/13＋10/14 BOE 分頁「0／X」列）：1D1G＝第 1 欄起、Zigzag／HSD／LTPS＝第 2 欄起，各 T1～T5（5 欄）。與 mntBaseT 的 auto 分支同一規則。 */
+  function deAutoBase(s) { return ((s && s.panel) | 0) === 0 ? 1 : 2; }
+  /* T 欄位視窗（單一來源）：{ base：T1 所在欄（null＝未定義）, ts：T1、T2…的欄號 } */
+  function tWin(key, s) {
+    var bits = (fieldById(key, 'deSel') || { bits: 6 }).bits;
+    if (s && (s.deEn | 0)) { var ts = deSelTs(s.deSel, bits); return { base: ts.length ? ts[0] : null, ts: ts, en: 1, bits: bits }; }
+    var b0 = deAutoBase(s), t0 = []; for (var c = b0; c <= b0 + DE_TAIL; c++) t0.push(c);
+    return { base: b0, ts: t0, en: 0, bits: bits };
+  }
   /* v1.24.0 T 使用分析（Bruce 10/13 轉述 RD 原話：「它一樣是 OR 的概念，就是你到底會用到哪幾個 T，只是它會從你所選的 T 裡面最小的 T 開始用…
      設定 14…最小的會是在 T2，也就是從 T2 開始推…某些 data mapping 下它除了 T2 以外還會用到 T3…最多用到 T4…要看它的 line buffer（那個 T 其實是 line buffer 的意思）」）：
-     ・可用 T＝遮罩中為 1 的 bit（bit n＝T(n+1)）；基準 T＝其中最小者；最多到其中最大者。
+     ・v1.27.6：可用欄＝tWin（BOE 分頁：最小 bit 那欄起連續到最大 bit 那欄＋4；force_de_en＝0＝起始欄起 5 欄）；基準＝T1 那欄。
+       （取代 v1.24.0「可用 T＝遮罩中為 1 的 bit」——Woody 10/14 新表證明是錯的。）
      ・每條 gate 一個 line buffer：Single 只用基準；Dual 的下 gate（Line x-2）用基準＋1（與 mntTOf 相同）。
      ・MNT 另依 code 表範圍：某格的 code 在該 T 表沒有定義（code≥6×(T＋1)）⇒ 往上找到第一張有定義的 T（＝這格要用到更大的 line buffer）。
        NB（E50x／DAZ613x）的名稱是固定的 GN1／GN2 表，不隨 T 變 ⇒ 只用 gate 規則。
@@ -710,9 +732,9 @@
   function deSelBase(v, bits) { var ts = deSelTs(v, bits); return ts.length ? ts[0] : null; }
   function tUse(key, s, gate) {
     var m = MODELS[key], mnt = m && m.kind === 'mnt', bits = (fieldById(key, 'deSel') || { bits: 6 }).bits;
-    var g = gate || gateOf(key, s), ts = deSelTs(s && s.deSel, bits), base = ts.length ? ts[0] : null;
+    var g = gate || gateOf(key, s), W = tWin(key, s), ts = W.ts, base = W.base;   // v1.27.6：可用欄＝tWin（連續視窗），不再是設 1 的 bit
     var mo = mnt ? mntMirT(s, g) : 0, per = {}, warn = [], cells = [];
-    if (base === null) return { base: null, ts: ts, used: [], per: per, warn: warn, unused: ts.slice(), cells: cells, gate: g, bits: bits };
+    if (base === null) return { base: null, ts: ts, used: [], per: per, warn: warn, unused: ts.slice(), cells: cells, gate: g, bits: bits, en: W.en };
     for (var i = 0; i < 24; i++) {
       var row = Math.floor(i / 6), col = i % 6, code = s['c' + i] | 0, rel = mntRel(g, row);
       if (code === 31) continue;
@@ -725,7 +747,7 @@
       if (T !== null) (per[T] = per[T] || []).push(cell);
     }
     var used = Object.keys(per).map(Number).sort(function (a, b) { return a - b; });
-    return { base: base, ts: ts, used: used, per: per, warn: warn, unused: ts.filter(function (t) { return used.indexOf(t) < 0; }), cells: cells, gate: g, bits: bits };
+    return { base: base, ts: ts, used: used, per: per, warn: warn, unused: ts.filter(function (t) { return used.indexOf(t) < 0; }), cells: cells, gate: g, bits: bits, en: W.en };
   }
   function mntName(gate, row, code, mirror, base) {
     if (code === 31) return 'X';
@@ -1338,7 +1360,7 @@
     emptyState: emptyState, cloneState: cloneState, decode: decode, encode: encode, encodeFields: encodeFields,
     changedIds: changedIds, diffRegs: diffRegs, regsOf: regsOf, maskedMerge: maskedMerge,
     gateOf: gateOf, gateText: gateText, cellView: cellView, editCell: editCell, applyNames: applyNames, allSame: allSame,
-    mntName: mntName, mntIdx: mntIdx, linName: linName, linIdx: linIdx, codeIdx: codeIdx, rbSwapName: rbSwapName, mntBaseT: mntBaseT, mntTOf: mntTOf, mntInRange: mntInRange, mntInTable: mntInTable, mntRel: mntRel, mntCands: mntCands, mntMirT: mntMirT, deSelTs: deSelTs, deSelText: deSelText, deSelBase: deSelBase, tUse: tUse,
+    mntName: mntName, mntIdx: mntIdx, linName: linName, linIdx: linIdx, codeIdx: codeIdx, rbSwapName: rbSwapName, mntBaseT: mntBaseT, mntTOf: mntTOf, mntInRange: mntInRange, mntInTable: mntInTable, mntRel: mntRel, mntCands: mntCands, mntMirT: mntMirT, deSelTs: deSelTs, deSelText: deSelText, deSelBase: deSelBase, tWin: tWin, deAutoBase: deAutoBase, tUse: tUse,
     setGate: setGate, setHand: setHand, pyNormalize: pyNormalize, pyNames: pyNames, cks: cks, preLabels: preLabels,
     inputDict: inputDict, colorOfName: colorOfName, codeAddrs: codeAddrs, byteOf: byteOf, regNote: regNote, fieldsAt: fieldsAt,
     applyPreset: applyPreset, matchPreset: matchPreset, PRESET_SECOND: PRESET_SECOND, presetHasSecond: presetHasSecond,
