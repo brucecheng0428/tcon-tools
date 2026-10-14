@@ -315,8 +315,8 @@
     return ns;
   }
   var SWAP6 = [2, 1, 0, 5, 4, 3];
-  function wiringFromState(model, s, swap) {
-    var g = DM.gateOf(model, s), R = DM.secondSetRule(model, s), tn = function (T, v) { return v === 31 ? null : LOD.tName(T, v); };
+  function wiringFromState(model, s, swap, gate) {
+    var g = gate || DM.gateOf(model, s), R = DM.secondSetRule(model, s), tn = function (T, v) { return v === 31 ? null : LOD.tName(T, v); };
     var c = function (slot, ch) { return s['c' + (slot * 6 + ch)] | 0; }, x = function (slot, ch) { return s['x' + (slot * 6 + ch)] | 0; };
     /* v1.17.0：Hand Mode 的 T 表跟 FORCE_DE_EN／FORCE_DE_SEL（DM.mntBaseT；Kick Off「Data hand mode」D1:G1，預設／多位元＝T2 ⇒ 位移 0，舊行為不變） */
     var dT = DM.mntBaseT ? DM.mntBaseT(s).t - 2 : 0;
@@ -395,6 +395,65 @@
     return { state: d.length ? 'diff' : 'ok', cur: cur, curType: ct, exp: exp, diff: d };
   }
   function lodApply(model, s) { var e = expectedLod(model, s); return e.ok ? lodSet(s, e.reg) : null; }
-  var API = { HIDDEN: HIDDEN, manualMatch: manualMatch, rt7Match: rt7Match, matchLoose: matchLoose, DAZ_W: DAZ_W, rbSwap: rbSwap, mux2Type: mux2Type, lodSupported: lodSupported, lodOf: lodOf, lodSet: lodSet, wiringFromState: wiringFromState, expectedLod: expectedLod, lodCheck: lodCheck, lodApply: lodApply, PM_KEYS: PM_KEYS, FIXES: FIXES, ZZ_SEQ: ZZ_SEQ, fam: fam, list: list, match: match, apply: apply, wiring: wiring, fixesFor: fixesFor, mux3Type: mux3Type, rawByte: rawByte };
+
+  /* ── v1.28.2（Bruce 10/14「這些都是用預設的設定，所以應該都要有圖才對」；依據優先序：瑞鼎 Excel ＞ Line OD 預設）──────────────
+     MNT Auto（Hand 關）原本只認原廠 RT7 清單中 force_sel_en＝0 的樣式 ⇒ HSD sub 4／5（8-pixel、4line-4pixel）、LTPS sub 1～7、1D1G sub≠0 沒有 TFT 圖。
+     補上瑞鼎 Excel（RD_peera_DataMapping_20261013/reply_110503_0924/EM01A1_rt7_register_force_mapping.xlsx）1D1G／Zigzag／HSD／LTPS 分頁
+     「Manual setting」的 force_sel 表（非 mirror 欄；mirror 不改玻璃接線，同 matchLoose），用 Hand Mode 同一套 wiringFromState 換算接線（單一來源）。
+     欄位：[分頁, 名稱, panel, sub（null＝Excel 寫 x：任何 sub）, Excel Auto setting 有列這組（1）／只有 Manual（0，推定）, gate 覆寫, c0..c23, x0..x23]
+     交叉驗證（tools/check_datamap_tft_all.js）：與 RT7＋Line OD 已有圖的 14 組 24 條 Data 線完全相同；HSD 8pixel＝Line OD 29、4line-4pixel＝Line OD 30；
+     LTPS 8 組中 7 組＝NB 隱藏表解碼（mux2 normal type2 不同 ⇒ 以 Excel 為準）。LTPS mux2 是 Dual（2 條 gate，Excel 只有 24 個 force_sel）。 */
+  var XL_SRC = 'EM01A1_rt7_register_force_mapping.xlsx（瑞鼎 同事A 10/14）';
+  var XL_MNT = [
+    ['1D1G', '1D1G', 0, null, 1, '', '0 1 2 3 4 5 0 1 2 3 4 5 0 1 2 3 4 5 0 1 2 3 4 5', '0 1 2 3 4 5 0 1 2 3 4 5 0 1 2 3 4 5 0 1 2 3 4 5'],
+    ['Zigzag', 'Zigzag type1', 1, 0, 1, '', '6 7 8 9 10 11 17 6 7 8 9 10 6 7 8 9 10 11 17 6 7 8 9 10', '6 7 8 9 10 11 17 6 7 8 9 10 6 7 8 9 10 11 17 6 7 8 9 10'],
+    ['Zigzag', 'Zigzag type2', 1, 1, 1, '', '17 6 7 8 9 10 6 7 8 9 10 11 17 6 7 8 9 10 6 7 8 9 10 11', '17 6 7 8 9 10 6 7 8 9 10 11 17 6 7 8 9 10 6 7 8 9 10 11'],
+    ['Zigzag', 'Zigzag type3', 1, 2, 1, '', '6 7 8 9 10 11 6 7 8 9 10 11 17 6 7 8 9 10 17 6 7 8 9 10', '6 7 8 9 10 11 6 7 8 9 10 11 17 6 7 8 9 10 17 6 7 8 9 10'],
+    ['Zigzag', 'Zigzag type4', 1, 3, 1, '', '17 6 7 8 9 10 17 6 7 8 9 10 6 7 8 9 10 11 6 7 8 9 10 11', '17 6 7 8 9 10 17 6 7 8 9 10 6 7 8 9 10 11 6 7 8 9 10 11'],
+    ['Zigzag', 'Zigzag type5', 1, 4, 1, '', '6 7 8 9 10 11 17 6 7 8 9 10 17 6 7 8 9 10 6 7 8 9 10 11', '6 7 8 9 10 11 17 6 7 8 9 10 17 6 7 8 9 10 6 7 8 9 10 11'],
+    ['Zigzag', 'Zigzag type6', 1, 5, 1, '', '17 6 7 8 9 10 6 7 8 9 10 11 6 7 8 9 10 11 17 6 7 8 9 10', '17 6 7 8 9 10 6 7 8 9 10 11 6 7 8 9 10 11 17 6 7 8 9 10'],
+    ['Zigzag', 'Zigzag type7', 1, 6, 1, '', '6 7 8 9 10 11 6 7 8 9 10 11 6 7 8 9 10 11 6 7 8 9 10 11', '17 6 7 8 9 10 17 6 7 8 9 10 17 6 7 8 9 10 17 6 7 8 9 10'],
+    ['Zigzag', 'Zigzag type8', 1, 7, 1, '', '17 6 7 8 9 10 17 6 7 8 9 10 17 6 7 8 9 10 17 6 7 8 9 10', '6 7 8 9 10 11 6 7 8 9 10 11 6 7 8 9 10 11 6 7 8 9 10 11'],
+    ['HSD', 'HSD type1', 2, 0, 1, '', '6 8 10 0 2 4 13 15 17 7 9 11 6 8 10 0 2 4 13 15 17 7 9 11', ''],
+    ['HSD', 'HSD type4', 2, 1, 1, '', '6 9 11 0 3 5 13 14 16 7 8 10 6 9 11 0 3 5 13 14 16 7 8 10', ''],
+    ['HSD', 'HSD type3-5', 2, 2, 1, '', '16 17 7 10 11 1 21 12 14 15 6 8 17 7 10 11 1 4 12 14 15 6 8 9', ''],
+    ['HSD', 'HSD type4+zigzag', 2, 3, 1, '', '6 9 11 0 3 5 13 14 16 7 8 10 17 6 9 11 0 3 22 13 14 16 7 8', ''],
+    ['HSD', 'HSD 8pixel', 2, 4, 0, '', '16 17 7 10 0 1 21 12 14 15 17 8 17 7 10 0 1 4 12 14 15 17 8 9', '16 6 7 10 11 1 21 23 14 15 6 8 6 7 10 11 1 4 23 14 15 6 8 9'],
+    ['HSD', 'HSD 4 line 4pixel', 2, 5, 0, '', '6 9 11 1 3 5 13 14 16 6 8 10 16 7 8 10 1 2 23 12 15 17 6 9', '7 9 11 0 3 5 12 14 16 7 8 10 16 7 8 10 1 2 23 12 15 17 6 9'],
+    ['LTPS', 'LTPS mux3 normal type1', 3, 0, 1, '', '12 15 6 9 0 3 19 22 13 16 7 10 12 15 6 9 0 3 19 22 13 16 7 10', '26 29 20 23 14 17 31 31 31 31 31 31 26 29 20 23 14 17 31 31 31 31 31 31'],
+    ['LTPS', 'LTPS mux2 normal type1', 3, 1, 1, 'dual', '12 14 16 6 8 10 19 21 23 13 15 17 12 14 16 6 8 10 19 21 23 13 15 17', ''],
+    ['LTPS', 'LTPS mux3 zigzag type1', 3, 2, 1, '', '12 15 6 9 0 3 19 22 13 16 7 10 23 14 17 8 11 2 18 21 12 15 6 9', '26 29 20 23 14 17 31 31 31 31 31 31 25 28 19 22 13 16 31 31 31 31 31 31'],
+    ['LTPS', 'LTPS mux2 zigzag type1', 3, 3, 1, 'dual', '12 14 16 6 8 10 19 21 23 13 15 17 23 13 15 17 7 9 18 20 22 12 14 16', ''],
+    ['LTPS', 'LTPS mux3 normal type2', 3, 4, 1, '', '12 15 6 9 0 3 22 19 16 13 10 7 12 15 6 9 0 3 22 19 16 13 10 7', '26 29 20 23 14 17 31 31 31 31 31 31 26 29 20 23 14 17 31 31 31 31 31 31'],
+    ['LTPS', 'LTPS mux2 normal type2', 3, 5, 1, 'dual', '12 13 16 17 8 9 20 21 12 13 16 17 12 13 16 17 8 9 20 21 12 13 16 17', ''],
+    ['LTPS', 'LTPS mux3 zigzag type2', 3, 6, 1, '', '12 15 6 9 0 3 22 19 16 13 10 7 23 14 17 8 11 2 21 18 15 12 9 6', '26 29 20 23 14 17 31 31 31 31 31 31 25 28 19 22 13 16 31 31 31 31 31 31'],
+    ['LTPS', 'LTPS mux2 zigzag type2', 3, 7, 1, 'dual', '12 13 16 17 8 9 20 21 12 13 16 17 23 12 15 16 7 8 19 20 23 12 15 16', ''],
+    ['LTPS', 'LTPS BOE tri-gate', 3, 2, 0, '', '12 13 14 15 16 17 12 13 14 15 16 17 12 13 14 15 16 17 12 13 14 15 16 17', '12 13 14 15 16 17 31 31 31 31 31 31 12 13 14 15 16 17 31 31 31 31 31 31']
+  ].map(function (r) { var sp = function (t) { return t ? t.split(' ').map(Number) : null; }; return { sheet: r[0], name: r[1], panel: r[2], sub: r[3], auto: !!r[4], gate: r[5] || '', c: sp(r[6]), x: sp(r[7]) }; });
+  /* 這組 panel／sub 在 Excel 的表（Auto setting 有列的優先；LTPS sub 2 的 BOE tri-gate 只有 Manual，不搶 Auto 的 mux3 zigzag type1） */
+  function xlsxRow(s) {
+    var p = s.panel | 0, sp = s.subPanel | 0, hit = null;
+    XL_MNT.forEach(function (r) { if (r.panel !== p || (r.sub !== null && r.sub !== sp)) return; if (!hit || (r.auto && !hit.auto)) hit = r; });
+    return hit;
+  }
+  /* MNT Auto 接線（Excel）：回傳 { e: 給 ③ 用的 Type 項, t: 接線 } 或 { why: 沒依據的原因 } */
+  function xlsxWire(model, s) {
+    if (fam(model) !== 'mnt') return { why: 'model' };
+    var r = xlsxRow(s);
+    if (!r) return { why: tt0('xlNone', s) };
+    var st = DM.emptyState(model); st.hand = 1; st.panel = r.panel; st.subPanel = s.subPanel | 0; st.rd = [0, 0, 1, 2][r.panel]; st.deEn = 0; st.deSel = 0; st.mirror = 0; st.chrb = 0;
+    for (var i = 0; i < 24; i++) { st['c' + i] = r.c[i]; if (r.x) st['x' + i] = r.x[i]; }
+    var w = wiringFromState(model, st, false, r.gate || undefined);
+    if (!w.ok) return { why: 'Excel ' + r.sheet + ' 分頁「' + r.name + '」換算失敗（' + w.why + '）' };
+    var t = w.t; t.no = -1; t.name = r.name; t.reg = null;
+    return { t: t, e: { name: 'Excel ' + r.name, set: { panel: r.panel, subPanel: s.subPanel | 0, mirror: 0, chrb: 0 }, lod: null, xl: r,
+      src: '瑞鼎 Excel ' + r.sheet + ' 分頁「' + r.name + '」', est: r.auto ? '' : 'Excel 的 Auto setting 沒列這組（只有 Manual 表）⇒ 依 Manual 表推定' } };
+  }
+  function tt0(k, s) {
+    var p = s.panel | 0, PN = ['1D1G', 'Zigzag', 'HSD', 'LTPS'][p] || ('panel ' + p), subs = XL_MNT.filter(function (r) { return r.panel === p && r.sub !== null; }).map(function (r) { return r.sub; });
+    var lo = subs.length ? Math.min.apply(null, subs) : 0, hi = subs.length ? Math.max.apply(null, subs) : 0;
+    return PN + ' sub_panel_mode ' + (s.subPanel | 0) + '：瑞鼎 Excel ' + PN + ' 分頁只有 sub ' + lo + '～' + hi + '，原廠 RT7／Line OD 也沒有這組 ⇒ 沒有依據可畫';
+  }
+  var API = { XL_MNT: XL_MNT, XL_SRC: XL_SRC, xlsxRow: xlsxRow, xlsxWire: xlsxWire, HIDDEN: HIDDEN, manualMatch: manualMatch, rt7Match: rt7Match, matchLoose: matchLoose, DAZ_W: DAZ_W, rbSwap: rbSwap, mux2Type: mux2Type, lodSupported: lodSupported, lodOf: lodOf, lodSet: lodSet, wiringFromState: wiringFromState, expectedLod: expectedLod, lodCheck: lodCheck, lodApply: lodApply, PM_KEYS: PM_KEYS, FIXES: FIXES, ZZ_SEQ: ZZ_SEQ, fam: fam, list: list, match: match, apply: apply, wiring: wiring, fixesFor: fixesFor, mux3Type: mux3Type, rawByte: rawByte };
   if (typeof module === 'object' && module.exports) module.exports = API; else root.TCONDataMapAuto = API;
 })(typeof window !== 'undefined' ? window : this);
