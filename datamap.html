@@ -785,6 +785,8 @@
     'dm.pxApply': ['套用', 'Apply', '套用'],
     'dm.pxApplyT': ['依 pixel 範圍設定 FORCE_DE_SEL（並開 FORCE_DE_EN）', 'Set FORCE_DE_SEL (and FORCE_DE_EN) from the pixel range', '依 pixel 范围设定 FORCE_DE_SEL（并开 FORCE_DE_EN）'],
     'dm.pxCommon': ['（常用）', ' (common)', '（常用）'],
+    'dm.i2cOffImp': ['I2C 離線（已匯入 code）', 'I2C offline (code imported)', 'I2C 离线（已导入 code）'],
+    'dm.pxNbFix': ['此型號固定 14（-2～4）', 'Fixed at 14 (-2–4) for this model', '此型号固定 14（-2～4）'],
     'dm.pxOver': ['範圍太大，最多 {a}～{b}', 'Range too wide; max {a}–{b}', '范围太大，最多 {a}～{b}'],
     'dm.fDe': ['用 FORCE_DE_SEL 指定 T1 起始欄', 'FORCE_DE_SEL sets the T1 start column', '用 FORCE_DE_SEL 指定 T1 起始栏'],
     'dm.fRvs': ['各 port 反向讀取', 'per-port reverse read', '各 port 反向读取'],
@@ -1356,9 +1358,13 @@
      T1、T2、T3…是同一條 Line 往右分段。輸入框旁即時顯示「（0x0E）→ T1 從 Pool 第 2 欄開始」；多 bit 時下拉顯示同一句；FORCE_DE_EN＝1 時下方列 T 使用分析（DM.tUse，
      內部的 t＝Pool 欄號）。MNT 與 NB 同一套。 */
   /* v1.30.0（Bruce 10/14）：② -2 表格上方「Pixel 最小～最大＋套用」⇒ DM.deSelForPx 反推 FORCE_DE_SEL（MNT：名稱隨 T1 起始欄變；NB 名稱固定 ⇒ 不顯示） */
+  /* v1.31.3（Bruce 10/14「NB的TCON也需要吧」「預設的情況其實就是 -2 到 4 吧，然後 force de SEL 就填 14」）：
+     NB（有 FORCE_DE_SEL 欄位的 E50x／DAZ6138／DAZ6139）PY 固定 de_sel 0xE（RomCodeProcessUI.py:29280）⇒ Pixel 範圍固定 -2～4 ↔ 14；
+     Hand 開就顯示同一列；套用任何範圍都寫 FORCE_DE_EN＝1、FORCE_DE_SEL＝14，範圍不是 -2～4 時旁邊一行提示。 */
+  function nbPxFix() { return DM.MODELS[S.model].kind === 'nb' && !!DM.fieldById(S.model, 'deSel'); }
   function renderPx() {
     var row = $('dm-pxrow'); if (!row) return;
-    var g = DM.gateOf(S.model, S.cur), show = isMnt() && !!DM.fieldById(S.model, 'deSel') && (g === 'single' || g === 'dual' || g === 'tri');
+    var g = DM.gateOf(S.model, S.cur), show = (isMnt() && !!DM.fieldById(S.model, 'deSel') && (g === 'single' || g === 'dual' || g === 'tri')) || (nbPxFix() && !!(S.cur.hand | 0));
     row.classList.toggle('hidden', !show);
     $('dm-pxapply').disabled = !!S.ro || S.busy;
     if (show) pxSync();
@@ -1371,6 +1377,7 @@
   function pxSync() {
     var lo = $('dm-pxlo'), hi = $('dm-pxhi'), ae = document.activeElement;
     if (ae === lo || ae === hi) return;
+    if (nbPxFix()) { lo.value = -2; hi.value = 4; return; }
     var a = parseInt(lo.value, 10), b = parseInt(hi.value, 10);
     if ((isNaN(a) || isNaN(b)) && S.src.kind === 'none' && !S.raw) { a = -2; b = 4; lo.value = a; hi.value = b; }
     var cur = DM.pxForDeSel(S.model, S.cur); if (!cur) return;
@@ -1383,6 +1390,16 @@
     var lo = parseInt($('dm-pxlo').value, 10), hi = parseInt($('dm-pxhi').value, 10);
     if (isNaN(lo) && isNaN(hi)) return;
     if (isNaN(lo)) lo = hi; if (isNaN(hi)) hi = lo;
+    if (nbPxFix()) {
+      var nres = $('dm-pxres'), fixed = Math.min(lo, hi) === -2 && Math.max(lo, hi) === 4;
+      nres.textContent = fixed ? '→ 14 (0x0E)' : tt('dm.pxNbFix'); nres.classList.toggle('over', !fixed);
+      nres.setAttribute('data-v', 14); nres.setAttribute('data-over', fixed ? 0 : 1);
+      $('dm-pxlo').value = -2; $('dm-pxhi').value = 4;
+      if ((S.cur.deEn | 0) === 1 && (S.cur.deSel | 0) === 0x0E) return;
+      var nns = DM.cloneState(S.cur); nns.deEn = 1; nns.deSel = 0x0E;
+      log('n', 'Pixel -2～4 → FORCE_DE_SEL ← 0x0E（NB 固定）');
+      commit(nns, 'deEn＋deSel'); return;
+    }
     var r = DM.deSelForPx(S.model, S.cur, lo, hi), res = $('dm-pxres');
     res.textContent = (r.over ? tt('dm.pxOver', { a: r.from, b: r.to }) + ' ' : '') + '→ ' + r.v + ' (0x' + hex(r.v, 2) + ')' + (r.common ? tt('dm.pxCommon') : '');
     res.classList.toggle('over', r.over); res.setAttribute('data-v', r.v); res.setAttribute('data-over', r.over ? 1 : 0);
@@ -3027,7 +3044,8 @@
   function i2cState() { return S.linked ? 'on' : (S.connecting ? 'busy' : (S.i2cMiss || 'off')); }
   function renderI2c() {
     var st = i2cState();
-    if (IB) { IB.badge($('dm-i2c-top'), st); IB.badge($('dm-i2c-src'), st); }
+    var lab = (st === 'off' && S.src && S.src.kind === 'file') ? tt('dm.i2cOffImp') : undefined;   // v1.31.3
+    if (IB) { IB.badge($('dm-i2c-top'), st, lab); IB.badge($('dm-i2c-src'), st, lab); }
     else { ['dm-i2c-top', 'dm-i2c-src'].forEach(function (id) { var e = $(id); if (e) { e.setAttribute('data-i2c', st); e.textContent = st === 'on' ? 'I2C ' + tt('dm.connected') : 'I2C'; } }); }
     var need = $('dm-i2c-need');
     if (IB && S.i2cMiss && !S.linked && !S.connecting) { if (need.getAttribute('data-i2cb-need') !== S.i2cMiss || need.getAttribute('data-lang') !== document.documentElement.lang) { IB.mountNeed(need, S.i2cMiss); need.setAttribute('data-lang', document.documentElement.lang); } }
@@ -3035,6 +3053,14 @@
     var dl = $('dm-i2c-dl'); if (dl) { var okDl = IB ? IB.fillDl(dl, $('dm-i2c-dlver')) : false; if (okDl && IB.wireHowto) IB.wireHowto(dl); if (!okDl) dl.setAttribute('hidden', ''); dl.classList.toggle('hidden', S.linked); }
   }
   window.dmI2cState = i2cState;
+  /* v1.31.3：匯入 code ⇒ 收掉所有 I2C／Bridge 提示（① 下載提示框、紅色 I2C 標籤、I2C 錯誤 toast），狀態回「離線（已匯入 code）」；
+     S.i2cMiss 只在按「連線」失敗／連線中被關掉時才會再設 ⇒ 之後不會因 I2C 再跳提示 */
+  function i2cQuiet() {
+    S.i2cMiss = null;
+    var box = $('dm-toasts'), msgs = [tt('dm.linkErr'), 'I2C Bridge closed'];
+    if (box) Array.prototype.slice.call(box.children).forEach(function (el) { if (msgs.indexOf(el.textContent) >= 0) el.remove(); });
+    if (IB && IB.hideHowto) IB.hideHowto();
+  }
   /* 連不到／被關掉：記下原因；① 收摺中就先展開，讓下載提示看得到 */
   function i2cMissShow(kind) { S.i2cMiss = kind; var c = $('card-src'); if (c && isFolded(c)) setFold(c, false); }
   function send(obj) {
@@ -3260,6 +3286,7 @@
     $('dm-pv-swap').checked = false; $('dm-pv-swapbox').classList.remove('on'); $('dm-pv-first').value = 'l'; $('dm-pv-stripe').value = 'rgb'; $('dm-pv-drv').value = pvDrvRev ? 'r' : 'f';
     }
     S.src = { kind: 'file', name: name, model: r.model, cks: r.cks, crc: r.sysCrc ? r.sysCrc.status : '' }; S.offline = null;
+    i2cQuiet();   // v1.31.3（Bruce 10/14「我用匯入 code 的話，就完全跟 i2C 沒有關係」）：關掉找不到 Bridge／斷線提示，直到再按「連線」
     afterLoad(r.v512);
     initSnap(tt('dm.rstWhatImp', { f: name }));   // v1.18.25：每次匯入都重建初始快照
   }
@@ -3274,8 +3301,8 @@
     S.ro = null; S.last = ''; S.e503ok = false; S.raw = null; S.rawName = ''; S.offline = null; resetX();
     S.init = null;   // v1.18.25：換型號／清除匯入／連線前清掉離線資料 ⇒ 初始快照一起清掉
     if ($('dm-pxlo')) { $('dm-pxlo').value = ''; $('dm-pxhi').value = ''; }   // v1.31.0：Pixel 範圍回預設（pxSync 重填）
-    if (DM.MODELS[k].kind === 'mnt' && DM.fieldById(k, 'deSel')) S.cur.deSel = 0x0E;   // v1.31.0（Bruce 10/14）：沒匯入 code 的 FORCE_DE_SEL 預設 14
-    S.deDef = DM.MODELS[k].kind === 'mnt';   // 預設值還沒被使用者／RT7 樣式改過 ⇒ 開 Hand 時套 FORCE_DE_EN＝1
+    if ((DM.MODELS[k].kind === 'mnt' || DM.MODELS[k].kind === 'nb') && DM.fieldById(k, 'deSel')) S.cur.deSel = 0x0E;   // v1.31.3：NB 同規則   // v1.31.0（Bruce 10/14）：沒匯入 code 的 FORCE_DE_SEL 預設 14
+    S.deDef = DM.MODELS[k].kind === 'mnt' || (DM.MODELS[k].kind === 'nb' && !!DM.fieldById(k, 'deSel'));   // 預設值還沒被使用者／RT7 樣式改過 ⇒ 開 Hand 時套 FORCE_DE_EN＝1
   }
   function clearImport() {
     if (S.busy) return;
@@ -3537,7 +3564,7 @@
     $('dm-hand').addEventListener('change', function () {
       var on = this.checked, ns = DM.setHand(S.model, S.cur, on);
       /* v1.31.0（Bruce 10/14）：MNT 沒匯入 code（也沒連線）時開 Hand ⇒ FORCE_DE_EN 勾、FORCE_DE_SEL 14（預設 -2～4）；有 code 依 code 值不動 */
-      if (on && S.deDef && isMnt() && S.src.kind === 'none' && !S.raw && DM.fieldById(S.model, 'deEn') && !(ns.deEn | 0)) { ns.deEn = 1; ns.deSel = 0x0E; }
+      if (on && S.deDef && (isMnt() || nbPxFix()) && S.src.kind === 'none' && !S.raw && DM.fieldById(S.model, 'deEn') && !(ns.deEn | 0)) { ns.deEn = 1; ns.deSel = 0x0E; }
       S.deDef = false;
       commit(ns, 'Hand Mode Enable'); if (on) { initHandFill(); renderRestore(); } });
     $('dm-restore').addEventListener('click', function () { restoreInit(); });
