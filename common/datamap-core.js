@@ -1124,10 +1124,13 @@
     return function (reg) { return (reg >= r[2] && reg <= r[3]) ? r[0] + (reg - r[2]) : -1; };
   }
   function cksOf(bytes) { var c = 0; for (var i = 0; i < bytes.length; i++) c += bytes[i]; return c >>> 0; }
+  /* v1.29.0（Bruce 10/14 依建議：EM01／EM02 SYS CRC 第二道確認，見 common/syscrc.js）：型號判斷不變，判斷完再驗 CRC */
+  var SC = root.TCONSysCrc || (typeof require === 'function' ? require('./syscrc.js') : null);
   function parseWith(key, bytes, fileOf, medium) {
     var gb = function (reg) { var o = fileOf(reg); return (o >= 0 && o < bytes.length) ? bytes[o] : 0; };
     var st = decode(key, gb);
-    return { ok: true, model: key, medium: medium, state: st, fileOf: fileOf, cks: cksOf(bytes), v512: v512Suspects(key, gb) };
+    return { ok: true, model: key, medium: medium, state: st, fileOf: fileOf, cks: cksOf(bytes), v512: v512Suspects(key, gb),
+      sysCrc: SC ? SC.sysCrcCheck(bytes, key, medium) : null };
   }
   /* 匯入。name ＝ 檔名（決定解析方式與 PY 型號）；pick ＝ 頁面目前選的型號。
      規則：MNT 依檔案內容（只接受恰好一個命中）；PY 型號依檔名（同 PY），檔名看不出來才用 pick。 */

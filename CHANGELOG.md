@@ -2,6 +2,29 @@
 
 ---
 
+## 面板訊號模擬與取樣 (wfg) v4.55.0 — 2026-10-14 ｜ MINOR ｜ 匯入 EM01／EM02 code 時 SYS CRC 第二道確認（與 datamap v1.29.0 共用 common/syscrc.js，說明見下一條）
+
+**判定依據**：R3 MINOR（多一項檢查：匯入 EM01／EM02 code 時 SYS CRC 不符會多一行提醒；既有判斷與匯入流程不變）。
+
+---
+
+## Data Mapping (datamap) v1.29.0 — 2026-10-14 ｜ MINOR ｜ EM01／EM02 SYS CRC 第二道確認
+
+**判定依據**：R3 MINOR（多一項檢查：匯入 EM01／EM02 code 時顯示 SYS CRC ✓／不符提醒；型號判斷、表格與匯出不變）。
+
+### 起因
+- Bruce 10/14（回覆 Dispatch「型號照現在方式判斷，再加共用 CRC 檢查：吻合確認、0000 照舊、不吻合提醒」）：「依你建議做」。依據 Jacky 10/14 信＋EM01／EM02 UI App/RApp_Common.cpp RApp_Common_CRC16（初值 0x0052）。
+
+### 改動
+- 新增 common/syscrc.js：`sysCrcCheck(bytes, model, kind)` 回傳 match／blank（存值 0000／FFFF）／mismatch；crc16 逐字移植 Jacky_20261014_1512/em_syscrc_probe.js。位置：EM02 SYS 0x00～0x87、CRC 0x88；EM01 EEPROM 0x00～0xBF、CRC 0xC0；EM01 Flash 0x00～0xF1、CRC 0xF2（LSB 在前）。
+- 型號判斷不變；判斷完才驗 CRC：datamap-core parseWith 帶出 `sysCrc`；datamap.html 吻合時 Code 檔欄顯示「SYS CRC ✓」，不符時多一則不擋路提醒「SYS CRC 不符，檔案可能被改過或不是此型號」；判為 EM01 Flash 但三個位置都不符（如 Novatek NT71855 NB 檔）改提醒「可能不是瑞鼎 code」。blank 照舊不提醒（V512 這類）。
+- wfg.html 匯入 EM01／EM02 code 時呼叫同一支（wfgSysCrcNote），不符才在匯入完成卡多一行。
+
+### 測試
+- tools/check_syscrc.js（新）：Barry RM80103＝EM02 match、BOE B10B18 GoldenCheck_CKS_2ACFF＝EM02 match、EM01 EEPROM BOE FHD320＝match、EM01 Flash SN314GU02＝match、V512 MV27＝blank、NT71855＝mismatch＋notRaydium，另合成改 1 byte／FFFF／E512 不檢查。
+
+---
+
 ## Data Mapping (datamap) v1.28.2 — 2026-10-14 ｜ PATCH ｜ MNT Auto 每個 Panel_mode × sub 組合都有 TFT 接線圖（瑞鼎 Excel）＋②-2 說明精簡
 
 **判定依據**：R2 PATCH（補資料表與說明文字精簡；不改既有換算，既有有圖的組合結果完全相同）。

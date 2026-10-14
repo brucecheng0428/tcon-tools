@@ -1085,6 +1085,8 @@
     'dm.mMux3': ['第 3 個 mux 時槽', '3rd mux time slot', '第 3 个 mux 时槽'],
     'dm.mUnused': ['不使用（寫 0）', 'unused (written 0)', '不使用（写 0）'],
     'dm.xNamesNote': ['名稱表未確認：選項以數字為主，0~17 附 GN1 名稱（0＝R3），18~29 只有數字。', 'Name table unconfirmed: options are numbers, 0~17 with the GN1 name (0 = R3), 18~29 numbers only.', '名称表未确认：选项以数字为主，0~17 附 GN1 名称（0＝R3），18~29 只有数字。'],
+    'dm.crcBad': ['⚠ SYS CRC 不符，檔案可能被改過或不是此型號', '⚠ SYS CRC mismatch: file may be modified or not this model', '⚠ SYS CRC 不符，文件可能被改过或不是此型号'],
+    'dm.crcNotRd': ['⚠ SYS CRC 不符，可能不是瑞鼎 code', '⚠ SYS CRC mismatch: may not be a Raydium code', '⚠ SYS CRC 不符，可能不是瑞鼎 code'],
     'dm.v512': ['⚠ 可能是 V512：用 EM02 規則讀到 Data Mapping 的值超過 5 bit（{a}）。只讀不寫：表格、匯出、寫入都已鎖住。', '⚠ Possibly a V512: Data Mapping values read with the EM02 rule exceed 5 bits ({a}). Read-only: table, export and write are locked.', '⚠ 可能是 V512：用 EM02 规则读到 Data Mapping 的值超过 5 bit（{a}）。只读不写：表格、导出、写入都已锁住。'],
     'dm.nextPick': ['先選 T-CON 型號並「匯入 code」；要直接調 TCON 就按「連線」。', 'Pick the T-CON model and Import a code, or Connect to tune the TCON directly.', '先选 T-CON 型号并「导入 code」；要直接调 TCON 就按「连接」。'],
     'dm.nextHand': ['勾「Hand Mode Enable」後，用每一格的下拉選單選 R／G／B 或 X。', 'Tick "Hand Mode Enable", then pick R/G/B or X from each cell\'s menu.', '勾「Hand Mode Enable」后，用每一格的下拉菜单选 R／G／B 或 X。'],
@@ -1175,7 +1177,8 @@
 <script src="common/common.js?v=20260523"></script>
 <script src="common/subpix-colors.js?v=20261008dm11825"></script>
 <script src="common/xlsx.js?v=20261008dm11825"></script>
-<script src="common/datamap-core.js?v=20261014dm1282"></script>
+<script src="common/syscrc.js?v=20261014dm1290"></script>
+<script src="common/datamap-core.js?v=20261014dm1290"></script>
 <script src="common/datamap-lod.js?v=20261012dm1220"></script>
 <script src="common/datamap-auto.js?v=20261014dm1282"></script>
 <script src="common/i2c-mbus.js?v=20261008dm11825"></script>
@@ -2849,7 +2852,7 @@
       if (!S.linked) el.title = tt('dm.needI2c'); else if (id !== 'dm-check' && !tconOk()) el.title = tt('dm.needCheck'); else if (el.dataset.t0) el.title = el.dataset.t0; else el.removeAttribute('title');
     });
     var st = $('dm-src-text');
-    if (S.src.kind === 'file') st.textContent = S.src.name + '  (' + DM.MODELS[S.src.model].label + ', CKS 0x' + hex(S.src.cks, 6) + ')';
+    if (S.src.kind === 'file') st.textContent = S.src.name + '  (' + DM.MODELS[S.src.model].label + ', CKS 0x' + hex(S.src.cks, 6) + (S.src.crc === 'match' ? ', SYS CRC ✓' : '') + ')';
     else if (S.src.kind === 'tcon') st.textContent = tt('dm.srcTcon', { m: DM.MODELS[S.src.model].label, s: hex(S.src.slave, 2) });
     else st.textContent = tt('dm.srcNone');
   }
@@ -3357,7 +3360,7 @@
     pvSwapOn = false; pvFirstRight = false; pvBGR = false; pvDrvRev = false; pvDrvAuto = null;   /* v1.18.5（Bruce 10/8）：Driver 設定和 code 脫鉤，匯入一律回正向 */ pvAutoFirst = null;
     $('dm-pv-swap').checked = false; $('dm-pv-swapbox').classList.remove('on'); $('dm-pv-first').value = 'l'; $('dm-pv-stripe').value = 'rgb'; $('dm-pv-drv').value = pvDrvRev ? 'r' : 'f';
     }
-    S.src = { kind: 'file', name: name, model: r.model, cks: r.cks }; S.offline = null;
+    S.src = { kind: 'file', name: name, model: r.model, cks: r.cks, crc: r.sysCrc ? r.sysCrc.status : '' }; S.offline = null;
     afterLoad(r.v512);
     initSnap(tt('dm.rstWhatImp', { f: name }));   // v1.18.25：每次匯入都重建初始快照
   }
@@ -3418,6 +3421,7 @@
     useParsed(r, name, DM.loadCodeBytes(name, raw));
     var how = r.medium === 'rom' ? (r.byName ? tt('dm.howName') : tt('dm.howPick')) : (r.model === 'EN01' ? tt('dm.howEn01', { m: r.medium === 'flash' ? 'FLASH' : 'EEPROM' }) : tt('dm.howBin'));
     toast('ok', tt('dm.impOk', { f: name, m: DM.MODELS[r.model].label + (r.py ? ' / ' + r.py : ''), how: how }));
+    if (r.sysCrc && r.sysCrc.status === 'mismatch') toast('e', tt(r.sysCrc.notRaydium ? 'dm.crcNotRd' : 'dm.crcBad'));   // v1.29.0：不擋路，只提醒
     render();
     pvAutoBestAfterImport();
     return true;
