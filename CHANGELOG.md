@@ -2,6 +2,31 @@
 
 ---
 
+## Data Mapping (datamap) v1.28.2 — 2026-10-14 ｜ PATCH ｜ MNT Auto 每個 Panel_mode × sub 組合都有 TFT 接線圖（瑞鼎 Excel）＋②-2 說明精簡
+
+**判定依據**：R2 PATCH（補資料表與說明文字精簡；不改既有換算，既有有圖的組合結果完全相同）。
+
+### 起因
+- Bruce 10/14：「為什麼這個 8 Pixel 沒有接線圖，沒有 TFT 的接線圖？」「不對啊，這些都是用預設的設定，所以應該都要有圖才對。」
+- Bruce 10/14：「第二步驟 Data Mapping 表格這邊，怎麼多了『T使用分析』跟『T展開整行』這些這麼多的說明？…使用起來要簡單，說明越少越好。」
+
+### 根因
+- MNT Auto（Hand 關）的 ③ 只認原廠 RT7 清單中 force_sel_en＝0 的樣式（AUTO.list → Line OD 反推）。HSD 8-pixel（sub 4）、4line-4pixel（sub 5）在 RT7 只有 Hand 樣式 (29)／(30)(31)，LTPS 只有 (17) Trigate（sub 0），1D1G 只認 sub 0 ⇒ 這些組合 Auto 下沒圖。
+- TFT 卡沒圖時寫「原因見上方 ③」，v1.28.0 拆卡後編號已不對。
+
+### 修改
+- common/datamap-auto.js：加入瑞鼎 Excel（EM01A1_rt7_register_force_mapping.xlsx，reply_110503_0924）1D1G／Zigzag／HSD／LTPS 分頁 Manual setting 的 force_sel 表（XL_MNT，非 mirror 25 組），AUTO.xlsxWire 用 Hand Mode 同一套 wiringFromState 換算接線（LTPS mux2 以 Dual 換算）。RT7／Line OD 沒有的組合改用 Excel；Excel 也沒有（HSD sub 6、7）才不畫。
+- datamap.html：TFT 卡沒圖時直接寫原因；②-2「T 使用分析」「依 T 展開整行」收進標題列「詳細」開關（預設收起）；FORCE_DE_SEL 旁、T1 起始欄、圖例角標、第二組說明都縮成一行，完整句放 title（ⓘ）。功能與計算不變。
+- tools/check_datamap_tft_all.js（新）：EM01／EM02／E512 × panel 0～3 × sub 0～7 × FORCE_DE_EN（0／0x1F／0x0E）× Mirror × CHRB 全部 render，斷言有圖或在無依據白名單（卡上寫原因）；Excel 與 RT7／Line OD 重疊的 14 組逐條相同、HSD 8pixel＝Line OD 29、4line-4pixel＝Line OD 30。
+- tools/check_datamap_desel.js：FORCE_DE_SEL 說明改一行後的預期字串。
+
+### 交叉驗證
+- Excel 換算 vs 既有圖：1D1G、Zigzag 1～8、HSD type1／4／3-5／4+zigzag、LTPS mux3 normal type1 共 14 組 24 條 Data 線完全相同。
+- LTPS 8 組中 7 組＝NB 隱藏表解碼；mux2 normal type2 不同 ⇒ 依優先序以 Excel 為準。
+- HSD 8pixel、4line-4pixel 在 Excel 的 Auto setting 欄空白（只有 Manual 表）⇒ ③ 標「推定」。
+
+---
+
 ## Data Mapping (datamap) v1.28.1 — 2026-10-14 ｜ PATCH ｜ FORCE_DE_EN＝0 等同 de_sel（Woody 10/14 14:44 定案）
 
 **判定依據**：R2 PATCH（依 RD 回信修正自動模式 T 欄範圍；介面不變）。

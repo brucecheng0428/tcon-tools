@@ -104,33 +104,33 @@ for (const k of ['E503', 'E501A', 'E501B', 'DAZ6138', 'DAZ6139', 'EM01', 'EM02',
     const set = (o) => { Object.assign(S.cur, o); w.dmRender(); };
     for (let i = 0; i < 24; i++) S.cur['c' + i] = i < 12 ? i : 12 + (i % 6);
     set({ hand: 1, deEn: 1, deSel: 3 });
-    ok($('f-deSelTs').textContent === '（0x03）→ T1 從第 1 欄開始，可用 T1～T6（第 1～6 欄，連續）' && !/基準|可用 T\d \||不可用|推定/.test($('f-deSelTs').textContent), '輸入 3 ⇒ 輸入框旁「' + $('f-deSelTs').textContent + '」');
+    ok($('f-deSelTs').textContent === '0x03 → T1～T6（第 1～6 欄）' && !/基準|可用 T\d \||不可用|推定/.test($('f-deSelTs').textContent), '輸入 3 ⇒ 輸入框旁「' + $('f-deSelTs').textContent + '」');
     ok(!$('f-tsel') && !d.querySelector('[data-i18n="dm.tselUnk"]') && $('f-deSelTs').getAttribute('data-ts') === '1,2,3,4,5,6', 'v1.27.3 沒有 T 下拉（只留數值＋說明），data-ts＝1～6');
     ok(!$('dm-tuse').classList.contains('hidden') && /同一條 Line 往右分段/.test($('dm-tuse').textContent) && /T1 從 Pool 第 1 欄開始/.test($('dm-tuse').textContent) && /T1＝第1欄/.test($('dm-tuse').textContent), 'T 使用分析：T1＝第1欄（同一條 Line 往右分段）');
     ok($('dm-tuse').getAttribute('data-base') === '1' && $('dm-tuse').getAttribute('data-used') === '1', 'T 使用分析：T1 從第 1 欄、只用第 1 欄 ' + $('dm-tuse').getAttribute('data-used') + '（' + $('dm-tuse').getAttribute('data-per') + '）');
     set({ deSel: 5 });
-    ok($('f-deSelTs').textContent === '（0x05）→ T1 從第 1 欄開始，可用 T1～T7（第 1～7 欄，連續）', '5（bit0、bit2）⇒ 第 1～7 欄 T1～T7（BOE）「' + $('f-deSelTs').textContent + '」');
+    ok($('f-deSelTs').textContent === '0x05 → T1～T7（第 1～7 欄）', '5（bit0、bit2）⇒ 第 1～7 欄 T1～T7（BOE）「' + $('f-deSelTs').textContent + '」');
     ok($('dm-tuse').getAttribute('data-warn') === '0', 'v1.26.0 5：code 12~17 在第 1 欄解（dummy），不警告（' + $('dm-tuse').getAttribute('data-per') + '）');
     set({ deSel: 14 });
-    ok($('f-deSelTs').textContent === '（0x0E）→ T1 從第 2 欄開始，可用 T1～T7（第 2～8 欄，連續）', '14 ⇒「' + $('f-deSelTs').textContent + '」');
+    ok($('f-deSelTs').textContent === '0x0E → T1～T7（第 2～8 欄）', '14 ⇒「' + $('f-deSelTs').textContent + '」');
     ok($('dm-tuse').getAttribute('data-used') === '2' && $('dm-tuse').getAttribute('data-unused') === '3,4,5,6,7,8', '14 Single、code<18：只用第 2 欄，第 3～8 欄沒用到');
     ok(/T1 從 Pool 第 2 欄開始，可用 T1～T7（第 2～8 欄）/.test($('dm-tuse').textContent) && !/設 1 的欄|設了但沒用到/.test($('dm-tuse').textContent), 'T 使用分析標頭＝連續視窗、沒有「設 1 的欄」舊說法');
     set({ deSel: 0x3F });
-    ok($('f-deSelTs').textContent === '（0x3F）→ T1 從第 1 欄開始，可用 T1～T10（第 1～10 欄，連續）', '0x3F ⇒「' + $('f-deSelTs').textContent + '」');
+    ok($('f-deSelTs').textContent === '0x3F → T1～T10（第 1～10 欄）', '0x3F ⇒「' + $('f-deSelTs').textContent + '」');
     set({ deSel: 0x20 });
-    ok($('f-deSelTs').textContent === '（0x20）→ T1 從第 6 欄開始，可用 T1～T5（第 6～10 欄，連續）', '0x20 ⇒「' + $('f-deSelTs').textContent + '」');
+    ok($('f-deSelTs').textContent === '0x20 → T1～T5（第 6～10 欄）', '0x20 ⇒「' + $('f-deSelTs').textContent + '」');
     set({ deEn: 0, panel: 1, rd: 0 });
-    ok($('f-deSelTs').textContent === '（0x20）→ FORCE_DE_EN＝0，不看此值，依 Panel mode 等同 0x06：T1 從第 2 欄開始，可用 T1～T6（第 2～7 欄，連續）', 'de_en=0 Zigzag ⇒「' + $('f-deSelTs').textContent + '」');
+    ok($('f-deSelTs').textContent === 'FORCE_DE_EN＝0：等同 0x06 → T1～T6（第 2～7 欄）', 'de_en=0 Zigzag ⇒「' + $('f-deSelTs').textContent + '」');
     set({ deEn: 1, deSel: 14 });
     // 打字即時換算（還沒 change）
     $('f-deSel').value = '6'; $('f-deSel').dispatchEvent(new w.Event('input'));
-    ok($('f-deSelTs').textContent === '（0x06）→ T1 從第 2 欄開始，可用 T1～T6（第 2～7 欄，連續）', '打字 6（未離開欄位）⇒ 即時「' + $('f-deSelTs').textContent + '」');
+    ok($('f-deSelTs').textContent === '0x06 → T1～T6（第 2～7 欄）', '打字 6（未離開欄位）⇒ 即時「' + $('f-deSelTs').textContent + '」');
     // one-hot ⇒ 分析基準 T3
     set({ deSel: 4 });
-    ok(/（0x04）→ T1 從第 3 欄開始/.test($('f-deSelTs').textContent) && $('dm-tuse').getAttribute('data-base') === '3', 'one-hot 4 ⇒「' + $('f-deSelTs').textContent + '」、分析基準第 3 欄');
+    ok(/0x04 → T1～T\d+（第 3～/.test($('f-deSelTs').textContent) && $('dm-tuse').getAttribute('data-base') === '3', 'one-hot 4 ⇒「' + $('f-deSelTs').textContent + '」、分析基準第 3 欄');
     // v1.27.3：數值輸入框 change ⇒ 寫入 FORCE_DE_SEL（取代下拉）
     $('f-deSel').value = '2'; $('f-deSel').dispatchEvent(new w.Event('change')); await sleep(20);
-    ok((S.cur.deSel | 0) === 2 && /（0x02）→ T1 從第 2 欄開始/.test($('f-deSelTs').textContent), '輸入 2 ⇒ FORCE_DE_SEL＝0x02、說明「' + $('f-deSelTs').textContent + '」');
+    ok((S.cur.deSel | 0) === 2 && /0x02 → T1～T\d+（第 2～/.test($('f-deSelTs').textContent), '輸入 2 ⇒ FORCE_DE_SEL＝0x02、說明「' + $('f-deSelTs').textContent + '」');
     // 格子標示
     set({ deSel: 3, panel: 2, rd: 1 }); await sleep(20);
     const tts = Array.from(d.querySelectorAll('.dm-tt')).map(e => (e.querySelector('.dm-tt-w') || e).textContent);
@@ -147,7 +147,7 @@ for (const k of ['E503', 'E501A', 'E501B', 'DAZ6138', 'DAZ6139', 'EM01', 'EM02',
     ok(!row('f-deSel').classList.contains('hidden') && !row('f-deEn').classList.contains('hidden'), 'E503：FORCE_DE_EN／FORCE_DE_SEL 列顯示（與 MNT 同一套）');
     ok(+$('f-deSel').max === 15 && !$('f-tsel'), 'E503：4 bit（max 15），沒有 T 下拉');
     Object.assign(w.dmState.cur, { hand: 1, deEn: 1, deSel: 14, panel: 2, rd: 1 }); w.dmRender();
-    ok(/T1 從第 2 欄開始，可用 T1～T7（第 2～8 欄，連續）/.test($('f-deSelTs').textContent) && $('dm-tuse').getAttribute('data-used') === '2,3' && /寫回 0x0E/.test($('dm-tuse').textContent), 'E503 Dual 14：T1 從第 2 欄開始、用到第 2、3 欄；註明改表格會寫回 0x0E');
+    ok(/T1～T7（第 2～8 欄）/.test($('f-deSelTs').textContent) && $('dm-tuse').getAttribute('data-used') === '2,3' && /寫回 0x0E/.test($('dm-tuse').textContent), 'E503 Dual 14：T1 從第 2 欄開始、用到第 2、3 欄；註明改表格會寫回 0x0E');
     $('dm-model').value = 'E501A'; $('dm-model').dispatchEvent(new w.Event('change')); await sleep(80);
     Object.assign(w.dmState.cur, { hand: 1, deEn: 1, deSel: 3, panel: 2, rd: 1 }); w.dmRender();
     ok(/寫回 0x0E/.test($('dm-tuse').textContent), 'E501A：照 Python UI 註明改表格會寫回 0x0E');
