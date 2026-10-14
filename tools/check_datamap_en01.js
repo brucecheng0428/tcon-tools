@@ -238,7 +238,7 @@ const regOf = (b, maps) => { const r = {}; maps.forEach(([f, t, l]) => { for (le
   }
   {
     const P = await open(), { w, d, $, fire } = P, S = w.dmState;
-    ok(w.TOOL_VERSIONS && /^v1\.2\d\./.test(w.TOOL_VERSIONS.datamap), '版號 ' + (w.TOOL_VERSIONS && w.TOOL_VERSIONS.datamap));
+    ok(w.TOOL_VERSIONS && /^v1\.[1-9]\d\./.test(w.TOOL_VERSIONS.datamap), '版號 ' + (w.TOOL_VERSIONS && w.TOOL_VERSIONS.datamap));
     const opts = Array.from($('dm-model').options);
     ok(opts.map(o => o.value).join() === DM.SELECT_KEYS.join() && opts.every(o => !o.disabled) && opts[7].textContent === 'EN01 (RM81008)', '型號下拉：EN01 (RM81008) 在 E503 後、可選（不再是「暫不支援」）');
     fire($('dm-model'), 'EN01');
@@ -246,7 +246,7 @@ const regOf = (b, maps) => { const r = {}; maps.forEach(([f, t, l]) => { for (le
     ok(S.model === 'EN01' && g.classList.contains('en01') && g.querySelectorAll('tbody tr').length === 24 && g.querySelectorAll('select.dm-cell').length === 288 && g.querySelectorAll('select.dm-en01t').length === 24 && Array.from(g.querySelectorAll('thead th')).map(x => x.textContent).slice(2).join() === DM.EN01_CH.join(),
       '選 EN01（沒匯入）⇒ 表格 24 列 × 12 欄（R0…B3）＋每列 T 下拉');
     ok(Array.from(g.querySelectorAll('select.dm-en01t')).every(x => x.value === '4') && Array.from($('dm-gate').options).map(o => o.value).join('|') === DM.EN01_GATES.map(x => x[0]).join('|'), '每列 T 預設 T4（WPF V2）；Gate Type＝Single／Dual／Tri／MUX4／MUX6');
-    ok($('dm-pvbody').classList.contains('hidden') && /EN01：排列組合相關設定與排列組合統計暫不支援/.test($('dm-pvnote').textContent) && !$('dm-pvnote').classList.contains('hidden'), '③ 明寫 EN01 預覽／比較表暫不支援（不推接線）');
+    ok($('dm-pvbody').classList.contains('hidden') && /EN01 暫不支援預覽/.test($('dm-pvnote').textContent) && !$('dm-pvnote').classList.contains('hidden'), '③ 明寫 EN01 預覽／比較表暫不支援（不推接線）');
     ok(!$('dm-gridnote').classList.contains('hidden') && /FORCE_SEL_EN 與 FORCE_DE_EN/.test($('dm-gridnote').textContent) && $('dm-e0-0').disabled && $('dm-gate').disabled, 'Hand 關：表格與 Gate Type 停用，提示兩個 bit 都要開');
     ['mirror', 'chrb', 'chwb', 'rvsL'].forEach(k => ok(!d.querySelector('.dm-fieldrow[data-need="' + k + '"]').classList.contains('hidden'), '② 顯示 ' + k + ' 列（EN01 model 有這個欄位）'));
     ok(d.querySelectorAll('#dm-code tr[data-f]').length === 299 && !!d.querySelector('#dm-code tr[data-f="e287"]'), 'TCON Register 確認：299 個欄位（11＋288）');
@@ -256,7 +256,7 @@ const regOf = (b, maps) => { const r = {}; maps.forEach(([f, t, l]) => { for (le
       ok(S.model === 'EN01' && JSON.stringify(S.en01Seg) === '{"p2":true,"p3":false}' && g.querySelectorAll('tbody tr').length === 12 && !$('dm-e12-0') && !!$('dm-e3-0'), '匯入 F1567（檔名 RM81008）：P3 沒載入 ⇒ 只顯示 12 列（L1-1~L2-6）');
       ok(!d.querySelector('#dm-code tr[data-f="e144"]') && !!d.querySelector('#dm-code tr[data-f="e143"]') && !$('dm-hand').checked, 'Register 表不列 P3；Hand 關（原檔 FORCE_SEL_EN＝0）');
       ok($('dm-e0-0').value === 'R9' && $('dm-e1-0').value === 'B5', '格子名稱：L1-1 R0＝24 ⇒ T4 的 R9、L1-2 R0＝38 ⇒ B5');
-      ok(/^SW1·P1$/.test($('dm-ers0').textContent) && /^SW2·P1 未用$/.test($('dm-ers1').textContent) && /不是第 2 條 gate/.test($('dm-etr1').title) && /不是 6 條 gate/.test($('dm-legend').textContent),
+      ok(/^SW1·P1$/.test($('dm-ers0').textContent) && /^SW2·P1 未用$/.test($('dm-ers1').textContent) && /不是第 2 條 gate/.test($('dm-etr1').title),
         'v1.20.1 列標 SW 時槽；RD_MODE 0（1 個時槽）⇒ SW2 起標「未用」；列提示與圖例寫明 SW≠gate');
       fire($('dm-hand'), true);
       ok(S.cur.hand === 1 && S.cur.deEn === 1 && S.cur.deSel === 0x0E && !$('dm-e0-0').disabled && !$('dm-gate').disabled && $('dm-gridnote').classList.contains('hidden'), '勾 Hand Mode ⇒ FORCE_SEL_EN＋FORCE_DE_EN＝1、FORCE_DE_SEL＝0x0E，表格可改');

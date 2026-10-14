@@ -51,7 +51,7 @@ const connect = async a => { a.$('dm-link').click(); await wait(() => a.w.dmStat
   console.log('按鈕與模式列');
   { const a = await open(); const { $, d } = a;
     ok(!$('dm-write') && !$('dm-load') && !$('dm-bar-write') && !!$('dm-export') && /匯出 script/.test(d.querySelector('[data-i18n="dm.stp3"]').textContent), '④ 沒有 Write to TCON／Load from TCON，只剩匯出 script');
-    ok(/自動 Check T-CON 並回讀；要重讀再按一次/.test(d.querySelector('[data-i18n="dm.checkHint"]').textContent), 'Check T-CON 旁說明：連線後自動 Check＋回讀，要重讀再按一次');
+    ok(!d.querySelector('[data-i18n="dm.checkHint"]'), 'v1.31.1：Check T-CON 旁說明已刪除');
     ok(/^off｜離線/.test(a.mode()) && /未匯入、未連線/.test(a.mode()), '開頁：頂端模式列＝離線（未匯入、未連線）');
     if (CODE) { a.w.dmImportBytes(new Uint8Array(fs.readFileSync(CODE)), path.basename(CODE)); await sleep(50);
       ok(/^off｜離線/.test(a.mode()) && a.mode().indexOf(path.basename(CODE)) >= 0 && !a.askOpen(), '未連線匯入：不問，模式列＝離線：匯入 ' + path.basename(CODE)); } }
@@ -256,7 +256,7 @@ const connect = async a => { a.$('dm-link').click(); await wait(() => a.w.dmStat
     ok(T2.getAttribute('data-handdim') === '1' && T2.getAttribute('data-vper') === '2' && T2.getAttribute('data-nl') === '4' && rt[1].main > 0 && rt[2].main > 0 && !rt[3].main && !rt[4].main && rt[3].rep === rt[1].main + rt[1].rep && rt[4].rep === rt[2].main + rt[2].rep,
       'Hand：② 表格 2 條 line ⇒ 只有 Line 1、2 有亮色主循環格，Line 3、4 同樣的格子全部調暗（E501A 預設 code 全 0，D1~D6 都接同一格）：' + JSON.stringify(rt));
     ok(Array.from(T2.querySelectorAll('path[data-w]')).filter(e => +e.getAttribute('data-w').split(':')[0] >= 3).every(e => e.closest('[data-rep]')), 'Hand：Line 3、4 的 TFT／drain 都在調暗組');
-    ok(/Hand Mode：② 表格定義 2 列/.test($('dm-pv-pos').textContent), '③ 說明文字寫出 Hand Mode 只亮表格定義的 2 列');
+    ok($('dm-pv-tft').getAttribute('data-handdim') === '1' && !$('dm-pv-pos'), '③ Hand Mode 只亮表格定義的 2 列（data-handdim；v1.31.1 起說明文字刪除）');
     toggleHand(a); await sleep(40); T2 = $('dm-pv-tft');
     ok(T2.getAttribute('data-handdim') === '0', 'Auto（Hand 關）⇒ 維持 v1.18.24（重複列不調暗）');
   }

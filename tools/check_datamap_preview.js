@@ -65,12 +65,12 @@ const ok = (c, m) => { if (c) pass++; else { fail++; console.log('  ✗ ' + m); 
   const cards = Array.from(d.querySelectorAll('.card.stp')).map(c => c.id);
   /* v1.22.0（Bruce 10/12）：TFT 接線圖拆成獨立卡 card-tft，接在 ③ 後面 */
   ok(cards.join(',') === 'card-src,card-pm,card-dm,card-pv,card-tft,card-reg,card-out', '卡片順序 ①②③＋TFT 接線圖＋TCON Register 確認＋④：' + cards.join(','));
-  ok(/^v1\.([4-9]|[12]\d)\./.test(w.TOOL_VERSIONS.datamap), 'datamap 版號 v1.4 以上：' + w.TOOL_VERSIONS.datamap);
-  ok(!$('dm-pv-rows') && $('card-tft').querySelectorAll('svg').length === 1 + $('dm-pv-legend').querySelectorAll('svg').length + $('dm-pv-keylg').querySelectorAll('svg').length && !$('card-pv').querySelector('svg'), 'TFT 卡內只有一張 TFT 圖（③ 不再含圖）');
+  ok(/^v1\.([4-9]|[1-9]\d)\./.test(w.TOOL_VERSIONS.datamap), 'datamap 版號 v1.4 以上：' + w.TOOL_VERSIONS.datamap);
+  ok(!$('dm-pv-rows') && $('card-tft').querySelectorAll('svg').length === 1 + $('dm-pv-keylg').querySelectorAll('svg').length && !$('card-pv').querySelector('svg'), 'TFT 卡內只有一張 TFT 圖（③ 不再含圖）');
 
   console.log('── Auto');
   fire($('dm-model'), 'E503');
-  ok(/Auto/.test($('dm-pvtag').textContent) && !$('dm-pvnote').classList.contains('hidden'), 'Hand 關 ⇒ 標 Auto');
+  ok(/Auto/.test($('dm-pvtag').textContent), 'Hand 關 ⇒ 標 Auto（v1.31.1 起 Auto 資料來源說明刪除）');
 
   console.log('── Single Gate：drain 接到 ② 指定的子像素');
   fire($('dm-hand'), true); fire($('dm-gate'), 'Single-Gate');
@@ -150,7 +150,7 @@ const ok = (c, m) => { if (c) pass++; else { fail++; console.log('  ✗ ' + m); 
   fire($('dm-gate'), 'Tri-Gate');
   ok($('dm-pvbody').classList.contains('hidden') && /Tri-Gate/.test($('dm-pvnote').textContent), 'Tri ⇒ 預覽顯示不支援');
   fire($('dm-model'), 'DAZ7353');
-  ok($('dm-model').value === 'DAZ7353' && $('dm-pvtag').textContent === 'Auto · Normal' && QA('rect[data-pv]').length > 0 && /DAZ7353_Datasheet_V0\.16\.pdf p\.14 7-1/.test($('dm-pvnote').textContent), 'v1.14.0：切 DAZ7353（Hand 關）⇒ Auto Type Normal 依 datasheet 7-1 畫');
+  ok($('dm-model').value === 'DAZ7353' && $('dm-pvtag').textContent === 'Auto · Normal' && QA('rect[data-pv]').length > 0, 'v1.14.0：切 DAZ7353（Hand 關）⇒ Auto Type Normal 有畫（來源說明 v1.31.1 刪除）');
   fire($('dm-hand'), true);
   ok(npre() === 0 && QA('rect[data-pv^="1:"]').length === 12, 'DAZ7353 Hand 開（全 0＝R1）⇒ 前循環收起');
 
@@ -164,7 +164,7 @@ const ok = (c, m) => { if (c) pass++; else { fail++; console.log('  ✗ ' + m); 
     const g2 = wire(1, 1, 'u', 'G2');
     ok(!!g2 && /D1u/.test(rect(1, 'G2').getAttribute('data-in')), 'D1×Line 1-1 的 drain 接到 G2（跳線 ' + (g2 && g2.getAttribute('data-hops')) + '）');
     ok(sidesOk() && balOk() && gapsOk(), '真實 code：TFT 側正確、最長 drain ' + svgA('maxlen0') + '→' + svgA('maxlen') + ' 格、左右不均 ' + svgA('bal0') + '→' + svgA('bal') + '、位置 ' + svgA('gaps'));
-    console.log('   未勾選：' + $('dm-pv-pos').textContent);
+    console.log('   未勾選：' + ('maxlen ' + $('dm-pv-tft').getAttribute('data-maxlen') + '／' + $('dm-pv-tft').getAttribute('data-maxlen0')));
     console.log('── v1.5.0 Source Driver 對調（真實 code）');
     const cur0 = JSON.stringify(w.dmState.cur), sc0 = JSON.stringify(w.dmBuildScript()), ui0 = [0, 1, 2, 3].map(r => [0, 1, 2, 3, 4, 5].map(c => $('dm-c' + r + '-' + c).value).join(' ')).join('/');
     fire($('dm-pv-swap'), true);
@@ -173,12 +173,12 @@ const ok = (c, m) => { if (c) pass++; else { fail++; console.log('  ✗ ' + m); 
     ok(Q('path[data-dl="1"]').getAttribute('data-src') === '3' && Q('path[data-dl="2"]').getAttribute('data-src') === '2', 'Data 線標示對調（D1 送 D3）');
     ok(JSON.stringify(w.dmState.cur) === cur0 && JSON.stringify(w.dmBuildScript()) === sc0 && [0, 1, 2, 3].map(r => [0, 1, 2, 3, 4, 5].map(c => $('dm-c' + r + '-' + c).value).join(' ')).join('/') === ui0, '勾選不改 ② 的值、也不改匯出 script 的內容');
     ok(sidesOk() && balOk() && gapsOk(), '勾選後重排：TFT 側正確、最長 drain ' + svgA('maxlen0') + '→' + svgA('maxlen') + ' 格、左右不均 ' + svgA('bal0') + '→' + svgA('bal') + '、位置 ' + svgA('gaps'));
-    console.log('   勾選：' + $('dm-pv-pos').textContent);
+    console.log('   勾選：' + ('maxlen ' + $('dm-pv-tft').getAttribute('data-maxlen') + '／' + $('dm-pv-tft').getAttribute('data-maxlen0')));
     fire($('dm-gate'), 'Single-Gate');
     /* v1.17.1：改成 Single 後 0x0E 有設的 bit 中 24 格全在範圍內的最低那張是 T3（T2 時 0x17 超出），名稱整體往右 2 pixel（G2→G4） */
     const g2s = $('dm-c0-0').getAttribute('data-t') === '3' ? 'G4' : 'G2';
     ok(sidesOk() && balOk() && gapsOk() && repOk() && tierOk() && /D1u/.test(rect(1, g2s).getAttribute('data-in')), 'Single＋勾選：' + g2s + '（原 G2）位置仍由 D1 接、D1~D12 各占一縫（不重疊）、TFT 側正確、最長 ' + svgA('maxlen0') + '→' + svgA('maxlen') + '、位置 ' + svgA('gaps'));
-    console.log('   Single 勾選：' + $('dm-pv-pos').textContent);
+    console.log('   Single 勾選：' + ('maxlen ' + $('dm-pv-tft').getAttribute('data-maxlen') + '／' + $('dm-pv-tft').getAttribute('data-maxlen0')));
     fire($('dm-pv-swap'), false); fire($('dm-gate'), 'Dual-Gate');
     ok(/D1u/.test(rect(1, 'G2').getAttribute('data-in')) && JSON.stringify(w.dmBuildScript()) === sc0, '取消勾選 ⇒ 回到 D1 送 G2，匯出仍相同');
     const rows = [0, 1, 2, 3].map(r => [0, 1, 2, 3, 4, 5].map(c => $('dm-c' + r + '-' + c).value).join(' '));

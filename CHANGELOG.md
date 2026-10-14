@@ -2,6 +2,32 @@
 
 ---
 
+## Data Mapping (datamap) v1.31.1 — 2026-10-14 ｜ PATCH ｜ 整頁說明文字刪除、「詳細」按鈕拿掉
+
+**判定依據**：§2 案例 3（改 UI 文案、不動功能）→ PATCH。沒有功能被移除、沒有按鈕移位、計算不變；Benchmark、Export／Import Excel、鎖定接線、排列組合統計、TFT 接線圖、預覽小窗照舊。無 ⚠ 輸出變更（匯出 script／I2C 寫入不變）。
+
+### 起因
+- Bruce 10/14：「還有我看那些很複雜的說明都還在，不是已經說要移除了嗎？為什麼又把它做一個什麼『詳細』按鈕，然後才跑出來？這個完全不需要，請整個網頁一起檢查。」
+- v1.28.2 把「T 使用分析」「依 T 展開整行」收進「詳細」按鈕＝派工寫錯（Bruce 要的是刪除，不是收起來），本版改正。
+
+### 刪除（畫面與三語 i18n）
+- ②-2：「詳細」按鈕、T 使用分析（含「怎麼算（瑞鼎 RD BOE 分頁）…依 RD 對照表，未經實機量測」「瑞鼎 Python UI 沒有 MNT 型號…」「照瑞鼎 Python UI（PY:29267-29280）…寫回 0x0E」）、依 T 展開整行整段；圖例「前循環 R-2/R-1…」「主循環 R1~R4…」「關閉輸出 X（31）」與 MNT「格子右下角：T 段·第 N 欄 ⓘ」（只留「已改」「非標準值」色塊）；「第二組（r2..b3）：短循環 — 第二組自動＝第一組…」（只有長循環要自己填時顯示「第二組（r2..b3）」一行標題）；Benchmark 反推步驟長句；DM CKS 來源 tooltip；瑞鼎 UI 手動輸入對照的操作說明與 rd_mode 長註解。
+- ②-1：「T1 起始欄：第 N 欄。」說明列（看 FORCE_DE_SEL 旁一行即可；只在 READ_RVS 與 Mirror 不符時顯示一行 ⚠）、推定候選、CHRB 說明；RT7／Auto Type 下方長說明（Hand Mode 開（Manual）…／Hand Mode 開啟中…／EM01 先選 Panel_mode…（待 RD 確認））；Manual 樣式相符時的說明（不符時才顯示一行 ⚠）；Mirror／CHRB／CHWB／FORCE_DE_EN／READ_RVS 的 ⓘ（標籤已說明）。
+- ①：「連線後自動 Check T-CON 並回讀…」。
+- ③ 排列組合：「只影響預覽，與 TCON code 無關」×2、「測試用：依原廠 Line OD Type 反推…」、排序規則長句、結果列「⇒ D1…D6 從左排／⇒ 每條線收到自己的資料」解說（改成「CH1 在最左｜SHL 正向（CH1→CHn）」）、「未鎖定：接線由 ② 推出（v1.17.5 畫法）」→「未鎖定」、資料正確／顏色正確 ⓘ、輸出對調與 SHL ⓘ；預覽附註只留錯誤／警示（刪除 Auto 資料來源、推定、EM02 查詢表推定、Mirror 原理（含 RD 10/13 全民 0x17）、Kick Off 公式、已依邏輯修正、鎖定說明）。
+- TFT 接線圖：「說明與進階／說明：套用順序、圖例、CH 對應」整段（SD Out／TCON Out 原理、Single／Dual Gate 解說、Data 線位置與線長、週期說明）、畫面樣式說明、V 方向 Line 數 ⓘ；標題「實驗：Single，Data 線位置依線長均衡自動排」→「實驗：Single」；圖例 12 條長句改短標籤。
+- TCON Register 確認：「值可直接改…組成位置：位址[MSB:LSB]…」。
+- 留下的 ⓘ 一律一句話：Hand Mode、FORCE_DE_SEL、Driver CH1 位置、子像素排列、接線鎖定、只送 R1、左右線長差、TCON Mirror、Data 線整組平移；EN01 列／T 階數提示縮成一句。
+
+### 保留
+- 底層計算全部不動：common/datamap-core.js 未修改（DM.tUse、tWin、mntName、mntBaseT…）；測試改直接呼叫 DM.tUse／DM.mntName 驗同一規則，並驗畫面上已沒有這些元素。
+- 狀態值保留在 data-* 屬性給測試讀（dm-tsum data-t／data-why／data-rvswarn、dm-autonote data-note、dm-pvnote data-fix／data-loose／data-em02def）。
+
+### 測試
+- 依賴被刪文字的斷言改成驗 data-* 或直接算（不把文字加回來）：check_datamap_desel／tft_all／boe／kickoff／auto／preview／tcon_gate／combos／en01／lod；auto／preview／en01／lod 的版號正規式原本不接受 v1.3x（v1.31.0 起就會 fail），一併改成 v1.[1-9]x。
+
+---
+
 ## Data Mapping (datamap) v1.31.0 — 2026-10-14 ｜ MINOR ｜ ⚠ 輸出變更 ｜ TFT 接線圖預覽小窗恢復拖曳／TCON Out・SD Out 連結＋接線圖區與小窗四邊拖動改大小＋Pixel 範圍與 FORCE_DE_SEL 雙向聯動、MNT 沒匯入 code 時預設 14
 
 **判定依據**：R3 MINOR（多一件能做的事：四邊／四角拖動改大小；Pixel 範圍輸入框跟著暫存器反算）。小窗互動恢復屬 bugfix。⚠ 輸出變更：MNT（EM01／EM02／E512）沒匯入 code 時 FORCE_DE_SEL 起始值 0→14（0x0E），沒匯入 code 時勾 Hand Mode Enable 會一併設 FORCE_DE_EN＝1；匯出 script 的這兩個欄位因此不同。有匯入 code 或連線時一律依 code／TCON 的值，不變。
