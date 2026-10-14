@@ -137,7 +137,7 @@ console.log('── code 表（D2:R31）＝網頁 T 表解碼');
     w.dmState.cur = Object.assign(DM.cloneState(w.dmState.cur), { deEn: 1, deSel: 31 }); w.dmRender();
     const T = $('dm-pv-tft');
     fire($('dm-pv-first'), 'l');
-    okRef(!$('dm-pv-shlsrc') && $('dm-pv-drv').value === 'f' && /不從 TCON code 讀取/.test(d.querySelector('[data-i18n-title="dm.hDrvT"]').getAttribute('title')), 'v1.18.5 Driver 輸出方向不從 code 讀取：匯入全民後預設正向，不顯示 iSP REG 帶入說明，ⓘ 寫明手動設定');
+    okRef(!$('dm-pv-shlsrc') && $('dm-pv-drv').value === 'f' && !d.querySelector('[data-i18n-title="dm.hDrvT"]'), 'v1.18.5 Driver 輸出方向不從 code 讀取：匯入全民後預設正向，不顯示 iSP REG 帶入說明（v1.31.1 起 ⓘ 刪除）');
     okRef(QA('[data-misk]').length > 0 && T.getAttribute('data-sug') === 'rfgn1' && T.getAttribute('data-sugcombo') === 'rfgn' && T.getAttribute('data-sugmirror') === '1' && !$('dm-pv-sugbtn').classList.contains('hidden'), '預設（CH1 在最左＋正向＋RGB）顏色不符 ⇒ 建議：CH1 在最右＋正向（和 code SHL 一致）＋RGB＋無對調');
     okRef(d.querySelectorAll('#dm-pv-combotbl tbody tr').length === 32 && new Set(Array.from(d.querySelectorAll('#dm-pv-combotbl tbody tr')).map(r => r.getAttribute('data-group'))).size === 32, 'v1.17.2／v1.18.20：組合各自獨立（CH1 位置與 SHL 不互為等效）；EM01 加 TCON Mirror 0／1 ⇒ 32 種');
     const dlPos = () => QA('path[data-dl]').map(p => p.getAttribute('data-dl') + '@' + p.getAttribute('data-x')).join(',') + '|' + QA('text[data-dlab]').map(e => e.getAttribute('data-dlab')).join(',');
