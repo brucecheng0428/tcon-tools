@@ -2,6 +2,18 @@
 
 ---
 
+## Data Mapping (datamap) v1.27.7 — 2026-10-14 ｜ PATCH ｜ 依 T 展開整行在 10 欄時不撐開頁面
+
+**判定依據**：R1 PATCH（v1.27.6 版面問題修正，不改計算）。
+
+### 起因
+- v1.27.6 線上驗收截圖（headless Chrome 1400px 寬，EM01、FORCE_DE_SEL＝0x3F）：「依 T 展開整行」變成 T1～T10 共 10 欄，表格沒有捲動容器，T9／T10 超出卡片右緣、撐寬整頁。
+
+### 修正
+- `#dm-texp` 的表格外包 `.dm-texp-sc`（overflow-x: auto; max-width: 100%），欄多時在框內左右捲動；內容與欄數不變（測試讀的 `td[data-row][data-t]` 不變）。
+
+---
+
 ## Data Mapping (datamap) v1.27.6 — 2026-10-14 ｜ PATCH ｜ FORCE_DE_SEL 可用 T 欄位照 RD 新版 BOE 分頁
 
 **判定依據**：R1 PATCH（修正錯誤的換算規則；起始欄、表格名稱、接線與排名不變，沒有新增能力）。
