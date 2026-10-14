@@ -2,6 +2,22 @@
 
 ---
 
+## Data Mapping (datamap) v1.28.1 — 2026-10-14 ｜ PATCH ｜ FORCE_DE_EN＝0 等同 de_sel（同事A 10/14 14:44 定案）
+
+**判定依據**：R2 PATCH（依 RD 回信修正自動模式 T 欄範圍；介面不變）。
+
+### 起因
+- Bruce 10/14：「同事A 已經回了 mail…應該可以定案演算法了吧？」同事A 10/14 14:44：force_de_en＝0 時 1D1G 等同 reg_force_de_sel＝6'b00_0001、Zigzag 00_0110、HSD 00_1010、LTPS 00_1100，「是等效的」。
+
+### 變更
+- `DM.tWin`：force_de_en＝0 不再寫死「起始欄＋往右 4 欄」，改把 panel 的等效 de_sel（`DM.DE_AUTO_SEL`＝0x01／0x06／0x0A／0x0C）餵進同一個 `deSelTs` 規則 ⇒ 1D1G 第 1～5 欄、Zigzag 第 2～7 欄、HSD 第 2～8 欄、LTPS 第 3～8 欄。`deAutoBase`／`mntBaseT` auto 分支跟著走（LTPS 起始欄 2→3）。
+- 全面審查同一資料流：T 使用分析（tUse）、依 T 展開（欄數 5／6／7／6）、32 組合排名與 ③ 接線（datamap-auto `wiringFromState`）、cell tooltip／T 標示、tSum、說明文字三語（hTselT、tWhy_auto、deSelEn0 顯示「等同 0x..」）。
+- 矛盾點：datamap-auto 的 Tri 接線寫死 lin(3＋g)（＝起始欄 2 再＋1，暗藏 LTPS 第 3 欄）；起始欄改 3 後會重複位移。統一成「第 k 條 gate＝起始欄＋k」（`mntRel` 含 tri，`mntTOf`／`mntName` 共用），原廠 RT7 52 個 Line OD 結果不變。
+- RT7 Auto 顯示（force_sel_en＝0 的 panel／sub 名稱）不涉及 T 欄，不改。
+- 測試：check_datamap_boe 2b 改為四種 panel × EM01／EM02／E512 × sub 0／1 × de_sel 殘值 0／0x0E／0x3F 的等效表，加 HSD 自動＝1＋0x0E 起始欄與 4 列×30 code 名稱相同；check_datamap_desel 更新 de_en＝0 期望（含 LTPS＝第 3 欄）。
+
+---
+
 ## Data Mapping (datamap) v1.28.0 — 2026-10-14 ｜ MINOR ｜ ② 拆兩張卡＋調設定時即時看 TFT 接線圖
 
 **判定依據**：R3 MINOR（使用者多能做一件事：調 ②／③ 的同時看到 TFT 接線圖；不改任何計算）。

@@ -8,7 +8,7 @@
      2) 起始欄表（reg_force_de_en／reg_force_de_sel）＝ mntBaseT（de_en＝0 那列照 1D1G 比，同事A：1D1G＝第 1 欄）
         v1.27.6：BOE 分頁換成 同事A 2026-10-14 09:24 新版（reply_110503_0924/，0x00(X)、0x01～0x08、0x10、0x20、0x3F 共 12 列）；
         每列的 T1、T2…Tn 欄位逐格＝DM.tWin（＝DM.deSelTs）：T1＝最小 bit 那欄、連續到最大 bit 那欄＋4；T 數也要相同。
-        另比 de_en＝0 的 Zigzag／HSD／LTPS（同事A 回信：DE＝T2 起）＝第 2～6 欄。
+        v1.28.1（同事A 10/14 14:44）：de_en＝0 等同 de_sel：1D1G 0x01、Zigzag 0x06、HSD 0x0A、LTPS 0x0C，套同一規則（2b）。
      3) 給 --qm：匯入全民 code ⇒ ② 每一格名稱＝BOE（_0＝Gate1、_1＝Gate2 逐格；_2／_3 的 INDEX 與 _0／_1 相同 ⇒ 同一組答案），
         逐格列出比對表；每格也要＝Pool[code][T1 起始欄＋gate 偏移]。
    ═══════════════════════════════════════════════════════════════════════════ */
@@ -51,9 +51,25 @@ FX.start.forEach(r => {
   console.log('    de_en=' + r.en + ' de_sel=' + r.sel + (r.en ? '' : '（照 1D1G）') + '：BOE T1＝第 ' + r.T1col + ' 欄／網頁第 ' + t + ' 欄 ' + (t === r.T1col ? '✓' : '✗')
     + '｜BOE T1～T' + want.length + '＝第 ' + want[0] + '～' + want[want.length - 1] + ' 欄／網頁 T1～T' + W.ts.length + '＝第 ' + W.ts[0] + '～' + W.ts[W.ts.length - 1] + ' 欄 ' + (okT ? '✓' : '✗'));
 });
-console.log('── 2b) de_en＝0 其他面板（同事A 回信：Zigzag／HSD／LTPS DE＝T2 起）＋BOE 沒列的值照同一規則');
-[1, 2, 3].forEach(p => { const W = DM.tWin('EM01', Object.assign(DM.emptyState('EM01'), { deEn: 0, panel: p }));
-  ok(W.ts.join() === '2,3,4,5,6' && DM.mntBaseT(Object.assign(DM.emptyState('EM01'), { deEn: 0, panel: p }), 'single').t === 2, 'de_en=0 panel=' + p + '：第 2～6 欄 T1～T5（' + W.ts.join() + '）'); });
+console.log('── 2b) de_en＝0 等同 de_sel（同事A 10/14 14:44「是等效的」）：1D1G 0x01、Zigzag 0x06、HSD 0x0A、LTPS 0x0C');
+{ const WANT = [[0x01, '1,2,3,4,5'], [0x06, '2,3,4,5,6,7'], [0x0A, '2,3,4,5,6,7,8'], [0x0C, '3,4,5,6,7,8']], NM = ['1D1G', 'Zigzag', 'HSD', 'LTPS'];
+  ['EM01', 'EM02', 'E512'].filter(k => DM.MODELS[k]).forEach(k => WANT.forEach(([sel, cols], p) => {
+    [0, 0x0E, 0x3F].forEach(junk => { [0, 1].forEach(sub => {
+      const s = Object.assign(DM.emptyState(k), { deEn: 0, deSel: junk, panel: p, subPanel: sub }), W = DM.tWin(k, s), e = Object.assign(DM.emptyState(k), { deEn: 1, deSel: sel, panel: p, subPanel: sub }), We = DM.tWin(k, e);
+      const bt = DM.mntBaseT(s, DM.gateOf ? DM.gateOf(k, s) : 'single');
+      ok(W.ts.join() === cols && W.sel === sel && W.ts.join() === We.ts.join() && W.base === We.base && bt.t === +cols.split(',')[0] && DM.deAutoSel(s) === sel,
+        k + ' de_en=0 ' + NM[p] + '（sub ' + sub + '，de_sel 殘值 0x' + hex2(junk) + '）：應等同 0x' + hex2(sel) + '＝第 ' + cols + ' 欄，網頁 ' + W.ts.join() + '／起始 ' + bt.t);
+    }); });
+  }));
+  WANT.forEach(([sel, cols], p) => console.log('    ' + NM[p] + '：de_en=0 ⇒ 等同 0x' + hex2(sel) + '＝第 ' + cols.split(',')[0] + '～' + cols.split(',').pop() + ' 欄（T1～T' + cols.split(',').length + '）'));
+  /* 同事A：RT7 (26) 0/0（de_en=0）與 force_de_en=1＋0x0E 等效 ⇒ HSD 自動的 T1 起始欄＝0x0E 的 T1 起始欄 */
+  const hA = Object.assign(DM.emptyState('EM02'), { deEn: 0, deSel: 0, panel: 2 }), hF = Object.assign(DM.emptyState('EM02'), { deEn: 1, deSel: 0x0E, panel: 2 });
+  ok(DM.tWin('EM02', hA).base === DM.tWin('EM02', hF).base && DM.tWin('EM02', hA).base === 2 && DM.mntBaseT(hA, 'dual').t === DM.mntBaseT(hF, 'dual').t,
+    'HSD 自動（RT7 (26) 0/0）與 force_de_en=1＋0x0E 的 T1 起始欄相同（第 2 欄）');
+  /* 同一組 code 的 ② 名稱（每一列）在 HSD 自動與 1＋0x0E 相同（名稱只看起始欄） */
+  { let same = 1; for (let r = 0; r < 4; r++) for (let c = 0; c < 30; c++) if (DM.mntName('dual', r, c, 0, DM.mntBaseT(hA, 'dual').t) !== DM.mntName('dual', r, c, 0, DM.mntBaseT(hF, 'dual').t)) same = 0;
+    ok(same, 'HSD 自動與 1＋0x0E：4 列 × code 0～29 名稱全部相同'); }
+}
 { let n = 0, bad = [];
   for (let v = 1; v < 64; v++) { let lo = 0, hi = 0; while (!(v >> lo & 1)) lo++; for (let b = 0; b < 6; b++) if (v >> b & 1) hi = b;
     const ts = DM.deSelTs(v, 6), s = Object.assign(DM.emptyState('EM01'), { deEn: 1, deSel: v }); n++;

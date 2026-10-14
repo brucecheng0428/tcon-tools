@@ -670,8 +670,8 @@
     /* FORCE_DE_EN＝0（auto de phase）：EM02 原廠 RT7 清單 33 型（de_en＝0）算出的 Line OD 只有以 T2 解碼才和原廠 Line OD Type 一致
        （tools/check_datamap_auto.js；EM02 RApp_TX.h:533-566 ⇔ RApp_Table.h Line OD）⇒ auto 時以 T2 解讀（依 EM02 反推；EM01／E512 比照推定）。 */
     /* v1.27.0（同事A 10/13 回信）：reg_force_de_en＝0 ⇒ 1D1G 從第 1 欄（T1）、Zigzag／HSD 從第 2 欄（T2）；其他（LTPS）沿用第 2 欄（推定）。 */
-    /* v1.27.6：同事A 10/14 回信確認 LTPS 也是第 2 欄（不再是推定）；與 tWin 共用 deAutoBase */
-    if (!(s.deEn | 0)) return { t: deAutoBase(s), why: 'auto' };
+    /* v1.28.1：同事A 10/14 14:44 定案——force_de_en＝0 等同 de_sel（1D1G 0x01／Zigzag 0x06／HSD 0x0A／LTPS 0x0C）⇒ 起始欄 1／2／2／3（LTPS 改第 3 欄）；與 tWin 共用 deAutoBase */
+    if (!(s.deEn | 0)) return { t: deAutoBase(s), why: 'auto', sel: deAutoSel(s) };
     /* v1.26.0（Bruce 10/13 決定，依 RD：「data 永遠都是從 T1 開始…14 代表最前面那一行不用，T1 移到第二行才開始用；31 其實 T1 就在最前面那行」）：
        多 bit ⇒ T1 起始欄＝最小設 1 的 bit＋1（0x0E＝第 2 欄、0x1F＝第 1 欄），不再依 code 反推（取代 v1.17.1「24 格都在範圍內的最低那張」）。
        全民 0x1F 因此從第 1 欄解讀，名稱會用到 R-3～R-6 等左側 dummy（Bruce：全民的 DataMapping 參考圖少畫了前面的 dummy，不可當驗證基準）。
@@ -680,7 +680,7 @@
     var f = mntFitT(s, gate || mntGateOfS(s), 0);
     return { t: f.t, why: 'zero', fit: f.out };
   }
-  function mntTOf(s, gate, row) { return mntBaseT(s, gate).t + (gate === 'dual' && (row & 1) ? 1 : 0); }
+  function mntTOf(s, gate, row) { return mntBaseT(s, gate).t + mntRel(gate, row); }
   /* v1.17.1：code 表有定義的範圍（Kick Off「Data hand mode」D2:R31／E512_V512 圖解 code 表：T 欄只列到 code＜6×(T＋1)，再往左＝空白），
      多 bit FORCE_DE_SEL 時逐一列出候選基準 T 的超出格數（原廠未定義多 bit 用哪張；換基準只會整體平移 2 pixel 的倍數） */
   /* v1.26.0：Excel code 表（Kick Off「Data hand mode」、E512／EM01A1 diagram、Pool 表）每欄只列到 code＜6×(欄＋1)，最左只畫到 R-2；
@@ -688,7 +688,8 @@
      mntIdx 的公式本來就是這個規律 ⇒ code 0~29 在每一欄都有定義。mntInTable 保留「Excel 表上有列出」的範圍，只作說明用。 */
   function mntInRange(T, code) { code = code | 0; return code === 31 || (code >= 0 && code < 30); }
   function mntInTable(T, code) { code = code | 0; return code === 31 || (code >= 0 && code < Math.min(30, 6 * (T + 1))); }
-  function mntRel(gate, row) { return gate === 'dual' && (row & 1) ? 1 : 0; }
+  /* v1.28.1：Tri（LTPS）的第 2 條 gate（_1／_3 列）與 Dual 下 gate 同樣＝起始欄＋1（datamap-auto wiringFromState：Tri 第 k 條 gate＝起始欄＋k；第 3 條 gate 在 x 表） */
+  function mntRel(gate, row) { return (gate === 'dual' || gate === 'tri') && (row & 1) ? 1 : 0; }
   /* Mirror＝1：名稱整行反轉後＝Kick Off 命名往後 gate 數張表（Single＋1、Dual＋2），範圍也照那張表判斷 */
   /* v1.27.0（同事A 10/13：BOE 分頁 INDEX 17..12 在第 1 欄＝B-3 G-3 R-3 B-4 G-4 R-4，Mirror 範例也是直接查 Pool 表）：Mirror 不改變名稱與 T 表 ⇒ 恆為 0（保留介面） */
   function mntMirT(s, gate) { return 0; }
@@ -712,18 +713,25 @@
     return ts;
   }
   function deSelText(v, bits) { var ts = deSelTs(v, bits); return ts.length ? 'T1～T' + ts.length + '＝第' + ts[0] + '～' + ts[ts.length - 1] + '欄' : ''; }
-  /* force_de_en＝0（同事A 10/13＋10/14 BOE 分頁「0／X」列）：1D1G＝第 1 欄起、Zigzag／HSD／LTPS＝第 2 欄起，各 T1～T5（5 欄）。與 mntBaseT 的 auto 分支同一規則。 */
-  function deAutoBase(s) { return ((s && s.panel) | 0) === 0 ? 1 : 2; }
-  /* T 欄位視窗（單一來源）：{ base：T1 所在欄（null＝未定義）, ts：T1、T2…的欄號 } */
+  /* v1.28.1（同事A 10/14 14:44 回信「是等效的」，演算法定案；取代 v1.27.0／v1.27.6 的「起始欄＋往右 4 欄」）：
+     force_de_en＝0 時，晶片依 panel_mode 等同一個 reg_force_de_sel 值，直接套用上面 FORCE_DE_SEL 的 BOE 規則（deSelTs），不另寫一套：
+       panel 0 1D1G   ＝0x01（6'b00_0001）⇒ 第 1～5 欄
+       panel 1 Zigzag ＝0x06（6'b00_0110）⇒ 第 2～7 欄
+       panel 2 HSD    ＝0x0A（6'b00_1010）⇒ 第 2～8 欄（與 force_de_en＝1＋0x0E 的 T1 起始欄相同，同事A：RT7 (26) 0/0 與 1＋0x0E 等效）
+       panel 3 LTPS   ＝0x0C（6'b00_1100）⇒ 第 3～8 欄（同事A 修正：LTPS DE＝T3，第 3 欄）
+     panel_mode 只有 2 bit（0～3），每個值都有定義；所有型號共用，不做機種特例。 */
+  var DE_AUTO_SEL = [0x01, 0x06, 0x0A, 0x0C];
+  function deAutoSel(s) { return DE_AUTO_SEL[((s && s.panel) | 0) & 3]; }
+  function deAutoBase(s) { return deSelTs(deAutoSel(s), 6)[0]; }
+  /* T 欄位視窗（單一來源）：{ base：T1 所在欄（null＝未定義）, ts：T1、T2…的欄號, sel：實際套用的 de_sel（force_de_en＝0 時＝等效值） } */
   function tWin(key, s) {
     var bits = (fieldById(key, 'deSel') || { bits: 6 }).bits;
-    if (s && (s.deEn | 0)) { var ts = deSelTs(s.deSel, bits); return { base: ts.length ? ts[0] : null, ts: ts, en: 1, bits: bits }; }
-    var b0 = deAutoBase(s), t0 = []; for (var c = b0; c <= b0 + DE_TAIL; c++) t0.push(c);
-    return { base: b0, ts: t0, en: 0, bits: bits };
+    var en = s && (s.deEn | 0) ? 1 : 0, v = en ? (s.deSel | 0) : deAutoSel(s), ts = deSelTs(v, en ? bits : 6);
+    return { base: ts.length ? ts[0] : null, ts: ts, en: en, bits: bits, sel: v };
   }
   /* v1.24.0 T 使用分析（Bruce 10/13 轉述 RD 原話：「它一樣是 OR 的概念，就是你到底會用到哪幾個 T，只是它會從你所選的 T 裡面最小的 T 開始用…
      設定 14…最小的會是在 T2，也就是從 T2 開始推…某些 data mapping 下它除了 T2 以外還會用到 T3…最多用到 T4…要看它的 line buffer（那個 T 其實是 line buffer 的意思）」）：
-     ・v1.27.6：可用欄＝tWin（BOE 分頁：最小 bit 那欄起連續到最大 bit 那欄＋4；force_de_en＝0＝起始欄起 5 欄）；基準＝T1 那欄。
+     ・v1.27.6：可用欄＝tWin（BOE 分頁：最小 bit 那欄起連續到最大 bit 那欄＋4；force_de_en＝0＝panel 等效 de_sel 套同一規則，v1.28.1）；基準＝T1 那欄。
        （取代 v1.24.0「可用 T＝遮罩中為 1 的 bit」——同事A 10/14 新表證明是錯的。）
      ・每條 gate 一個 line buffer：Single 只用基準；Dual 的下 gate（Line x-2）用基準＋1（與 mntTOf 相同）。
      ・MNT 另依 code 表範圍：某格的 code 在該 T 表沒有定義（code≥6×(T＋1)）⇒ 往上找到第一張有定義的 T（＝這格要用到更大的 line buffer）。
@@ -752,7 +760,7 @@
   function mntName(gate, row, code, mirror, base) {
     if (code === 31) return 'X';
     if (code < 0 || code > 29) return null;
-    var dual = gate === 'dual', T = (base || 2) + (dual && (row & 1) ? 1 : 0), k = mntIdx(T, code);
+    var T = (base || 2) + mntRel(gate, row), k = mntIdx(T, code);
     /* v1.27.0：Mirror 不再平移名稱（取代 v1.17.1 的 +6×gate）；名稱＝Pool 表直接查（同事A BOE 分頁） */   /* v1.17.1：整行反轉（不再每 6×gate 一組各自反轉）⇒ 跨組的 code 落在相鄰位置（全民 0x17＝B-1，Bruce 10/8）；等同 Kick Off 命名的「基準＋gate 數」那張 T */
     return linName(k);
   }
@@ -1360,7 +1368,7 @@
     emptyState: emptyState, cloneState: cloneState, decode: decode, encode: encode, encodeFields: encodeFields,
     changedIds: changedIds, diffRegs: diffRegs, regsOf: regsOf, maskedMerge: maskedMerge,
     gateOf: gateOf, gateText: gateText, cellView: cellView, editCell: editCell, applyNames: applyNames, allSame: allSame,
-    mntName: mntName, mntIdx: mntIdx, linName: linName, linIdx: linIdx, codeIdx: codeIdx, rbSwapName: rbSwapName, mntBaseT: mntBaseT, mntTOf: mntTOf, mntInRange: mntInRange, mntInTable: mntInTable, mntRel: mntRel, mntCands: mntCands, mntMirT: mntMirT, deSelTs: deSelTs, deSelText: deSelText, deSelBase: deSelBase, tWin: tWin, deAutoBase: deAutoBase, tUse: tUse,
+    mntName: mntName, mntIdx: mntIdx, linName: linName, linIdx: linIdx, codeIdx: codeIdx, rbSwapName: rbSwapName, mntBaseT: mntBaseT, mntTOf: mntTOf, mntInRange: mntInRange, mntInTable: mntInTable, mntRel: mntRel, mntCands: mntCands, mntMirT: mntMirT, deSelTs: deSelTs, deSelText: deSelText, deSelBase: deSelBase, tWin: tWin, deAutoBase: deAutoBase, deAutoSel: deAutoSel, DE_AUTO_SEL: DE_AUTO_SEL, tUse: tUse,
     setGate: setGate, setHand: setHand, pyNormalize: pyNormalize, pyNames: pyNames, cks: cks, preLabels: preLabels,
     inputDict: inputDict, colorOfName: colorOfName, codeAddrs: codeAddrs, byteOf: byteOf, regNote: regNote, fieldsAt: fieldsAt,
     applyPreset: applyPreset, matchPreset: matchPreset, PRESET_SECOND: PRESET_SECOND, presetHasSecond: presetHasSecond,

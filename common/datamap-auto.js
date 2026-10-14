@@ -320,6 +320,8 @@
     var c = function (slot, ch) { return s['c' + (slot * 6 + ch)] | 0; }, x = function (slot, ch) { return s['x' + (slot * 6 + ch)] | 0; };
     /* v1.17.0：Hand Mode 的 T 表跟 FORCE_DE_EN／FORCE_DE_SEL（DM.mntBaseT；Kick Off「Data hand mode」D1:G1，預設／多位元＝T2 ⇒ 位移 0，舊行為不變） */
     var dT = DM.mntBaseT ? DM.mntBaseT(s).t - 2 : 0;
+    /* v1.28.1（同事A 10/14 14:44：LTPS DE＝T3＝第 3 欄，等同 de_sel 0x0C）：Tri 第 k 條 gate＝起始欄＋k（與 Dual 下 gate＝起始欄＋1 同一規則）。
+       舊版把 Tri 寫死成 lin(3＋g3)（起始欄 2 再＋1），等於把 LTPS 的第 3 欄藏在這裡；起始欄改由 mntBaseT 給 3 後改回 lin(2＋g3)＋dT，原廠 RT7 Tri 樣式的 Line OD 結果不變。 */
     var bad = false, lin = function (T, v) { if (v === 31) return null; var l = tn(T + dT, v); if (l === null) bad = true; return l; };
     var rows = [], P = 6, A, G;
     if (g === 'single') {
@@ -344,7 +346,7 @@
       G = 3; A = 6;
       for (var l3 = 0; l3 < 2; l3++) {
         var t3 = [];
-        for (var g3 = 0; g3 < 3; g3++) { var r4 = []; for (var h5 = 0; h5 < 6; h5++) r4.push(lin(3 + g3, g3 === 2 ? x(2 * l3, h5) : c(2 * l3 + (g3 === 1 ? 1 : 0), h5))); t3.push(r4); }
+        for (var g3 = 0; g3 < 3; g3++) { var r4 = []; for (var h5 = 0; h5 < 6; h5++) r4.push(lin(2 + g3, g3 === 2 ? x(2 * l3, h5) : c(2 * l3 + (g3 === 1 ? 1 : 0), h5))); t3.push(r4); }
         rows.push(t3);
       }
     } else return { ok: false, why: 'gate' };
