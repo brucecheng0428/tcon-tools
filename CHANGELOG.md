@@ -2,6 +2,16 @@
 
 ---
 
+## Data Mapping (datamap) v1.31.2 — 2026-10-14 ｜ PATCH ｜ 說明移除收尾：刪掉已不用的三語說明字串、格子 hover 說明縮短
+
+**判定依據**：§2 案例 3／4（文案與內部清理、不動功能）→ PATCH。畫面功能與計算不變。
+
+- v1.31.1 拿掉畫面後，datamap.html 字典裡已無任何引用的說明字串一併刪除（三語，共 113 個 key；含 T 使用分析 dm.tUse*、依 T 展開整行 dm.tExp*、詳細／圖例長句、第二組循環說明 dm.x*、推定／來源說明 dm.auto*／dm.pvMirror／dm.pvNbAlt、TFT 說明區 dm.pvPos／dm.pvRep*／dm.pvRows*、T1 起始欄說明 dm.tSum*／dm.tWhy_*／dm.tCand 等），也刪掉只為組這些說明而跑的程式（renderMnt 的 tsFull、renderX 的 xFull）。
+- ②-2 格子 hover：拿掉「多 bit，T1 從最小設 1 的 bit 那欄開始…（RD）」等推定說明；超出 code 表時只留一行「⚠ 超出第 N 欄 code 表範圍」。
+- 測試：check_datamap_kickoff 的 Driver 輸出方向 ⓘ 斷言改成驗 ⓘ 已刪除。
+
+---
+
 ## Data Mapping (datamap) v1.31.1 — 2026-10-14 ｜ PATCH ｜ 整頁說明文字刪除、「詳細」按鈕拿掉
 
 **判定依據**：§2 案例 3（改 UI 文案、不動功能）→ PATCH。沒有功能被移除、沒有按鈕移位、計算不變；Benchmark、Export／Import Excel、鎖定接線、排列組合統計、TFT 接線圖、預覽小窗照舊。無 ⚠ 輸出變更（匯出 script／I2C 寫入不變）。
