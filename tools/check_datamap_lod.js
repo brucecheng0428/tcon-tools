@@ -77,11 +77,11 @@ if (SRC) {
   const fire = (el, v) => { if (v !== undefined) { if (el.type === 'checkbox') el.checked = v; else el.value = v; } el.dispatchEvent(new w.Event('change')); };
   const Q = s => d.querySelector('#dm-pv-tft ' + s), QA = s => Array.from(d.querySelectorAll('#dm-pv-tft ' + s));
   const ui = () => [0, 1, 2, 3].map(r => [0, 1, 2, 3, 4, 5].map(c => $('dm-c' + r + '-' + c).value).join(' ')).join('/');
-  ok(/^v1\.(9|[12]\d)\./.test(w.TOOL_VERSIONS.datamap), 'datamap 版號 v1.9 以上：' + w.TOOL_VERSIONS.datamap);
+  ok(/^v1\.(9|[1-9]\d)\./.test(w.TOOL_VERSIONS.datamap), 'datamap 版號 v1.9 以上：' + w.TOOL_VERSIONS.datamap);
   const sel = $('dm-pv-lod');
   ok(!!sel && sel.closest('#card-pv') && sel.options.length === 35 && sel.options[0].value === '-1' && sel.options[34].disabled && /User define/.test(sel.options[34].textContent), '下拉在 ③ 卡片：不使用＋Type 0~32＋User define（停用）');
   ok(Array.from(sel.options).slice(1, 34).every((o, i) => o.textContent === LOD.TYPES[i].name), '選項名稱照原廠');
-  ok(/不與 code 連動/.test($('dm-lodbar').textContent), '旁邊註明「測試用：依原廠 Line OD Type 反推，不與 code 連動」');
+  ok(!/不與 code 連動/.test($('dm-lodbar').textContent), 'v1.31.1：「測試用：依原廠 Line OD Type 反推…」說明已刪除');
   fire($('dm-model'), 'EM02'); fire($('dm-hand'), true); fire($('dm-gate'), 'Dual-Gate');
   [['G2', 'B1', 'G1', 'G4', 'B3', 'G3'], ['B2', 'R2', 'R1', 'B4', 'R4', 'R3'], ['B1', 'G1', 'G-1', 'B3', 'G3', 'G2'], ['R2', 'R1', 'B-1', 'R4', 'R3', 'B2']].forEach((row, r) => row.forEach((x, c) => fire($('dm-c' + r + '-' + c), x)));
   const cur0 = JSON.stringify(w.dmState.cur), sc0 = JSON.stringify(w.dmBuildScript()), ui0 = ui(), svg0 = $('dm-pv-tft').innerHTML, tag0 = $('dm-pvtag').textContent;
@@ -175,7 +175,7 @@ if (SRC) {
   /* v1.21.0（Bruce 10/12）：FEATURE_LINE_OD＝false 時 Line OD 畫面全部隱藏 ⇒ Tri 提示不提 Line OD；開關打開時照舊驗 v1.7.0 的提示 */
   if (w.DM_FEATURE_LINE_OD !== false) ok($('dm-pvbody').classList.contains('hidden') && /測試：Line OD Type/.test($('dm-pvnote').textContent), '② 選 Tri-Gate：依 code 不畫，提示改用測試 Type 17~21');
   else {
-    ok($('dm-pvbody').classList.contains('hidden') && /只能畫 Single／Dual/.test($('dm-pvnote').textContent) && !/Line OD/.test($('dm-pvnote').textContent), 'v1.21.0 Line OD 隱藏：② 選 Tri-Gate 依 code 不畫，提示不提 Line OD');
+    ok($('dm-pvbody').classList.contains('hidden') && /無法畫圖/.test($('dm-pvnote').textContent) && !/Line OD/.test($('dm-pvnote').textContent), 'v1.21.0 Line OD 隱藏：② 選 Tri-Gate 依 code 不畫，提示不提 Line OD');
     fire($('dm-gate'), 'Dual-Gate'); fire($('dm-hand'), false); fire($('dm-auto'), pval(5));
     const sc = w.dmBuildScript().text;
     ok(d.documentElement.classList.contains('dm-nolod') && !d.querySelector('#card-reg tr[data-f^="lod"]') && /^write -m 09C7 /m.test(sc) && /^write -m 09C9 /m.test(sc) && $('dm-lodrow').getAttribute('data-state') === 'ok',

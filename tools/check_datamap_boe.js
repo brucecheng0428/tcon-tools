@@ -121,13 +121,15 @@ function done() { console.log((fail ? '✗' : '✓') + ' check_datamap_boe ' + p
   ok(nOk === nCmp, '② 全部 ' + nCmp + ' 格名稱＝BOE 分頁（' + nOk + '/' + nCmp + '）');
   console.log('    合計 ' + nOk + '/' + nCmp + ' 格一致');
   /* v1.27.1：② 下方「依 T 展開整行」＝Woody 14:29 第 3 點（INDEX 17..12：T1、T2＝dummy 輸出 0，T3＝B2 G2 R2 B1 G1 R1） */
-  { const bx = $('dm-texp'), cell = (r, T) => bx && bx.querySelector('td[data-row="' + r + '"][data-t="' + T + '"]');
-    const txt = (r, T) => { const c = cell(r, T); return c ? (c.classList.contains('dum') ? 'dummy' : c.textContent.trim()) : null; };
+  /* v1.31.1（Bruce 10/14 說明移除）：畫面上的「依 T 展開整行」已刪除；同一規則直接用 DM.mntName 查（與舊 renderTExp 相同算法） */
+  { const g0 = DM.gateOf('EM01', s), gate = g0 === 'dual' || g0 === 'tri' ? g0 : 'single', base = DM.mntBaseT(s, gate).t;
+    const bx = !$('dm-texp') && !$('dm-tdet-tog') ? { ok: 1 } : null;
+    const txt = (r, T) => { const nm = []; let neg = 0, real = 0; for (let c = 0; c < 6; c++) { let n = DM.mntName(gate, r, s['c' + (r * 6 + c)] | 0, 0, base + T - 1); if (n === null) n = '0x' + hex2(s['c' + (r * 6 + c)] | 0); if (/^[RGB]-\d/.test(n)) neg++; else if (n !== 'X') real++; nm.push(n); } return real === 0 && neg > 0 ? 'dummy' : nm.join(' '); };
     console.log('    依 T 展開（_0）：' + [1, 2, 3, 4].map(T => 'T' + T + '＝' + txt(0, T)).join('｜'));
     console.log('    依 T 展開（_1）：' + [1, 2, 3, 4].map(T => 'T' + T + '＝' + txt(1, T)).join('｜'));
-    ok(bx && !bx.classList.contains('hidden') && txt(0, 1) === 'dummy' && txt(0, 2) === 'dummy' && txt(0, 3) === 'B2 G2 R2 B1 G1 R1',
+    ok(bx && txt(0, 1) === 'dummy' && txt(0, 2) === 'dummy' && txt(0, 3) === 'B2 G2 R2 B1 G1 R1',
       'v1.27.1 依 T 展開整行（_0）＝Woody：T1、T2＝AA 區外（dummy）、T3＝B2 G2 R2 B1 G1 R1：' + [1, 2, 3].map(T => txt(0, T)).join(' | '));
-    { const nT = bx ? bx.querySelectorAll('tr')[0].querySelectorAll('th').length - 1 : 0, wT = DM.tWin('EM01', s).ts.length;
+    { const nT = DM.tWin('EM01', s).ts.length || 5, wT = DM.tWin('EM01', s).ts.length;
       console.log('    依 T 展開欄數：' + nT + '（de_sel＝0x' + hex2(s.deSel) + ' ⇒ 可用 T1～T' + wT + '）');
       ok(nT === wT && wT === 9, 'v1.27.6 依 T 展開欄數＝可用 T 數（全民 0x1F ⇒ 第 1～9 欄 T1～T9）：' + nT + '/' + wT); }
     ok(txt(0, 4) === 'B4 G4 R4 B3 G3 R3' && txt(1, 3) === 'G2 R2 B1 G1 R1 B-1', 'v1.27.1 T4（_0）＝B4 G4 R4 B3 G3 R3、T3（_1）＝G2 R2 B1 G1 R1 B-1（照 Pool 表往右一欄）：' + txt(0, 4) + ' / ' + txt(1, 3)); }

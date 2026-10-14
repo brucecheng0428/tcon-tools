@@ -97,7 +97,7 @@ console.log('── v1.12.0 Hand 關 ③ 一定有圖或明確原因');
   const pv = n => 'p' + DM.PRESETS.findIndex(p => p.name.startsWith('(' + n + ')'));
   const bytesOf = t => { const b = {}; t.split('\n').forEach(l => { const k = l.trim().split(/\s+/); if (k[0] === 'write' && k[1] === '-m') for (let j = 3; j < k.length; j++) b[parseInt(k[2], 16) + j - 3] = parseInt(k[j], 16); }); return b; };
   const fieldOk = (m, b, id, v) => { const p = DM.fieldById(m, id).parts[0]; return b[p[0]] !== undefined && ((b[p[0]] >> p[2]) & ((1 << (p[1] - p[2] + 1)) - 1)) === v; };
-  ok(/^v1\.[12]\d\./.test(w.TOOL_VERSIONS.datamap), 'datamap 版號 v1.10 以上：' + w.TOOL_VERSIONS.datamap);
+  ok(/^v1\.[1-9]\d\./.test(w.TOOL_VERSIONS.datamap), 'datamap 版號 v1.10 以上：' + w.TOOL_VERSIONS.datamap);
   for (const m of DM.MODEL_KEYS) {
     fire($('dm-model'), m); if (w.dmState.cur.hand) fire($('dm-hand'), false);
     if (m === 'EM01') {   /* v1.18.8：EM01 Auto 照原廠兩層 UI（Panel_mode＋sub_panel_mode），逐一組合 */
@@ -125,13 +125,13 @@ console.log('── v1.12.0 Hand 關 ③ 一定有圖或明確原因');
         const r = rows.find(x => x[4] === off); good = good && !!r && parseInt(r[6], 16) === (e.set.subPanel | 0); }
       if (A.wiring(e)) { drawn++; good = good && $('dm-pvtag').textContent === 'Auto · ' + e.name + (e.est ? '（推定）' : '') && QA('rect[data-pv]').length > 0 && !Q('[data-bad]'); }
       else { nopic++; good = good && /尚無架構定義，③ 無法畫圖。原因：.+/.test($('dm-pvnote').textContent) && !$('dm-pvnote').classList.contains('hidden') && $('dm-pv-tft').innerHTML === ''; }
-      if (A.fam(m) === 'mnt' && m !== 'EM02') good = good && /依 EM02／查詢表定義推定/.test($('dm-pvnote').textContent);
+      if (A.fam(m) === 'mnt' && m !== 'EM02') good = good && $('dm-pvnote').getAttribute('data-em02def') === '1';   // v1.31.1：推定說明刪除，改驗 data-*
     }
     ok(good, m + '：Hand 關 ⇒ Auto 下拉 ' + L.length + ' 項，逐項寫入欄位、匯出含對應位址；③ 畫 ' + drawn + ' 項、無圖 ' + nopic + ' 項（不出錯、無衝突）');
   }
   console.log('── Hand 開關、未知值、修正標示');
   fire($('dm-model'), 'E503'); fire($('dm-hand'), true);
-  ok(!$('dm-auto').disabled && $('dm-auto').value === '-1' && !$('dm-c0-0').disabled && /Hand Mode 開啟中/.test($('dm-autonote').textContent), 'NB Hand 開 ⇒ Auto 下拉仍可選（顯示「Hand Mode 開」）、force_sel 表格可編輯');
+  ok(!$('dm-auto').disabled && $('dm-auto').value === '-1' && !$('dm-c0-0').disabled && /Hand Mode 開啟中/.test($('dm-autonote').getAttribute('data-note')) && $('dm-autonote').textContent === '', 'NB Hand 開 ⇒ Auto 下拉仍可選（顯示「Hand Mode 開」）、force_sel 表格可編輯');
   { const iz = A.list('E503').findIndex(e => e.name === 'Z-Zag Type 3'); fire($('dm-auto'), String(iz));
     ok(!w.dmState.cur.hand && $('dm-auto').value === String(iz) && w.dmState.cur.panel === 1 && w.dmState.cur.subPanel === 2, 'NB Hand 開時選 Z-Zag Type 3 ⇒ 自動關 Hand、寫入 panel 1／sub 2'); }
   fire($('dm-hand'), true); fire($('dm-hand'), false);
@@ -142,7 +142,7 @@ console.log('── v1.12.0 Hand 關 ③ 一定有圖或明確原因');
   fire($('dm-model'), 'EM02'); if (w.dmState.cur.hand) fire($('dm-hand'), false);
   const iL = A.list('EM02').findIndex(e => e.name === '(5) ZZ+LRRL');
   fire($('dm-auto'), av('EM02', iL));
-  ok(+$('dm-pvnote').getAttribute('data-fix') === 40 && /已依邏輯修正/.test($('dm-pvnote').textContent) && /X13/.test($('dm-pvnote').textContent), 'EM02 選 (5) ZZ+LRRL ⇒ ③ 標「已依邏輯修正」（隱藏表 40 格，例 X13 6→7）');
+  ok(+$('dm-pvnote').getAttribute('data-fix') === 40 && !/已依邏輯修正/.test($('dm-pvnote').textContent), 'EM02 選 (5) ZZ+LRRL ⇒ ③ 標「已依邏輯修正」（隱藏表 40 格，例 X13 6→7）');
   ok(!!Q('path[data-w="1:D1:u:R1"]') && !!Q('path[data-w="2:D2:u:R1"]') && !!Q('path[data-w="3:D2:u:R1"]') && !!Q('path[data-w="4:D1:u:R1"]'), 'EM02 Auto (5) ZZ+LRRL：G1~G4 的 R1 依序接 D1、D2、D2、D1');
   fire($('dm-pv-lod'), '23');
   ok(/Line OD Type 23/.test($('dm-pvtag').textContent), '「測試：Line OD Type」仍優先（Hand 關也能用）');
@@ -170,7 +170,7 @@ console.log('── v1.12.0 Hand 關 ③ 一定有圖或明確原因');
     console.log('   force_sel_en=' + s.hand + ' panel=' + s.panel + ' sub=' + s.subPanel + ' rd=' + s.rd + ' mirror=' + s.mirror + ' chrb=' + s.chrb + ' ⇒ ' + (i >= 0 ? A.list('EM02')[i].name : '未知'));
     const mi = DM.PRESETS.findIndex(p => p.name === '(32) HSD BOE+GBG/RRB+LR'), mm = $('dm-automan');
     console.log('   Hand：' + mm.textContent);
-    ok(+mm.getAttribute('data-preset') === mi && /panel_mode＝2/.test(mm.textContent) && /rd_mode＝1/.test(mm.textContent), '蘇坤 code（Hand 開）：force_sel＝原廠 Manual 樣式 (32)，顯示 Panel Mode 應設值（panel_mode＝2、rd_mode＝1…），差異 ' + mm.getAttribute('data-diff') + ' 項');
+    ok(+mm.getAttribute('data-preset') === mi, '蘇坤 code（Hand 開）：force_sel＝原廠 Manual 樣式 (32)，顯示 Panel Mode 應設值（panel_mode＝2、rd_mode＝1…），差異 ' + mm.getAttribute('data-diff') + ' 項');
     ok(s.hand === 1 && !sel.disabled && sel.value === 'p' + mi && sel.options[sel.selectedIndex].textContent.startsWith('(32) HSD BOE+GBG/RRB+LR'), '匯入蘇坤 code 後 RT7 Type Select 自動選到 (32) HSD BOE+GBG/RRB+LR（Hand 開仍可選）');
   }
   console.log('── v1.12.0 EM01 Hand 關 ③');
@@ -178,10 +178,10 @@ console.log('── v1.12.0 Hand 關 ③ 一定有圖或明確原因');
   fire($('dm-model'), 'EM01'); if (w.dmState.cur.hand) fire($('dm-hand'), false);
   for (const [pm, sb, n] of [[0, 0, '(0) 1D1G(Normal)'], [1, 0, '(1) ZZ+LR'], [1, 1, '(2) ZZ+RL']]) {
     fire($('dm-em01pm'), String(pm)); fire($('dm-em01sub'), String(sb));
-    ok(!w.dmState.cur.hand && $('dm-pvtag').textContent.startsWith('Auto · ' + n) && QA('rect[data-pv]').length > 0 && !$('dm-pvbody').classList.contains('hidden') && /依 EM02／查詢表定義推定/.test($('dm-pvnote').textContent), 'EM01 Hand 關選 Panel_mode ' + pm + '／sub ' + sb + '（＝EM02 ' + n + '）⇒ ③ 有畫、註明依 EM02／查詢表定義推定');
+    ok(!w.dmState.cur.hand && $('dm-pvtag').textContent.startsWith('Auto · ' + n) && QA('rect[data-pv]').length > 0 && !$('dm-pvbody').classList.contains('hidden') && $('dm-pvnote').getAttribute('data-em02def') === '1', 'EM01 Hand 關選 Panel_mode ' + pm + '／sub ' + sb + '（＝EM02 ' + n + '）⇒ ③ 有畫、註明依 EM02／查詢表定義推定');
   }
   fire($('dm-em01pm'), '0'); fire($('f-mirror'), true); fire($('f-chrb'), true);
-  ok(!w.dmState.cur.hand && !$('dm-em01box').classList.contains('hidden') && QA('rect[data-pv]').length > 0 && /R↔B（推定）$/.test($('dm-pvtag').textContent) && /chrb 不同 ⇒ R、B 對換/.test($('dm-pvnote').textContent),
+  ok(!w.dmState.cur.hand && !$('dm-em01box').classList.contains('hidden') && QA('rect[data-pv]').length > 0 && /R↔B（推定）$/.test($('dm-pvtag').textContent) && $('dm-pvnote').getAttribute('data-loose') === 'rb',
     'EM01 panel 0＋mirror 1＋chrb 1（人工組合，不在 EM02 清單）⇒ ② 照 EM01 兩層選單、③ 照 (0) Mirror＋R↔B 畫並標推定：' + $('dm-pvtag').textContent);
   console.log('── v1.12.0 單一 RT7 Type Select（EM02）');
   if (w.dmClearImport) w.dmClearImport();

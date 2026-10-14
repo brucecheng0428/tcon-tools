@@ -68,18 +68,17 @@ console.log('── ② 頁面（jsdom）：每個組合 TFT 卡有圖，或白�
     }
   }
 
-  console.log('── ③ ②-2 精簡（Bruce 10/14「說明越少越好」）：T 使用分析／依 T 展開整行預設收起');
+  console.log('── ③ ②-2 說明移除（v1.31.1，Bruce 10/14「很複雜的說明…不是已經說要移除了嗎…『詳細』按鈕…完全不需要」）');
   {
     $('dm-model').value = 'EM02'; $('dm-model').dispatchEvent(new w.Event('change')); await sleep(60);
     const S = w.dmState; for (let i = 0; i < 24; i++) S.cur['c' + i] = i % 12;
     Object.assign(S.cur, { hand: 1, panel: 2, subPanel: 1, deEn: 1, deSel: 0x1F }); w.dmRender(); await sleep(20);
-    ok(!$('dm-tdet-tog').classList.contains('hidden') && $('dm-tdet').classList.contains('hidden') && $('dm-tdet-tog').getAttribute('aria-expanded') === 'false', '預設收起：只見「詳細」開關，T 使用分析／依 T 展開整行不佔版面');
-    ok(!$('dm-tuse').classList.contains('hidden') && !$('dm-texp').classList.contains('hidden'), '功能仍在（收在「詳細」裡）');
-    $('dm-tdet-tog').click(); ok(!$('dm-tdet').classList.contains('hidden') && $('dm-tdet-tog').getAttribute('aria-expanded') === 'true', '點「詳細」展開');
-    $('dm-tdet-tog').click(); ok($('dm-tdet').classList.contains('hidden'), '再點收起');
-    ok($('f-deSelTs').textContent === '0x1F → T1～T9（第 1～9 欄）' && /T1 從第 1 欄開始/.test($('f-deSelTs').title), 'FORCE_DE_SEL 一行「' + $('f-deSelTs').textContent + '」，完整句在 ⓘ／title');
-    ok(/^T1 起始欄：第 1 欄。/.test($('dm-tsum').textContent) && $('dm-tsum').textContent.length < 40 && /多 bit/.test($('dm-tsum').title), 'T1 起始欄一行「' + $('dm-tsum').textContent + '」');
-    ok($('dm-lg-tt').textContent.length < 25 && /第 N 欄/.test($('dm-lg-tt').title), '圖例角標一行「' + $('dm-lg-tt').textContent + '」');
+    ok(!$('dm-tdet-tog') && !$('dm-tdet') && !$('dm-tuse') && !$('dm-texp'), '「詳細」按鈕、T 使用分析、依 T 展開整行已刪除（不是收起）');
+    ok(!/T 使用分析|依 T 展開|怎麼算|未經實機量測|Python UI 沒有|前循環 R-2|第二組（r2..b3）：短循環/.test((() => { const c = d.body.cloneNode(true); c.querySelectorAll('script,style').forEach(e => e.remove()); return c.textContent; })()), '整頁不再出現長說明字樣');
+    ok(!!$('dm-pv-tft') && !!$('dm-bench-tog') && !!$('dm-expx') && !!$('dm-impx') && !!$('dm-pv-lock') && typeof w.TCONDataMap.tUse === 'function', '功能保留：TFT 接線圖、Benchmark、Export／Import、鎖定接線、DM.tUse 計算都在');
+    ok($('f-deSelTs').textContent === '0x1F → T1～T9（第 1～9 欄）', 'FORCE_DE_SEL 一行「' + $('f-deSelTs').textContent + '」');
+    ok($('dm-tsum').classList.contains('hidden') && $('dm-tsum').getAttribute('data-t') === '1', '沒有警示時不顯示 T1 起始欄說明列（data-t＝1）');
+    ok(!$('dm-lg-tt'), '圖例角標說明已刪除');
     Object.assign(S.cur, { hand: 0 }); w.dmRender(); await sleep(20);
   }
   /* 回報清單（每型號 32 組；每組 3×2×2＝12 種 DE／Mirror／CHRB 都跑過） */
