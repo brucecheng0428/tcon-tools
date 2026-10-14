@@ -2,6 +2,16 @@
 
 ---
 
+## Data Mapping (datamap) v1.31.3 — 2026-10-14 ｜ PATCH ｜ NB 型號 Hand Mode 開時也顯示 Pixel 範圍列（固定 -2～4 ↔ FORCE_DE_SEL 14）；匯入 code 關掉 I2C 提示
+
+**判定依據**：§2 案例 1（bug 修正：Bruce 10/14「為什麼 1.3.2 Tcon 用 E503，我還是看不到…可以設定 -2 到 4 的 Pixel 的地方」）→ PATCH。
+
+- 根因：renderPx 的顯示條件寫死 `isMnt()`，NB（E503／E501A／E501B／DAZ6138／DAZ6139）永遠隱藏；v1.31.0 的「沒匯入 code 預設 FORCE_DE_SEL 14、開 Hand 勾 FORCE_DE_EN」也只套 MNT。
+- 修法：有 FORCE_DE_SEL 欄位的 NB，Hand Mode 開就在 ②-2 表格上方顯示同一列（同元件、同位置）。PY 固定 de_sel 0xE（RomCodeProcessUI.py:29280）⇒ 輸入框固定 -2～4；套用任何範圍都寫 FORCE_DE_EN＝1、FORCE_DE_SEL＝14，範圍不是 -2～4 時旁邊一行「此型號固定 14（-2～4）」，輸入框回 -2～4。沒匯入 code 換到 NB ⇒ FORCE_DE_SEL 預設 14、開 Hand 勾 FORCE_DE_EN（與 MNT 同規則）。
+- 沒有 FORCE_DE_SEL 欄位的 DAZ6111／DAZ7353（HAND_LINE_SEL_EN）與 EN01 不顯示（沒有可對應的暫存器）。
+- 追加（Bruce 10/14「我用匯入 code 的話，就完全跟 i2C 沒有關係」）：匯入 code（含清除後重新匯入）⇒ 關掉 ① 找不到 I2C Bridge／已斷線下載提示框、紅色 I2C 標籤、I2C 錯誤 toast、Bridge 說明視窗，標籤改「I2C 離線（已匯入 code）」；之後不再因 I2C 跳提示，直到使用者再按「連線」。根因：S.i2cMiss 只在連線成功／使用者斷線時清，匯入 code 沒清。共用 common/i2c-bridge.js 的其他頁（DG、DG 自測只用下載連結；I2C 頁本身就是 I2C 工具）沒有「匯入 code 離線模式」，不需改。
+- 測試：新增 tools/check_datamap_nbpx.js（11 型號矩陣，137 項）、tools/check_datamap_i2c_import.js（Bridge 不在→警告→匯入→消失且不再出現，兩輪含清除後重匯，42 項）；其餘 check_datamap* 全數重跑。
+
 ## Data Mapping (datamap) v1.31.2 — 2026-10-14 ｜ PATCH ｜ 說明移除收尾：刪掉已不用的三語說明字串、格子 hover 說明縮短
 
 **判定依據**：§2 案例 3／4（文案與內部清理、不動功能）→ PATCH。畫面功能與計算不變。
