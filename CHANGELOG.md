@@ -2,6 +2,28 @@
 
 ---
 
+## Data Mapping (datamap) v1.30.0 — 2026-10-14 ｜ MINOR ｜ Pixel 範圍反推 FORCE_DE_SEL＋R｜G｜B 選擇面板＋格內只顯示名稱＋TFT 錯誤格呼吸燈＋TFT 預覽小窗可拖曳
+
+**判定依據**：R3 MINOR（多一件能做的事：輸入 pixel 最小～最大一鍵設定 FORCE_DE_SEL；選格方式改成面板但入口不變，寫入／驗證／Undo 同一路徑；既有換算不變）。
+
+### 起因
+- Bruce 10/14：「要手動調的時候，要再多輸入一個數值：最大的 pixel 會用到多少、最小的 pixel 會用到多少…回過頭去改 FORCE_DE_SEL，這樣子才可以讓在這個範圍裡面都選得到」；追加「force_de_sel 等於 14、等於 31…有些預設的可以盡量選到」「RGB 左右排列…pixel 上下排列，最上面最靠右邊」「不用再顯示 T1、第二欄、上 Gate 這些字樣」「data 有錯的 subpixel…像呼吸燈的方式在慢慢閃動」。
+
+### 改動
+- common/datamap-core.js 新增 `deSelForPx(key, s, lo, hi)`：依 mntName／mntIdx 同一份 Pool 命名，起始欄 c 可選 pixel 索引＝[2c−10, 2c−1]（第 2 欄＝R-6～B4）；Dual／Tri 下 gate 列用 c＋mntRel ⇒ 取各列交集，保證每列都選得到。先依序試常用值 0x0E、0x1F、0x01、0x06、0x0A、0x0C、0x3F（起始欄可涵蓋就用，順序照 Bruce「從 14 開始」），都不行才只設起始欄 bit；範圍超過一欄能涵蓋 ⇒ over＋取涵蓋最多的欄（同分先取有常用值的）。
+  - 註：表格每格只用 T1 起始欄（下 gate＋1）命名，最大 bit 不影響可選名稱，所以「最大 bit＝c2−5」在本工具恆為不需要；Dispatch 補充的「起點相同取涵蓋最小」與 Bruce「從 14 開始」衝突時以 Bruce 為準。
+- datamap.html ②-2：表格上方一行「Pixel [最小]～[最大] [套用] → 14 (0x0E)（常用）」，套用＝FORCE_DE_EN＝1＋FORCE_DE_SEL 一次 commit（可 Undo、連線時寫入）；只在 MNT＋Hand 開時顯示（NB 名稱固定，不顯示）。
+- 點儲存格開 R｜G｜B 選擇面板（同列同一 pixel，上＝編號最大、下＝最左／負數，最下 X）；選項＝原 select 的 option，點選＝設 select.value＋change ⇒ 原 onPick 路徑。Esc／點外面關閉；鍵盤 Enter／方向鍵可開與移動。
+- 格內 T／欄／gate 小字隱藏（資訊留在 hover title）；圖例的對應說明一起隱藏。
+- TFT 預覽浮動小窗（Bruce 10/14「這個視窗應該要做成可以拖移、移動到其他位置吧？而不是只固定在最右下方」）：標題列拖曳（pointer events，滑鼠＋觸控），位置以離右／下邊距離記錄，放大縮小時右下角不動，一律夾在視窗內且不躲到頁首底下；存 localStorage dm.mini.pos.v1（try/catch），重開沿用；雙擊標題列回右下角預設。
+- TFT 接線圖錯誤格（衝突、顏色不符 ≠、≠面板）加 `.pv-err` 2 秒呼吸燈；prefers-reduced-motion 改靜態粗框；圖例三個錯誤樣式同步呼吸。
+
+### 測試
+- tools/check_datamap_pxrange.js（新）：-2～4、1～4、1～12、-4～20 等 12 組 Single／Dual 反推值、名稱涵蓋驗證；頁面套用、面板欄列順序、點選後值、Esc／點外關閉、TFT 衝突格 pv-err。
+- 既有 check_datamap_desel／boe／axis 0 fail。headless Chrome 真滑鼠點格子→面板→點 G3 驗證；真滑鼠拖小窗（移動、拖出畫面被夾住、重開沿用、放大、雙擊重設）。
+
+---
+
 ## 面板訊號模擬與取樣 (wfg) v4.55.0 — 2026-10-14 ｜ MINOR ｜ 匯入 EM01／EM02 code 時 SYS CRC 第二道確認（與 datamap v1.29.0 共用 common/syscrc.js，說明見下一條）
 
 **判定依據**：R3 MINOR（多一項檢查：匯入 EM01／EM02 code 時 SYS CRC 不符會多一行提醒；既有判斷與匯入流程不變）。

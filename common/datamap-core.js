@@ -729,6 +729,34 @@
     var en = s && (s.deEn | 0) ? 1 : 0, v = en ? (s.deSel | 0) : deAutoSel(s), ts = deSelTs(v, en ? bits : 6);
     return { base: ts.length ? ts[0] : null, ts: ts, en: en, bits: bits, sel: v };
   }
+  /* v1.30.0（Bruce 10/14「要多輸入一個數值：最大的 pixel 會用到多少、最小的 pixel 會用到多少…回過頭去改 FORCE_DE_SEL，讓這個範圍裡面都選得到」
+     ＋追加「常用的設定像 force_de_sel 等於 14、等於 31…有些預設的可以盡量選到」）：pixel 範圍 → FORCE_DE_SEL。
+     依據＝mntName／mntIdx（同一份 Pool 命名）：第 c 欄（T1 起始欄）的 code 0~29 ⇒ 線性位置 k＝6(c−1)−6⌊code/6⌋＋code%6 ∈ [6c−30, 6c−1]
+       ⇒ 該欄可選 pixel 索引 [2c−10, 2c−1]（索引≥0 ⇒ 名稱 idx+1；負＝dummy 名稱＝idx）。例：第 2 欄＝R-6～B4、第 1 欄＝R-8～B2。
+     Dual／Tri 的下 gate 列用 起始欄＋mntRel（＝＋1）⇒ 每一列都選得到＝各列欄位的交集 [2(c+rel)−10, 2c−1]（與表格下拉同一來源，不另寫規則）。
+     選值：先依序試常用值（0x0E、0x1F、同事A 自動等效 0x01／0x06／0x0A／0x0C、0x3F），起始欄能涵蓋就用；都不行才只設起始欄那個 bit。
+     範圍大於一欄能涵蓋的 ⇒ over＝true，取涵蓋最多的起始欄（同分先取有常用值的、再取較小欄）。 */
+  var DE_COMMON = [0x0E, 0x1F, 0x01, 0x06, 0x0A, 0x0C, 0x3F];
+  function pxIdx(p) { p = p | 0; return p > 0 ? p - 1 : p; }
+  function idxPx(i) { return i >= 0 ? i + 1 : i; }
+  function deSelForPx(key, s, lo, hi, gate) {
+    var bits = (fieldById(key, 'deSel') || { bits: 6 }).bits, mask = (1 << bits) - 1, g = gate || gateOf(key, s);
+    var a = pxIdx(Math.min(lo, hi)), b = pxIdx(Math.max(lo, hi)), rel = mntRel(g, 1);
+    function cov(c) { return [2 * (c + rel) - 10, 2 * c - 1]; }
+    function hit(c) { var r = cov(c); return Math.max(0, Math.min(b, r[1]) - Math.max(a, r[0]) + 1); }
+    function common(c) { for (var i = 0; i < DE_COMMON.length; i++) { var v = DE_COMMON[i]; if ((v & mask) === v && deSelTs(v, bits)[0] === c) return v; } return 0; }
+    var need = b - a + 1, cs = []; for (var c = 1; c <= bits; c++) cs.push(c);
+    var ok = cs.filter(function (c) { return hit(c) === need; }), over = !ok.length, pick = null, v = 0;
+    if (!over) {
+      for (var i = 0; i < DE_COMMON.length && !pick; i++) { var cv = DE_COMMON[i]; if ((cv & mask) === cv && ok.indexOf(deSelTs(cv, bits)[0]) >= 0) { v = cv; pick = deSelTs(cv, bits)[0]; } }
+      if (!pick) { pick = ok[0]; v = 1 << (pick - 1); }
+    } else {
+      var best = Math.max.apply(null, cs.map(hit)), cand = cs.filter(function (c) { return hit(c) === best; });
+      pick = cand.filter(common)[0] || cand[0]; v = common(pick) || (1 << (pick - 1));
+    }
+    var r = cov(pick);
+    return { v: v, base: pick, common: DE_COMMON.indexOf(v) >= 0, over: over, from: idxPx(r[0]), to: idxPx(r[1]), ok: ok };
+  }
   /* v1.24.0 T 使用分析（Bruce 10/13 轉述 RD 原話：「它一樣是 OR 的概念，就是你到底會用到哪幾個 T，只是它會從你所選的 T 裡面最小的 T 開始用…
      設定 14…最小的會是在 T2，也就是從 T2 開始推…某些 data mapping 下它除了 T2 以外還會用到 T3…最多用到 T4…要看它的 line buffer（那個 T 其實是 line buffer 的意思）」）：
      ・v1.27.6：可用欄＝tWin（BOE 分頁：最小 bit 那欄起連續到最大 bit 那欄＋4；force_de_en＝0＝panel 等效 de_sel 套同一規則，v1.28.1）；基準＝T1 那欄。
@@ -1371,7 +1399,7 @@
     emptyState: emptyState, cloneState: cloneState, decode: decode, encode: encode, encodeFields: encodeFields,
     changedIds: changedIds, diffRegs: diffRegs, regsOf: regsOf, maskedMerge: maskedMerge,
     gateOf: gateOf, gateText: gateText, cellView: cellView, editCell: editCell, applyNames: applyNames, allSame: allSame,
-    mntName: mntName, mntIdx: mntIdx, linName: linName, linIdx: linIdx, codeIdx: codeIdx, rbSwapName: rbSwapName, mntBaseT: mntBaseT, mntTOf: mntTOf, mntInRange: mntInRange, mntInTable: mntInTable, mntRel: mntRel, mntCands: mntCands, mntMirT: mntMirT, deSelTs: deSelTs, deSelText: deSelText, deSelBase: deSelBase, tWin: tWin, deAutoBase: deAutoBase, deAutoSel: deAutoSel, DE_AUTO_SEL: DE_AUTO_SEL, tUse: tUse,
+    mntName: mntName, mntIdx: mntIdx, linName: linName, linIdx: linIdx, codeIdx: codeIdx, rbSwapName: rbSwapName, mntBaseT: mntBaseT, mntTOf: mntTOf, mntInRange: mntInRange, mntInTable: mntInTable, mntRel: mntRel, mntCands: mntCands, mntMirT: mntMirT, deSelTs: deSelTs, deSelText: deSelText, deSelForPx: deSelForPx, DE_COMMON: DE_COMMON, deSelBase: deSelBase, tWin: tWin, deAutoBase: deAutoBase, deAutoSel: deAutoSel, DE_AUTO_SEL: DE_AUTO_SEL, tUse: tUse,
     setGate: setGate, setHand: setHand, pyNormalize: pyNormalize, pyNames: pyNames, cks: cks, preLabels: preLabels,
     inputDict: inputDict, colorOfName: colorOfName, codeAddrs: codeAddrs, byteOf: byteOf, regNote: regNote, fieldsAt: fieldsAt,
     applyPreset: applyPreset, matchPreset: matchPreset, PRESET_SECOND: PRESET_SECOND, presetHasSecond: presetHasSecond,
