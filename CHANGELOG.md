@@ -2,6 +2,39 @@
 
 ---
 
+## Digital Gamma (dg) v2.5.0 — 2026-10-14 ｜ MINOR ｜ 白點兩種調法：沿用目前白點／指定新白點（x、y ⇄ 色溫互算）
+
+**判定依據**：§1 新增能力（使用者多能做一件事：自訂目標白點），既有操作與預設輸出不變 → MINOR。
+
+### 起因
+- Barry 2026-10-14 信「DG tool v2.7.9 issue」第 1 點：「希望新增自訂目標色溫調整選項」。
+- Bruce 2026-10-14：調 gamma 時要有兩種調法 —— 1. 目前的調法（色溫曲線追著白點色溫）；2. 改白點色溫，色溫曲線追著新設定的色溫跑；
+  參考瑞鼎 PQ tool：可輸入小 x、小 y 或色溫，兩邊自動互算。
+
+### 原廠做法（decompiled，`~/TCON/Share/DG/gamma_analysis_v150/decompiled/`）
+- UI：`RaydiumTCONPQTool/CCTForm.cs` 模式下拉 `Maximum RGB／User define RGB／User define xyT`（:2728）；xyT 模式有 x、y、T(°K) 三格（預設 0.312778876194811／0.329183498498041／6500，:2675-2712），
+  x 或 y 按 Enter ⇒ `DoxyToCCT` 算色溫（:770-784），T 按 Enter ⇒ `DoCCTToxy` 算 x、y（:786-822）；不四捨五入（直接 `ToString()`）。
+- `DoxyToCCT`：McCamy，n'=(x−0.332)/(y−0.1858)，CCT=−449n'³+3525n'²−6823.3n'+5520.33（與本頁 `dgCCT` 展開後逐項相同）。
+- `DoCCTToxy`：CIE 日光軌跡，4000～7000K、7000～25000K 兩組係數，y=−3x²+2.87x−0.275；範圍外回 −1／−1。
+- 演算法：xyT 是 mode 2 ⇒ `CCTAdjustmentTool/AutoCCTAdjust.cs` `AlgorithmIrene`（:540-600）；mode 0／1 走 `AlgorithmTraditional`。
+
+### 變更（只動 dg.html）
+- 設定卡「目標 Gamma」下面一排「白點：◉ 沿用目前白點（預設）／○ 指定新白點」；選後者出現 x、y、K 三格，輸入時即時互算
+  （x、y 顯示 6 位小數、色溫取整數；超出 4000～25000K ⇒ x、y 清空、框變紅、不採用）。第一次切過去帶入第 2 部分目前的白點（沒有就 6500K）。
+- ① 沿用目前白點：`cfg.mode` 0、目標白點取第 2 部分，**計算路徑與 v2.4.12 相同**。
+- ② 指定新白點：`cfg.mode` 2（原廠 User define xyT）。`dgCompute` 新增 mode 2 分支照 AlgorithmIrene：面板最高階白 a 與目標白 b 以 Y=1 拆三通道，
+  r=b/a 除以最大值（最亮通道留滿），目標亮度＝Σ 純色 Y×(A⁻¹·W最高階)×r（Autodecide、不勾 Keep Max Lumi）；不換最高階實測、最高階不頂滿碼（`dgFinalise` 本來就只對 mode 0／1 頂滿）。
+  原廠用縮放矩陣算 Ori／Tar，兩者每通道同乘一個正數，反查結果相同，所以沿用同一條流程（目標曲線、暗部 Bézier、轉折 25、修表、LUT 格式約束全部照舊）。
+- 圖三「跟著目標白點（動態）」基準線、匯出 Properties 的 Lv／x／y／CCT 跟著新白點。改白點選項或三格 ⇒ 結果作廢（與改目標白點同規則）。自動保存照常帶到。
+- 「只調 Gamma」時選② ⇒ 不算並說明（新白點要連色溫一起調）。三語字串 dg.wpt*。
+
+### 驗證
+- 新增 tests/dgself 情境 WP（`WP_white_point.js`）：CONV＝`dgCCT` 對原廠 DoxyToCCT 5 組（D65 0.3127/0.3290＝6505.08K 等，差 <1e-6）、
+  `dgCctToXy` 對原廠 DoCCTToxy 8 組（6500K＝0.312779/0.329183、9300K＝0.283145/0.297113，差 <1e-12）、範圍外、畫面三格互算；
+  REG＝模式① LUT 指紋與 v2.4.12（改版前 dg.html 跑同一份資料）相同 `e31de798:3544`，切②再切回①仍相同；
+  NEW＝9300K：mode 2、目標白點 x,y 傳入、目標曲線終點與第 40 階都在新白點、目標 Lv＝最高階 Y÷max(b/a)、最高階最亮通道=1 其餘降、圖三基準 9300K；
+  GAMMA＝只調 Gamma 時擋下；EN／CN 字面。
+
 ## Data Mapping (datamap) v1.31.3 — 2026-10-14 ｜ PATCH ｜ NB 型號 Hand Mode 開時也顯示 Pixel 範圍列（固定 -2～4 ↔ FORCE_DE_SEL 14）；匯入 code 關掉 I2C 提示
 
 **判定依據**：§2 案例 1（bug 修正：Bruce 10/14「為什麼 1.3.2 Tcon 用 E503，我還是看不到…可以設定 -2 到 4 的 Pixel 的地方」）→ PATCH。

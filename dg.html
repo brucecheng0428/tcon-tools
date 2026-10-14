@@ -66,6 +66,12 @@
   }
   .dg-cctbase-label { font-size: 11.5px; font-weight: 700; color: var(--text-sub); }
   .dg-cctbase label { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--text); cursor: pointer; }
+  /* v2.5.0：白點兩種調法（沿用目前／指定新白點），沿用 .dg-cctbase 的外觀 */
+  .dg-wpt { margin: 8px 0 0; }
+  .dg-wpt .dg-wpt-in { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--text-sub); }
+  .dg-wpt .dg-wpt-in input { width: 76px; padding: 3px 6px; font-size: 12px; color: var(--text); background: #0f172a; border: 1px solid var(--border); border-radius: 6px; font-family: inherit; }
+  .dg-wpt .dg-wpt-in input:focus { outline: none; border-color: var(--accent); }
+  .dg-wpt .dg-wpt-in.bad input { border-color: #f87171; }
   .dg-cctbase-now { margin-left: auto; font-size: 11.5px; font-weight: 700; color: #fbbf24; }
   .dg-cctbase-now.undet { color: #f87171; }
   .dg-cctbase-note { margin: 0 0 8px; }
@@ -1404,11 +1410,25 @@
         <label>目標 Gamma</label>
         <input type="number" id="dg-gamma" value="2.20" min="1.00" max="4.00" step="0.01" inputmode="decimal" title="可輸入到小數第二位">
       </div>
+      <!-- v2.5.0（Bruce 2026-10-14，Barry 信「希望新增自訂目標色溫調整選項」）：白點兩種調法。
+           ① 沿用目前白點 ＝ 現行（第 2 部分的目標白點，原廠 Maximum RGB，mode 0），預設。
+           ② 指定新白點 ＝ 原廠 User define xyT（mode 2 → AutoCCTAdjust.cs AlgorithmIrene），色溫曲線追新白點。
+           x／y ⇄ 色溫照原廠 CCTForm.cs:770-822：DoxyToCCT（McCamy）、DoCCTToxy（CIE 日光軌跡，4000～25000K，範圍外無解）。 -->
+      <div class="dg-cctbase dg-wpt" id="dg-wpt">
+        <span class="dg-cctbase-label" data-i18n="dg.wptLbl">白點</span>
+        <label><input type="radio" name="dg-wpt" id="dg-wpt-keep" value="keep" checked><span data-i18n="dg.wptKeep">沿用目前白點</span></label>
+        <label><input type="radio" name="dg-wpt" id="dg-wpt-new" value="custom"><span data-i18n="dg.wptNew">指定新白點</span></label>
+        <span class="dg-wpt-in" id="dg-wpt-in" style="display:none">
+          x <input type="text" id="dg-wpt-x" inputmode="decimal" autocomplete="off">
+          y <input type="text" id="dg-wpt-y" inputmode="decimal" autocomplete="off">
+          <input type="text" id="dg-wpt-cct" inputmode="decimal" autocomplete="off"> K
+        </span>
+      </div>
 
       <div class="dg-info-src" id="dg-info-target">
       <div class="dg-note">
         <b>以下四項固定，不開放調整：</b>
-        <br>· 色座標目標：<b>Max RGB</b>（以三通道全滿時的白點為目標色座標）
+        <br>· 色座標目標：<b>Max RGB</b>（以三通道全滿時的白點為目標色座標）；選「指定新白點」時改用 <b>User define xyT</b>
         <br>· 取整方式：<b>四捨五入</b>
         <br>· xy 轉折灰階：<b>25</b>（黑階 xy 以二次曲線過渡到目標 xy，第 25 階收斂）
         <br>· 目標亮度扣除 L0 漏光：<b>啟用</b>（目標亮度＝<code>t<sup>γ</sup>×(Ymax − Y0) + Y0</code>）
@@ -2911,6 +2931,16 @@
                           'zh-CN': '不调色温并产生新的 RGB LUT' },
       'dg.toneCctGo':   { 'zh-TW': '調色溫並產生新的 RGB LUT', 'en': 'Tune colour temperature and generate the new RGB LUT',
                           'zh-CN': '调色温并产生新的 RGB LUT' },
+      /* v2.5.0：白點兩種調法 */
+      'dg.wptLbl':  { 'zh-TW': '白點', 'en': 'White point', 'zh-CN': '白点' },
+      'dg.wptKeep': { 'zh-TW': '沿用目前白點', 'en': 'Keep current white point', 'zh-CN': '沿用目前白点' },
+      'dg.wptNew':  { 'zh-TW': '指定新白點', 'en': 'Set a new white point', 'zh-CN': '指定新白点' },
+      'dg.wptBad':  { 'zh-TW': '新白點要填有效的 x、y（或 4000～25000K 的色溫）。',
+                      'en': 'The new white point needs a valid x, y (or a colour temperature of 4000–25000 K).',
+                      'zh-CN': '新白点要填有效的 x、y（或 4000～25000K 的色温）。' },
+      'dg.wptGamma': { 'zh-TW': '指定新白點要連色溫一起調；目前是「只調 Gamma」。',
+                       'en': 'A new white point needs colour-temperature tuning; the current mode is gamma only.',
+                       'zh-CN': '指定新白点要连色温一起调；目前是「只调 Gamma」。' },
       'dg.pqOptTitle': { 'zh-TW': '三個部分一次填好',
                          'en': 'All three parts filled at once',
                          'zh-CN': '三个部分一次填好' },
@@ -3175,6 +3205,17 @@
     var n = (x - 0.3320) / (0.1858 - y);
     return 449 * n * n * n + 3525 * n * n + 6823.3 * n + 5520.33;
   }
+  /* v2.5.0：色溫 → x、y，逐字照原廠 CCTForm.cs:806-822 DoCCTToxy（CIE 日光軌跡）。
+     4000～7000K、7000～25000K 兩段；範圍外原廠回 -1／-1，這裡回 null。
+     x、y → 色溫用上面的 dgCCT()：與原廠 DoxyToCCT（CCTForm.cs:780-784）同一條 McCamy 式
+     （原廠寫成 n'=(x-0.332)/(y-0.1858)、係數 -449／+3525／-6823.3，n'=-n，展開後逐項相同）。 */
+  function dgCctToXy(T) {
+    var x;
+    if (T >= 4000 && T <= 7000) x = -4.607e9 / (T * T * T) + 2.9678e6 / (T * T) + 0.09911e3 / T + 0.244063;
+    else if (T > 7000 && T <= 25000) x = -2.0064e9 / (T * T * T) + 1.9018e6 / (T * T) + 0.24748e3 / T + 0.23704;
+    else return null;
+    return [x, -3 * x * x + 2.87 * x - 0.275];
+  }
 
   // ─── 目標曲線 ─────────────────────────────────────────────────────────
   // Y：removeL0 勾選 → t^γ×(Ymax−Y0)+Y0；不勾選 → t^γ×Ymax+(1−t)×Y0
@@ -3299,6 +3340,25 @@
     var M = data.grayXYZ.length;
     var W = data.grayXYZ.map(function (v) { return v.slice(); });
     var tw = data.targetWhite;
+    /* v2.5.0：mode 2 ＝ 原廠 User define xyT（AutoCCTAdjust.cs AlgorithmIrene，約 540-600 行）。
+       面板最高階白 a、目標白 b 各以 Y=1 拆成三通道強度，r＝b／a 除以最大值 ⇒ 最亮通道留滿、其餘降；
+       目標亮度（Autodecide、不勾 Keep Max Lumi）＝ Σ 純色 Y × (A⁻¹·W最高階) × r。
+       原廠之後用縮放過的矩陣算 Ori／Tar；兩者每通道同乘一個正數，反查結果不變，
+       所以這裡沿用下面同一條流程（不換最高階、norm 取實測最高階），只把目標白點換成 x、y＋這個亮度。
+       最高階不頂滿碼（dgFinalise 只對 mode 0／1 頂滿），與原廠一致。 */
+    if (cfg.mode === 2) {
+      var Wt = W[M - 1];
+      var aI = dgMul3x1(Ainv, [Wt[0] / Wt[1], 1, Wt[2] / Wt[1]]);
+      var bI = dgMul3x1(Ainv, [tw[0] / tw[1], 1, (1 - tw[0] - tw[1]) / tw[1]]);
+      var rI = [bI[0] / aI[0], bI[1] / aI[1], bI[2] / aI[2]];
+      var rMax = Math.max(rI[0], rI[1], rI[2]);
+      if (!(rMax > 0)) throw new Error('指定的白點超出這片面板三個純色圍出的範圍。');
+      var sI = dgMul3x1(Ainv, Wt);
+      var Lt = 0;
+      for (var cI = 0; cI < 3; cI++) Lt += A[1][cI] * sI[cI] * (rI[cI] / rMax);
+      tw = [tw[0], tw[1], Lt];
+      data.targetWhite = tw;   // 匯出 Properties（Lv／x／y）照實際採用的目標
+    }
     var twXYZ = dgXyYtoXYZ(tw[0], tw[1], tw[2]);
     // Max RGB：白階曲線的最高點改用目標白點，讓最高階的色座標直接落在目標上
     if (cfg.mode === 0) W[M - 1] = twXYZ;
@@ -7640,6 +7700,48 @@
     return isFinite(v) ? v : 4;
   }
 
+  /* ─── v2.5.0：白點兩種調法（狀態就在畫面上的 radio 與三格，自動保存照常帶到）──── */
+  function dgWptIsNew() { var e = $('dg-wpt-new'); return !!(e && e.checked); }
+  function dgWptNum(id) { var v = parseFloat(String(($(id) || {}).value || '').trim()); return isFinite(v) ? v : null; }
+  /* 選了「指定新白點」且 x、y 有效 ⇒ {x, y, cct}；否則 null（＝沿用目前白點，計算路徑與 v2.4.12 相同）。
+     x、y 以使用者填的為準（填色溫時，x、y 已由 dgCctToXy 換好寫進格子）。 */
+  function dgWptCustom() {
+    if (!dgWptIsNew()) return null;
+    var x = dgWptNum('dg-wpt-x'), y = dgWptNum('dg-wpt-y');
+    if (x === null || y === null || !(x > 0 && x < 1 && y > 0 && y < 1 && x + y < 1)) return null;
+    var c = dgWptNum('dg-wpt-cct');
+    return { x: x, y: y, cct: (c !== null && c > 0) ? c : dgCCT(x, y) };
+  }
+  function dgWptFmtXy(v) { return v.toFixed(6); }
+  function dgWptFromXy() {
+    var x = dgWptNum('dg-wpt-x'), y = dgWptNum('dg-wpt-y');
+    var t = (x !== null && y !== null) ? dgCCT(x, y) : NaN;
+    $('dg-wpt-cct').value = (isFinite(t) && t > 0) ? String(Math.round(t)) : '';
+  }
+  function dgWptFromCct() {
+    var t = dgWptNum('dg-wpt-cct'), xy = (t !== null) ? dgCctToXy(t) : null;
+    $('dg-wpt-x').value = xy ? dgWptFmtXy(xy[0]) : '';
+    $('dg-wpt-y').value = xy ? dgWptFmtXy(xy[1]) : '';
+  }
+  // 第一次切到「指定新白點」：帶入目前白點（沒有就 6500K），使用者從這裡改
+  function dgWptPrefill() {
+    var w = dgParseRows(String(($('dg-in-white') || {}).value || ''))[0];
+    if (w && w.length >= 2 && isFinite(w[0]) && isFinite(w[1])) {
+      $('dg-wpt-x').value = dgWptFmtXy(w[0]); $('dg-wpt-y').value = dgWptFmtXy(w[1]); dgWptFromXy();
+    } else { $('dg-wpt-cct').value = '6500'; dgWptFromCct(); }
+  }
+  function dgWptSync() {
+    var box = $('dg-wpt-in');
+    if (!box) return;
+    box.style.display = dgWptIsNew() ? '' : 'none';
+    box.classList.toggle('bad', dgWptIsNew() && !dgWptCustom());
+  }
+  function dgWptChanged() {
+    dgWptSync();
+    dgInvalidateResult();
+    dgRefreshReady();
+    dgRenderCharts();
+  }
   function dgReadCfg() {
     var sd = parseInt($('dg-sd').value, 10);
     var hw = sd + dgFrcBits();
@@ -7649,7 +7751,7 @@
       M: (sd === 10) ? 1024 : 256,
       // 以下四項固定，不開放調整（見畫面上的說明），演算法內部照常使用
       gamma: DG_FIXED.gammaOf($('dg-gamma').value),
-      mode: DG_FIXED.mode,
+      mode: dgWptCustom() ? 2 : DG_FIXED.mode,   // v2.5.0：指定新白點 ⇒ 原廠 User define xyT
       round: DG_FIXED.round,
       turnGray: DG_FIXED.turnGray,
       removeL0: DG_FIXED.removeL0
@@ -9487,6 +9589,8 @@
   /* 目標白點的 CCT。第 4 欄（匯入時就會帶進來）有值就用它；缺值就用 dgCCT(x, y)
      由前兩欄算 —— 那支函式本頁本來就有，圖三的實測曲線用的也是它。 */
   function dgTargetCCT() {
+    var wc = dgWptCustom();
+    if (wc) return wc.cct;   // v2.5.0：指定新白點 ⇒ 色溫基準跟著新白點
     var e = $('dg-in-white');
     if (!e) return null;
     var w = dgParseRows(String(e.value || ''))[0];
@@ -10195,8 +10299,8 @@
     return {
       prim: prim.length >= 3 ? { r: prim[0], g: prim[1], b: prim[2] } : null,
       grayXYZ: grayXYZ, grayxyY: grayxyY, grayT: grayT, grayUV: grayUV,
-      targetWhite: [wh[0], wh[1], wh[2]],
-      meta: { whiteCCT: (wh.length >= 4 && isFinite(wh[3])) ? wh[3] : null },
+      targetWhite: dgWptCustom() ? [dgWptCustom().x, dgWptCustom().y, wh[2]] : [wh[0], wh[1], wh[2]],
+      meta: { whiteCCT: dgWptCustom() ? dgWptCustom().cct : ((wh.length >= 4 && isFinite(wh[3])) ? wh[3] : null) },
       inCodes: inCodes
     };
   }
@@ -14109,6 +14213,10 @@
       /* v1.17.0：兩條路。'gamma' 走 dgComputeGammaOnly()（不需要第 3 部分）；
          'cct' 走原本的 dgCompute()，**一行未動、輸出逐值不變**。 */
       var tone = dgToneMode();
+      if (dgWptIsNew()) {   // v2.5.0
+        if (tone === 'gamma') throw new Error(dgT('dg.wptGamma'));
+        if (!dgWptCustom()) throw new Error(dgT('dg.wptBad'));
+      }
       var data = dgGatherData(cfg, { gammaOnly: tone === 'gamma' });
       var res = (tone === 'gamma') ? dgComputeGammaOnly(cfg, data) : dgCompute(cfg, data);
       lastLut = res.lut;
@@ -15480,6 +15588,7 @@
     });
     // 目標白點是純 input（沒有走那條 setter），直接寫即可
     $('dg-in-white').value = String(snap.fields['dg-in-white'] || '');
+    dgWptSync();   // v2.5.0：白點選項的 radio／三格已由 dgAsApplyFields 套回，這裡只同步顯示
 
     /* ④ 🔴 DG_PRIM_XYL **一定要在寫完 #dg-in-prim 之後**才放回去。
        寫 textarea ⇒ dgGridLoad ⇒ spec.onLoad ⇒ dgPrimOnLoad() 會把它清成 [null,null,null]。
@@ -15901,6 +16010,17 @@
       DG_IC.lutWhy = '機台讀回的是 ' + was + ' bit，你自己改成了 ' + $('dg-outbit').value + ' bit。';
       dgIcRender();
     });
+    // v2.5.0：白點兩種調法
+    ['dg-wpt-keep', 'dg-wpt-new'].forEach(function (id) {
+      $(id).addEventListener('change', function () {
+        if (dgWptIsNew() && !String($('dg-wpt-x').value).trim() && !String($('dg-wpt-cct').value).trim()) dgWptPrefill();
+        dgWptChanged();
+      });
+    });
+    $('dg-wpt-x').addEventListener('input', function () { dgWptFromXy(); dgWptChanged(); });
+    $('dg-wpt-y').addEventListener('input', function () { dgWptFromXy(); dgWptChanged(); });
+    $('dg-wpt-cct').addEventListener('input', function () { dgWptFromCct(); dgWptChanged(); });
+    dgWptSync();
     // 目標白點是純 input，沒有走表格那條 value setter，狀態要自己接
     $('dg-in-white').addEventListener('input', function () {
       dgMarkEdited('gray');
