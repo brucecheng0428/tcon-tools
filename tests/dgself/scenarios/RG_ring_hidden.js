@@ -22,7 +22,8 @@
     };
     __ok('RG0 before start: ring shown (alignment)', ringState() === 'SHOWN');
     dgmStart();
-    await __until(function () { return mesN >= 30; }, 20000);
+    // 2026-10-14 CI 偶發（run 38583767832／38585885606：seen 29）：mesN 在 MES 進來就 +1、取樣 push 在 2 ms 之後 ⇒ 改等「取樣數」到 30，不放寬檢查內容
+    await __until(function () { return seen.length >= 30; }, 20000);
     __ok('RG1 every MES so far taken with the ring hidden (' + seen.length + ')', seen.length >= 30 && seen.every(function (s) { return s === 'hidden'; }), seen.slice(0, 3).join(' '));
     __ok('RG1 main button became stop', /停止/.test($('dgm-start').textContent), $('dgm-start').textContent);
     __ok('RG1 bottom hint hidden too', $('dgm-hint').classList.contains('dgm-hidden'));
