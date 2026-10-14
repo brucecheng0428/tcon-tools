@@ -38,8 +38,8 @@ async function open(opt) {
   /* ── ① 收摺／展開 ───────────────────────────────────────────── */
   {
     const dom = await open(); const w = dom.window, d = w.document, $ = id => d.getElementById(id);
-    const cards = Array.from(d.querySelectorAll('.container > .card.stp')).map(c => c.id);
-    ok(cards.join(',') === 'card-src,card-dm,card-pv,card-tft,card-reg,card-out', '卡片順序：①②③＋TFT 接線圖＋TCON Register＋④：' + cards.join(','));
+    const cards = Array.from(d.querySelectorAll('.container .card.stp')).map(c => c.id);
+    ok(cards.join(',') === 'card-src,card-pm,card-dm,card-pv,card-tft,card-reg,card-out', '卡片順序：①②③＋TFT 接線圖＋TCON Register＋④：' + cards.join(','));
     const hd = id => Array.from($(id).children).find(e => e.classList.contains('stp-hd'));
     const plain = cards.filter(id => id !== 'card-reg');
     ok(plain.every(id => hd(id) && hd(id).classList.contains('dm-foldhd') && hd(id).getAttribute('role') === 'button' && hd(id).querySelector('.dm-foldcar')), '每張卡的標題列可點（role=button＋箭頭）');

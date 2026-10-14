@@ -2,6 +2,22 @@
 
 ---
 
+## Data Mapping (datamap) v1.28.0 — 2026-10-14 ｜ MINOR ｜ ② 拆兩張卡＋調設定時即時看 TFT 接線圖
+
+**判定依據**：R3 MINOR（使用者多能做一件事：調 ②／③ 的同時看到 TFT 接線圖；不改任何計算）。
+
+### 起因（Bruce 2026-10-14）
+- 「把調 Data Mapping 的那張卡片裡面的 Panel Mode 設定跟 Data Mapping 表格都獨立出來，變成兩張卡片。因為我想要在調的時候可以直接看到 TFT 接線圖的變化，但這樣子變成 TFT 接線圖它太下方了…讓我在調的時候也可以即時看到 Data Mapping 的變化」。
+
+### 變更
+- ② 拆成兩張卡：`#card-pm`「②-1 Panel mode 設定」（新卡：Hand Mode、Gate Type、Auto、Mirror／CHRB／CHWB／FORCE_DE_EN／FORCE_DE_SEL／READ_RVS、T 摘要、Line OD）與 `#card-dm`「②-2 Data Mapping 表格」（沿用原 id，含 T 使用分析、依 T 展開整行、force_sel 表格、Benchmark、工具、進階）。tk-dm／st-dm／DM CKS／跳轉目標不變；兩張都走既有收摺、全部展開／收摺（`foldCards` 改選 `.container .card.stp[id]`）。
+- `#dm-live` 包住 ②-1、②-2、③、TFT 接線圖卡（DOM 順序不變）：
+  - 寬螢幕（≥1200px）且頁首「TFT 並排」開（預設開，localStorage `dm.tftside.v1`）⇒ 兩欄，左欄 ②-1／②-2／③，右欄 TFT 接線圖 `position: sticky`（高度不超過視窗，內容自己捲）。
+  - 窄螢幕或並排關 ⇒ 頁首出現「TFT 預覽」，開右下角浮動小窗（可放大／收起／到原卡），預設收起。內容＝`#dm-pv-tft` 的 cloneNode（同一份 renderPreview 結果），MutationObserver 同步（只在小窗開著時掛上，避免大量同步重畫時留住舊 SVG）；無接線圖時顯示 TFT 卡的說明。
+- 測試：`check_datamap_fold.js`、`check_datamap_preview.js`、`check_datamap_tcon_gate.js` 的卡片順序期望加入 `card-pm`；tcon_gate 的「② 最下面是進階」改看 `#card-dm`（不變）。
+
+---
+
 ## Data Mapping (datamap) v1.27.7 — 2026-10-14 ｜ PATCH ｜ 依 T 展開整行在 10 欄時不撐開頁面
 
 **判定依據**：R1 PATCH（v1.27.6 版面問題修正，不改計算）。
