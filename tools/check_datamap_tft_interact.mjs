@@ -150,6 +150,31 @@ async function runMode(mode, model, hand) {
     const d = JSON.parse(await ev(`JSON.stringify({sc:window.__sc,sl:document.getElementById('${SCR}').scrollLeft})`));
     ok(d.sc.length === 0 && d.sl === Math.max(0, sl0 - 40), tag + '：sub-pixel 拖曳 40px ⇒ 圖捲動 ' + sl0 + '→' + d.sl + '、不跳轉（拖曳中游標 ' + grabbing + '）');
     ok(grabbing === 'grabbing', tag + '：拖曳中游標＝grabbing');
+    // 2b) v1.35.12（Bruce 10/16「V 方向 Line 數調到 12 時…拖曳只能左右移動，不能上下移動」）：V Line 12 斜拖（右 40、上 30）⇒ 水平＋垂直同時捲。
+    //     垂直捲的容器：小窗＝#dm-mini-body；並排＝#card-tft（sticky 卡自己捲，沒超出才捲頁面）；一般＝頁面。
+    await setVl(MM ? 'dm-mini-vl' : 'dm-pv-vl', 12); await sleep(400); if (MM) await waitSame();
+    const VS = MM ? `document.getElementById('dm-mini-body')` : mode === 'side' ? `(function(){var c=document.getElementById('card-tft');return c.scrollHeight>c.clientHeight+1?c:document.scrollingElement})()` : `document.scrollingElement`;
+    await ev(`(function(){[].forEach.call(document.querySelectorAll('[data-pick]'),function(t){t.removeAttribute('data-pick')});
+      var r=[].filter.call(document.querySelectorAll('${ROOTSEL} rect[data-pv]'),function(t){return !t.closest('[data-rep]')})[7]; if(r) r.setAttribute('data-pick','1'); return !!r})()`);
+    await ev(`document.getElementById('${SCR}').scrollLeft=200`); await sleep(50);
+    const c3 = await show(`${ROOTSEL} rect[data-pick]`);
+    const v0 = JSON.parse(await ev(`(function(){var v=${VS};return JSON.stringify({sl:document.getElementById('${SCR}').scrollLeft,st:v.scrollTop,max:v.scrollHeight-v.clientHeight,id:v.id||v.nodeName})})()`));
+    await ev('window.__sc=[]');
+    await mouse('mouseMoved', c3.x, c3.y, { buttons: 0 }); await mouse('mousePressed', c3.x, c3.y);
+    for (let k = 1; k <= 4; k++) { await mouse('mouseMoved', c3.x + 10 * k, c3.y - 7.5 * k); await sleep(20); }
+    await mouse('mouseReleased', c3.x + 40, c3.y - 30); await sleep(250);
+    const v1 = JSON.parse(await ev(`(function(){var v=${VS};return JSON.stringify({sl:document.getElementById('${SCR}').scrollLeft,st:v.scrollTop,sc:window.__sc})})()`));
+    const wantSt = Math.min(v0.max, v0.st + 30);
+    ok(v0.max - v0.st >= 30, tag + '：V Line 12 時 ' + v0.id + ' 垂直可捲（剩 ' + (v0.max - v0.st) + 'px）');
+    ok(v1.sc.length === 0 && v1.sl === Math.max(0, v0.sl - 40) && Math.abs(v1.st - wantSt) <= 1, tag + '：V Line 12 斜拖（右 40、上 30）⇒ 水平 ' + v0.sl + '→' + v1.sl + '、垂直 ' + v0.id + ' ' + v0.st + '→' + v1.st + '（應 ' + wantSt + '）、不跳轉');
+    // 反方向（左 20、下 20）⇒ 兩個方向都退回
+    const c4 = await ev(`(function(){var r=document.querySelector('${ROOTSEL} rect[data-pick]').getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2}})()`);
+    await mouse('mouseMoved', c4.x, c4.y, { buttons: 0 }); await mouse('mousePressed', c4.x, c4.y);
+    for (let k = 1; k <= 4; k++) { await mouse('mouseMoved', c4.x - 5 * k, c4.y + 5 * k); await sleep(20); }
+    await mouse('mouseReleased', c4.x - 20, c4.y + 20); await sleep(250);
+    const v2 = JSON.parse(await ev(`(function(){var v=${VS};return JSON.stringify({sl:document.getElementById('${SCR}').scrollLeft,st:v.scrollTop,sc:window.__sc})})()`));
+    ok(v2.sc.length === 0 && v2.sl === v1.sl + 20 && Math.abs(v2.st - (v1.st - 20)) <= 1, tag + '：反向斜拖（左 20、下 20）⇒ 水平 ' + v1.sl + '→' + v2.sl + '、垂直 ' + v1.st + '→' + v2.st);
+    await setVl(MM ? 'dm-mini-vl' : 'dm-pv-vl', 4); await sleep(400); if (MM) await waitSame();
     // 3) 連結：TCON Out／SD Out 標題、Data 1、D1
     const cases = [[`${ROOTSEL} [data-rowhead="tc"] text`, 'dm-gridbox', 'TCON Out 標題'], [`${ROOTSEL} text[data-dof="1"]`, 'dm-gridbox', 'Data 1'],
                    [`${ROOTSEL} [data-rowhead="sd"] text`, 'dm-drv-sec', 'SD Out 標題'], [`${ROOTSEL} text[data-dlab="D6(0)+1"]`, 'dm-drv-sec', 'D1']];
