@@ -2,6 +2,25 @@
 
 ---
 
+## Data Mapping (datamap) v1.35.11 — 2026-10-15 ｜ PATCH ｜ TFT 預覽小窗加入與 TFT 卡同一份「V 方向 Line 數／畫面樣式」控制；並排＋預覽時 TFT 卡自動收折
+
+**判定依據**：§2 既有功能（TFT 預覽小窗、卡片收摺）的操作補齊，不改輸出、不新增工具 → PATCH（與 v1.35.4 同類）。
+
+### 起因
+- Bruce 10/15：「我需要 TFT 接線圖的預覽視窗，在鎖定以後也需要出現一樣的 V 方向拉數。全白、只送紅、只送綠、只送藍、只送 R1，這些要跟原本 TFT 接線圖一模一樣。而且，如果選擇 TFT 並排，並按下 TFT 預覽的這個條件下，原本的 TFT 接線圖卡片要自動收折起來。當然，我要手動打開還是可以。」
+
+### 變更（只改 UI）
+- 小窗標題列下方加一列控制（#dm-mini-ctl）：「V 方向 Line 數」下拉（#dm-mini-vl）與「畫面樣式」五鈕（#dm-mini-colmode），樣式 class 與 TFT 卡相同。
+- 不另存狀態：兩邊共用 PV_NL_MIN／PV_COLMODE。pvVlSet 同時寫兩個下拉、renderPvVl 同時寫兩個提示、renderLock 同時切兩組畫面樣式的顯示與選中；兩邊的事件走同一個處理（renderPreview）⇒ 小窗內容仍是 #dm-pv-tft 的同一份渲染。顯示條件與 TFT 卡相同（V Line 一直在；畫面樣式鎖定後才出現）。
+- 自動收折：只在「並排生效且預覽開著」從不成立變成成立的那一下（按「TFT 預覽」、按「TFT 並排」、dmLive.mini(true)）收折 #card-tft，用 setFold(noSave) 不寫入 dm.fold.v1；手動展開後不再收；關預覽／並排不強制展開。視窗寬度跨 1200px 造成的並排變化不觸發收折。
+- 沒加說明文字。
+- tools/check_datamap_sd_snapshot.js：body 比對略過 #dm-mini-ctl（小窗控制列是 TFT 卡 #dm-pv-vlbar／#dm-pv-colmode 的同步複本，TFT 卡那份已在 pv 欄比對）；基準檔不重拍。
+
+### 測試
+- tools/check_datamap_tft_interact.mjs：小窗／並排＋小窗模式加小窗控制雙向同步（V Line 4/8/12、鎖定前後顯示、五個樣式真點擊、渲染＝TFT 卡、解除鎖定一起收起）；並排＋小窗加自動收折、關預覽不展開、手動展開不再被收、關並排維持、再次進入再收；一般小窗不收折。結果見完成回報。
+
+---
+
 ## Data Mapping (datamap) v1.35.10 — 2026-10-15 ｜ PATCH ｜ TFT 接線圖 TCON Out／SD Out 標籤字級 ×2；拿掉「實驗：Single／Dual／Tri」標籤
 
 **判定依據**：只改畫面呈現（字級、版面間距、移除重複標籤），計算結果不變 → PATCH。

@@ -139,6 +139,8 @@
   .dm-tftmini .dm-tco.sw { fill: var(--dm-tcon-out-sw); }
   .dm-tftmini .dm-sdo { fill: var(--dm-sd-out); }
   .dm-mininote { color: var(--sub); font-size: 13px; }
+  .dm-minictl { padding: 6px 8px 0; border-bottom: 1px solid var(--border, #334155); }   /* v1.35.10 小窗內與 TFT 卡同一組控制 */
+  .dm-minictl .dm-vlbar, .dm-minictl .dm-colmode { margin: 0 0 6px; }
   body.dm-minion .container { padding-bottom: 42vh; }
   body.dm-minion.dm-minibig .container { padding-bottom: 80vh; }
   .dm-dirtybar { top: 52px !important; }
@@ -655,10 +657,17 @@
 <div class="dm-mini hidden" id="dm-mini" role="region" aria-labelledby="dm-mini-t">
   <div class="dm-minihd"><b id="dm-mini-t" data-i18n="dm.pvTftH">TFT 接線圖</b><span class="dm-sub" id="dm-mini-st"></span><span class="dm-topsp"></span>
     <button class="sbtn" id="dm-mini-big" aria-pressed="false" data-i18n="dm.miniBig">放大</button><button class="sbtn" id="dm-mini-go" data-i18n="dm.miniGo">到原卡</button><button class="sbtn" id="dm-mini-x" data-i18n="dm.miniX">收起</button></div>
+  <div class="dm-minictl" id="dm-mini-ctl">
+    <!-- v1.35.10（Bruce 10/15「TFT 接線圖的預覽視窗，在鎖定以後也需要出現一樣的 V 方向拉數。全白、只送紅、只送綠、只送藍、只送 R1，這些要跟原本 TFT 接線圖一模一樣」）：
+       與 TFT 卡的 #dm-pv-vlbar／#dm-pv-colmode 同一份狀態（PV_NL_MIN／PV_COLMODE），任一邊改另一邊跟著變；顯示條件與 TFT 卡相同 -->
+    <div class="dm-vlbar" id="dm-mini-vlbar"><span class="dm-k" data-i18n="dm.pvVlK">V 方向 Line 數</span><select id="dm-mini-vl" class="dm-sel"><option value="4">4</option><option value="8">8</option><option value="12">12</option></select><span class="dm-sub" id="dm-mini-vlnote"></span></div>
+    <div class="dm-colmode hidden" id="dm-mini-colmode"><span class="dm-k" data-i18n="dm.colK">畫面樣式</span>
+      <button class="sbtn" data-col="" data-i18n="dm.colW">全白</button><button class="sbtn" data-col="R" data-i18n="dm.colR">只送紅</button><button class="sbtn" data-col="G" data-i18n="dm.colG">只送綠</button><button class="sbtn" data-col="B" data-i18n="dm.colB">只送藍</button><button class="sbtn" data-col="R1" data-i18n="dm.colR1">只送 R1 (1st R Vline)</button> <i class="dm-i" data-i18n-title="dm.hColR1T" title="">ⓘ</i></div>
+  </div><!--/dm-mini-ctl-->
   <div class="dm-minibody dm-pvdrag" id="dm-mini-body"><div class="dm-mininote hidden" id="dm-mini-note"></div><div class="dm-tftmini" id="dm-mini-svg"></div></div>
 </div>
 
-<script src="common/version.js?v=20261015dm13510"></script>
+<script src="common/version.js?v=20261015dm13511"></script>
 <script src="common/i18n.js?v=20261012dm1220"></script>
 <script>
 (function () {
@@ -1784,8 +1793,8 @@
     ['dm-drv-form', 'dm-pan-form'].forEach(function (id) { $(id).classList.toggle('dm-hwlocked', on && !bmEdit); });
     [].slice.call(document.querySelectorAll('.dm-locknote')).forEach(function (e) { e.classList.toggle('hidden', !on || (bmEdit && e.id !== 'dm-gate-locknote')); });
     if (!on) PV_COLMODE = '';
-    $('dm-pv-colmode').classList.toggle('hidden', !on);
-    [].slice.call($('dm-pv-colmode').querySelectorAll('button[data-col]')).forEach(function (b) { b.setAttribute('aria-pressed', b.getAttribute('data-col') === PV_COLMODE ? 'true' : 'false'); });
+    PV_COL_IDS.forEach(function (id) { $(id).classList.toggle('hidden', !on); });   // v1.35.10：TFT 卡＋預覽小窗同一份 PV_COLMODE
+    [].slice.call(document.querySelectorAll(PV_COL_BTNS)).forEach(function (b) { b.setAttribute('aria-pressed', b.getAttribute('data-col') === PV_COLMODE ? 'true' : 'false'); });
   }
   var HW_LOCK_IDS = ['dm-model', 'dm-pv-swap', 'dm-pv-first', 'dm-pv-drv', 'dm-pv-stripe', 'dm-pv-lod', 'dm-pv-sugbtn'];
   var HW_BM_IDS = ['dm-pv-swap', 'dm-pv-first', 'dm-pv-drv', 'dm-pv-stripe'];
@@ -1799,8 +1808,9 @@
     if (h.first === pvFirstRight && h.rev === pvDrvRev && h.bgr === pvBGR && h.swap === pvSwapOn) return null;
     return { first: h.first, rev: h.rev, swap: h.swap, chFlip: h.first !== pvFirstRight, bgrChg: h.bgr !== pvBGR };
   }
+  var PV_COL_IDS = ['dm-pv-colmode', 'dm-mini-colmode'], PV_COL_BTNS = '#dm-pv-colmode button[data-col], #dm-mini-colmode button[data-col]';
   function bindColMode() {
-    [].slice.call($('dm-pv-colmode').querySelectorAll('button[data-col]')).forEach(function (b) {
+    [].slice.call(document.querySelectorAll(PV_COL_BTNS)).forEach(function (b) {
       b.addEventListener('click', function () { if (!(GL.on && S.glass)) return; PV_COLMODE = b.getAttribute('data-col') || ''; renderPreview(); renderLock(); });
     });
   }
@@ -2475,7 +2485,7 @@
      比較表、鎖定比對的 shift、匯出都用原本的模型，不受影響。第 k 列＝第 (k mod 週期) 列的接線與資料（names 複製；鎖定時 recv 也照同規則） */
   /* v1.19.0（Bruce 10/9）：PV_NL_MIN 由 ③「V 方向 Line 數」設定（4 預設／8／12）；選 4＝v1.18.24 行為。週期大於所選時照 max(所選, 週期)，設定旁提示 */
   var PV_VL_DEF = 4, PV_NL_MIN = PV_VL_DEF;
-  function pvVlSet(n) { PV_NL_MIN = [4, 8, 12].indexOf(+n) >= 0 ? +n : PV_VL_DEF; var e = $('dm-pv-vl'); if (e) e.value = String(PV_NL_MIN); }
+  function pvVlSet(n) { PV_NL_MIN = [4, 8, 12].indexOf(+n) >= 0 ? +n : PV_VL_DEF; ['dm-pv-vl', 'dm-mini-vl'].forEach(function (id) { var e = $(id); if (e) e.value = String(PV_NL_MIN); }); }   // v1.35.10：TFT 卡＋預覽小窗同一份
   window.dmPvVl = function (n) { pvVlSet(n); renderPreview(); };   // 測試用
   function pvVRep(P) {
     if (!P || !P.ok || !P.rows || !P.rows.length) return P;
@@ -2683,7 +2693,8 @@
   function renderPvVl(P) {   // v1.19.0：設定旁提示（週期大於所選）＋ data-vlsel 供測試
     var note = $('dm-pv-vlnote'), sel = PV_NL_MIN, nl0 = P && P.ok ? P.nl : 0, T = $('dm-pv-tft');
     if (T) T.setAttribute('data-vlsel', sel);
-    if (note) note.textContent = sel > 0 && nl0 > sel ? tt('dm.pvVlMore', { p: nl0, n: sel }) : '';
+    var tx = sel > 0 && nl0 > sel ? tt('dm.pvVlMore', { p: nl0, n: sel }) : '';
+    if (note) note.textContent = tx; var mn = $('dm-mini-vlnote'); if (mn) mn.textContent = tx;
   }
   function renderPvTft(P) {
     pvFlipNow = P && P.lkHw ? !!P.lkHw.first : pvRL();   // 只看 CH1 位置；v1.35.4：鎖定後改 CH1 ⇒ 畫面方向照鎖定時（玻璃與子像素位置不動，只改上方標號）
@@ -4012,7 +4023,7 @@
       S.deDef = false;
       commit(ns, 'Hand Mode Enable'); if (on) { initHandFill(); renderRestore(); } });
     $('dm-restore').addEventListener('click', function () { restoreInit(); });
-    $('dm-pv-vl').addEventListener('change', function () { pvVlSet(this.value); log('n', '③ V 方向 Line 數 ← ' + PV_NL_MIN); renderPreview(); });   // v1.19.0
+    ['dm-pv-vl', 'dm-mini-vl'].forEach(function (id) { $(id).addEventListener('change', function () { pvVlSet(this.value); log('n', '③ V 方向 Line 數 ← ' + PV_NL_MIN); renderPreview(); }); });   // v1.19.0；v1.35.10 小窗同一份
     $('dm-auto').addEventListener('change', function () {
       var v = this.value, m = S.model; S.deDef = false;   // v1.31.0：選過 RT7 樣式 ⇒ FORCE_DE_* 以樣式為準
       if (v === 'a') return;   // v1.27.5：Auto 顯示列（目前 panel／sub），不寫值
@@ -4144,7 +4155,12 @@
     box.innerHTML = ''; box.appendChild(cp);
   }
   function miniQueue() { if (MINI.on && !MINI.raf) MINI.raf = window.requestAnimationFrame ? window.requestAnimationFrame(miniSync) : setTimeout(miniSync, 16); }
+  /* v1.35.10（Bruce 10/15「如果選擇 TFT 並排，並按下 TFT 預覽的這個條件下，原本的 TFT 接線圖卡片要自動收折起來。當然，我要手動打開還是可以」）：
+     只在「並排＋預覽」從不成立變成成立的那一下收折 TFT 卡（不記進 dm.fold.v1）；之後手動展開不再被收；關預覽／並排不強制展開。 */
+  function bothOn() { return sideActive() && MINI.on; }
+  function autoFold(was) { if (!was && bothOn() && !isFolded($('card-tft'))) setFold('card-tft', true, true); }
   function miniSet(on) {
+    var was = bothOn();
     MINI.on = !!on;   // v1.35.4：並排開關都能開預覽（原本並排時強制關）
     $('dm-mini').classList.toggle('hidden', !MINI.on); document.body.classList.toggle('dm-minion', MINI.on);
     $('dm-mini-tog').setAttribute('aria-pressed', MINI.on ? 'true' : 'false');
@@ -4156,6 +4172,7 @@
       MINI.mo.observe($('dm-tftnote'), { childList: true, subtree: true, characterData: true, attributes: true });
     } else if (!MINI.on && MINI.mo) { MINI.mo.disconnect(); MINI.mo = null; }
     if (MINI.on) { renderPreview(); miniSync(); miniClamp(); }
+    autoFold(was);
   }
   function miniBig(on) {
     MINI.big = !!on; $('dm-mini').classList.toggle('big', MINI.big); document.body.classList.toggle('dm-minibig', MINI.big);
@@ -4310,8 +4327,9 @@
   }
   function liveInit() {
     $('dm-side-tog').addEventListener('click', function () {
+      var was = bothOn();
       try { localStorage.setItem(SIDE_KEY, sidePref() ? '0' : '1'); } catch (e) {}
-      sideApply(); if (sideActive()) renderPreview();
+      sideApply(); if (sideActive()) renderPreview(); autoFold(was);
     });
     $('dm-mini-tog').addEventListener('click', function () { miniSet(!MINI.on); });
     $('dm-mini-x').addEventListener('click', function () { miniSet(false); });

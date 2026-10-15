@@ -7,6 +7,8 @@
 //   ・console 沒有錯誤。
 // v1.35.4（Bruce 10/15「按下並排的時候，TFT 預覽還是要可以做出來」）：加「並排＋小窗」模式——並排開著真點「TFT 預覽」⇒ 小窗開、內容＝#dm-pv-tft 同一份、
 //   改設定即時同步、關並排／再開並排小窗不被關，之後同一套拖曳／跳轉／8 邊角改大小全跑。
+// v1.35.10（Bruce 10/15）：小窗內「V 方向 Line 數」「畫面樣式」與 TFT 卡同一份狀態（兩邊互改、鎖定前後顯示一致、渲染相同）；
+//   並排＋預覽 ⇒ TFT 卡自動收折（不寫入 dm.fold.v1）、關預覽不強制展開、手動展開後不會又被收起來、再次進入並排＋預覽才再收。
 import { spawn } from 'node:child_process'; import fs from 'node:fs'; import path from 'node:path'; import os from 'node:os';
 const ROOT = path.resolve(process.argv[2] || '.');
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
@@ -46,6 +48,42 @@ async function runMode(mode, model, hand) {
   const S = await session(W, H); const { ev, mouse, settle, load, errs } = S;
   const tag = model + (hand ? '／Hand' : '') + '／' + { normal: '一般', side: '並排', mini: '小窗', sidemini: '並排＋小窗' }[mode];
   const MM = mode === 'mini' || mode === 'sidemini';
+  const SAMEM = `(function(){var a=document.querySelector('#dm-mini-svg > svg'),b=document.getElementById('dm-pv-tft');return !!a&&b.childElementCount>0&&a.innerHTML===b.innerHTML})()`;
+  const waitSame = async () => { for (let i = 0; i < 40; i++) { if (await ev(SAMEM)) return true; await sleep(100); } return false; };
+  const rclick = async sel => { const c = await ev(`(function(){var e=document.querySelector(${JSON.stringify(sel)});if(!e)return null;var r=e.getBoundingClientRect();return r.width>0&&r.height>0?{x:r.left+r.width/2,y:r.top+r.height/2}:null})()`);
+    if (!c) return false; await mouse('mouseMoved', c.x, c.y, { buttons: 0 }); await mouse('mousePressed', c.x, c.y); await mouse('mouseReleased', c.x, c.y); await sleep(350); return true; };
+  const FOLDED = `window.dmFold.isFolded('card-tft')`;
+  const setVl = (id, v) => ev(`(function(){var e=document.getElementById('${id}');e.value='${v}';e.dispatchEvent(new Event('change'));return 1})()`);
+  const ctlCheck = async () => {   // v1.35.10：小窗控制＝TFT 卡控制（同一份狀態）
+    ok(await ev(`(function(){var m=document.getElementById('dm-mini-vl'),p=document.getElementById('dm-pv-vl');return !!m&&m.offsetParent!==null&&m.value===p.value})()`), tag + '：小窗有「V 方向 Line 數」且值＝TFT 卡');
+    await setVl('dm-mini-vl', 8); await sleep(300);
+    ok(await ev(`document.getElementById('dm-pv-vl').value==='8'&&document.getElementById('dm-pv-tft').getAttribute('data-vlsel')==='8'`) && await waitSame(), tag + '：小窗改 V Line 8 ⇒ TFT 卡下拉＝8、接線圖 8 列、小窗渲染＝TFT 卡');
+    await setVl('dm-pv-vl', 12); await sleep(300);
+    ok(await ev(`document.getElementById('dm-mini-vl').value==='12'`) && await waitSame(), tag + '：TFT 卡改 V Line 12 ⇒ 小窗下拉＝12、渲染相同');
+    await setVl('dm-mini-vl', 4); await sleep(300);
+    const HID = `[document.getElementById('dm-pv-colmode').classList.contains('hidden'),document.getElementById('dm-mini-colmode').classList.contains('hidden')]`;
+    const h0 = await ev(HID);
+    ok(h0[0] === true && h0[1] === true, tag + '：鎖定前畫面樣式兩邊都不顯示（與 TFT 卡相同）');
+    await ev(`document.getElementById('dm-pv-lock').click()`); await sleep(500);
+    const h1 = await ev(HID);
+    if (h1[0]) { console.log('  · ' + tag + '：此型號無法鎖定，畫面樣式同步改由其他型號驗'); return; }
+    ok(h1[1] === false && await ev(`document.getElementById('dm-mini-vl').offsetParent!==null`), tag + '：鎖定後小窗出現畫面樣式、V Line 仍在');
+    const PR = `(function(){var o={};['dm-pv-colmode','dm-mini-colmode'].forEach(function(id){var b=document.querySelector('#'+id+' button[aria-pressed="true"]');o[id]=b?b.getAttribute('data-col'):null});return o})()`;
+    for (const c of ['R', 'G', 'B', 'R1', '']) {
+      await rclick(`#dm-mini-colmode button[data-col="${c}"]`);
+      const p = await ev(PR);
+      const offN = await ev(`document.querySelectorAll('#dm-pv-tft [data-col="off"]').length`);
+      const colN = await ev(`document.querySelectorAll('#dm-pv-tft [data-col]').length`);
+      ok(p['dm-pv-colmode'] === c && p['dm-mini-colmode'] === c && (c === '' ? offN === 0 : colN > 0) && await waitSame(), tag + '：小窗真點「' + (c || '全白') + '」⇒ TFT 卡同步選中、渲染相同（off ' + offN + '）');
+    }
+    await ev(`document.querySelector('#dm-pv-colmode button[data-col="G"]').click()`); await sleep(300);
+    ok((await ev(PR))['dm-mini-colmode'] === 'G' && await waitSame(), tag + '：TFT 卡點「只送綠」⇒ 小窗同步選中、渲染相同');
+    await setVl('dm-mini-vl', 8); await sleep(300);
+    ok(await ev(`document.getElementById('dm-pv-vl').value==='8'`) && (await ev(PR))['dm-pv-colmode'] === 'G' && await waitSame(), tag + '：鎖定後小窗改 V Line 8 ⇒ 兩邊同步、樣式維持');
+    await setVl('dm-mini-vl', 4); await ev(`document.getElementById('dm-pv-lock').click()`); await sleep(500);
+    const h2 = await ev(HID);
+    ok(h2[0] === true && h2[1] === true && await waitSame(), tag + '：解除鎖定 ⇒ 兩邊畫面樣式一起收起');
+  };
   try {
     await load();
     if (mode === 'side') ok(await ev(`document.documentElement.classList.contains('dm-side')`), tag + '：並排模式啟用（html.dm-side）');
@@ -55,6 +93,16 @@ async function runMode(mode, model, hand) {
       ok(!!tb, tag + '：並排時「TFT 預覽」按鈕可見');
       if (tb) { await mouse('mouseMoved', tb.x, tb.y, { buttons: 0 }); await mouse('mousePressed', tb.x, tb.y); await mouse('mouseReleased', tb.x, tb.y); await sleep(500); }
       ok(await ev(`window.dmLive.mini()===true && document.documentElement.classList.contains('dm-side') && !document.getElementById('dm-mini').classList.contains('hidden') && document.getElementById('dm-mini-tog').getAttribute('aria-pressed')==='true'`), tag + '：真點擊後小窗開、並排仍開');
+      ok(await ev(FOLDED) && !JSON.parse(await ev(`localStorage.getItem('dm.fold.v1')||'{}'`))['card-tft'], tag + '：並排＋預覽 ⇒ TFT 接線圖卡自動收折（不寫入收摺記憶）');
+      await rclick('#dm-mini-x');
+      ok((await ev(`window.dmLive.mini()`)) === false && await ev(FOLDED), tag + '：關預覽 ⇒ TFT 卡不強制展開');
+      await rclick('#dm-mini-tog');
+      ok((await ev(`window.dmLive.mini()`)) === true && await ev(FOLDED), tag + '：再開預覽 ⇒ TFT 卡收折');
+      await ev(`document.getElementById('dm-pv-tfth').scrollIntoView({block:'center'})`); await settle();
+      await rclick('#dm-pv-tfth .stp-t');
+      ok(!(await ev(FOLDED)), tag + '：真點 TFT 卡標題列 ⇒ 手動展開');
+      await setVl('dm-mini-vl', 8); await sleep(300); await rclick('#dm-mini-big'); await rclick('#dm-mini-big'); await setVl('dm-mini-vl', 4); await sleep(300);
+      ok(!(await ev(FOLDED)) && (await ev(`window.dmLive.mini()`)) === true, tag + '：手動展開後改設定、放大縮小 ⇒ 不會又被收起來');
       const same = `(function(){var a=document.querySelector('#dm-mini-svg > svg'),b=document.getElementById('dm-pv-tft');return !!a&&b.childElementCount>0&&a.innerHTML===b.innerHTML})()`;
       const sameW = async () => { for (let i = 0; i < 40; i++) { if (await ev(same)) return true; await sleep(100); } return false; };   // 小窗同步走 MutationObserver＋rAF，最多等 4 秒
       ok(await sameW(), tag + '：小窗內容＝並排卡 #dm-pv-tft 同一份');
@@ -69,11 +117,15 @@ async function runMode(mode, model, hand) {
       ok(!(await ev(`document.getElementById('dm-pv-swap').checked`)) && (await ev(HTX)) === h0 && await sameW(), tag + '：取消對調 ⇒ 回到原圖、小窗同步'); }
       await ev(`document.getElementById('dm-side-tog').click()`); await sleep(300);
       ok(await ev(`!document.documentElement.classList.contains('dm-side') && window.dmLive.mini()===true`), tag + '：關並排 ⇒ 小窗維持開');
+      ok(!(await ev(FOLDED)), tag + '：關並排 ⇒ TFT 卡維持手動展開');
       await ev(`document.getElementById('dm-side-tog').click()`); await sleep(400);
       ok(await ev(`document.documentElement.classList.contains('dm-side') && window.dmLive.mini()===true && getComputedStyle(document.getElementById('card-tft')).position==='sticky'`), tag + '：再開並排 ⇒ 並排 sticky 恢復、小窗維持開');
+      ok(await ev(FOLDED), tag + '：再次進入並排＋預覽 ⇒ TFT 卡再自動收折');
       ok(await sameW(), tag + '：切換並排後內容仍同步');
     }
-    if (mode === 'mini') { await ev(`window.dmLive.mini(true)`); await sleep(500); ok(await ev(`!document.getElementById('dm-mini').classList.contains('hidden') && !!document.querySelector('#dm-mini-svg svg')`), tag + '：小窗開啟且有接線圖'); }
+    if (mode === 'mini') { await ev(`window.dmLive.mini(true)`); await sleep(500); ok(await ev(`!document.getElementById('dm-mini').classList.contains('hidden') && !!document.querySelector('#dm-mini-svg svg')`), tag + '：小窗開啟且有接線圖');
+      ok(!(await ev(FOLDED)), tag + '：沒有並排時開預覽 ⇒ TFT 卡不收折'); }
+    if (MM) await ctlCheck();
     const ROOTSEL = MM ? '#dm-mini-svg svg' : '#dm-pv-tft', SCR = MM ? 'dm-mini-body' : 'dm-pv-wrap';
     // 讓元素在可見範圍（小窗是 fixed：捲小窗本身；卡片：捲頁面）
     const show = async sel => { await settle(); const c = await ev(`(function(){var e=document.querySelector(${JSON.stringify(sel)});if(!e)return null;
