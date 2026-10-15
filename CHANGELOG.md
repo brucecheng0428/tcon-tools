@@ -2,6 +2,40 @@
 
 ---
 
+## Data Mapping (datamap) v1.34.0 — 2026-10-15 ｜ MINOR ｜ MNT Hand＋Tri 下 All Same Pixel、Benchmark、Excel、Pixel 範圍都能用
+
+**判定依據**：§2 案例 1（新增功能）→ MINOR：v1.32.0 只做了 Tri 6 列表與 TFT 圖，本版把 v1.32.0「未做（後續）」的整批功能接到 6 列表；Single／Dual 畫面、寫入 byte、script、TFT 逐格不變（快照測試證明）。派工標 bugfix，依「Tri 下原本不能用 → 能用」屬新增可用操作，取 MINOR。
+
+### 起因
+- Bruce 2026-10-15：「我看到 tri gate 可以設定了，可是為什麼不能用『all same pixel 都送 X』的這個按鈕呢？然後 benchmark 反推表為什麼也不可以用？應該都要可以用才對啊。請更正。」範圍補充：「我指的是專門在 Hand Mode Enable，然後 TriGate 可以使用的情況下」（＝MNT EM01／EM02／E512 Hand＋Gate＝Tri）。
+
+### 定義對照
+- All Same Pixel（`#dm-same`）：所有格子寫同一個名稱；某列名稱表沒有 ⇒ 該列寫 X（同 MNT Dual：下拉＝上 gate 那列的名稱）。Tri 的「所有格子」＝6 列 × Data 1~6＝36 格（Line x-3＝第二組 r2..b3 _0／_2）。
+- Benchmark（反推表）：填「這個時槽實際亮在哪個子像素」，按「套用到主表」＝逐格原樣寫回主表（v1.23.0 定義，沒有排名）。Tri＝6 列 36 格，選格與主表 6 列同一個 `DM.triPick`。
+- 接線組合排名（③「接線組合比較」表、套用第 1 名）是 TFT 圖的功能，v1.32.0 起 Tri 已可用，本版沒改。
+
+### 根因（v1.33.0）
+- `DM.allSameOptions`／`applyNames` 只認 Single／Dual（`gateOf`＝'tri' ⇒ 空清單／null）⇒ Tri 時 All Same 下拉空、按鈕停用。
+- Benchmark 用 `cellView`（e50x Tri ＝空白格）與 4 列表 ⇒ Tri 時 0 格可填。
+- `excelRows` 走 `cellView` ⇒ Tri 匯出 4 列全 X；匯入 `applyNames` 回 null ⇒「Gate」錯誤。
+- Pixel 範圍 `pxCovIdx` 把 Tri 當 Dual（只算下 gate＋1 欄），沒算 Line x-3（起始欄＋2），也沒套 Tri 下拉的 code 範圍（triCodeOk）⇒ 算出的範圍有些 pixel 在 Line x-3 選不到。
+- 全面審查同一資料流：鎖定接線、只送某色、CHWB 反相走 ③ 繪圖（P.recv／rows 以 k:gi 為鍵），Tri 已可用（實測 36/36）；`glTOrigin` 解 T 表時把 Tri 當 Single（只影響 FORCE_DE_SEL＝0 的推定），改用 'tri' 與 `triT` 同一起始欄。
+
+### 變更（全部是 Tri 分支，Single／Dual／EN01 不經過）
+- core 新增 `triNames／triApplyNames／triAllSameOptions／triAllSame／triExcelRows／triExcelToNames／triExcelName／triPxCov`；每列名稱表＝`triCellOptions`（與下拉、triPick 同一來源），寫入時第二組 _1／_3＝0（同 triPick）。
+- `pxCovIdx`：gate＝'tri3'（`pxGate`：triOn 時才給）⇒ `triPxCov`（3 條 gate 各自 triCodeOk 範圍取交集）；EN01 的 'tri'、MNT Single／Dual 公式不變。
+- 頁面：`renderTri(G)` 參數化（主表 GRID_TRI 的 id 不變；Benchmark 用 `dm-bt*`）；`renderGrid` 非主表在 Tri 時走 `renderTri(G.tri)`；Benchmark 的 bmView／bmPick／bmCells／bmAllX／bmCellName 加 Tri 分支，套用以 noSync commit（第二組＝Line x-3，不可被主組複本蓋掉）；All Same、Excel 匯出／匯入加 Tri 分支（檔名 `GateType(TriGate)`）；`onPickTri` 記 Benchmark 黃框。
+
+### 測試
+- 新增 tools/check_datamap_tri_tools.js：3 型號 × RT7 (18)～(21) × Mirror × CHRB × FORCE_DE 9 種（Tri 狀態 384 組）：All Same 8736 次、Excel xlsx 往返 1152 次、Pixel 範圍 52224 組（範圍內每列都選得到、可反算）；MNT Single／Dual 與 EN01 各 Gate 的 Pixel 範圍仍是 v1.33.0 公式；頁面（jsdom）All Same X／R1、Benchmark 36 格填入＋套用＋復原＋切回 Dual 回 4 列、Excel 匯出 6 列→匯入相同、Pixel 套用、鎖定 36/36＋只送紅＋CHWB 反相＋改 1 格 35/36。445 pass、0 fail。
+- 舊 core（v1.33.0）對新 core 在非 Tri 狀態 51528 項輸出相同（一次性比對，未入庫）。
+- check_datamap_sd_snapshot.js：11104 組 24608 pass、0 fail（對 v1.31.4 基準）；其他 datamap 測試：tri 115、tft_all 1299、boe 100、axis 33220、pxrange 58、desel 133、nbpx 301、chwb 61、combos 29、en01、fold、i2c_import、kickoff、lod、nbfields、preview、auto 92、check_datamap 282 全部 0 fail（import_lock 需外部 code 檔未跑；bench／roundtrip 推送時仍在跑，結果見派工回報）。
+
+### 未做
+- Tri CKS（等 RD 定義）；NB 不做手動 Tri（v1.32.0 決策，不變）。
+
+---
+
 ## Data Mapping (datamap) v1.33.0 — 2026-10-15 ｜ MINOR ｜ 鎖定架構後 CHWB＝1 ⇒ TFT 接線圖逐格亮暗反相
 
 **判定依據**：§2 案例 1（新增功能）→ MINOR：只改鎖定後 TFT 接線圖的顯示；寫入 byte、script、計算不變。
