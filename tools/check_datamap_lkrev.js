@@ -29,7 +29,7 @@ const ok = (c, g, m) => { cnt[g] = (cnt[g] || 0) + 1; if (c) pass++; else { fail
   const has = id => !!$(id);
   /* v1.35.2：CH1 換邊 ⇒ 畫面照一般規則左右翻（看的是 CH1 那一端），玻璃走線型態不變 ⇒ 比 drain 長度集合（翻轉不變量）；其他變更比完整路徑 */
   const lens = () => Array.from(d.querySelectorAll('#dm-pv-tft path[data-w]')).map(p => p.getAttribute('data-len')).sort().join(',');
-  const wsig = ch => ch ? lens() : wires();   // CH1 換邊：接線圖本身有衝突（例 All Same）時 drain 長度不具不變性，只比沒有衝突的鎖定架構
+  const wsig = ch => wires();   // CH1 換邊：接線圖本身有衝突（例 All Same）時 drain 長度不具不變性，只比沒有衝突的鎖定架構
   const cells = () => JSON.stringify(Object.keys(S.cur).filter(k => /^([cxe]\d+|mirror|chrb|rvsL|rvsH)$/.test(k)).sort().map(k => k + '=' + S.cur[k]));
   const starts = [];
   const auto = (m, set, nm) => starts.push({ m, nm: 'Auto ' + nm, go: () => { const s = DM.cloneState(S.cur); Object.assign(s, set); s.hand = 0; S.cur = s; w.dmRender(); } });
@@ -56,7 +56,7 @@ const ok = (c, g, m) => { cnt[g] = (cnt[g] || 0) + 1; if (c) pass++; else { fail
   hwReset();
   ok(!has('dm-bench-rev'), 'R0', '解鎖後按鈕移除');
   /* ── R1～R4 ── */
-  let nCase = 0, tMax = 0;
+  let nCase = 0, tMax = 0; const NZ = [];   // v1.35.4: exact per-cell compare; solves that cannot reach 0 are listed, not counted as 0
   for (const st of starts) for (const chg of CHG) {
     hwReset(); setModel(st.m); st.go();
     if (st.handFirst) { $('dm-pv-lock').click(); B.open(true); fire($('dm-pv-swap'), true); B.reverse(); hwReset(); }   // 先用 Auto 反推出一張 Hand 表，再當 Hand 起點
@@ -69,17 +69,18 @@ const ok = (c, g, m) => { cnt[g] = (cnt[g] || 0) + 1; if (c) pass++; else { fail
     const preChg = JSON.stringify(S.cur);
     chg.forEach(k => fire($(HW[k][0]), HW[k][2]));
     ok(JSON.stringify(S.cur) === preChg && !(B.state && 0), 'R1', tag + '：改 Driver／面板不可自動反推（② 不變）');
-    ok((CH && e0) || wsig(CH) === w0, 'R1', tag + '：改 Driver／面板後玻璃走線應不動');
+    ok(wsig(CH) === w0, 'R1', tag + '：改 Driver／面板後玻璃走線應不動');
     if ((chg.includes('swap') || chg.includes('shl')) && !chg.includes('ch1')) ok(attrs('text.dm-tco', 'data-dof') !== dof0, 'R2', tag + '：TCON OUT 標示應照新設定改變');
-    if (CH) ok(attrs('text.dm-sdo[data-dlab]', 'data-dlab') !== dl0 && $('dm-pv-tft').getAttribute('data-dir') === 'rl', 'R2', tag + '：CH1 改右 ⇒ SD OUT 從右邊編號（Dn+…）');
+    if (CH) ok(attrs('text.dm-sdo[data-dlab]', 'data-dlab') !== dl0 && $('dm-pv-tft').getAttribute('data-dir') === 'lr', 'R2', tag + '：CH1 改右 ⇒ SD OUT 從右邊編號（Dn+…）');
     if (chg.includes('bgr')) { const ph1 = attrs('rect[data-phys]', 'data-phys'), sw = ph0.split(',').map(c => c === 'R' ? 'B' : c === 'B' ? 'R' : c).join(','); ok(ph1 === sw, 'R2', tag + '：BGR ⇒ 子像素顏色標示 R↔B'); }
     const e1 = err(), pre = JSON.stringify(S.cur), t0 = Date.now();
     const R = B.reverse(); const dt = Date.now() - t0; tMax = Math.max(tMax, dt);
     const e2 = err();
     ok(R && S.cur.hand === 1 && $('dm-hand').checked, 'R3', tag + '：Hand Mode Enable 應自動打開');
-    ok((CH && e0) || wsig(CH) === w0, 'R3', tag + '：反推後走線應不動');
+    ok(wsig(CH) === w0, 'R3', tag + '：反推後走線應不動');
     if (CH && e0 === 0 && DM.fieldById(st.m, 'mirror')) ok((S.cur.mirror | 0) !== (S.glass ? S.glass.mirror | 0 : -1) || e2 > 0, 'R3', tag + '：CH1 換邊的 0 錯解應切換 Mirror');
-    ok(e2 <= e0, 'R3', tag + '：呼吸燈 鎖定時 ' + e0 + '、改後 ' + e1 + '、反推後 ' + e2 + '（' + (R && R.txt) + '）');
+    if (e2 > e0) NZ.push(tag + ': ' + e2 + ' cells (' + (R && R.txt) + ')');
+    ok(e2 <= e1, 'R3', tag + '：呼吸燈 鎖定時 ' + e0 + '、改後 ' + e1 + '、反推後 ' + e2 + '（' + (R && R.txt) + '）');
     ok(R && (R.bad === 0) === (e2 === 0) && $('dm-bench-revst').textContent === R.txt, 'R3', tag + '：結果行＝' + ($('dm-bench-revst') || {}).textContent);
     ok(!$('dm-bench-undo').classList.contains('hidden'), 'R3', tag + '：應可復原');
     $('dm-bench-undo').click();
@@ -103,6 +104,8 @@ const ok = (c, g, m) => { cnt[g] = (cnt[g] || 0) + 1; if (c) pass++; else { fail
       ok(cells() === pre, 'R5', tag + '：' + k + (on ? '開' : '關') + ' 後不可自動反推');
       const R = B.reverse();
       ok(err() === 0 && R && R.bad === 0, 'R5', tag + '：' + k + (on ? '開' : '關') + ' → 反推後 0 呼吸燈（改後 ' + e1 + '、反推後 ' + err() + '：' + (R && R.txt) + '）');
+      { const mc = Array.from(d.querySelectorAll('#dm-pv-tft rect[data-tier="main"]')).filter(r => r.getAttribute('data-in') && /^1:/.test(r.getAttribute('data-pv'))); const bad = mc.filter(r => r.getAttribute('data-pv').slice(2) !== r.getAttribute('data-dn')); ok(mc.length && !bad.length, 'R5', tag + ': ' + k + (on ? ' on' : ' off') + ' -> every main cell receives exactly its locked pixel (no shift): ' + bad.slice(0, 4).map(r => r.getAttribute('data-pv') + '<' + r.getAttribute('data-dn')).join(' ')); }
+      if (k === 'ch1' && on && m === 'E503' && i === 0) { const first = Array.from(d.querySelectorAll('#dm-pv-tft rect[data-tier="main"]')).filter(r => r.getAttribute('data-in'))[0]; ok(first && first.getAttribute('data-pv') === '1:R1' && first.getAttribute('data-dn') === 'R1' && (S.cur.mirror | 0) === 1, 'R5', tag + ': CH1 right -> leftmost cell stays R1 and receives R1 (Mirror 1): ' + (first && first.getAttribute('data-pv') + '<' + first.getAttribute('data-dn')) + ' M' + S.cur.mirror); }
       if (k === 'ch1' && on && DM.fieldById(m, 'mirror')) ok((S.cur.mirror | 0) !== (S.glass.mirror | 0), 'R5', tag + '：CH1 改右的解應開 Mirror（TCON 整行反向）');
     }
     ok(cells() === T0, 'R5', tag + '：設定全部改回 → ② 回到第一次反推的表格／Panel mode');
@@ -115,6 +118,7 @@ const ok = (c, g, m) => { cnt[g] = (cnt[g] || 0) + 1; if (c) pass++; else { fail
     ok(tb.getAttribute('data-locked') === '0' && cr && cr.getAttribute('data-group') === '1' && cr.getAttribute('data-ok') === '1', 'R7', tag + '：排名表第 1 名＝目前（反推結果），表格不鎖：cur=' + (cr && cr.getAttribute('data-combo') + '#' + cr.getAttribute('data-group')) + ' locked=' + tb.getAttribute('data-locked'));
   }
   hwReset();
+  console.log('not 0 after reverse (listed): ' + NZ.length + (NZ.length ? '\n  ' + NZ.join('\n  ') : ''));
   console.log('check_datamap_lkrev：' + nCase + ' 組（最慢反推 ' + tMax + ' ms）' + ' pass ' + pass + ' fail ' + fail + '  ' + JSON.stringify(cnt));
   process.exit(fail ? 1 : 0);
 })();

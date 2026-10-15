@@ -73,7 +73,7 @@ async function runMode(mode, model, hand) {
     ok(grabbing === 'grabbing', tag + '：拖曳中游標＝grabbing');
     // 3) 連結：TCON Out／SD Out 標題、Data 1、D1
     const cases = [[`${ROOTSEL} [data-rowhead="tc"] text`, 'dm-gridbox', 'TCON Out 標題'], [`${ROOTSEL} text[data-dof="1"]`, 'dm-gridbox', 'Data 1'],
-                   [`${ROOTSEL} [data-rowhead="sd"] text`, 'dm-drv-sec', 'SD Out 標題'], [`${ROOTSEL} text[data-dlab="D1"]`, 'dm-drv-sec', 'D1']];
+                   [`${ROOTSEL} [data-rowhead="sd"] text`, 'dm-drv-sec', 'SD Out 標題'], [`${ROOTSEL} text[data-dlab="D6(0)+1"]`, 'dm-drv-sec', 'D1']];
     for (const [sel, want, name] of cases) {
       await ev('window.dmState.lastJump=null'); const c = await show(sel);
       const pc = await curAt(c.x, c.y);

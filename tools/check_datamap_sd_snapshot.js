@@ -75,8 +75,11 @@ function states(k) {
   };
   /* 不 clone 整頁（jsdom 記憶體）：直接取 innerHTML，去掉 <script> 內容（程式碼不是畫面）、版號標籤、Tri 專用區塊與 Gate Type 下拉的選項清單 */
   const strip = html => html.replace(/(data-tool-version="datamap">)v[\d.]+/g, '$1v*').replace(/<script\b[\s\S]*?<\/script>/g, '<script/>').replace(/<div[^>]*id="dm-tribox"[\s\S]*?<!--\/dm-tribox-->/g, '').replace(/(<select[^>]*id="dm-gate"[^>]*>)[\s\S]*?<\/select>/, '$1</select>');
+  /* v1.35.3（Dispatch 10/15：快照把「顯示標籤」與「計算結果」分開）：TFT 接線圖頂端兩列標籤（SD OUT 的 Dn／TCON OUT 的 Data k 文字、data-dlab、字級）
+     只是顯示格式，不進快照；每條線收到第幾筆 TCON 資料仍由 data-dof／data-src 比對（計算結果 100% 相同）。基準由 v1.35.2（fc14149，與 v1.31.4 基準全同）以本規則重拍。 */
+  const lab = h => h.replace(/<text\b[^>]*class="dm-(?:sdo|tco)[^"]*"[^>]*>[^<]*/g, t => t.replace(/ (data-dlab|font-size)="[^"]*"/g, ' $1="*"').replace(/>[^<]*$/, '>*'));
   const oh = id => { const e = $(id); return e ? e.outerHTML : ''; };
-  const page = () => ({ body: strip(d.body.innerHTML) + '|gate=' + $('dm-gate').value, grid: oh('dm-gridbox'), x: oh('dm-xline') + oh('dm-xbox'), pv: oh('dm-pvbody') + oh('dm-tftbody') + oh('dm-tftnote') });
+  const page = () => ({ body: lab(strip(d.body.innerHTML)) + '|gate=' + $('dm-gate').value, grid: oh('dm-gridbox'), x: oh('dm-xline') + oh('dm-xbox'), pv: lab(oh('dm-pvbody') + oh('dm-tftbody') + oh('dm-tftnote')) });
   const res = {};
   let n = 0, nd = 0;
   for (const k of DM.SELECT_KEYS) {

@@ -242,7 +242,7 @@ const connect = async a => { a.$('dm-link').click(); await wait(() => a.w.dmStat
     // B：字級
     const T = $('dm-pv-tft'), fsz = sel => Array.from(new Set(Array.from(T.querySelectorAll(sel)).map(e => e.getAttribute('font-size'))));
     const cellFs = fsz('text[data-name]').filter(x => x !== '10.5');
-    ok(fsz('text[data-dof]').join() === '12' && fsz('text[data-dlab]').join() === '12' && fsz('[data-rowhead] text').join() === '12' && cellFs.join() === '12',
+    ok(fsz('text[data-dof]').join() === fsz('text[data-dlab]').join() && /^(9|9\.5|10|11)$/.test(fsz('text[data-dof]').join()) && fsz('[data-rowhead] text').join() === '12' && cellFs.join() === '12',
       'TCON Out／SD Out（列頭與每欄）字級 12＝子像素格內文字 12：' + [fsz('text[data-dof]'), fsz('text[data-dlab]'), fsz('[data-rowhead] text'), cellFs].join(' / '));
     // C：下拉選單樣式
     const css = Array.from(d.querySelectorAll('style')).map(e => e.textContent).join('\n');

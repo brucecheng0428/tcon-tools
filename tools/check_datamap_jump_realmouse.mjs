@@ -35,7 +35,7 @@ try {
   const center = async sel => { await settle(); const c = await ev(`(function(){var e=document.querySelector(${JSON.stringify(sel)});if(!e)return null;var r0=e.getBoundingClientRect();scrollTo({top:scrollY+r0.top-400,behavior:'instant'});var r=e.getBoundingClientRect();window.__sc=[];return {x:r.left+r.width/2,y:r.top+r.height/2}})()`); await settle(); return c; };
   const mouse = async (type, x, y, extra = {}) => cdp('Input.dispatchMouseEvent', Object.assign({ type, x, y, button: 'left', buttons: type === 'mouseReleased' ? 0 : 1, clickCount: 1 }, extra));
   const realClick = async sel => { const c = await center(sel); if (!c) return null; await mouse('mouseMoved', c.x, c.y, { buttons: 0 }); await mouse('mousePressed', c.x, c.y); await sleep(30); await mouse('mouseReleased', c.x, c.y); await sleep(250); return ev('JSON.stringify({sc:window.__sc,lj:window.dmState.lastJump||null})').then(JSON.parse); };
-  const cases = [['[data-rowhead="sd"] text', 'dm-drv-sec', 'SD Out 標題'], ['#dm-pv-tft text[data-dlab="D1"]', 'dm-drv-sec', 'D1'],
+  const cases = [['[data-rowhead="sd"] text', 'dm-drv-sec', 'SD Out 標題'], ['#dm-pv-tft text[data-dlab="D6(0)+1"]', 'dm-drv-sec', 'D1'],
                  ['[data-rowhead="tc"] text', 'dm-gridbox', 'TCON Out 標題'], ['#dm-pv-tft text[data-dof="1"]', 'dm-gridbox', 'Data 1']];
   for (const locked of [false, true]) {
     if (locked) { await ev(`document.getElementById('dm-pv-lock').click()`); await sleep(300); ok(await ev(`document.getElementById('card-pv').classList.contains('dm-locked')`), '已鎖定接線'); }
