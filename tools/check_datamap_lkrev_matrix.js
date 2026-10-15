@@ -35,7 +35,7 @@ const { JSDOM, VirtualConsole } = require(path.join(ROOT, 'node_modules/jsdom'))
         chg.forEach(k => fire($(HW[k][0]), HW[k][2]));
         const e1 = err(), R = B.reverse(), e2 = err(); n++;
         if (e2 === 0 && R && R.bad === 0) zero++; else nz.push(m + ' ' + L[i].name + ' × ' + chg.join('+') + '：改後 ' + e1 + ' → 反推後 ' + e2 + '（' + (R && R.txt) + '）');
-        if (e2 > e0) worse++;
+        if (e2 > e0 && !(R && R.applied === false)) worse++;   // v1.35.5：有錯不套用 ⇒ 接線圖維持改條件後的樣子，不算變差
         if (R && (R.bad === 0) !== (e2 === 0)) { worse++; nz.push('  ↑ 結果行與接線圖不一致'); }
       }
     }

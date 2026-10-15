@@ -2,6 +2,47 @@
 
 ---
 
+## Data Mapping (datamap) v1.35.5 — 2026-10-15 ｜ PATCH ｜ Benchmark 自動反推：搜尋空間改成「該機種所有可調、會影響 mapping 的暫存器」（通用，不做機種／case 特例）
+
+**判定依據**：§2 修正既有功能錯誤 → PATCH：v1.35.3 的反推只搜 ②-2 格子＋Mirror／CHRB，硬體可達的解（要改 FORCE_DE_SEL）找不到，EM01 HSD 鎖定後 CH1 換邊最少仍 4 錯。第一層有 0 錯解的情況結果完全不變。
+
+### 起因
+- 任務 #94161ebb（v1.35.3）回報：EM01 HSD 鎖定後改 CH1 在最右，反推最少仍 4 錯。Bruce 10/15：「只要有錯的都要改…這樣演算法算是要針對這個 case 做特例嗎？為什麼演算法不是應該全部通用？」
+
+### 定義對照
+- 「自動反推」＝鎖定（玻璃接線固定）＋Benchmark 開啟時，以目前 Driver／面板為條件，找一組 TCON 暫存器讓每個子像素收到的 pixel 與鎖定時逐格完全相同（不容許位移）。程式定義與 Bruce 原話一致；差在「可以改哪些暫存器」原本寫死成 ②-2 格子＋Mirror／CHRB。
+
+### 根因（重現＋窮舉）
+- 重現：EM01 Auto「(25) HSD+RRB/GBG+LR」、「(27) HSD+GGB/RBR+2RRRL」鎖定（CH1 左）→ CH1 右 → 反推：最少 4 格（8 個呼吸燈）。CH1 換邊後 Dual 下 gate 列需要 R-5／G-5，FORCE_DE_SEL＝0x0E（T1＝第 2 欄）時下 gate 列只選得到 R-4 以後（pxCovIdx：[2(c+1)−10, 2c−1]），格子怎麼選都到不了。
+- 窮舉 FORCE_DE_EN／FORCE_DE_SEL 全部 65 種值（其他條件不變）：結果只跟 T1 起始欄有關——第 1 欄（bit0＝1，如 0x01／0x1F）0 錯；第 2 欄 4 錯；第 3 欄 32／40；第 4 欄 72。⇒ 硬體可達，不是目標錯，是搜尋空間少了 FORCE_DE_SEL。
+
+### 修正（通用）
+- 自動反推第二層：候選暫存器由機種暫存器定義（DM.fieldsOf）自動產生，MNT／NB 同一段程式、不看機種名稱；排除 ②-2 格子（第一層逐格解）、Mirror／CHRB（第一層組合）、跟著 Mirror 的 READ_RVS、反推強制開的 Hand、唯讀欄位（NB 固定 14 的 FORCE_DE_SEL，與 ② 欄位唯讀同一判斷）。
+- 每個暫存器窮舉全部值，依「模型（各 gate 列實際送的 pixel）＋各格下拉選項」簽章分等價類：不影響 mapping 的值自動略過（先用 3 個探測值剪掉整個不作用的暫存器，例 Hand 下的 SUB_PANEL、Line OD 表）；架構不同（Gate 列數／週期變）評分＝∞ 自動剪掉。FORCE_DE_SEL 64 值依 T1 起始欄只剩幾類，每類的值照「Pixel 最小～最大」反推同一份常用值表（DM.DE_COMMON：0x0E、0x1F…），沒有才取相差最少 bit。
+- 一個暫存器不夠時再改兩個（互相牽動的暫存器，例 FORCE_DE_EN＝0 時 FORCE_DE_SEL 不作用）：展開第一步暖啟動最好的幾類，加上「改了但當下不作用」的開關類暫存器當起點，在那個狀態上再列一次等價類。
+- 額外暫存器只在能到 0 錯時才採用；到不了 0 就保留第一層結果（不為了少幾格去動 panel_mode 這類設定）。
+- 只有第一層到不了 0 錯才展開；排名 key 第 3 碼＝額外改動的暫存器數（第一層全為 0）⇒ 第一層有 0 錯解時結果與 v1.35.4 完全相同。每類從第一層各 Mirror／CHRB 的解出發（同名 pixel 重選），逐格下降＋整表平移，排名照舊（pvRank → 送出 pixel 集合 → CHRB → 改動少）；有 0 錯就停，時間上限 8 秒。
+- 結果行寫出改到的暫存器，例「反推完成，0 錯（第 1 名／13 組：Mirror 1、CHRB 0、force_de_sel 0x0E→0x1F）」。
+
+### 有錯不套用（Bruce 10/15 實機：E503 HSD Type 4+Z-Zag(BOE) 鎖定 → CH1 最右 → 反推「最少 56 格錯」仍被套用，主表 Data 4～6 整排 R3／R5）
+- 反推只在 0 錯時寫入：Hand Mode Enable 先只算在評估用的狀態，0 錯才連同 Hand 一起 commit（可「復原」照舊）；有錯時 Hand、②-1、②-2 全部保留原狀，
+  結果行寫「反推沒有 0 錯解，未套用（保留原設定）；最佳候選仍錯 N 格」，④ 記錄列出最佳候選的 ②-2 表格與錯格（面板子像素：要的 → 收到的）。
+- E503 與 EM01 差異（同一條反推，不是分支）：EM01（MNT）force_sel 每格 code 0～29 依 T 表起始欄命名，FORCE_DE_SEL 0x0E＝第 2 欄 ⇒ 可選 R-6～B4，且 FORCE_DE_SEL 可改；
+  E503（NB e50x）每格是固定碼表 GN1／GN2（可選 R-2～B6），FORCE_DE_SEL 唯讀 14。E503 最佳候選前 3 欄（B-1 R-1 R-2／G-1 B-2 G-2…）與 EM01 的 0 錯解相同，
+  後 3 欄需要 B-3、R-3、R-4、G-3、B-4、G-4、B-5、G-5，碼表沒有；這些格試遍所有選項都不會減錯，就停在鎖定時的值（Auto 鎖定時 Hand 表全是 code 0：GN1＝R3、GN2＝R5），所以出現整排 R3／R5。
+  ⇒ 硬體碼表限制，E503 這組沒有 0 錯解；現在不會套用。
+
+### 測試
+- 新增 tools/check_datamap_lkrev_dom.js（畫面驗收，Bruce 10/15「不要自己驗自己」）：11 型 × 全部 Auto 架構 × 鎖定 CH1 左／右 → 反推，只讀渲染出的 TFT 接線圖 SVG（每格 data-pv 位置、data-dn 名稱、data-phys 顏色、錯誤標記）與主表下拉文字，不呼叫反推函式；套用的組合必須逐格與鎖定時相同、0 錯誤標記、主表每列無重複。
+- 新增 tools/check_datamap_lkrev_alltcon.js：11 型 × （HSD Type 4+Z-Zag(BOE)、Normal） × 鎖定 CH1 左／右 → 反推，表格列各型結果；斷言 0 錯必套用且 0 呼吸燈、有錯必不套用（16 pass／0 fail）。
+- 新增 tools/check_datamap_lkrev_hsd.js：E503／EM01／EM02 × HSD Type 4+Z-Zag(BOE) × Mirror 0／1 × CH1 左／右；EM01／EM02 必須 0 錯（23 pass／0 fail）。
+- 新增 tools/check_datamap_lkrev_proof.js：到不了 0 的型號逐格窮舉全部碼表選項 × Mirror × CHRB 並列出每格需要的名稱與碼表有沒有（E501A／E501B／E503：需要 B-3～G-5，碼表只有 -2～6）。
+- 新增 tools/check_datamap_lkrev_full.js：全樣式 × Mirror × CHRB × CH1 左右矩陣（長跑，列出無解組合與原因）。
+- check_datamap_lkrev：744 pass／0 fail（原 750；E501A Hand Single 6 組本來就到不了 0，原本「有錯也套用＋可復原」2 個斷言改成「有錯不套用、② 不變」1 個斷言，依 Bruce 10/15 新規則）；未達 0 由 2 組（EM01 Auto HSD type4+BOE zigzag × ch1／shl+ch1）變 0。check_datamap_lkrev_matrix 的「變差」判定同步排除不套用的情況。
+- 既有回歸：check_datamap_boe --qm 全民 109 pass／0 fail（24/24）、check_datamap_axis --peerc 同事C 33226 pass／0 fail、check_datamap_combos 29／0、check_datamap_tri 115／0、check_datamap_tri_tools 445／0、S/D 快照 24608 pass／0 fail。
+
+---
+
 ## Data Mapping (datamap) v1.35.4 — 2026-10-15 ｜ PATCH ｜「TFT 並排」與「TFT 預覽」相容
 
 **判定依據**：§2 修正既有功能錯誤 → PATCH：只改兩個顯示開關的互斥關係，不動任何計算（快照／全民／同事C／tri 結果不變）。

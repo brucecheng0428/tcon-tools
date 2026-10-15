@@ -82,9 +82,13 @@ const ok = (c, g, m) => { cnt[g] = (cnt[g] || 0) + 1; if (c) pass++; else { fail
     if (e2 > e0) NZ.push(tag + ': ' + e2 + ' cells (' + (R && R.txt) + ')');
     ok(e2 <= e1, 'R3', tag + '：呼吸燈 鎖定時 ' + e0 + '、改後 ' + e1 + '、反推後 ' + e2 + '（' + (R && R.txt) + '）');
     ok(R && (R.bad === 0) === (e2 === 0) && $('dm-bench-revst').textContent === R.txt, 'R3', tag + '：結果行＝' + ($('dm-bench-revst') || {}).textContent);
-    ok(!$('dm-bench-undo').classList.contains('hidden'), 'R3', tag + '：應可復原');
-    $('dm-bench-undo').click();
-    ok(JSON.stringify(S.cur) === pre && err() === e1, 'R3', tag + '：復原應回到反推前（呼吸燈 ' + err() + ' vs ' + e1 + '）');
+    /* v1.35.5（Bruce 10/15「有錯的結果不可以套用到主表、不可以寫入。0 錯才套用；有錯就保留原狀」）：有錯 ⇒ 不套用、② 不變、不需要復原；0 錯 ⇒ 照舊可復原 */
+    if (R && R.bad > 0) ok(R.applied === false && JSON.stringify(S.cur) === pre && e2 === e1, 'R3', tag + '：有錯（' + R.bad + '）不應套用、② 應不變');
+    else {
+      ok(!$('dm-bench-undo').classList.contains('hidden'), 'R3', tag + '：應可復原');
+      $('dm-bench-undo').click();
+      ok(JSON.stringify(S.cur) === pre && err() === e1, 'R3', tag + '：復原應回到反推前（呼吸燈 ' + err() + ' vs ' + e1 + '）');
+    }
     nCase++;
   }
   /* ── R5 連續序列（Bruce 10/15）：鎖定 → 反推 → CH1 改右 → 反推 → BGR → 反推 → CH1 改回左 → 反推 → RGB 改回 → 反推 ⇒ 每步 0 呼吸燈；
