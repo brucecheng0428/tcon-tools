@@ -15,7 +15,7 @@
     Gate Type、Line 1-1～2-2 × Data 1～6、Single 複本列、Hand Mode、Glass／Excel、All Same Pixel、X＝31、GN1／GN2、
     Data Mapping Code、DM CKS。
   ・步驟：① 選 T-CON／匯入 → ② 調 Data Mapping → ③ 面板排列預覽（v1.4.0，唯讀）→ ④ 寫入 TCON 或匯出 script（比照 i2c.html 的步驟式）。
-    v1.28.0 起 ② 拆成 ②-1 Panel mode 設定（#card-pm）＋②-2 Data Mapping 表格（#card-dm）；寬螢幕 TFT 接線圖並排 sticky，窄螢幕「TFT 預覽」浮動小窗。
+    v1.28.0 起 ② 拆成 ②-1 Panel mode 設定（#card-pm）＋②-2 Data Mapping 表格（#card-dm）；寬螢幕 TFT 接線圖並排 sticky，「TFT 預覽」浮動小窗（v1.35.4 起並排開關都能開）。
   ・訊息：狀態寫在各步驟的狀態列；動作結果與錯誤進 ④ 的記錄，重要的再用 toast 提示（不再用 alert）。
   ・v1.4.0 ③ 面板排列預覽（Bruce 10/7 手繪草圖）：每條 Gate Line 充到的子像素方格＋每條 Data 線的 TFT 接線，render() 時一起重畫。
     解讀：② 的「Line x-y × Data n ＝ 名稱」＝ Line x-y 打開時 Data n 充「名稱」那顆子像素
@@ -116,7 +116,7 @@
   .dm-topbar .sbtn { min-height: 32px; }
   /* v1.28.0（Bruce 10/14「在調的時候也可以即時看到 Data Mapping 的變化」）：
      寬螢幕（≥1200px）且「TFT 並排」開（html.dm-side）⇒ #dm-live 兩欄：左＝②-1／②-2／③，右＝TFT 接線圖 sticky（不超過視窗高，內容自己捲）。
-     其他情況（窄螢幕或並排關）⇒ 頁首出現「TFT 預覽」，開浮動小窗（固定右下角，可收起、可放大），預設收起不擋操作 */
+     「TFT 預覽」一律在頁首（v1.35.4 起與並排相容），開浮動小窗（可拖曳、可收起、可放大），預設收起不擋操作 */
   .dm-topbar .sbtn[aria-pressed="true"].dm-sidebtn, #dm-mini-tog[aria-pressed="true"] { outline: 2px solid #60a5fa; }
   @media (max-width: 1199.98px) { .dm-sidebtn { display: none; } }
   @media (min-width: 1200px) {
@@ -659,7 +659,7 @@
   <div class="dm-minibody dm-pvdrag" id="dm-mini-body"><div class="dm-mininote hidden" id="dm-mini-note"></div><div class="dm-tftmini" id="dm-mini-svg"></div></div>
 </div>
 
-<script src="common/version.js?v=20261015dm1353"></script>
+<script src="common/version.js?v=20261015dm1354"></script>
 <script src="common/i18n.js?v=20261012dm1220"></script>
 <script>
 (function () {
@@ -3977,6 +3977,8 @@
   }
   window.dmFold = { set: function (id, on) { setFold(id, on); }, all: foldAll, isFolded: function (id) { return isFolded($(id)); }, key: FOLD_KEY };
   /* ── v1.28.0 調設定時即時看 TFT 接線圖（Bruce 10/14）──────────────────────────────
+     v1.35.4（Bruce 10/15「當我按下並排的時候，TFT 預覽還是要可以做出來」）：並排與預覽小窗各自獨立——
+       「TFT 預覽」按鈕一律顯示；miniSet 不再因並排強制關；sideApply 不再隱藏按鈕、不再關小窗。小窗內容仍是 #dm-pv-tft 的同一份渲染。
      ・並排：視窗 ≥1200px 且「TFT 並排」開（預設開，記 localStorage dm.tftside.v1）⇒ html.dm-side，CSS 把 TFT 卡放右欄 sticky。
      ・小窗：沒有並排時頁首出現「TFT 預覽」，開右下角浮動小窗；內容＝#dm-pv-tft 的複本（cloneNode，去掉 id），
        由 MutationObserver（只在小窗開著時掛上）在 #dm-pv-tft／#dm-tftnote 變動時同步（同一份 renderPreview 結果，不另算、不會不同步）。
@@ -3998,7 +4000,7 @@
   }
   function miniQueue() { if (MINI.on && !MINI.raf) MINI.raf = window.requestAnimationFrame ? window.requestAnimationFrame(miniSync) : setTimeout(miniSync, 16); }
   function miniSet(on) {
-    MINI.on = !!on && !sideActive();
+    MINI.on = !!on;   // v1.35.4：並排開關都能開預覽（原本並排時強制關）
     $('dm-mini').classList.toggle('hidden', !MINI.on); document.body.classList.toggle('dm-minion', MINI.on);
     $('dm-mini-tog').setAttribute('aria-pressed', MINI.on ? 'true' : 'false');
     /* 只在小窗開著時觀察：關著不留 MutationObserver（大量同步重畫時記錄會留住被換掉的整棵 SVG） */
@@ -4159,8 +4161,7 @@
     var act = sideActive();
     document.documentElement.classList.toggle('dm-side', act);
     $('dm-side-tog').setAttribute('aria-pressed', sidePref() ? 'true' : 'false');
-    $('dm-mini-tog').classList.toggle('hidden', act);
-    if (act && MINI.on) miniSet(false);
+    $('dm-mini-tog').classList.remove('hidden');   // v1.35.4：「TFT 預覽」一律顯示（HTML 初始 hidden 保留，初始化時拿掉，頁面 DOM 與舊版相同）
   }
   function liveInit() {
     $('dm-side-tog').addEventListener('click', function () {
