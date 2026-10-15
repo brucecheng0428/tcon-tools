@@ -2707,6 +2707,7 @@
                      🔴 v4.24.0：NB 機種下 `readOnly` 由 wfgFlrSync() 打開 —— NB 的真值是
                      PRE_BLK_RD_NO ＋ ST_LINE_RD 兩顆 register，Line Buffer 只是它們的衍生視圖。 -->
                 <input type="number" id="wfg-linebuf" value="6" min="0" max="15" step="1" style="width:48px;padding:2px 4px;font-size:11px;color:var(--text);background:#0f172a;border:1px solid #334155;border-radius:4px;text-align:center;" oninput="wfgOnLineBufferChange(this.value)">
+                <span id="wfg-lb-min-hint" style="display:none;font-size:11px;color:#fbbf24;white-space:nowrap;text-transform:none;"></span>
               </label>
               <!-- ══ v4.23.0：First Line Read（**只有 MNT 三顆**）════════════════════
                    Bruce 2026-08-24：「在 WFG 分頁的 T-CON Group 裡面，First Line Read
@@ -3687,7 +3688,7 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20261012wfg4541"></script>
+<script src="common/version.js?v=20261015wfg4560"></script>
 <script src="common/i18n.js?v=20261014wfg4550"></script>
 <script src="common/syscrc.js?v=20261014wfg4550"></script>
 <script src="common/common.js?v=20260523"></script>
@@ -8385,6 +8386,30 @@ function wfgNbCap(which, otherVal, curVal) {
 /* 波形位移（檢視行）。全檔**唯一**的來源 —— 舊式 `isDual ? wfgLineBuffer*2 : wfgLineBuffer`
    已全部改呼叫這一支，不得再出現第二份寫法。 */
 function wfgLbShift() { return wfgFirstLineRead | 0; }
+/* 🔴 v4.56.0：RX DE 第 n 條（D n）落在 RX 第 n 條 line —— 第 0 條對齊 Line 0。
+   同事F 2026-10-15 mail「RX DE 的第 0 條位置要改為對應到 Line 0（不是在 Line 0 的前一條）」，
+   Bruce 2026-10-15 確認；TX DE 位置不動（仍是 lineInFrame − wfgLbShift()）。
+   舊式 `(rxLineIdx + 1) % vtotal` 把 D0 畫在上一 frame 的最後一條。RX DE 的畫線（兩處）、
+   量測、游標吸附全部走這一支，不得再寫第二份。 */
+function wfgRxDataIdx(rxLineIdx, vtotalRx) {
+  return vtotalRx > 0 ? ((rxLineIdx % vtotalRx) + vtotalRx) % vtotalRx : rxLineIdx;
+}
+/* v4.56.0：Line Buffer 的值是「位置」不是條數（0 ＝ 用到第一條 line buffer）。＜ 1 會同時讀寫同一條
+   buffer（Bruce 2026-10-15）。MNT 看 Line Buffer、NB 看 (ST_LINE_RD＋PRE_BLK_RD_NO)÷gate 倍率 ——
+   兩者在 wfgFlrSync() 裡都已收斂成 wfgLineBuffer（＝ FLR ÷ mult），同一套換算。只提示、不擋輸入。 */
+var WFG_LB_MIN_HINT = {
+  'zh-TW': 'Line Buffer 需 ≥ 1（目前 {v}，會同時讀寫同一條 buffer）',
+  'zh-CN': 'Line Buffer 需 ≥ 1（目前 {v}，会同时读写同一条 buffer）',
+  'en': 'Line Buffer must be ≥ 1 (now {v}; the same buffer line would be read and written at once)'
+};
+function wfgLbMinHintText() {
+  var v = wfgLineBuffer;
+  if (!(isFinite(v) && v < 1)) return '';
+  var lang = (typeof currentLang === 'string' && WFG_LB_MIN_HINT[currentLang]) ? currentLang : 'zh-TW';
+  return WFG_LB_MIN_HINT[lang].replace('{v}', String(v));
+}
+window.wfgRxDataIdx = wfgRxDataIdx;
+window.wfgLbMinHintText = wfgLbMinHintText;
 /* ══ 🔴 v4.38.0：TX DE Offset（Bruce 2026-09-01）═══════════════════════════════
    「波形區的『TX DE』起始值原本是從每一條 Line 的 DCLK 為 0 的位置開始。
      如果設定為 32，它會 shift 32 格，也就是起始值變成在 32 DCLK 的位置，
@@ -21778,6 +21803,13 @@ function wfgFlrSync() {
     wEl.style.display = (on && warn) ? 'inline' : 'none';
   }
   if (lb) lb.classList.toggle('has-error', !!warn);
+  /* v4.56.0：Line Buffer ＜ 1 提示（MNT／NB 同一個判斷，見 wfgLbMinHintText()）。 */
+  var hEl = document.getElementById('wfg-lb-min-hint');
+  if (hEl) {
+    var hTxt = on ? wfgLbMinHintText() : '';
+    hEl.textContent = hTxt;
+    hEl.style.display = hTxt ? 'inline' : 'none';
+  }
 }
 window.wfgFlrSync = wfgFlrSync;
 /* 改動之後的共同收尾：清快取、重畫、回拉匯入提醒卡片。 */
@@ -23519,7 +23551,7 @@ function wfgDrawInternalRows(ctx, drawX0, drawW, w, viewStart, viewEnd, viewRang
     var lineInFrame = ln % vtotalView;
     var rxLineIdx = isDual ? Math.floor(lineInFrame / rxViewLinesPerData) : lineInFrame;
     var posInRxData = isDual ? (lineInFrame % rxViewLinesPerData) : 0;
-    var dataIdx = (rxLineIdx + 1) % vtotalRx;
+    var dataIdx = wfgRxDataIdx(rxLineIdx, vtotalRx);
     if (dataIdx >= vactive) {
       var xL = Math.max(drawX0, lineToX(ln));
       var xR = Math.min(w, lineToX(ln + 1));
@@ -23843,7 +23875,7 @@ function wfgDrawPromotedGroup(ctx, y0, grpIdx, drawX0, drawW, w, viewStart, view
         var lineInFrame = ln % vtotalView;
         var rxLineIdx = isDual ? Math.floor(lineInFrame / rxViewLinesPerData) : lineInFrame;
         var posInRxData = isDual ? (lineInFrame % rxViewLinesPerData) : 0;
-        var dataIdx = (rxLineIdx + 1) % vtotalRx;
+        var dataIdx = wfgRxDataIdx(rxLineIdx, vtotalRx);
         if (dataIdx >= vactive) {
           var xL = Math.max(drawX0, lineToX(ln));
           var xR = Math.min(w, lineToX(ln + 1));
@@ -38123,7 +38155,7 @@ function wfgMeasUpdateDE(cx, cy, drawX0, drawW, w, deRowIdx, promotedSlotY0) {
     // ── RX DE ──
     var rxLineIdx = isDual ? Math.floor(lineInFrame / rxViewLinesPerData) : Math.floor(lineInFrame);
     var posInRxData = isDual ? (lineInFrame % rxViewLinesPerData) : (lineInFrame - Math.floor(lineInFrame));
-    var dataIdx = (rxLineIdx + 1) % vtotalRx;
+    var dataIdx = wfgRxDataIdx(rxLineIdx, vtotalRx);
     if (dataIdx >= vactive) {
       // Vblank region: compute blanking block edges
       if (vactive < 2) {
@@ -38135,17 +38167,17 @@ function wfgMeasUpdateDE(cx, cy, drawX0, drawW, w, deRowIdx, promotedSlotY0) {
         return;
       }
       var frameBase = Math.floor(mouseLinePos / vtotalView) * vtotalView;
-      // Last active DE (dataIdx=vactive-1) at rxLineIdx=vactive-2
-      leftEdge = frameBase + (vactive - 2) * rxViewLinesPerData + rxDeFrac;
-      // Next active DE (dataIdx=0) at rxLineIdx=vtotalRx-1
-      rightEdge = frameBase + (vtotalRx - 1) * rxViewLinesPerData;
+      // v4.56.0: last active DE (dataIdx=vactive-1) at rxLineIdx=vactive-1
+      leftEdge = frameBase + (vactive - 1) * rxViewLinesPerData + rxDeFrac;
+      // v4.56.0: next active DE (dataIdx=0) at rxLineIdx=0 of the next frame
+      rightEdge = frameBase + vtotalRx * rxViewLinesPerData;
       rightEdge2 = rightEdge + rxDeFrac;
       curLevel = 0;
     } else {
     // Active region: compute DE boundaries for this data entry
-    // Data entry starts at view line: (dataIdx > 0 ? dataIdx - 1 : vtotalRx - 1) * rxViewLinesPerData
+    // v4.56.0: data entry n starts at RX line n (D0 = Line 0)
     var frameBase = Math.floor(mouseLinePos / vtotalView) * vtotalView;
-    var dataStartRxLine = dataIdx > 0 ? dataIdx - 1 : vtotalRx - 1;
+    var dataStartRxLine = dataIdx;
     var dataStartViewLine = frameBase + dataStartRxLine * rxViewLinesPerData;
     var deRise = dataStartViewLine; // DE rises at start of data period
     var deFall = dataStartViewLine + rxDeFrac; // DE falls after rxDeFrac
@@ -39213,7 +39245,7 @@ function wfgCursorSnapTime(rawTime, cx, p) {
         // ── RX DE edges ──
         var _rxLineIdx = _isDual ? Math.floor(_lif / _rxViewLinesPerData) : _lif;
         var _posInRxData = _isDual ? (_lif % _rxViewLinesPerData) : 0;
-        var _rxDataIdx = (_rxLineIdx + 1) % _vtotalRx;
+        var _rxDataIdx = wfgRxDataIdx(_rxLineIdx, _vtotalRx);
         if (_rxDataIdx < _vactive && _posInRxData === 0 && _rxDeFrac > 0) {
           // Rising edge at line start
           var _rxRiseTime = _ln * p.timePerLine;
@@ -42814,6 +42846,7 @@ function wfgSyncGuideLink(lang) {
 // ─── v2.97.359: 語言切換回呼 — 更新所有動態渲染內容 ───
 window._onLangChange = function(lang) {
   try { wfgSyncGuideLink(lang); } catch(e) {}
+  try { wfgFlrSync(); } catch(e) {}   // v4.56.0：Line Buffer ＜ 1 提示是 JS 拼的文字
   // TCON mode: re-render lists and panels
   try { wfgRenderChannelList(); } catch(e) {}
   try { wfgRenderGpioList(); } catch(e) {}
