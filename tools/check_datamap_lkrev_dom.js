@@ -32,15 +32,19 @@ const { JSDOM, VirtualConsole } = require(path.join(ROOT, 'node_modules/jsdom'))
     setModel(m);
     const L = (A.fam && A.fam(m) ? A.list(m) : null) || [];
     const s0 = sum[m] = { n: 0, ok: 0, hard: 0, bad: 0, skip: 0, none: L.length ? 0 : 1 };
-    for (let i = 0; i < L.length; i++) for (const ch of ['l', 'r']) {
-      const tag = m + ' ' + L[i].name + ' 鎖定 CH1' + (ch === 'l' ? '左→右' : '右→左');
-      reset(); setModel(m); fire($('dm-pv-first'), ch);
+    /* 變更條件（Bruce 10/15）：CH1 左↔右、Driver 正向↔反向（SHL）、Panel RGB↔BGR；鎖定時兩種起點各跑一次 */
+    const CHG = process.argv.includes('--all-chg')
+      ? [['dm-pv-first', 'l', 'r', 'CH1'], ['dm-pv-first', 'r', 'l', 'CH1'], ['dm-pv-drv', 'f', 'r', 'SHL'], ['dm-pv-drv', 'r', 'f', 'SHL'], ['dm-pv-stripe', 'rgb', 'bgr', 'RGB→BGR'], ['dm-pv-stripe', 'bgr', 'rgb', 'BGR→RGB']]
+      : [['dm-pv-first', 'l', 'r', 'CH1'], ['dm-pv-first', 'r', 'l', 'CH1']];
+    for (let i = 0; i < L.length; i++) for (const cg of CHG) {
+      const tag = m + ' ' + L[i].name + ' 鎖定 ' + cg[3] + ' ' + cg[1] + '→' + cg[2];
+      reset(); setModel(m); fire($(cg[0]), cg[1]);
       S.cur = DM.setHand(m, A.apply(m, DM.emptyState(m), i), false); w.dmRender();
       if (!$('dm-pv-tft').querySelector('rect[data-pv]')) { s0.skip++; skip.push(tag + '：沒有接線圖'); continue; }
       $('dm-pv-lock').click();
       const lockE = errs(), lockS = snap();
       if (lockE) { s0.skip++; skip.push(tag + '：鎖定當下接線圖已有 ' + lockE + ' 個錯誤標記'); continue; }
-      B.open(true); fire($('dm-pv-first'), ch === 'l' ? 'r' : 'l');
+      B.open(true); fire($(cg[0]), cg[2]);
       const before = regs(m);
       B.reverse();
       s0.n++;
