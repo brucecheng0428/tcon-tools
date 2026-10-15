@@ -2,6 +2,25 @@
 
 ---
 
+## 面板訊號模擬與取樣 (wfg) v4.56.0 — 2026-10-15 ｜ MINOR ｜ RX DE 第 0 條對齊 Line 0、Line Buffer ＜ 1 提示 ｜ ⚠ 輸出變化
+
+**判定依據**：R3 MINOR（多一行提示：Line Buffer ＜ 1）＋ R1 修正（RX DE 位置往後一條，`⚠ 輸出變化`：波形區 RX DE 的 D0…Dn 位置、RX DE 量測箭頭與游標吸附位置隨之改變；TX DE、SD／Subpixel 取樣、匯出 script 不變）。
+
+### 起因
+- 紹婷 2026-10-15 10:13 mail：1. RX DE 的第 0 條位置要改為對應到 Line 0（不是在 Line 0 的前一條）。2. 增加 Line Buffer 至少需為 1 Line 的提示訊息。
+- Bruce 2026-10-15：TX DE 不用往後延，保持原本的地方不動。Line Buffer 的值是位置而不是條數，設 0 代表用到第一條 line buffer，會同時讀寫；MNT 與 NB 一起判斷，Line Buffer（含 Dual gate 的 0.5）要 ≥ 1，NB 的 ST_LINE_RD＋PRE_BLK_RD_NO 也一樣。與 Data Mapping 無關。
+
+### 改動（只動 wfg.html）
+- 新增 `wfgRxDataIdx(rxLineIdx, vtotal)`：RX 第 n 條 line 就是 Dn。原本四處各寫 `(rxLineIdx + 1) % vtotal`（D0 落在上一 frame 最後一條）：內部列畫線、拖進通道區的 RX 群組畫線、RX DE 量測、游標吸附，全部改呼叫這一支。RX DE 量測的 vblank／active 邊界同步改成 D n 起點 ＝ RX line n。
+- TX DE（`lineInFrame − wfgLbShift()`）一行未動。
+- Line Buffer 欄位旁新增 `#wfg-lb-min-hint`（琥珀色一行，不擋輸入）：`wfgLineBuffer ＜ 1` 時顯示「Line Buffer 需 ≥ 1（目前 x，會同時讀寫同一條 buffer）」。MNT 與 NB 都看 `wfgLineBuffer`（wfgFlrSync() 已收斂成 FLR ÷ gate 倍率；NB 的 FLR ＝ ST_LINE_RD＋PRE_BLK_RD_NO），同一套換算。三語字串放在 wfg.html（`WFG_LB_MIN_HINT`），不動 common/i18n.js；語言切換時經 `_onLangChange` 重算。TCON 內部運算關閉時不顯示。
+
+### 驗證
+- tools/check_wfg_rxde_lb_hint.mjs（新，headless Chrome）：用記錄型 ctx 呼叫頁面的 wfgDrawInternalRows()，取 RX／TX DE 的 D0 標籤位置。EM01 Single／Dual、E503 Single／Dual：RX D0 ＝ 每個 frame 的 Line 0；TX D0 ＝ First Line Read。提示：MNT LB 0／0.5 出現、1／1.5 不出現；NB ST＋PRE 換算 0／0.5 出現、1 不出現；值不被擋；英文切換；關內部運算時隱藏。26 通過／0 失敗。
+- 同一支指向改前副本：RX D0 在 1124（Single）／2248（Dual）＝ Line 0 的前一條；TX D0 四組都與改後相同（3／6／5／6）。
+
+---
+
 ## Digital Gamma (dg) v2.5.1 — 2026-10-14 ｜ PATCH ｜ ⚠ 輸出變更 ｜ 電腦畫面量測：開始量測後中心紅圈消失
 
 **判定依據**：R1 PATCH（修 bug，回到 v1.35.0 起的應有行為）；量測時畫面不再有紅圈 ⇒ 量到的灰階數據會不同 ⇒ ⚠ 輸出變更。
