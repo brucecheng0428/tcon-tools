@@ -48,7 +48,7 @@ const { JSDOM, VirtualConsole } = require(path.join(ROOT, 'node_modules/jsdom'))
       const before = regs(m);
       B.reverse();
       s0.n++;
-      const after = snap(), e2 = errs(), applied = regs(m) !== before;
+      const after = snap(), e2 = errs(), applied = regs(m) !== before && !/未套用/.test((($("dm-bench-revst") || {}).textContent || ""));   // v1.35.9：有錯也會開 Hand（暫存器會變），以畫面結果行判定是否套用
       const same0 = !e2 && Object.keys(lockS).every(k => lockS[k] === after[k]);
       if (applied || same0) {   // same0：換邊後不用改任何暫存器就已經和鎖定時逐格相同
         const diff = Object.keys(lockS).filter(k => lockS[k] !== after[k]).concat(Object.keys(after).filter(k => !(k in lockS)));

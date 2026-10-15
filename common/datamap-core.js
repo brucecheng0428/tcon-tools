@@ -821,7 +821,7 @@
   function rowDict(key, row, gate, s) {
     var se = semOf(key);
     /* NB：Python UI 開 Hand 一律寫 FORCE_DE_SEL＝0xE（PY:29280，pyNormalize），GN1／GN2 對應的就是第 2 欄 ⇒ NB 起始欄固定用 0xE 的第 2 欄（不隨匯入 code 裡殘留的 de_sel 改變，舊存檔名稱不變） */
-    if (poolKind(key) && (gate === 'single' || gate === 'dual')) return mntDict(gate, row, !!(s && (s.mirror | 0)), MODELS[key].kind === 'mnt' ? mntBaseT(s, gate).t : nbBaseT());
+    if (poolKind(key) && (gate === 'single' || gate === 'dual')) return mntDict(gate, row, !!(s && (s.mirror | 0)), (MODELS[key].kind === "mnt" || (s && s.deRev && (s.deEn | 0) && (s.deSel | 0))) ? mntBaseT(s, gate).t : nbBaseT());
     if (se === 'daz7353') return D7353;
     if (se === 'daz6111') return D6111;
     return (gate === 'dual' && (row & 1)) ? GN2 : GN1;
@@ -863,7 +863,7 @@
        B 檔 PY:29377 同集合 → PY:29390。呼叫點：改表格 PY:28881／28894（dm_update_all_from_dmrgb_table_change）、改 Gate PY:29917。
        ⇒ 網頁型號 E501A（RM81010）、E501B（RM81011）、E503（RM81000~04）、DAZ6138、DAZ6139（＝sem 'e50x' 的 NB）強制；DAZ6111／DAZ7353 與所有 MNT（PY 沒有）不動。
        （v1.25.1 曾改成只套 E503，依本則更正撤回。） */
-    if (m.sem === 'e50x') { s.deEn = s.hand ? 1 : 0; s.deSel = 0xE; }
+    if (m.sem === "e50x") { s.deEn = s.hand ? 1 : 0; if (!(s.deRev && s.deEn)) s.deSel = 0xE; }   // v1.35.9（Bruce 10/15「預設值維持 0xE，只有按下自動反推、而且需要改的時候才去動它；其他情況包括 Hand 開著一律照舊寫 0xE」）：只有反推選出的值（state.deRev）保留
     else {
       s.lineEn = s.hand ? 1 : 0;
       if (s.lineEn) {
