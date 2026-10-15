@@ -2,6 +2,33 @@
 
 ---
 
+## Data Mapping (datamap) v1.32.0 — 2026-10-15 ｜ MINOR ｜ MNT Tri-Gate 6 列表（Line 1-1～2-3）＋Hand Tri TFT 接線圖；NB Gate Type 不列 Tri
+
+**判定依據**：§2 案例 1（新增功能）→ MINOR：MNT Hand＋Tri 多了可編輯的 6 列表與 TFT 圖，Single／Dual 畫面、寫入 byte、script、TFT 逐格不變（快照測試證明）。
+NB 的 Gate Type 拿掉 Tri 是 Bruce 10/15 明示（「如果真的 NB 的 Tcon 沒辦法手動編輯 tri-gate，就不用」），原本選 Tri 只寫 PANEL／RD、表格全「—」不可用，沒有可用的操作被拿走；讀到 Tri 的 code 照樣顯示 Tri ⇒ 不判 MAJOR（取低，供覆核）。
+
+### 起因
+- Bruce 2026-10-15 看過規劃（assistant_kb/reference/DataMapping_TriGate規劃_20261015.md 方案 A）：「你可以先進行任何 tri-gate 的新增設定，千萬不要影響到原本 single gate 跟 dual gate 的結果。」
+- 同日補充：「可以比對 E503 的 register 跟 monitor TCON 的 register…E503 好像沒有第二組…」「有可能 NB 的 Tcon tri-gate 就沒辦法用手動模式編輯…如果真的 NB 的 Tcon 沒辦法手動編輯 tri-gate，就不用。」
+
+### 變更
+- MNT（EM01／EM02／E512）Hand＋Gate＝Tri：② 4 列表與第二組 r2..b3 隱藏，改顯示 6 列表（`#dm-tribox`）。對應（瑞鼎 EM01A1_rt7_register_force_mapping.xlsx LTPS 分頁）：Line k-1＝主組 _(2k-2)、k-2＝主組 _(2k-1)、k-3＝第二組 _(2k-2)；第二組 _1／_3 固定寫 0（RT7 17~21）。
+  名稱表＝起始欄（mntBaseT）＋第幾條 gate，與 datamap-auto `wiringFromState` Tri 分支同一規則；下拉只列該欄 code 表有定義的值（LOD.tName）＋X，選了一定畫得出接線。
+- ③ TFT：Hand Tri 走 `pvTriModel`（`AUTO.wiringFromState` → `pvLodModel`，CHRB 照 pvAutoModel），RT7 (18)～(21)（含 (21) Tri+BOE）都有圖；v1.31.4 是「⚠ Tri-Gate／Gate 組合不符，無法畫圖」。
+- NB（E503／E501A／E501B／DAZ6138／DAZ6139／DAZ6111／DAZ7353）：Gate Type 不列 Tri（`DM.gateItems`）。依據：E503 model 只有一組 FORCE_SEL R0..B1 × _0~_3（RM8100x_for_FAE_20240925_20250311.model:8588-8790），沒有第二組 r2..b3，無法放 MNT Tri 的 Line x-3；PY V5.0.4 Tri 時表格停用、無對應（PY:12513-12528、29725-29760）。讀到 Tri 的 code 顯示停用的 Tri-Gate＋一行說明。EN01 不動。
+- 新函式都在 Tri 分支：core `TRI／TRI_ROWS／triOn／gateItems／triCellView／triCellOptions／triPick`；頁面 `renderTri／onPickTri／pvTriModel`。既有共用函式只在開頭加 Tri 分流（renderGrid、renderX、pvModel、buildGate 的選項來源）。
+- 退回開關：datamap.html `FEATURE_TRI_EDIT`（false ⇒ 與 v1.31.4 相同）。
+
+### 測試
+- 新增 tools/check_datamap_sd_snapshot.js＋tools/datamap_sd_snapshot.json：在 v1.31.4（b259f82）拍的 Single／Dual（＋Auto 全 panel）快照，所有型號 × panel／sub × FORCE_DE_EN／SEL × Mirror／CHRB × 2 組格值；比對整頁畫面（去掉 script、版號標籤與 Tri 區塊）、② 表格、第二組、③ TFT、寫入 byte、script、CKS、下拉選項；每個型號開新頁。v1.32.0 對 v1.31.4：11104 組（整頁重畫 3376 組）24608 項全部相同、0 fail。
+- 既有測試改寫 3 條 Tri 斷言（舊行為就是本版要改的）：check_datamap_lod「② 選 Tri ⇒ 6 列表、③ 畫 3 條 gate」、check_datamap_en01「換回 E503 ⇒ Gate 2 項」、check_datamap_preview「E503 不列 Tri，直接放 Tri 暫存器仍顯示不支援」。
+- 新增 tools/check_datamap_tri.js：MNT 6 列 ↔ 暫存器、每格每選項讀回、第二組 _1／_3＝0、RT7 (18)~(21) 接線、頁面 Mirror／CHRB × 3 型號有 3 條 gate 的 TFT、NB 不列 Tri、退回開關。
+
+### 未做（後續）
+- Tri 下 All Same Pixel、Export／Import Excel、Pixel 範圍、Benchmark、接線鎖定改用 6 列；Tri CKS（等 RD）；NB Auto Tri 的 TFT 圖。
+
+---
+
 ## 面板訊號模擬與取樣 (wfg) v4.56.0 — 2026-10-15 ｜ MINOR ｜ RX DE 第 0 條對齊 Line 0、Line Buffer ＜ 1 提示 ｜ ⚠ 輸出變化
 
 **判定依據**：R3 MINOR（多一行提示：Line Buffer ＜ 1）＋ R1 修正（RX DE 位置往後一條，`⚠ 輸出變化`：波形區 RX DE 的 D0…Dn 位置、RX DE 量測箭頭與游標吸附位置隨之改變；TX DE、SD／Subpixel 取樣、匯出 script 不變）。
