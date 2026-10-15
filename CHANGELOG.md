@@ -2,6 +2,35 @@
 
 ---
 
+## Data Mapping (datamap) v1.35.8 — 2026-10-15 ｜ PATCH ｜ NB（E50x／DAZ613x）force_sel 名稱改用與 MNT 同一個 pool（可用到 R-6）
+
+**判定依據**：§2 修正既有功能錯誤（Bruce 10/15 決定）→ PATCH。
+
+### 起因
+- Bruce 10/15：「E503（以及其他 NB 機種）用的候選 pool 和 MNT 是同一套，所以也可以用到 R-6」「Python UI 很可能只是把 E503 的能力限縮了…Python UI 的 R-2 限制不可以當成硬體上限。請照 MNT 同一套 pool 實作」。
+
+### 修正（通用、單一來源）
+- datamap-core rowDict：MNT 與 NB e50x 語意（E501A／E501B／E503／DAZ6138／DAZ6139）都走 mntDict（code 0～29 依 T 表起始欄命名、Dual 下 gate 列＝起始欄＋1、起始欄由 FORCE_DE_SEL 決定）。
+  code 0～17（Line 1-1／2-1）、0～23（Dual Line 1-2／2-2）的名稱與 Python UI GN1／GN2 逐一相同（舊存檔、匯入的 code 顯示不變），新增 code 18～29（R-3～R-6 等）。
+- editCell／applyNames／All Same Pixel 的 NB 分支改查同一個 pool；下拉、反推候選、Pixel 範圍三邊同一函式。
+- Pixel 範圍：NB 不再寫死 -2～4，改用 DM.pxForDeSel（與 MNT 同一個換算；FORCE_DE_SEL 0xE ⇒ 第 2 欄 ⇒ 單 gate -6～4、Dual 取上下列交集 -4～4）。仍唯讀（Python UI 固定 0xE）。
+- DAZ6111／DAZ7353 是另一套字典（D6111／D7353），不變。
+
+### 與 Python UI 的差異
+- Python UI 只到 R-2，網頁依同 pool 開放到 R-6（Bruce 10/15 決定）；已列入 assistant_kb/reference/DataMapping_待問RD清單.md 待 RD 確認。
+
+### 結果
+- E503 HSD Type 4+Z-Zag(BOE) 鎖定 → CH1 最右 → 反推：56 錯 → 4 錯（未套用）。剩下 4 格是 Dual 下 gate 列需要 G-5，下 gate 列在 FORCE_DE_SEL 0xE 時只到 -4；
+  MNT 同一組是靠 FORCE_DE_SEL 改成第 1 欄（0x1F）才 0 錯。NB 的 FORCE_DE_SEL 目前照 Python UI 固定 0xE（唯讀），是否開放待 Bruce／RD 決定。
+
+### 測試
+- 新增 tools/check_nbpool_compat.js：NB e50x 5 型 × Single／Dual × 4 種 FORCE_DE_EN／SEL，code 0～17（GN1）／0～23（GN2）名稱與 Python UI 字典逐一相同：2520 pass／0 fail。
+- S/D 快照：未改動的型號（EM01／EM02／E512／DAZ6111／DAZ7353／EN01）11808 pass／0 fail；NB e50x 5 型（DAZ6138／DAZ6139／E501A／E501B／E503）因 Bruce 10/15 決定
+  （下拉候選多出 code 18～29、code 18～29 由「非標準 0x..」改成名稱）以 SNAP_ONLY＋--write 重拍，只這 5 型 3845 筆改變（其他型號基準逐筆相同，已比對）。
+- rebase 到 v1.35.7（TFT 標籤）之後：快照 NB 5 型＋EM01 16128 pass／0 fail；check_datamap_lkrev 744 pass／0 fail。
+
+---
+
 ## Data Mapping (datamap) v1.35.7 — 2026-10-15 ｜ PATCH ｜ TFT 接線圖 SD OUT／TCON OUT 標籤改成 D 加下標「6(n)+k」
 
 **判定依據**：§2 修正既有顯示（易誤讀）→ PATCH：只改標籤的呈現方式，不動任何計算；data-dlab 與文字內容（textContent）不變。

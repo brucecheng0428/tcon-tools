@@ -811,9 +811,17 @@
     var d = {}; for (var c = 0; c < 30; c++) d[mntName(gate, row, c, mirror, base)] = c; d.X = 31;
     return (_mntDicts[key] = d);
   }
+  /* v1.35.7（Bruce 10/15「E503（以及其他 NB 機種）用的候選 pool 和 MNT 是同一套，所以也可以用到 R-6」「Python UI 很可能只是把 E503 的能力限縮了」）：
+     NB 的 e50x 語意（E501A／E501B／E503／DAZ6138／DAZ6139，Python UI 共用 dm_e50x_daz613x_gn 字典）改用和 MNT 同一個 pool（mntDict：code 0～29 依 T 表起始欄命名，
+     Dual 下 gate 列＝起始欄＋1）。起始欄同樣由 FORCE_DE_SEL 決定（mntBaseT；NB 固定 0xE ⇒ 第 2 欄）。code 0～17／0～23 的名稱與 Python UI 的 GN1／GN2 逐一相同
+     （GN1＝第 2 欄 code 0～17、GN2＝第 3 欄 code 0～23），差別只在 Python UI 沒列出 code 18～29（R-3～R-6 等）。下拉、反推、Pixel 範圍三邊都走這一個函式。
+     DAZ6111／DAZ7353 是另一套字典（D6111／D7353），不變。 */
+  function nbBaseT() { return deSelTs(0xE, 4)[0]; }   // ＝2（0xE 最小設 1 的 bit＝bit1）
+  function poolKind(key) { return MODELS[key].kind === 'mnt' || semOf(key) === 'e50x'; }
   function rowDict(key, row, gate, s) {
     var se = semOf(key);
-    if (MODELS[key].kind === 'mnt' && (gate === 'single' || gate === 'dual')) return mntDict(gate, row, !!(s && (s.mirror | 0)), mntBaseT(s, gate).t);
+    /* NB：Python UI 開 Hand 一律寫 FORCE_DE_SEL＝0xE（PY:29280，pyNormalize），GN1／GN2 對應的就是第 2 欄 ⇒ NB 起始欄固定用 0xE 的第 2 欄（不隨匯入 code 裡殘留的 de_sel 改變，舊存檔名稱不變） */
+    if (poolKind(key) && (gate === 'single' || gate === 'dual')) return mntDict(gate, row, !!(s && (s.mirror | 0)), MODELS[key].kind === 'mnt' ? mntBaseT(s, gate).t : nbBaseT());
     if (se === 'daz7353') return D7353;
     if (se === 'daz6111') return D6111;
     return (gate === 'dual' && (row & 1)) ? GN2 : GN1;
@@ -872,12 +880,12 @@
     var cv = cellView(key, s, row, col);
     if (!cv.editable) return null;
     var g0 = gateOf(key, s), mnt = MODELS[key].kind === 'mnt';
-    var t = normText(text), dict = mnt ? rowDict(key, row, g0, s) : inputDict(key);
+    var t = normText(text), dict = poolKind(key) ? rowDict(key, row, g0, s) : inputDict(key);   // v1.35.7：NB e50x 與 MNT 同一個 pool
     if (!(t in dict)) t = 'X';
     var ns = cloneState(s), g = g0, se = semOf(key);
     if (mnt) ns['c' + (row * 6 + col)] = dict[t];
     else if (se !== 'e50x') ns['c' + (row * 6 + col)] = dict[t];
-    else if (g === 'single') { ns['c' + (row * 6 + col)] = GN1[t]; ns['c' + ((row + 1) * 6 + col)] = GN1[t]; }
+    else if (g === 'single') { ns['c' + (row * 6 + col)] = dict[t]; ns['c' + ((row + 1) * 6 + col)] = dict[t]; }
     else { var dd = rowDict(key, row, g, s); ns['c' + (row * 6 + col)] = (t in dd) ? dd[t] : dd.X; }
     return { state: pyNormalize(key, ns), text: t };
   }
@@ -888,14 +896,14 @@
     function look(d, n) { n = normText(n); return (n in d) ? d[n] : d.X; }
     if (MODELS[key].kind === 'mnt' && (g === 'single' || g === 'dual')) { for (var m = 0; m < 24; m++) ns['c' + m] = look(rowDict(key, Math.floor(m / 6), g, s), names[m]); }
     else if (se !== 'e50x') { var d0 = inputDict(key); for (var i = 0; i < 24; i++) ns['c' + i] = look(d0, names[i]); }
-    else if (g === 'dual') { for (var j = 0; j < 24; j++) ns['c' + j] = look(Math.floor(j / 6) & 1 ? GN2 : GN1, names[j]); }
-    else if (g === 'single') { var mntS = MODELS[key].kind === 'mnt'; for (var k = 0; k < 24; k++) { var r = Math.floor(k / 6); ns['c' + k] = look(GN1, names[(mntS ? r : r - (r & 1)) * 6 + k % 6]); } }
+    else if (g === 'dual') { for (var j = 0; j < 24; j++) ns['c' + j] = look(rowDict(key, Math.floor(j / 6), g, s), names[j]); }   // v1.35.7：同一個 pool
+    else if (g === 'single') { var mntS = MODELS[key].kind === 'mnt'; for (var k = 0; k < 24; k++) { var r = Math.floor(k / 6), sr = mntS ? r : r - (r & 1); ns['c' + k] = look(rowDict(key, sr, g, s), names[sr * 6 + k % 6]); } }
     else return null;
     return pyNormalize(key, ns);
   }
   /* All Same Pixel（PY dm_all_same_pixel :29925：先用 GN2 驗證，不在表內 ⇒ 'X'） */
   function allSame(key, s, text) {
-    var t = normText(text); if (!(t in GN2) && !(MODELS[key].kind === 'mnt' && t in rowDict(key, 0, gateOf(key, s), s))) t = 'X';
+    var t = normText(text); if (!(t in GN2) && !(poolKind(key) && (t in rowDict(key, 0, gateOf(key, s), s) || t in rowDict(key, 1, gateOf(key, s), s)))) t = 'X';
     var names = []; for (var i = 0; i < 24; i++) names.push(t);
     var ns = applyNames(key, s, names);
     return ns ? { state: ns, text: t } : null;
@@ -941,7 +949,7 @@
     if (MODELS[key].kind === 'en01') return [];
     var se = semOf(key), g = gateOf(key, s);
     if (MODELS[key].kind === 'mnt' && (g === 'single' || g === 'dual')) return mntKeepT(key, s, namesOf(rowDict(key, 0, g, s)), function (n) { return allSame(key, s, n); });
-    if (se === 'e50x') return g === 'dual' ? namesOf(GN2) : (g === 'single' ? namesOf(GN1) : []);
+    if (se === 'e50x') return g === 'dual' ? namesOf(rowDict(key, 1, g, s)) : (g === 'single' ? namesOf(rowDict(key, 0, g, s)) : []);   // v1.35.7：同一個 pool
     return namesOf(inputDict(key)).filter(function (n) { return n in GN2; });
   }
   /* Gate Type 下拉（PY get_object_to_dm_info :29849） */
