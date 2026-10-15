@@ -2,6 +2,31 @@
 
 ---
 
+## Data Mapping (datamap) v1.35.4 — 2026-10-15 ｜ PATCH ｜「TFT 並排」與「TFT 預覽」相容
+
+**判定依據**：§2 修正既有功能錯誤 → PATCH：只改兩個顯示開關的互斥關係，不動任何計算（快照／全民／蘇坤／tri 結果不變）。
+
+### 起因
+- Bruce 10/15：「當我按下並排的時候，TFT 預覽還是要可以做出來，而不是按下並排的時候，TFT 預覽就沒辦法跳出。」
+
+### 定義對照
+- 程式「TFT 並排」（#dm-side-tog，html.dm-side）：≥1200px 時 TFT 接線圖卡放右欄 sticky；「TFT 預覽」（#dm-mini-tog，#dm-mini）：可拖曳、四邊縮放的浮動小窗，內容＝#dm-pv-tft 同一份渲染（MutationObserver 同步）。與 Bruce 原話一致；差別只在 v1.28.0 把兩者設計成互斥。
+
+### 根因（同一條資料流三處互斥，全部移除）
+1. sideApply：並排生效時把「TFT 預覽」按鈕加 hidden ⇒ 按鈕消失。
+2. miniSet：`MINI.on = on && !sideActive()` ⇒ 並排時即使呼叫也強制不開。
+3. sideApply：並排生效時若小窗開著就 miniSet(false) ⇒ 開並排會把小窗關掉。
+- 按鈕 HTML 初始 hidden 保留、初始化時一律拿掉（頁面 DOM 與 v1.35.3 逐 byte 相同，S/D 快照不必重拍）。全面檢查其他依並排判斷的地方（CSS html.dm-side 只做版面、dmLive.side 只供測試、到原卡／放大／拖曳／縮放／跳轉不看並排）：沒有其他被並排擋掉的功能。
+
+### 修正
+- 「TFT 預覽」按鈕一律顯示；並排開或關都能開小窗；切換並排不影響小窗；小窗內容仍是 #dm-pv-tft 同一份（並排時＝右欄那張圖），改設定即時同步。
+
+### 測試
+- check_datamap_tft_interact.mjs 新增「並排＋小窗」模式（EM01 Auto、EM01 Hand、E503 Hand）：1400px 並排開著真滑鼠點「TFT 預覽」⇒ 小窗開、並排仍開；小窗內容＝#dm-pv-tft；改型號即時同步、改回同步；關並排小窗不關、再開並排 sticky 恢復小窗不關；之後跑整套拖曳／跳轉／8 邊角改大小／重新載入沿用。
+- 結果：tft_interact 962 pass／0 fail；check_datamap_sd_snapshot 24608 pass／0 fail（11104 組，基準未動）；check_datamap_boe --qm 全民 109/0（24/24 格一致）；tri 115/0；tri_tools 445/0。
+
+---
+
 ## Data Mapping (datamap) v1.35.3 — 2026-10-15 ｜ PATCH ｜ 鎖定後 CH1 換邊改逐格精確比對（不容許平移）；反推照 32 排列 tie-break；SD OUT／TCON OUT 標示改「D週期(組)+序號」
 
 **判定依據**：§2 修正既有功能錯誤 → PATCH：v1.35.2 的 CH1 換邊判定允許整組平移，把錯一個 pixel 的解算成 0 錯（Bruce 實測）；只影響「鎖定＋改了 Driver／面板」路徑，未鎖定的 32 種排列評分不變（全民／蘇坤不變）。標籤只改顯示文字。

@@ -5,6 +5,8 @@
 //   ・TCON Out／SD Out 標題、Data 1、D1 真點擊 ⇒ 捲到 Data Mapping 表格／Source Driver 區（與 v1.27.7 相同目標），連結游標＝pointer；
 //   ・接線圖區與小窗 8 個邊角：游標＝對應 resize、拖動改大小（左／上邊跟著滑鼠）、存 localStorage、重新載入沿用、雙擊恢復預設；
 //   ・console 沒有錯誤。
+// v1.35.4（Bruce 10/15「按下並排的時候，TFT 預覽還是要可以做出來」）：加「並排＋小窗」模式——並排開著真點「TFT 預覽」⇒ 小窗開、內容＝#dm-pv-tft 同一份、
+//   改設定即時同步、關並排／再開並排小窗不被關，之後同一套拖曳／跳轉／8 邊角改大小全跑。
 import { spawn } from 'node:child_process'; import fs from 'node:fs'; import path from 'node:path'; import os from 'node:os';
 const ROOT = path.resolve(process.argv[2] || '.');
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
@@ -40,18 +42,43 @@ async function session(width, height) {
 
 async function runMode(mode, model, hand) {
   S_MODEL = model; S_HAND = hand;
-  const W = mode === 'side' ? 1400 : 900, H = 1000;
+  const W = (mode === 'side' || mode === 'sidemini') ? 1400 : 900, H = 1000;
   const S = await session(W, H); const { ev, mouse, settle, load, errs } = S;
-  const tag = model + (hand ? '／Hand' : '') + '／' + { normal: '一般', side: '並排', mini: '小窗' }[mode];
+  const tag = model + (hand ? '／Hand' : '') + '／' + { normal: '一般', side: '並排', mini: '小窗', sidemini: '並排＋小窗' }[mode];
+  const MM = mode === 'mini' || mode === 'sidemini';
   try {
     await load();
     if (mode === 'side') ok(await ev(`document.documentElement.classList.contains('dm-side')`), tag + '：並排模式啟用（html.dm-side）');
+    if (mode === 'sidemini') {
+      ok(await ev(`document.documentElement.classList.contains('dm-side')`), tag + '：並排模式啟用（html.dm-side）');
+      const tb = await ev(`(function(){var b=document.getElementById('dm-mini-tog'),r=b.getBoundingClientRect();return r.width>0&&r.height>0&&getComputedStyle(b).display!=='none'?{x:r.left+r.width/2,y:r.top+r.height/2}:null})()`);
+      ok(!!tb, tag + '：並排時「TFT 預覽」按鈕可見');
+      if (tb) { await mouse('mouseMoved', tb.x, tb.y, { buttons: 0 }); await mouse('mousePressed', tb.x, tb.y); await mouse('mouseReleased', tb.x, tb.y); await sleep(500); }
+      ok(await ev(`window.dmLive.mini()===true && document.documentElement.classList.contains('dm-side') && !document.getElementById('dm-mini').classList.contains('hidden') && document.getElementById('dm-mini-tog').getAttribute('aria-pressed')==='true'`), tag + '：真點擊後小窗開、並排仍開');
+      const same = `(function(){var a=document.querySelector('#dm-mini-svg > svg'),b=document.getElementById('dm-pv-tft');return !!a&&b.childElementCount>0&&a.innerHTML===b.innerHTML})()`;
+      const sameW = async () => { for (let i = 0; i < 40; i++) { if (await ev(same)) return true; await sleep(100); } return false; };   // 小窗同步走 MutationObserver＋rAF，最多等 4 秒
+      ok(await sameW(), tag + '：小窗內容＝並排卡 #dm-pv-tft 同一份');
+      const HTX = `document.getElementById('dm-pv-tft').innerHTML`;
+      const h0 = await ev(HTX);
+      const swap = async () => { const c = await ev(`(function(){var b=document.getElementById('dm-pv-swap');b.scrollIntoView({block:'center'});var r=b.getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2}})()`); await settle(); const c2 = await ev(`(function(){var r=document.getElementById('dm-pv-swap').getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2}})()`); await mouse('mouseMoved', c2.x, c2.y, { buttons: 0 }); await mouse('mousePressed', c2.x, c2.y); await mouse('mouseReleased', c2.x, c2.y); await sleep(300); };
+      const swVis = await ev(`(function(){var b=document.getElementById('dm-pv-swap');return !!b&&b.offsetParent!==null&&!b.disabled})()`);
+      if (!swVis) console.log('  · ' + tag + '：此模式沒有可點的「輸出對調」，改型號同步改由其他模式驗');
+      if (swVis) { await swap();
+      ok(await ev(`document.getElementById('dm-pv-swap').checked`) && (await ev(HTX)) !== h0 && await sameW(), tag + '：真點「Source Driver 輸出對調」⇒ 接線圖改變、小窗即時同步');
+      await swap();
+      ok(!(await ev(`document.getElementById('dm-pv-swap').checked`)) && (await ev(HTX)) === h0 && await sameW(), tag + '：取消對調 ⇒ 回到原圖、小窗同步'); }
+      await ev(`document.getElementById('dm-side-tog').click()`); await sleep(300);
+      ok(await ev(`!document.documentElement.classList.contains('dm-side') && window.dmLive.mini()===true`), tag + '：關並排 ⇒ 小窗維持開');
+      await ev(`document.getElementById('dm-side-tog').click()`); await sleep(400);
+      ok(await ev(`document.documentElement.classList.contains('dm-side') && window.dmLive.mini()===true && getComputedStyle(document.getElementById('card-tft')).position==='sticky'`), tag + '：再開並排 ⇒ 並排 sticky 恢復、小窗維持開');
+      ok(await sameW(), tag + '：切換並排後內容仍同步');
+    }
     if (mode === 'mini') { await ev(`window.dmLive.mini(true)`); await sleep(500); ok(await ev(`!document.getElementById('dm-mini').classList.contains('hidden') && !!document.querySelector('#dm-mini-svg svg')`), tag + '：小窗開啟且有接線圖'); }
-    const ROOTSEL = mode === 'mini' ? '#dm-mini-svg svg' : '#dm-pv-tft', SCR = mode === 'mini' ? 'dm-mini-body' : 'dm-pv-wrap';
+    const ROOTSEL = MM ? '#dm-mini-svg svg' : '#dm-pv-tft', SCR = MM ? 'dm-mini-body' : 'dm-pv-wrap';
     // 讓元素在可見範圍（小窗是 fixed：捲小窗本身；卡片：捲頁面）
     const show = async sel => { await settle(); const c = await ev(`(function(){var e=document.querySelector(${JSON.stringify(sel)});if(!e)return null;
       var sc=document.getElementById('${SCR}'), r0=e.getBoundingClientRect(), b=sc.getBoundingClientRect();
-      if ('${mode}'==='mini'){ sc.scrollLeft+=r0.left-(b.left+b.width/2); sc.scrollTop+=r0.top-(b.top+b.height/2); }
+      if (${MM}){ sc.scrollLeft+=r0.left-(b.left+b.width/2); sc.scrollTop+=r0.top-(b.top+b.height/2); }
       else { sc.scrollLeft+=r0.left-(b.left+b.width/2); var r1=e.getBoundingClientRect(); scrollTo({top:scrollY+r1.top-420,behavior:'instant'}); var cd=document.getElementById('card-tft'); if(cd&&cd.scrollHeight>cd.clientHeight){var r2=e.getBoundingClientRect(),cb=cd.getBoundingClientRect(); cd.scrollTop+=r2.top-(cb.top+cb.height/2);} }
       var r=e.getBoundingClientRect();window.__sc=[];return {x:r.left+r.width/2,y:r.top+r.height/2}})()`); await settle(); return c; };
     const curAt = (x, y) => ev(`(function(){var h=document.elementFromPoint(${x},${y});return h?getComputedStyle(h).cursor+'|'+h.tagName:null})()`);
@@ -87,12 +114,12 @@ async function runMode(mode, model, hand) {
     await ev(`(function(){window.__sc=[];var t=document.querySelector('${ROOTSEL} [data-rowhead="tc"]');t.focus();t.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));return 1})()`); await sleep(100);
     ok((await ev('window.__sc[0]')) === 'dm-gridbox', tag + '：TCON Out 標題 Enter ⇒ 捲到 dm-gridbox');
     // 4) 邊緣調整大小
-    const EL = mode === 'mini' ? 'dm-mini' : 'dm-pv-wrap';
+    const EL = MM ? 'dm-mini' : 'dm-pv-wrap';
     await ev(`scrollTo(0,0)`); await settle();
     const box = async () => JSON.parse(await ev(`(function(){var e=document.getElementById('${EL}');if('${EL}'==='dm-pv-wrap'){var r0=e.getBoundingClientRect();scrollTo({top:scrollY+r0.top-120,behavior:'instant'});var cd=document.getElementById('card-tft');if(cd)cd.scrollTop=0;r0=e.getBoundingClientRect();scrollTo({top:scrollY+r0.top-120,behavior:'instant'});}
       var r=e.getBoundingClientRect();return JSON.stringify({l:r.left,t:r.top,r:r.right,b:r.bottom,w:r.width,h:r.height})})()`));
     const pt = (b, z) => ({ x: z.includes('w') ? b.l + 3 : z.includes('e') ? b.r - 3 : b.l + b.w / 2 + 17, y: z.includes('n') ? b.t + 3 : z.includes('s') ? b.b - 3 : b.t + Math.min(b.h / 2, 300) + 9 });
-    const Hmax = mode === 'mini' ? 400 : 700;
+    const Hmax = MM ? 400 : 700;
     if (mode !== 'mini') { // 卡片內的圖：先把高度縮到看得到下邊
       const b0 = await box(); await mouse('mouseMoved', b0.l + b0.w / 2, b0.b - 3, { buttons: 0 });
       if (b0.b > H - 20) { // 下邊在畫面外 ⇒ 用 API 設定一個起始高度（模擬使用者先前調過）
@@ -125,16 +152,16 @@ async function runMode(mode, model, hand) {
     ok(await ev(`(function(){var s=document.querySelector('${ROOTSEL}'),r=s.getBoundingClientRect();return Math.abs(r.width-(+s.getAttribute('width')))<1&&Math.abs(r.height-(+s.getAttribute('height')))<1})()`), tag + '：改大小後 SVG 以原尺寸顯示（不變形、靠捲動）');
     // 拖成較小並存檔 ⇒ 重新載入沿用 ⇒ 雙擊邊緣恢復預設
     { const b = await box(); const p = pt(b, 'e'); await mouse('mouseMoved', p.x, p.y, { buttons: 0 }); await mouse('mousePressed', p.x, p.y); await mouse('mouseMoved', p.x - 60, p.y); await mouse('mouseReleased', p.x - 60, p.y); await sleep(150);
-      const saved = JSON.parse(await ev(`localStorage.getItem('dm.tftsize.v1')||'{}'`)); const k = mode === 'mini' ? 'mini' : 'card';
+      const saved = JSON.parse(await ev(`localStorage.getItem('dm.tftsize.v1')||'{}'`)); const k = MM ? 'mini' : 'card';
       ok(saved[k] && Math.abs(saved[k].w - (b.w - 60)) <= 2, tag + '：尺寸存 localStorage dm.tftsize.v1.' + k + '＝' + JSON.stringify(saved[k]));
-      await load(); if (mode === 'mini') { await ev(`window.dmLive.mini(true)`); await sleep(400); }
+      await load(); if (MM) { await ev(`window.dmLive.mini(true)`); await sleep(400); } if (mode === 'sidemini') ok(await ev(`document.documentElement.classList.contains('dm-side') && window.dmLive.mini()===true`), tag + '：重新載入後並排＋小窗同時開');
       const w2 = await ev(`document.getElementById('${EL}').getBoundingClientRect().width`);
       ok(Math.abs(w2 - (b.w - 60)) <= 2, tag + '：重新載入沿用寬 ' + Math.round(w2));
       const b2 = await box(); const q = pt(b2, 'e'); await mouse('mouseMoved', q.x, q.y, { buttons: 0 });
       await mouse('mousePressed', q.x, q.y, { clickCount: 1 }); await mouse('mouseReleased', q.x, q.y, { clickCount: 1 }); await mouse('mousePressed', q.x, q.y, { clickCount: 2 }); await mouse('mouseReleased', q.x, q.y, { clickCount: 2 }); await sleep(200);
       const after = JSON.parse(await ev(`JSON.stringify({w:document.getElementById('${EL}').style.width,h:document.getElementById('${EL}').style.height,s:JSON.parse(localStorage.getItem('dm.tftsize.v1')||'{}')})`));
       ok(after.w === '' && after.h === '' && !after.s[k], tag + '：雙擊邊緣恢復預設（inline 尺寸清空、localStorage 移除）');
-      if (mode === 'mini') ok(await ev(`!localStorage.getItem('dm.mini.pos.v1') || true`) && (await ev(`window.dmLive.mini()`)) === true, tag + '：雙擊邊緣不關小窗');
+      if (MM) ok(await ev(`!localStorage.getItem('dm.mini.pos.v1') || true`) && (await ev(`window.dmLive.mini()`)) === true, tag + '：雙擊邊緣不關小窗');
     }
     ok(errs.length === 0, tag + '：console 沒有錯誤' + (errs.length ? '：' + errs.slice(0, 3).join(' | ') : ''));
   } catch (e) { ok(false, tag + ' exception ' + (e.stack || e)); }
@@ -142,7 +169,7 @@ async function runMode(mode, model, hand) {
 }
 // 矩陣：EM01（Auto＋Hand）、E503（Hand）三種顯示方式全跑；其他 MNT／NB 型號跑一般＋小窗（Hand）。EN01 沒有 TFT 接線圖（③ 不支援），不列。
 const ONLY = process.argv[3] ? process.argv[3].split(',') : null;
-const PLAN = [['EM01', false, ['normal', 'side', 'mini']], ['EM01', true, ['normal', 'side', 'mini']], ['E503', true, ['normal', 'side', 'mini']],
+const PLAN = [['EM01', false, ['normal', 'side', 'mini', 'sidemini']], ['EM01', true, ['normal', 'side', 'mini', 'sidemini']], ['E503', true, ['normal', 'side', 'mini', 'sidemini']],
   ['EM02', true, ['normal', 'mini']], ['E512', true, ['normal', 'mini']], ['E501A', true, ['normal', 'mini']], ['E501B', true, ['normal']], ['DAZ6138', true, ['normal', 'mini']], ['DAZ6139', true, ['normal']], ['DAZ6111', true, ['normal']], ['DAZ7353', true, ['normal']]];
 for (const [m, h, modes] of PLAN) { if (ONLY && !ONLY.includes(m)) continue; for (const md of modes) await runMode(md, m, h); }
 console.log((fail ? '✗ ' : '✓ ') + 'check_datamap_tft_interact ' + pass + ' pass / ' + fail + ' fail');
