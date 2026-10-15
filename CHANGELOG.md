@@ -2,6 +2,31 @@
 
 ---
 
+## Data Mapping (datamap) 測試工具 — 2026-10-16｜不進版（只改 tools/，頁面與版號不變）｜S/D 快照改用 Pixel／Gate 邏輯位置（快照格式 2）
+
+### 起因
+- Bruce 10/15：「所以會改到不一樣，是 XY 的位置座標是嗎？…應該要用 Pixel 位置跟 Gate 位置來當作它的位置座標，不是比較好嗎？怎麼變，都不會改變結果啊！」
+- Bruce 10/15 定義：位置用固定的內定編號——垂直＝實體 pixel 列（不隨 Single／Dual／Tri 變）、水平＝玻璃上的實體 subpixel 欄（不隨 Mirror、CH1 左右、Driver、RGB／BGR 變）；接哪條 gate、哪條 Data／SD OUT／TCON OUT、名稱、顏色、亮／暗／dummy／衝突全部屬於內容，要記錄也要比對，但不能當位置；報錯要寫「第 N 列、第 M 欄」。
+
+### 變更（只有測試）
+- 新增 tools/datamap_tft_logic.js：把 TFT 接線圖（#dm-pv-tft）轉成「位置 → 內容」。
+  - 第 N 列＝實體 pixel 列；第 M 欄＝子像素軸位置（左小右大；原點＝② 表格用到的最小 pixel 的第 1 個 subpixel，左邊空位為負）；Data 線在第 b 縫（第 b−1／b 欄之間）。
+  - TFT 圖只畫面板靠 CH1 的一段、工具不知道面板總寬，所以欄號原點用子像素軸，不用整片玻璃第 1 欄。Gate 類型改變時同一組 code 解讀成不同 pixel，欄號原點會跟著移動（列號不變）。
+  - 內容＝元素上除螢幕幾何以外的全部屬性與文字（含 SD OUT／TCON OUT 標籤文字，舊規則是遮掉）。
+  - 不進快照：x、y、x1/y1/x2/y2、cx/cy、r、rx、d、width、height、viewBox、font-size、transform、baseline-shift、data-x、data-gy；以及兩個版面衍生項：data-hops（跳線數）、畫面外 TFT 旁「!名稱」小字（只在不重疊時才畫；名稱與畫面外狀態仍由 drain 線 data-w／data-off 比對）。
+- tools/check_datamap_sd_snapshot.js：③ TFT 改逐格比對，報錯列出「第 N 列、第 M 欄」與兩邊內容摘要（名稱／收到／實體色／填色／亮暗／狀態／dummy／接線）；整頁 body 不再含 TFT 圖本體（主圖與預覽小窗複本），另去掉 v1.35.10 刪除的 #dm-pv-exp 標籤（內容＝gate 類型，已由 |gate= 與 TFT data-ng 比對）；保留 v1.35.11 的 #dm-mini-ctl 略過。基準檔改格式 2（位置清單與內容簽章去重存放）。新增 SNAP_IDS／SNAP_MUT（只給自我檢查用，不能寫正式基準）。
+- 新增 tools/check_datamap_sd_snapshot_selftest.js：A 原程式 0 差異；B 只改字級×1.5、欄距 58→96、格子 38×40→52×56 ⇒ 0 差異；C 第 2 列接 D1 的 TFT 改接 D2 ⇒ 報「第 2 列、第 M 欄」；D 暫存器 c3+1 ⇒ 報錯。
+- 新增 tools/check_datamap_tft_logicpos.js：切 Mirror／CH1 在右／BGR／Driver 反向／Dual／Tri，檢查格子是完整方格、每格軸名稱＝原點＋欄號、第 0 欄是同一顆 subpixel（Gate 類型只要求列號不變）。
+
+### 基準與證明
+- tools/datamap_sd_snapshot.json 由 v1.35.9（241ca45，字級放大前）以格式 2 重拍（11104 組、整頁重畫 3376 組，5.7 MB）。
+- 證明字級放大與欄距拉開沒影響結果：v1.35.10（8c5dde7）對此基準 24608 pass／0 fail；v1.35.11（62719d9）對此基準 24608 pass／0 fail；rebase 到 v1.35.13（1554c7e）後 24608 pass／0 fail。比對全過後才存檔，預期值未改。
+- 自我檢查 4/4、位置驗證（EM01：Mirror／CH1 在右／BGR／Driver 反向第 0 欄同為 R-8；Dual／Tri 列號不變）通過。
+- v1.35.13 上回歸：check_datamap_lkrev 744/0、check_datamap_boe --qm 全民 109/0。v1.35.11 上另跑：蘇坤 axis 33226/0、lkrev_hsd 15/0、combos 29/0、tft_interact 1120/0、boe 全民＋Woody 110/0。
+
+---
+
+
 ## Data Mapping (datamap) v1.35.13 — 2026-10-16 ｜ PATCH ｜ TFT 接線圖欄距／左邊界固定，切換 CH1 左右不再跳動
 
 判定依據：修正 v1.35.10 引入的版面跳動 bug，只改 UI 座標，不改接線、資料、計算與輸出 → PATCH（同 v1.35.11／v1.35.12 類）。
