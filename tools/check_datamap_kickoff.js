@@ -100,7 +100,7 @@ console.log('── code 表（D2:R31）＝網頁 T 表解碼');
       'v1.17.3 匯入全民 code ⇒ ③ 回預設（不對調、CH1 在最左、RGB），Driver 方向照 code SHL＝1 帶入正向；不自動改 CH1，建議區顯示：' + $('dm-pv-sugbtn').textContent);
     $('dm-pv-sugbtn').click();
     okRef($('dm-pv-first').value === 'r' && +$('dm-pv-tft').getAttribute('data-mis') === 0 && $('dm-pv-sugbtn').classList.contains('hidden'), '按「套用建議」⇒ CH1 在最右＋正向＋RGB，24/24 相符');
-    okRef(QA('text[data-dlab="Dn+6"]').length === 1 && QA('text[data-dlab="Dn+1"]').length === 1 && QA('text[data-dlab="Dn"]').length === 1 && QA('text[data-dlab="Dn−5"]').length === 1
+    okRef(QA('text[data-dlab="D6(n)+6"]').length === 1 && QA('text[data-dlab="D6(n)+1"]').length === 1 && QA('text[data-dlab="D6(n−1)+6"]').length === 1 && QA('text[data-dlab="D6(n−1)+1"]').length === 1
       && Q('path[data-dl="7"]').getAttribute('data-rep') === '0' && Q('path[data-dl="1"]').getAttribute('data-rep') === '1' && QA('text[data-dof]').length === 12,
       'v1.17.1 CH1 在右：主循環畫在最左（標 Dn+6…Dn+1、亮），右邊靠 CH1 的一組是重複組（Dn…Dn−5、暗），每條線下方小字標對應 code 的 Data k');
     okRef(glabels().join(',') === 'Line 1,Line 2,Line 3,Line 4', '③ Line 1~4（Single 4 條 gate），不是 Line 1-1／1-2：' + glabels().join(','));
@@ -147,7 +147,7 @@ console.log('── code 表（D2:R31）＝網頁 T 表解碼');
     okRef(d.querySelector('#dm-pv-tft [data-flip]') && +T.getAttribute('data-mis') === 0 && QA('[data-misk]').length === 0 && $('dm-pv-sugbtn').classList.contains('hidden') && JSON.stringify(a2) === JSON.stringify(a) && /CH1 在最右/.test($('dm-pv-eq').textContent) && /SHL 正向/.test($('dm-pv-eq').textContent),
       'CH1 在最右＋正向＋RGB：主循環置左、資料顏色＝玻璃顏色 24/24、不再出建議');
     const posR = dlPos(), cellR = cells(1) + '/' + cells(2);
-    okRef(QA('text[data-dof]').filter(f => f.getAttribute('x') === QA('text[data-dlab="Dn+6"]')[0].getAttribute('x'))[0].getAttribute('data-dof') === '6', 'SHL 正向：Dn+6 那條的小字是 Data 6（對應 ② 表格 Data 6）');
+    okRef(QA('text[data-dof]').filter(f => f.getAttribute('x') === QA('text[data-dlab="D6(n)+6"]')[0].getAttribute('x'))[0].getAttribute('data-dof') === '6', 'SHL 正向：Dn+6 那條的小字是 Data 6（對應 ② 表格 Data 6）');
     const axisR = QA('rect[data-pv]').map(e => e.getAttribute('data-pv')).join(','), mxR = +T.getAttribute('data-maxlen');
     fire($('dm-pv-drv'), 'r');
     /* v1.23.2（Bruce 10/12）：SHL 只改連線（drain 跟著收到的資料走），子像素軸與格內資料不變、資料一定正確；差別是最長 drain 變長 */
@@ -155,7 +155,7 @@ console.log('── code 表（D2:R31）＝網頁 T 表解碼');
       'v1.23.2 切換 SHL（CH1 在右）：Data 線標號與子像素軸不變、格內資料不變（' + cellR + '）、顏色不符 0 格，只有 drain 改接（最長 drain ' + mxR + ' → ' + T.getAttribute('data-maxlen') + '）');
     { const dof = lab => { const e = QA('text[data-dlab="' + lab + '"]')[0]; const x = e && e.getAttribute('x'); const sm = QA('text[data-dof]').filter(f => f.getAttribute('x') === x)[0]; return sm ? sm.getAttribute('data-dof') : null; };
       const cellOf = dl => { const r = QA('rect[data-pv^="1:"][data-tier="main"]').filter(e => (e.getAttribute('data-in') || '').split(',').indexOf(dl + 'u') >= 0)[0]; return r ? r.getAttribute('data-dn') : null; };
-      okRef(dof('Dn+6') === '1' && dof('Dn+1') === '6' && cellOf('D12') === gridTxt(0)[0] && cellOf('D7') === gridTxt(0)[5],
+      okRef(dof('D6(n)+6') === '1' && dof('D6(n)+1') === '6' && cellOf('D12') === gridTxt(0)[0] && cellOf('D7') === gridTxt(0)[5],
         'v1.17.4 SHL 反向：大字位置不變，小字跟著倒過來（Dn+6 那條收 Data 1、Dn+1 收 Data 6），且格內資料＝② 表格同一個 Data k（Data 1＝' + gridTxt(0)[0] + '）'); }
     okRef(QA('[data-rowhead="sd"] title').length === 1 && QA('[data-rowhead="tc"] title').length === 1 && /SD Out/.test(Q('[data-rowhead="sd"]').textContent) && /TCON Out/.test(Q('[data-rowhead="tc"]').textContent) && /② Data Mapping 表格/.test(Q('[data-rowhead="tc"] title').textContent),
       'TFT 接線圖上方兩列有英文列頭「SD Out」「TCON Out」，滑鼠提示寫完整說明');
@@ -171,7 +171,7 @@ console.log('── code 表（D2:R31）＝網頁 T 表解碼');
       fire($('dm-pv-swap'), false);
       okRef(tc() === tc0 && sd() === sd0, '取消對調 ⇒ TCON Out 回原樣'); }
     fire($('dm-pv-first'), 'l');
-    okRef(dlPos() !== posR && T.getAttribute('data-dir') === 'lr' && !d.querySelector('#dm-pv-tft [data-flip]') && QA('text[data-dlab="D1"]').length === 1, 'v1.17.2 切換 CH1 位置：Data 線位置與標號改變（D1…D6 從左排）');
+    okRef(dlPos() !== posR && T.getAttribute('data-dir') === 'lr' && !d.querySelector('#dm-pv-tft [data-flip]') && QA('text[data-dlab="D6(0)+1"]').length === 1, 'v1.17.2 切換 CH1 位置：Data 線位置與標號改變（D1…D6 從左排）');
     fire($('dm-pv-drv'), 'f'); fire($('dm-pv-first'), 'r'); fire($('dm-pv-stripe'), 'bgr');
     /* v1.18.17：排序不再看目前選的子像素排列（同分固定 RGB 先）⇒ 選 BGR 時建議仍是第 1 名 CH1 最右＋正向＋RGB；鏡像 lfbn 也全對、排第 2 */
     /* v1.23.2：「資料正確」＝格子收到的資料＝固定子像素軸名稱 ⇒ 鏡像組合 CH1 最左＋正向＋BGR 左右反，資料不對 */

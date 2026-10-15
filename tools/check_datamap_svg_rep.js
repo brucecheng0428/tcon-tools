@@ -54,11 +54,11 @@ function checkPeriodic(key, b) {
   let mains = 0;
   for (let p = 0; p < nd; p++) {
     const L = b.lines[p];
-    const want = b.fl ? (k => 'Dn' + (k > 0 ? '+' + k : (k < 0 ? '−' + (-k) : '')))(p - (nd - n) + 1) : 'D' + (p + 1);
+    const want = (g => 'D' + n + '(' + (b.fl ? ((nd / n - 1 - g) ? 'n−' + (nd / n - 1 - g) : 'n') : g) + ')+' + (p - g * n + 1))(Math.floor(p / n));   // v1.35.3 標籤 D週期(組)+序號
     ok(L.dlab === want, key + ' SD Out 標號 p=' + p + ' ' + L.dlab + ' ≠ ' + want);
     const isMain = b.fl ? p >= nd - n : p < n; if (L.rep === '0') mains++;
     ok((L.rep === '0') === isMain, key + ' 主／重複 p=' + p);
-    if (p >= n) { const Q = b.lines[p - n]; ok(L.gap === Q.gap + pSub && L.src === Q.src + n && L.dof.split('|')[0] === Q.dof.split('|')[0], key + ' 水平週期 p=' + p); }
+    if (p >= n) { const Q = b.lines[p - n]; ok(L.gap === Q.gap + pSub && L.src === Q.src + n && L.dof.split('|')[1] === Q.dof.split('|')[1], key + ' 水平週期 p=' + p); }
   }
   ok(mains === n, key + ' 主循環 ' + mains + ' 條 ≠ 週期 ' + n);
   const hit = {};

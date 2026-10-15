@@ -2,6 +2,30 @@
 
 ---
 
+## Data Mapping (datamap) v1.35.3 — 2026-10-15 ｜ PATCH ｜ 鎖定後 CH1 換邊改逐格精確比對（不容許平移）；反推照 32 排列 tie-break；SD OUT／TCON OUT 標示改「D週期(組)+序號」
+
+**判定依據**：§2 修正既有功能錯誤 → PATCH：v1.35.2 的 CH1 換邊判定允許整組平移，把錯一個 pixel 的解算成 0 錯（Bruce 實測）；只影響「鎖定＋改了 Driver／面板」路徑，未鎖定的 32 種排列評分不變（全民／同事C不變）。標籤只改顯示文字。
+
+### 起因
+- Bruce 10/15 實測 v1.35.2：E503 Auto Normal 鎖定 → CH1 改最右 → 自動反推，接線圖最左邊從 R2 G2 B2 開始，「R1 G1 B1 到哪去了？」
+- Dispatch：鎖定目標＝每個實體子像素應收到的確切 pixel 編號＋顏色，逐格完全相同，不容許平移；多解照 32 排列 tie-break。
+- Bruce：SD OUT／TCON OUT 改成 D6(n)+6…D6(n)+1、D6(n−1)+6…，循環比較好看；Dispatch 決定正向反向同一格式，快照把顯示標籤與計算結果分開。
+
+### 根因與修正（通用）
+1. v1.35.2 判定 CH1 換邊時「走線整組只差一個平移就算一樣」＋改用未鎖定的「左小右大」相對軸 ⇒ 整排錯一個 pixel 仍算 0 錯（格名也跟著重標成 R2…）。
+   改成：畫面與子像素位置照鎖定時不動（不翻圖、不重標），只有上方標號依新 CH1 位置改；第 p 條線的 SD 腳位編號從另一端數，收到 TCON 整行資料流的第 W−1−p 筆
+   ＝組 0 對稱那筆（含輸出對調／SHL）－ slope×(組+1)（slope＝目前模型每往後一組的名稱編號變化，未 Mirror ＋週期、Mirror －週期，實算），得到確切 pixel 編號，與鎖定目標逐格精確比對。
+   E503 Normal CH1 右：反推＝Mirror 1，最左格仍是 R1 且收到 R1、全部 0 呼吸燈；未開 Mirror 只能對到第一組，其餘照實亮呼吸燈。
+2. 多解 tie-break：每組 Mirror／CHRB 解再試整表平移 ±1～±4 pixel 當候選（精確比對下只有真正吻合的會是 0 錯），用 pvRank（全對 → 錯格 → 最長 drain → Mirror 不必改 → 左右線長差，drain／線長差＝候選本身的未鎖定接線，排名表同步）→ 送出的 pixel 集合與鎖定時相同 → CHRB 不必改 → 改動少。
+3. 標籤：SD OUT 與 TCON OUT 都寫「D週期(組)+組內序號」。CH1 在左 D6(0)+1…D6(0)+6、D6(1)+1…；CH1 在右 D6(n)+6…D6(n)+1、D6(n−1)+6…；TCON OUT 依這條線收到的 TCON 資料（含對調／SHL）編號。字級 Single 9.5、Dual 以上 11、週期 12 為 9（原 12，兩列同字級）。
+
+### 測試
+- check_datamap_sd_snapshot.js：頂端兩列標籤（文字、data-dlab、字級）不進快照，其餘（含 data-dof／data-src）照比；基準由 v1.35.2（fc14149，與原基準 24608 全同）以新規則重拍。
+- check_datamap_lkrev.js：連續序列每步斷言「每個主循環格收到的 pixel＝鎖定目標（逐格、無平移）」；E503 Auto Normal＋CH1 右斷言最左格＝R1 且收到 R1、Mirror 1；反推未達 0 的組合列出（不算成 0）。
+- 依新標籤更新 kickoff／svg_rep（TCON OUT 週期比 data-dof）／jump_realmouse／tft_interact、tcon_gate 字級（兩列同字級）。
+
+---
+
 ## Data Mapping (datamap) v1.35.2 — 2026-10-15 ｜ PATCH ｜ Benchmark 自動反推：CH1 換邊判定錯誤、排名表兩套評分、反推起點
 
 **判定依據**：§2 修正既有功能錯誤 → PATCH：v1.35.0 的自動反推在 CH1 換邊時把錯的解算成 0 錯（Bruce 實測）；只影響「鎖定＋Benchmark 開啟」路徑，未鎖定、Benchmark 關閉時行為不變（Single／Dual 快照全同）。
