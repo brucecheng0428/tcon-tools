@@ -659,7 +659,7 @@
   <div class="dm-minibody dm-pvdrag" id="dm-mini-body"><div class="dm-mininote hidden" id="dm-mini-note"></div><div class="dm-tftmini" id="dm-mini-svg"></div></div>
 </div>
 
-<script src="common/version.js?v=20261015dm1351"></script>
+<script src="common/version.js?v=20261015dm1352"></script>
 <script src="common/i18n.js?v=20261012dm1220"></script>
 <script>
 (function () {
@@ -2231,7 +2231,7 @@
         if (nlN > nlG && nlG > 0) { var gk = byK(Pg0.rows); for (var kx = nlG; kx < nlN; kx++) (gk[kx % nlG] || []).forEach(function (r) { Pg0.rows.push({ k: kx, gi: r.gi, names: r.names.slice() }); }); Pg0.nl = nlN; }
         Pg0.recv = {}; Pc0.rows.forEach(function (r) { Pg0.recv[r.k + ':' + r.gi] = r.names; });
         if (nlN > nlC && nlC > 0) Pg0.rows.forEach(function (r) { if (r.k >= nlC) Pg0.recv[r.k + ':' + r.gi] = Pg0.recv[(r.k % nlC) + ':' + r.gi]; }); Pg0.recvP = Pc0; Pg0.recvShift = mFlip || !S.glass.hand || !cs.hand ? 0 : (fast ? glTShift(Pg0, S.glass, Pc0, cs) : glCompareStates(S.glass, cs).shift); /* v1.18.5：Auto 沒有 T 表平移，不比對 force_sel 表 */ Pg0.recvMirFlip = mFlip; Pg0.locked = true; P = Pg0;
-        var lk = lkHwOf(); if (lk) Pg0.lkHw = lk; } }
+        var lk = lkHwOf(); if (lk) { Pg0.lkHw = lk; Pg0.recvCs = cs; } } }
     return P;
   }
   function renderPreview2(P) {
@@ -2411,9 +2411,19 @@
            drain 接到這筆資料在 ② 指定的子像素 ⇒ 資料一定正確，差別反映在 drain 長度（v1.17.4～v1.23.1 是 drain 固定、改收到的資料）。
            鎖定時 P＝鎖定的接線、P.recv＝目前設定，兩者用同一個索引 ⇒ 鎖定當下完全一致，之後只有 ② 改變才會不一致。 */
         var sq = pvLineSrc(P, p, swap, rev), sqD = sq;
-        if (P.lkHw && P.recv) { sq = pvLineSrc(P, p, P.lkHw.swap, P.lkHw.rev); sqD = pvLineSrc(P, P.lkHw.chFlip ? pvRevIdx(P, p) : p, swap, rev); }   // v1.35.0：走線照鎖定時、資料照目前設定
-        var cv = r.names[sq]; if (!cv) continue;
-        var t = cv.off ? null : (cv.t !== undefined ? cv.t : pvLin(cv.name));
+        var tRef = null;
+        if (P.lkHw && P.recv) {   // v1.35.0：走線照鎖定時、資料照目前設定
+          if (P.lkHw.chFlip) {
+            /* v1.35.2（Bruce 10/15 E503 實測）：CH1 換邊 ⇒ 畫面改從另一端（新 CH1）看同一塊玻璃：新第 p 腳＝舊的第 W−1−p 腳，子像素位置 t′＝Wsub−1−t。
+               以週期展開（W、Wsub 為週期整數倍）：t′(p)＝shift×(組+1)−1−t(組 0 內對稱那腳)，與 W 無關。資料照目前設定送到新第 p 腳（不再只在組內反排）。 */
+            var nP = P.period, lp = p % nP, blk = Math.floor(p / nP), sh0 = P.shift || nP * P.NG, i0 = pvLineSrc(P, nP - 1 - lp, P.lkHw.swap, P.lkHw.rev), c0 = r.names[i0];
+            if (!c0) continue;
+            var t0 = c0.off ? null : (c0.t !== undefined ? c0.t : pvLin(c0.name));
+            tRef = { cv: c0, t: t0 === null ? null : sh0 * (blk + 1) - 1 - t0 };
+          } else sq = pvLineSrc(P, p, P.lkHw.swap, P.lkHw.rev);
+        }
+        var cv = tRef ? tRef.cv : r.names[sq]; if (!cv) continue;
+        var t = tRef ? tRef.t : (cv.off ? null : (cv.t !== undefined ? cv.t : pvLin(cv.name)));
         var srcN = P.recv ? (P.recv[r.k + ':' + r.gi] || []) : r.names;
         var rc = srcN[sqD], rt = rc && !rc.off ? (rc.t !== undefined ? rc.t : pvLin(rc.name)) : null;
         out.push({ k: r.k, gi: r.gi, up: P.NG === 1 || r.gi < P.NG - 1, outer: P.NG === 3 && r.gi === 0, p: p, rep: p >= P.period, src: sq, name: cv.name, off: cv.off, t: t,
@@ -2565,6 +2575,7 @@
   function pvCombos(P) {
     var hasMir = !!(S.cur && DM.fieldById(S.model, 'mirror') && pvMirOk(P)), curM = hasMir ? (S.cur.mirror | 0) : 0, out = [], locked = hwLocked();
     var mirs = hasMir ? [curM, 1 - curM] : [curM];
+    if (locked && BM.open && GL.hw) return pvCombosLk(hasMir, curM, mirs);   // v1.35.2
     var PMS = {}, tref = pvTableRef(P);
     mirs.forEach(function (m) { PMS[m] = m === curM ? P : pvMirAlt(m); });
     mirs.forEach(function (m) {
@@ -2594,6 +2605,27 @@
     var keys = Object.keys(groups).sort(function (a, b) { var x = rank(groups[a][0]), y = rank(groups[b][0]); for (var i = 0; i < x.length; i++) if (Math.abs(x[i] - y[i]) > 1e-9) return x[i] - y[i]; return 0; });
     return { list: out, groups: groups, order: keys, hasMir: hasMir, curM: curM };
   }
+  /* v1.35.2（Bruce 10/15「排列組合幫我選到第二名，第一名又不讓我點選（禁止符號），實際上又可以點，點了又有問題」）：
+     根因：鎖定時排名表的 Mirror 另一值那列用「未鎖定」模型評分（pvMirAlt），目前那列用鎖定接線評分，兩套標準混排；表格又以 hwLocked 顯示禁止游標，
+     但 Mirror 列實際可套用。改成「鎖定＋Benchmark」時 32 種全部用和自動反推同一個鎖定評分（lkEval：呼吸燈格數），Driver／面板可改 ⇒ 每列都可點、不顯示禁止。 */
+  function pvCombosLk(hasMir, curM, mirs) {
+    var keep = [pvFirstRight, pvDrvRev, pvBGR, pvSwapOn], out = [];
+    try {
+      mirs.forEach(function (m) {
+        var st = DM.cloneState(S.cur); if (m !== curM) { st.mirror = m; rvsSet(st, m ? rvsFull() : 0); }
+        [false, true].forEach(function (fr) { [false, true].forEach(function (rv) { [false, true].forEach(function (bg) { [false, true].forEach(function (sw) {
+          pvFirstRight = fr; pvDrvRev = rv; pvBGR = bg; pvSwapOn = sw;
+          var x = lkEval(st), bad = x ? x.e.bad : 9999, mx = 0, bal = 0, sh = 0;
+          if (x) { var Pl = x.P, sp = pvWiresSpec(Pl, sw, rv), nn = Pl.period, plc = pvPlace(sp, -pvPreCount(Pl), Math.max(11, nn * Pl.NG - 1), Pl.NG, nn); if (plc.cost) { mx = plc.cost[0]; bal = plc.cost[1]; sh = plc.G ? (fr ? -plc.G[0] : plc.G[0]) : 0; } }
+          var dk = (fr ? 'r' : 'l') + (rv ? 'r' : 'f') + (bg ? 'b' : 'g') + (sw ? 's' : 'n');
+          out.push({ first: fr, rev: rv, bgr: bg, swap: sw, rl: fr, mirror: m, mirChg: m !== curM, hasMir: hasMir, mis: 0, dbad: bad, ok: !bad, tot: x ? x.e.tot : 0, mx: mx, bal: bal, sh: sh, dkey: dk, key: dk + (hasMir ? String(m) : '') });
+        }); }); }); });
+      });
+    } finally { pvFirstRight = keep[0]; pvDrvRev = keep[1]; pvBGR = keep[2]; pvSwapOn = keep[3]; }
+    var groups = {}; out.forEach(function (c) { (groups[c.key] = groups[c.key] || []).push(c); });
+    var keys = Object.keys(groups).sort(function (a, b) { return pvRankCmp(pvRank(groups[a][0]), pvRank(groups[b][0])); });
+    return { list: out, groups: groups, order: keys, hasMir: hasMir, curM: curM, lk: true };
+  }
   function pvRank(c) { return [c.ok ? 0 : 1, c.mis + c.dbad, c.mx, c.mirChg ? 1 : 0, c.bal, c.swap ? 1 : 0, c.rev ? 1 : 0, c.bgr ? 1 : 0, c.first ? 1 : 0]; }
   function pvRankCmp(x, y) { for (var i = 0; i < x.length; i++) if (Math.abs(x[i] - y[i]) > 1e-9) return x[i] - y[i]; return 0; }
   function pvComboName(c) { return (c.first ? 'CH1 在最右' : 'CH1 在最左') + '＋' + (c.rev ? '反向' : '正向') + '＋' + (c.bgr ? 'BGR' : 'RGB') + (c.swap ? '＋' + tt('dm.pvSwapS') : '') + (c.mirChg ? '＋' + tt('dm.pvCMirSet', { m: c.mirror }) : ''); }
@@ -2603,7 +2635,7 @@
   function pvApplyCombo(key, scroll) {
     var fr = key.charAt(0) === 'r', rv = key.charAt(1) === 'r', bg = key.charAt(2) === 'b', sw = key.charAt(3) === 's', m = key.length > 4 ? +key.charAt(4) : null;
     var sameHw = fr === pvFirstRight && rv === pvDrvRev && bg === pvBGR && sw === pvSwapOn;
-    if (hwLocked() && !sameHw) { toast('n', tt('dm.pvCLocked')); return false; }
+    if (hwFrozen() && !sameHw) { toast('n', tt('dm.pvCLocked')); return false; }
     if (!sameHw) {
       pvFirstRight = fr; pvDrvRev = rv; pvBGR = bg; pvSwapOn = sw; pvAutoFirst = null; pvDrvAuto = null;
       $('dm-pv-first').value = fr ? 'r' : 'l'; $('dm-pv-drv').value = rv ? 'r' : 'f'; $('dm-pv-stripe').value = bg ? 'bgr' : 'rgb'; $('dm-pv-swap').checked = sw; $('dm-pv-swapbox').classList.toggle('on', sw);
@@ -2628,7 +2660,7 @@
     var th = function (k, tip) { return '<th' + (tip ? ' title="' + esc(tt(tip)) + '"' : '') + '>' + esc(tt(k)) + (tip ? ' <i class="dm-i">ⓘ</i>' : '') + '</th>'; };
     var h = '<thead><tr>' + th('dm.pvCGroup') + th('dm.pvFirst') + th('dm.pvDrv') + th('dm.pvStripe') + th('dm.pvSwapS') + th('dm.pvCData') + th('dm.pvCColor') + th('dm.pvCMax') + th('dm.pvCBal', 'dm.hBalT') + (C.hasMir ? th('dm.pvCMir', 'dm.hCMirT') : '') + th('dm.pvCShift', 'dm.hCShiftT') + '</tr></thead><tbody>';
     var bad = function (n) { return n ? '✗ ' + tt('dm.pvCBad', { n: n }) : '✓'; };
-    var locked = hwLocked();
+    var locked = hwFrozen();   // v1.35.2
     C.order.forEach(function (k, gi) { C.groups[k].forEach(function (c) {
       h += '<tr data-combo="' + c.key + '" data-group="' + (gi + 1) + '" data-ok="' + (c.ok ? 1 : 0) + '" class="dm-crow' + (c === cur ? ' dm-ccur' : '') + (c.ok ? ' dm-cok' : '') + '" data-mirror="' + (C.hasMir ? c.mirror : '') + '" tabindex="0" title="' + esc(tt(locked ? 'dm.pvCApplyMirT' : 'dm.pvCApplyT')) + '">' +
         '<td>' + tt('dm.pvCG', { n: gi + 1 }) + (c === cur ? ' <span class="dm-ccurtag">' + esc(tt('dm.pvCCur')) + '</span>' : '') + '</td><td>' + (c.first ? tt('dm.pvFirstR') : tt('dm.pvFirstL')) + '</td><td>' + (c.rev ? tt('dm.pvDrvR') : tt('dm.pvDrvF')) + '</td><td>' + (c.bgr ? 'BGR' : 'RGB') + '</td><td>' + (c.swap ? '有' : '無') + '</td>' +
@@ -2651,7 +2683,7 @@
     if (note) note.textContent = sel > 0 && nl0 > sel ? tt('dm.pvVlMore', { p: nl0, n: sel }) : '';
   }
   function renderPvTft(P) {
-    pvFlipNow = P && P.lkHw ? !!P.lkHw.first : pvRL();   // 只看 CH1 位置（v1.35.0：鎖定後改 CH1 ⇒ 畫面方向照鎖定時，玻璃不動）
+    pvFlipNow = pvRL();   // 只看 CH1 位置
     try { return renderPvTft0(pvVRep(P)); } finally { pvFlipNow = false; renderPvVl(P); }
   }
   /* v1.18.25（Bruce 10/8「T-CON OUT 字太小了，請把它改成跟 pixel 裡面的英文與數字大小一樣；SD OUT 跟 T-CON OUT 兩者都將字體放大一點（兩者字體要一樣大）」）：
@@ -2663,16 +2695,16 @@
     /* v1.17.1（Bruce 10/8）：CH1 在右（整張圖左右翻）時，主循環改畫在最左邊：左邊那組（原 D(n+1)~D(2n)）當主循環、標 Dn+k，
        右邊靠 CH1 那組當重複組、標 Dn、Dn−1…；兩組接法相同（重複組＝主循環平移一個週期），只換亮暗、標號與格內名稱（往回平移一個週期） */
     var FL = pvFlipNow; PV_LOCK = { ok: 0, n: 0 };
-    var LKH = P.lkHw || null, FRL = LKH ? !!LKH.first : pvRL(), FLn = LKH && LKH.chFlip ? !FL : FL, lkP = function (p) { return LKH && LKH.chFlip ? pvRevIdx(P, p) : p; };   // v1.35.0
+    var LKH = P.lkHw || null, FRL = pvRL(), LKC = !!(LKH && LKH.chFlip && P.recv), LF = LKC ? lkFlip(P) : null;   // v1.35.0；v1.35.2：CH1 換邊照一般畫法翻圖（玻璃走線在 pvWiresSpec 換算）
     /* v1.18.24：24 條時 CH1 在右 ⇒ 主循環＝最左那組（最後一個週期 p ≥ nD−n），標 Dn+1~Dn+n；往右（靠 CH1）依序 Dn、Dn−1…；格內名稱往回平移 (組數−1) 個週期 */
     if (FL) spec.forEach(function (w) { w.rep = w.p < nD - n; });
     /* v1.18.25（Bruce 10/8「hand mode enable 的模式，亮的部分要配合 data mapping 表格所設定的個數…只有 line 1 跟 line 2 是亮的，下方其他部分都要是暗的」）：
        Hand Mode 開（不是 Auto、不是 Line OD 測試）時，v1.18.24 垂直重複出來的列（k ≥ ② 表格定義的列數 P.vrep）整列算前後循環（調暗）；水平仍只有 D1~D(週期) 亮。Auto 維持 v1.18.24（重複列不淡化） */
     var HDIM = !!(P.vrep && S.cur && (S.cur.hand | 0) && !P.lod && P.autoE === undefined);
     if (HDIM) spec.forEach(function (w) { if (w.k >= P.vrep) w.rep = true; });
-    var dLab = function (p) { if (FLn !== FL) p = nD - 1 - p; if (!FLn) return 'D' + (p + 1); var k = p - (nD - n) + 1; return 'Dn' + (k > 0 ? '+' + k : (k < 0 ? '−' + (-k) : '')); };
+    var dLab = function (p) { if (!FL) return 'D' + (p + 1); var k = p - (nD - n) + 1; return 'Dn' + (k > 0 ? '+' + k : (k < 0 ? '−' + (-k) : '')); };
     var shownPos = function (s0) { return FL ? s0 - pSub * (NGR - 1) : s0; };
-    var dofOf = function (p) { return (pvLineSrc(P, lkP(p), swap, pvDrvRev) % n) + 1; };
+    var dofOf = function (p) { return (pvLineSrc(P, p, swap, pvDrvRev) % n) + 1; };
     var DX = !!P.recv, PR = P.recvP || P;   // v1.23.2：未鎖定時收到的資料＝drain 目標（格內只寫固定的位置名稱）；鎖定時才寫收到的資料
     var G0 = []; for (var i0 = 0; i0 < n; i0++) G0.push(i0 * per);
     var c0 = pvCost(G0, spec, smin, mainMax, n), pl = pvPlace(spec, smin, mainMax, per, n), Gm = pl.G, labs = {};
@@ -2688,7 +2720,7 @@
     var pvAxisNm = function (s0) { var L = pvAxisLab(P, s0, FL, pvBGR, axEdge); return L === null ? '' : pvName(L); };   // v1.23.3 左小右大，最左＝表格最小 pixel
     /* v1.18.3：格內名稱照 v1.17.5（Mirror 用原廠 Pixel mapping view 名稱）；只有「鎖定後 Mirror 和鎖定當下不同」才把收到的 pixel 編號左右鏡像（Bruce 10/8 pixel 級模型） */
     var pvNm0 = function (x) { return pvName(P.mirror ? pvSpanRev(P, x) : x); };
-    var FLIP = !!P.recvMirFlip, PRc = P.recvP || P;
+    var FLIP = !!P.recvMirFlip && !(P.lkHw && P.lkHw.chFlip), PRc = P.recvP || P;
     var pvNmCur = function (x) { return pvName(PRc.mirror ? pvSpanRev(PRc, x) : x); };   // 目前狀態（目前的 Mirror）在同一位置會寫的名稱
     var LX = 92, CW = 38, CH = 40, PIT = 58, R = 5, TR = 7, HOP = 4, top = 74, o = '', oR = '', o2 = '', oT = '';
     var boxX = function (s) { return LX + (s - smin) * PIT + 10; }, gapX = function (g) { return boxX(g) - 10; };
@@ -2753,7 +2785,7 @@
     });
     /* 3) Data 線 D1~D(2×週期)；對調時標「送 Dn」；重複組調暗 */
     for (var p = 0; p < nD; p++) {
-      var sq = pvLineSrc(P, lkP(p), swap, pvDrvRev), rep = FL ? p < nD - n : p >= n, dx = gapX(G[p]), path = 'M' + dx + ' ' + (top - 26), s = '';
+      var sq = pvLineSrc(P, p, swap, pvDrvRev), rep = FL ? p < nD - n : p >= n, dx = gapX(G[p]), path = 'M' + dx + ' ' + (top - 26), s = '';
       var sw = (sq % n) !== (p % n);   // 對調／SHL 讓這條線收到別筆資料
       gys.forEach(function (gl) { path += ' V' + (gl.y - R) + ' A' + R + ' ' + R + ' 0 0 1 ' + dx + ' ' + (gl.y + R); });
       path += ' V' + (H - 2);
@@ -2786,9 +2818,11 @@
         if (LKH && LKH.bgrChg) posNm = DM.rbSwapName(posNm);   // v1.35.0：鎖定後改 RGB↔BGR ⇒ 這格的顏色 R↔B，該收的資料跟著換色（pixel 編號不變）
         // v1.23.2：鎖定的接線若 CHRB＝1，這格「該收到的資料」也是 R↔B 後的名稱（和 pvChrb 同一定義）
         if (DX && dwR) phys = dwR.rt === null || dwR.rt === undefined ? 'X' : (FLIP ? pvEndNm(pvNmCur(shownPos(dwR.rt))) : pvNm0(shownPos(pvRecvT(P, dwR.rt))));
+        var lfw = LF && dwR ? LF[dwR.k + ':' + dwR.gi + ':' + dwR.p] : null;   // v1.35.2：CH1 換邊 ⇒ 用 lkFlip 的判定（收到的資料名稱、是否吻合）
+        if (lfw) { phys = lfw.nm; posNm = lfw.bad ? '≠' + lfw.exp : phys; if (lfw.exp && /^[RGB]/.test(lfw.exp)) posLb = lfw.exp; }   // 格名＝從 CH1 這端看的子像素軸（左小右大，與 32 種排列同一軸）
         var endJ = +phys.slice(2), endTip = FLIP && dwR && /末/.test(phys) ? tt(endJ > 0 ? 'dm.pvEndTip' : 'dm.pvEndTipOut', { k: dofOf(dwR.p), j: phys.slice(2), o: -endJ, c: phys.charAt(0) }) + '；' : '';
         /* v1.17.0：格內寫「這顆實際收到的資料」（CHRB＝1 時 R↔B 後的名稱）；沒有 CHRB 時＝位置名稱，畫面和舊版相同 */
-        var dn = (P.recv ? P.recvP && P.recvP.chrb : P.chrb) && ins.length ? DM.rbSwapName(phys) : phys, rbx = dn !== phys;
+        var dn = !lfw && (P.recv ? P.recvP && P.recvP.chrb : P.chrb) && ins.length ? DM.rbSwapName(phys) : phys, rbx = dn !== phys;
         phys = dn;
         /* 鎖定時：格內「收到的資料」用面板（鎖定接線）的命名表示，和這格要的不一樣就標 ≠ */
         var lockNe = !!(P.recv && dwR && phys !== posNm);
@@ -3104,8 +3138,8 @@
      錯格＝TFT 接線圖呼吸燈（衝突、顏色不符、收到≠應收）。多組解依 32 種排列同一個排名（pvRank：全對→錯格數→最長 drain→Mirror 不必改→左右線長差），
      再依 CHRB 不必改、改動格數少。套用走 commit（可「復原」、已改標示照常）。 */
   function lkErr(P) {
-    var FRL = P.lkHw ? !!P.lkHw.first : pvRL(), FL = FRL, n = P.period, nD = pvNDof(n), pSub = n * P.NG, NGR = nD / n, smin = -pvPreCount(P);
-    var spec = pvWiresSpec(P, pvSwapOn, pvDrvRev), PRc = P.recvP || P, FLIP = !!P.recvMirFlip, bad = 0, tot = 0, hit = {};
+    var FRL = pvRL(), FL = FRL, n = P.period, nD = pvNDof(n), pSub = n * P.NG, NGR = nD / n, smin = -pvPreCount(P), LKC = !!(P.lkHw && P.lkHw.chFlip);
+    var spec = pvWiresSpec(P, pvSwapOn, pvDrvRev), PRc = P.recvP || P, FLIP = !!P.recvMirFlip && !LKC, bad = 0, tot = 0, hit = {}, LF = LKC && P.recv ? lkFlip(P) : null;
     if (FL) spec.forEach(function (w) { w.rep = w.p < nD - n; });
     var shownPos = function (s0) { return FL ? s0 - pSub * (NGR - 1) : s0; };
     var nm0 = function (x) { return pvName(P.mirror ? pvSpanRev(P, x) : x); }, nmCur = function (x) { return pvName(PRc.mirror ? pvSpanRev(PRc, x) : x); };
@@ -3116,10 +3150,41 @@
       if (P.lkHw && P.lkHw.bgrChg) posNm = DM.rbSwapName(posNm);
       phys = dwR.rt === null || dwR.rt === undefined ? 'X' : (FLIP ? pvEndNm(nmCur(shownPos(dwR.rt))) : nm0(shownPos(pvRecvT(P, dwR.rt))));
       if (PRc.chrb) phys = DM.rbSwapName(phys);
+      var lfw = LF ? LF[dwR.k + ':' + dwR.gi + ':' + dwR.p] : null;
+      if (lfw) { phys = lfw.nm; posNm = lfw.bad ? '≠' : phys; }
       var e = ins.length > 1 || physCh !== phys.charAt(0) || phys !== posNm;
       tot++; if (e) bad++;
     });
     return { bad: bad, tot: tot };
+  }
+  /* v1.35.2（Bruce 10/15 E503 實測「CH1 改最右，反推出 B2 G2 R2 B1 G1 R1 但沒開 Mirror，結果一定不對」）：
+     根因：v1.35.0 把 CH1 換邊當成「每 6 條一組內反向」，資料編號仍從同一端數 ⇒ 只在組內反排表格就被算成 0 錯（實際影像左右顛倒）。
+     通用判定（不分型號／排列／哪一項設定）：CH1 換邊時，從新 CH1 那端看同一塊玻璃（pvWiresSpec 反射後的走線 t′），而目前 ② 在目前 Driver／面板設定下
+     「本來就會接的線」（未鎖定模型 pvWiresSpec(Pc)）必須和玻璃走線整組只差一個平移（實體走線相同），且每條線的資料名稱／顏色依未鎖定的
+     32 種排列同一套判定（pvDataAt＋pvAxisLab 左小右大、pvPhysCh）全對，才算這格吻合。回傳每條線 'k:gi:p' → { bad, nm（收到，含 CHRB）, exp（該收） }。 */
+  function lkFlip(P) {
+    var Pc = P.recvP, n = P.period, nD = pvNDof(n), sw = pvSwapOn, rv = pvDrvRev, fl = pvRL(), bg = pvBGR, keepC = S.cur, out = {};
+    if (P.recvCs) S.cur = P.recvCs;
+    try {
+      var gs = pvWiresSpec(P, sw, rv), cs = pvWiresSpec(Pc, sw, rv), nlC = Pc.nl || 1, cm = {}, cnt = {};
+      cs.forEach(function (w) { cm[w.k + ':' + w.gi + ':' + w.p] = w; });
+      Pc._tref = undefined; Pc._tmin = undefined; pvTableRef(Pc);
+      var Q = Object.assign({}, Pc, { flShift: 1 }), edge = pvAxisEdge(cs.filter(function (w) { return !w.off; }).map(function (w) { return w.t; }), fl);
+      var pair = function (g) { return cm[(g.k % nlC) + ':' + g.gi + ':' + g.p]; };
+      gs.forEach(function (g) { var c = pair(g); if (c && !g.off && !c.off && g.t !== null && c.t !== null) { var dd = c.t - g.t; cnt[dd] = (cnt[dd] || 0) + 1; } });
+      var T = 0, bc = -1; Object.keys(cnt).forEach(function (k) { if (cnt[k] > bc || (cnt[k] === bc && Math.abs(+k) < Math.abs(T))) { bc = cnt[k]; T = +k; } });
+      gs.forEach(function (g) {
+        if (g.off || g.t === null) return;
+        var key = g.k + ':' + g.gi + ':' + g.p, c = pair(g);
+        if (!c || c.off || c.t === null) { out[key] = { bad: true, nm: 'X', exp: '' }; return; }
+        var d = fl ? pvDataAt(Q, c.t) : (c.rname || c.name);
+        if (fl && Pc.chrb) d = DM.rbSwapName(d);
+        var main = fl ? g.p >= nD - n : g.p < n, a = pvAxisLab(Pc, c.t, fl, bg, edge), an = a === null ? '' : pvName(a);
+        var bad = (c.t - g.t) !== T || pvPhysCh(g.t, fl, bg) !== String(d).charAt(0) || (main && (a === null || pvLin(d) !== a));
+        out[key] = { bad: bad, nm: d, exp: an || pvPhysCh(g.t, fl, bg) };
+      });
+    } finally { S.cur = keepC; }
+    return out;
   }
   function lkEval(cs) {
     var Pc = pvModelState(cs); if (!Pc.ok) return null;
@@ -3135,7 +3200,11 @@
       S.deDef = false; log('n', 'Benchmark 自動反推：Hand Mode Enable ← 1'); commit(hs, 'Hand Mode Enable'); initHandFill();
       BM.undo = { model: m, st: undo, en01T: S.en01T.slice() };
     }
-    var base = S.cur, tri = DM.triOn(m, base), cells = [];
+    /* v1.35.2（Bruce 10/15「每次反推都以鎖定當下為基準…改回原設定時結果要回到原本的表格／Panel mode」）：
+       起點一律＝鎖定當下的 ②（S.glass 的表格、Mirror、CHRB、READ_RVS），不是上一次反推的結果 ⇒ 可無限次重複、結果只由「鎖定目標＋目前 Driver／面板」決定 */
+    var base = DM.cloneState(S.cur);
+    DM.fieldsOf(m).forEach(function (f) { if (/^([cxe]\d+|mirror|chrb|rvsL|rvsH)$/.test(f.id)) base[f.id] = S.glass[f.id]; });
+    var tri = DM.triOn(m, base), cells = [];
     if (tri) { for (var tr = 0; tr < 6; tr++) for (var tc = 0; tc < 6; tc++) cells.push([tr, tc]); }
     else for (var r = 0; r < 4; r++) for (var c = 0; c < 6; c++) { var v = DM.cellView(m, base, r, c); if (!v.blank && v.editable) cells.push([r, c]); }
     var sync = function (ns) { return tri ? ns : DM.firstEdit(m, base, ns).state; };
@@ -3161,9 +3230,9 @@
       }
       var x = lkEval(sync(st)), mx = 0, bal = 0;
       if (x) { var Pl = x.P, sp = pvWiresSpec(Pl, pvSwapOn, pvDrvRev), nn = Pl.period, plc = pvPlace(sp, -pvPreCount(Pl), Math.max(11, nn * Pl.NG - 1), Pl.NG, nn); if (plc.cost) { mx = plc.cost[0]; bal = plc.cost[1]; } }
-      var fs = sync(st), nChg = DM.fieldsOf(m).filter(function (f) { return (fs[f.id] >>> 0) !== (undo[f.id] >>> 0); }).length;
-      var cb = { ok: cur === 0, mis: 0, dbad: cur, mx: mx, mirChg: vc[0] !== (undo.mirror | 0), bal: bal, swap: pvSwapOn, rev: pvDrvRev, bgr: pvBGR, first: pvFirstRight };
-      return { st: st, bad: cur, mir: vc[0], chrb: vc[1], key: pvRank(cb).concat([vc[1] !== (undo.chrb | 0) ? 1 : 0, nChg]), nChg: nChg };
+      var fs = sync(st), nChg = DM.fieldsOf(m).filter(function (f) { return (fs[f.id] >>> 0) !== (base[f.id] >>> 0); }).length;   // v1.35.2：改動量對鎖定當下比
+      var cb = { ok: cur === 0, mis: 0, dbad: cur, mx: mx, mirChg: vc[0] !== m0, bal: bal, swap: pvSwapOn, rev: pvDrvRev, bgr: pvBGR, first: pvFirstRight };
+      return { st: fs, bad: cur, mir: vc[0], chrb: vc[1], key: pvRank(cb).concat([vc[1] !== c0 ? 1 : 0, nChg]), nChg: nChg };
     });
     res.sort(function (a, b) { return pvRankCmp(a.key, b.key); });
     var best = res[0];
@@ -3172,7 +3241,7 @@
     var why = 'Mirror ' + best.mir + (hasC ? '、CHRB ' + best.chrb : '');
     GL.rev = { txt: tt(best.bad ? 'dm.bmRevMin' : 'dm.bmRevOk', { e: best.bad, r: 1, n: res.length, c: why }), bad: best.bad, ms: Date.now() - t0, rank: res.map(function (x) { return { mir: x.mir, chrb: x.chrb, bad: x.bad }; }) };
     log('n', 'Benchmark 自動反推：' + GL.rev.txt + '（' + GL.rev.ms + ' ms）');
-    commit(best.st, 'Benchmark 自動反推', tri ? { noSync: true } : undefined);
+    commit(best.st, 'Benchmark 自動反推', { noSync: true });   // v1.35.2：best.st 已是評估用的同一份（firstEdit 對鎖定起點做過）
     GL.rev.sig = lkSig(); renderRevBtn();
     toast(best.bad ? 'e' : 'ok', GL.rev.txt);
     return GL.rev;

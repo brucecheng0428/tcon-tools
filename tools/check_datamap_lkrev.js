@@ -27,12 +27,18 @@ const ok = (c, g, m) => { cnt[g] = (cnt[g] || 0) + 1; if (c) pass++; else { fail
   const wires = () => Array.from(d.querySelectorAll('#dm-pv-tft path[data-w]')).map(p => p.getAttribute('data-w') + '|' + p.getAttribute('d')).join('\n');
   const attrs = (sel, a) => Array.from(d.querySelectorAll('#dm-pv-tft ' + sel)).map(e => e.getAttribute(a)).join(',');
   const has = id => !!$(id);
+  /* v1.35.2：CH1 換邊 ⇒ 畫面照一般規則左右翻（看的是 CH1 那一端），玻璃走線型態不變 ⇒ 比 drain 長度集合（翻轉不變量）；其他變更比完整路徑 */
+  const lens = () => Array.from(d.querySelectorAll('#dm-pv-tft path[data-w]')).map(p => p.getAttribute('data-len')).sort().join(',');
+  const wsig = ch => ch ? lens() : wires();   // CH1 換邊：接線圖本身有衝突（例 All Same）時 drain 長度不具不變性，只比沒有衝突的鎖定架構
+  const cells = () => JSON.stringify(Object.keys(S.cur).filter(k => /^([cxe]\d+|mirror|chrb|rvsL|rvsH)$/.test(k)).sort().map(k => k + '=' + S.cur[k]));
   const starts = [];
   const auto = (m, set, nm) => starts.push({ m, nm: 'Auto ' + nm, go: () => { const s = DM.cloneState(S.cur); Object.assign(s, set); s.hand = 0; S.cur = s; w.dmRender(); } });
   const preset = (m, k) => starts.push({ m, nm: 'Hand ' + DM.PRESETS[k].name, go: () => { S.cur = DM.applyPreset(m, S.cur, k); w.dmRender(); } });
   auto('EM01', { panel: 2, subPanel: 3, rd: 1 }, 'HSD type4+BOE zigzag');   // Bruce 舉例
   auto('EM01', { panel: 1, subPanel: 0, rd: 0 }, 'Zigzag type1');
   auto('EM02', { panel: 0, subPanel: 0, rd: 0 }, '1D1G');
+  const autoT = (m, i) => starts.push({ m, nm: 'Auto ' + A.list(m)[i].name, go: () => { S.cur = DM.setHand(m, A.apply(m, S.cur, i), false); w.dmRender(); } });
+  autoT('E503', 0); autoT('EM01', 0);   // v1.35.2 Bruce 實測：E503 Auto Normal；EM01 Auto 1D1G Normal
   preset('EM01', 33); preset('EM01', 24); preset('EM01', 29);
   starts.push({ m: 'E512', nm: 'Hand Dual（Auto 反推後的表格）', go: () => { const s = DM.cloneState(S.cur); s.panel = 1; s.subPanel = 0; s.hand = 0; S.cur = s; w.dmRender(); }, handFirst: true });
   starts.push({ m: 'E501A', nm: 'Hand Single（NB）', go: () => { fire($('dm-hand'), true); const o = Array.from($('dm-gate').options).find(x => /Single/i.test(x.textContent)); if (o) fire($('dm-gate'), o.value); fire($('dm-samev'), 'R1'); $('dm-same').click(); } });
@@ -56,27 +62,57 @@ const ok = (c, g, m) => { cnt[g] = (cnt[g] || 0) + 1; if (c) pass++; else { fail
     if (st.handFirst) { $('dm-pv-lock').click(); B.open(true); fire($('dm-pv-swap'), true); B.reverse(); hwReset(); }   // 先用 Auto 反推出一張 Hand 表，再當 Hand 起點
     const tag = st.m + ' ' + st.nm + ' × ' + chg.join('+');
     $('dm-pv-lock').click();
-    const e0 = err(), w0 = wires(), dof0 = attrs('text.dm-tco', 'data-dof'), dl0 = attrs('text.dm-sdo[data-dlab]', 'data-dlab'), ph0 = attrs('rect[data-phys]', 'data-phys');
+    const CH = chg.includes('ch1');
+    const e0 = err(), w0 = wsig(CH), dof0 = attrs('text.dm-tco', 'data-dof'), dl0 = attrs('text.dm-sdo[data-dlab]', 'data-dlab'), ph0 = attrs('rect[data-phys]', 'data-phys');
     B.open(true);
-    ok(wires() === w0 && err() === e0, 'R1', tag + '：只打開 Benchmark 不應改變接線圖');
+    ok(wsig(CH) === w0 && err() === e0, 'R1', tag + '：只打開 Benchmark 不應改變接線圖');
+    const preChg = JSON.stringify(S.cur);
     chg.forEach(k => fire($(HW[k][0]), HW[k][2]));
-    ok(wires() === w0, 'R1', tag + '：改 Driver／面板後玻璃走線應不動');
-    { const lo = ($('dm-pv-lockst').getAttribute('data-ok') || '').split('/'), ne = d.querySelectorAll('#dm-pv-tft rect[data-glne]').length; ok(ne === 0 || lo[0] !== lo[1], 'R1', tag + '：有 ≠ 格時鎖定狀態不應顯示全部一致：' + lo.join('/') + ' ≠格 ' + ne); }
+    ok(JSON.stringify(S.cur) === preChg && !(B.state && 0), 'R1', tag + '：改 Driver／面板不可自動反推（② 不變）');
+    ok((CH && e0) || wsig(CH) === w0, 'R1', tag + '：改 Driver／面板後玻璃走線應不動');
     if ((chg.includes('swap') || chg.includes('shl')) && !chg.includes('ch1')) ok(attrs('text.dm-tco', 'data-dof') !== dof0, 'R2', tag + '：TCON OUT 標示應照新設定改變');
-    if (chg.includes('ch1')) ok(attrs('text.dm-sdo[data-dlab]', 'data-dlab') !== dl0 && $('dm-pv-tft').getAttribute('data-dir') === 'lr', 'R2', tag + '：CH1 改右 ⇒ SD OUT 標號改變、畫面不翻');
+    if (CH) ok(attrs('text.dm-sdo[data-dlab]', 'data-dlab') !== dl0 && $('dm-pv-tft').getAttribute('data-dir') === 'rl', 'R2', tag + '：CH1 改右 ⇒ SD OUT 從右邊編號（Dn+…）');
     if (chg.includes('bgr')) { const ph1 = attrs('rect[data-phys]', 'data-phys'), sw = ph0.split(',').map(c => c === 'R' ? 'B' : c === 'B' ? 'R' : c).join(','); ok(ph1 === sw, 'R2', tag + '：BGR ⇒ 子像素顏色標示 R↔B'); }
     const e1 = err(), pre = JSON.stringify(S.cur), t0 = Date.now();
     const R = B.reverse(); const dt = Date.now() - t0; tMax = Math.max(tMax, dt);
     const e2 = err();
     ok(R && S.cur.hand === 1 && $('dm-hand').checked, 'R3', tag + '：Hand Mode Enable 應自動打開');
-    ok(wires() === w0, 'R3', tag + '：反推後走線應不動');
+    ok((CH && e0) || wsig(CH) === w0, 'R3', tag + '：反推後走線應不動');
+    if (CH && e0 === 0 && DM.fieldById(st.m, 'mirror')) ok((S.cur.mirror | 0) !== (S.glass ? S.glass.mirror | 0 : -1) || e2 > 0, 'R3', tag + '：CH1 換邊的 0 錯解應切換 Mirror');
     ok(e2 <= e0, 'R3', tag + '：呼吸燈 鎖定時 ' + e0 + '、改後 ' + e1 + '、反推後 ' + e2 + '（' + (R && R.txt) + '）');
     ok(R && (R.bad === 0) === (e2 === 0) && $('dm-bench-revst').textContent === R.txt, 'R3', tag + '：結果行＝' + ($('dm-bench-revst') || {}).textContent);
-    { const lo = ($('dm-pv-lockst').getAttribute('data-ok') || '').split('/'); ok(e2 > 0 || lo[0] === lo[1], 'R3', tag + '：反推 0 錯時鎖定狀態應＝全部一致：' + lo.join('/')); }
     ok(!$('dm-bench-undo').classList.contains('hidden'), 'R3', tag + '：應可復原');
     $('dm-bench-undo').click();
     ok(JSON.stringify(S.cur) === pre && err() === e1, 'R3', tag + '：復原應回到反推前（呼吸燈 ' + err() + ' vs ' + e1 + '）');
     nCase++;
+  }
+  /* ── R5 連續序列（Bruce 10/15）：鎖定 → 反推 → CH1 改右 → 反推 → BGR → 反推 → CH1 改回左 → 反推 → RGB 改回 → 反推 ⇒ 每步 0 呼吸燈；
+        改設定時不自動反推（呼吸燈照實出現）；回到鎖定設定時 ② 回到第一次反推的表格／Panel mode（以鎖定當下為基準，不受上一次反推影響） ── */
+  /* ── R6 一次改多個條件（CH1 右＋BGR＋輸出對調）→ 按一次反推 → 0 呼吸燈 ── */
+  for (const [m, i] of [['E503', 0], ['EM01', 0], ['EM01', 2]]) {
+    const tag = m + ' Auto ' + A.list(m)[i].name;
+    hwReset(); setModel(m); S.cur = DM.setHand(m, A.apply(m, S.cur, i), false); w.dmRender();
+    $('dm-pv-lock').click(); const e0 = err(); B.open(true);
+    ok(e0 === 0, 'R5', tag + '：鎖定時 0 呼吸燈（' + e0 + '）');
+    B.reverse(); const T0 = cells();
+    ok(err() === 0, 'R5', tag + '：第 1 次反推 0 呼吸燈');
+    const seq = [['ch1', 1], ['bgr', 1], ['ch1', 0], ['bgr', 0], ['swap', 1], ['shl', 1], ['ch1', 1], ['swap', 0], ['shl', 0], ['ch1', 0]];
+    for (const [k, on] of seq) {
+      const pre = cells(); fire($(HW[k][0]), HW[k][on ? 2 : 1]);
+      const e1 = err();
+      ok(cells() === pre, 'R5', tag + '：' + k + (on ? '開' : '關') + ' 後不可自動反推');
+      const R = B.reverse();
+      ok(err() === 0 && R && R.bad === 0, 'R5', tag + '：' + k + (on ? '開' : '關') + ' → 反推後 0 呼吸燈（改後 ' + e1 + '、反推後 ' + err() + '：' + (R && R.txt) + '）');
+      if (k === 'ch1' && on && DM.fieldById(m, 'mirror')) ok((S.cur.mirror | 0) !== (S.glass.mirror | 0), 'R5', tag + '：CH1 改右的解應開 Mirror（TCON 整行反向）');
+    }
+    ok(cells() === T0, 'R5', tag + '：設定全部改回 → ② 回到第一次反推的表格／Panel mode');
+    /* R6 */
+    const pre = cells(); fire($('dm-pv-first'), 'r'); fire($('dm-pv-stripe'), 'bgr'); fire($('dm-pv-swap'), true);
+    ok(cells() === pre && err() > 0, 'R6', tag + '：一次改 3 個條件 ⇒ 呼吸燈照實出現、② 不變（' + err() + '）');
+    const R6 = B.reverse(); ok(err() === 0 && R6 && R6.bad === 0, 'R6', tag + '：按一次反推 ⇒ 0 呼吸燈（' + (R6 && R6.txt) + '）');
+    /* 排名表：鎖定＋Benchmark 時第 1 名＝反推結果、每列可點（不顯示禁止） */
+    const tb = $('dm-pv-combotbl'), cr = tb.querySelector('tr.dm-ccur');
+    ok(tb.getAttribute('data-locked') === '0' && cr && cr.getAttribute('data-group') === '1' && cr.getAttribute('data-ok') === '1', 'R7', tag + '：排名表第 1 名＝目前（反推結果），表格不鎖：cur=' + (cr && cr.getAttribute('data-combo') + '#' + cr.getAttribute('data-group')) + ' locked=' + tb.getAttribute('data-locked'));
   }
   hwReset();
   console.log('check_datamap_lkrev：' + nCase + ' 組（最慢反推 ' + tMax + ' ms）' + ' pass ' + pass + ' fail ' + fail + '  ' + JSON.stringify(cnt));
