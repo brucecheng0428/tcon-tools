@@ -2,6 +2,28 @@
 
 ---
 
+## Data Mapping (datamap) v1.35.12 — 2026-10-16 ｜ PATCH ｜ TFT 接線圖手掌拖曳改成水平＋垂直同時捲（預覽小窗、TFT 卡一般／並排）
+
+判定依據：修正既有拖曳行為的 bug，不改資料、計算結果與輸出 → PATCH（同 v1.35.4／v1.35.11 類）。
+
+### 起因
+- Bruce 10/16（Dispatch 轉述 00:2x 回報）：預覽小窗「V 方向 Line 數」調到 12 時，在接線圖上按住滑鼠拖曳只能左右移動，不能上下移動。
+
+### 根因
+- pvDragBind（v1.6.2 起，v1.31.0 同一套掛到小窗 #dm-mini-body）只記 scrollLeft、只用滑鼠 dx；垂直位移完全沒處理。V Line 4 時圖不高、看不出來，12 時小窗內容超出才明顯。TFT 卡（#dm-pv-wrap）是同一支函式，同樣問題：改過大小的接線圖區、並排 sticky 卡內都不能上下拖。
+
+### 修改（只改 UI）
+- 拖曳同時處理 dx／dy：水平捲 wr 本身；垂直捲「wr 起往上第一個真的能垂直捲的容器」——小窗＝#dm-mini-body、改過大小＝#dm-pv-wrap、並排＝#card-tft（sticky 卡自己捲）、一般卡片＝頁面；小窗內容沒超出時不去捲後面的頁面。
+- 拖曳門檻改成任一方向超過 3px（原本只看水平），單純點擊仍會跳轉（SD Out／TCON Out 連結不受影響）。
+
+### 收折（Dispatch 回報「並排＋預覽沒收折」）查證
+- headless Chrome 1400×900 線上 v1.35.11 依同一步驟（dm.fold.v1={}、dm.tftside.v1=1、關並排與預覽→按並排→按預覽）：#card-tft（TFT 接線圖卡）data-fold=1、高 68px，已收折；回報裡的 #card-pv 是「③ 排列組合相關設定」卡（#dm-pvbody 在它裡面），本來就不在收折規則內。程式不改。
+
+### 測試
+- tools/check_datamap_tft_interact.mjs：每個模式（一般／並排／小窗／並排＋小窗 × EM01、EM01 Hand、E503 Hand）加「V Line 12 斜拖（右 40、上 30）⇒ 水平與垂直同時捲、不跳轉」與反向斜拖退回。
+
+---
+
 ## Data Mapping (datamap) v1.35.11 — 2026-10-15 ｜ PATCH ｜ TFT 預覽小窗加入與 TFT 卡同一份「V 方向 Line 數／畫面樣式」控制；並排＋預覽時 TFT 卡自動收折
 
 **判定依據**：§2 既有功能（TFT 預覽小窗、卡片收摺）的操作補齊，不改輸出、不新增工具 → PATCH（與 v1.35.4 同類）。

@@ -667,7 +667,7 @@
   <div class="dm-minibody dm-pvdrag" id="dm-mini-body"><div class="dm-mininote hidden" id="dm-mini-note"></div><div class="dm-tftmini" id="dm-mini-svg"></div></div>
 </div>
 
-<script src="common/version.js?v=20261015dm13511"></script>
+<script src="common/version.js?v=20261016dm13512"></script>
 <script src="common/i18n.js?v=20261012dm1220"></script>
 <script>
 (function () {
@@ -3940,15 +3940,29 @@
       var st = null, moved = false;
       /* v1.18.15（Bruce 10/8「點圖內 SD Out／TCON Out 沒有跳」）：原本 mousedown 一按就加 .dragging，CSS（.dm-pvdrag.dragging *）讓子元素
          pointer-events:none ⇒ 放開時 mouseup／click 落在外層 #dm-pv-wrap，圖內的 data-jump 文字永遠收不到 click。改成位移超過 3px 才算拖曳、才加 .dragging。 */
+      /* v1.35.12（Bruce 10/16「預覽小窗 V 方向 Line 數調到 12 時，在接線圖上按住滑鼠拖曳，只能左右移動，不能上下移動」）：
+         原本只記 scrollLeft、只用 dx ⇒ 垂直方向完全不動。改成水平＋垂直同時跟著滑鼠：
+         水平捲 wr 本身；垂直捲「wr 起往上第一個真的能垂直捲的容器」——小窗＝#dm-mini-body、卡片改過大小＝#dm-pv-wrap、
+         並排 sticky＝#card-tft、一般卡片＝頁面。門檻改成任一方向超過 3px 才算拖曳（仍不吃掉單純點擊）。 */
+      function vScroller(el) {
+        for (var n = el; n && n.nodeType === 1 && n !== document.body && n !== document.documentElement; n = n.parentElement) {
+          var oy = getComputedStyle(n).overflowY;
+          if ((oy === 'auto' || oy === 'scroll') && n.scrollHeight > n.clientHeight + 1) return n;
+          if (getComputedStyle(n).position === 'fixed') return null;   // 小窗內容沒超出 ⇒ 不去捲後面的頁面
+        }
+        return document.scrollingElement || document.documentElement;
+      }
       wr.addEventListener('mousedown', function (e) {
         if (e.button !== 0) return;
-        st = { x: e.clientX, sl: wr.scrollLeft }; moved = false;
+        var vs = vScroller(wr);
+        st = { x: e.clientX, y: e.clientY, sl: wr.scrollLeft, vs: vs, st: vs ? vs.scrollTop : 0 }; moved = false;
         e.preventDefault();
       });
       window.addEventListener('mousemove', function (e) {
         if (!st) return;
-        var dx = e.clientX - st.x; if (!moved && Math.abs(dx) > 3) { moved = true; wr.classList.add('dragging'); }
-        if (moved) { wr.scrollLeft = st.sl - dx; e.preventDefault(); }
+        var dx = e.clientX - st.x, dy = e.clientY - st.y;
+        if (!moved && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) { moved = true; wr.classList.add('dragging'); }
+        if (moved) { wr.scrollLeft = st.sl - dx; if (st.vs) st.vs.scrollTop = st.st - dy; e.preventDefault(); }
       });
       window.addEventListener('mouseup', function () { if (!st) return; st = null; wr.classList.remove('dragging'); });
       wr.addEventListener('click', function (e) { if (moved) { e.stopPropagation(); e.preventDefault(); moved = false; } }, true);
