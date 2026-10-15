@@ -2,6 +2,32 @@
 
 ---
 
+## Data Mapping (datamap) v1.35.13 — 2026-10-16 ｜ PATCH ｜ TFT 接線圖欄距／左邊界固定，切換 CH1 左右不再跳動
+
+判定依據：修正 v1.35.10 引入的版面跳動 bug，只改 UI 座標，不改接線、資料、計算與輸出 → PATCH（同 v1.35.11／v1.35.12 類）。
+
+### 起因
+- Bruce 10/15「T-CON OUT 與 SD OUT 所對應到的 Data 文字…改成現在的兩倍大」（v1.35.10 已放大）；Dispatch 10/16 派工：上一件 #6ed4da14 查到 v1.35.10 起 CH1 換邊時整張接線圖欄距跳動，Dispatch 定案方案 1。
+
+### 定義對照
+- 欄距 PIT＝相鄰子像素格的水平間距；左邊界 LX＝第一格左側留白（列頭 TCON Out／SD Out 放這裡）。Bruce 要的是「字 2 倍、看得清楚」；欄距是為了放下字而加大，不應隨 CH1 位置改變。
+
+### 根因
+- renderPvTft0 用目前 CH1 位置（FLn）的標籤字串最大長度 labLen 算 labW → PIT、MG → LX。CH1 在左標 D₆(0)+1…（長 6）、CH1 在右標 D₆(n)+1／D₆(n−1)+6（長 6～8），所以換邊時 labLen 改變 ⇒ PIT、LX、整張座標位移；接線本身沒變。這也讓 check_datamap_lkrev 從 744/0 變 704/40（R1／R3「走線應不動」比的是完整路徑座標）。
+
+### 修改（只改 UI）
+- gLab 拆成 gLabF(q, fl)（同一份字串規則）＋gLab(q)＝gLabF(q, FLn)；labLen 改取 CH1 在左、CH1 在右兩種標籤長度的最大值。標籤長度只和週期 n、組數 NGR 有關，和 Mirror、SHL、輸出對調、BGR、鎖定無關 ⇒ 這些切換版面都不動。顯示文字、data-dlab／data-dof 不變。
+
+### 全面審查
+- 同一份 SVG 的所有版面量：labW→PIT、MG→LX、W（右側留白）都只經 labLen；HFS（字級）只看 n、NG；hdW（列頭）只看語系；LB_SD／LB_TC／top 只看 HFS。TCON OUT 標籤用同一個 gLab，sq 落在同一組索引範圍，已被 labLen 涵蓋。預覽小窗、並排、放大視窗都是同一份 SVG clone，一起生效。沒有其他依 CH1 位置計算版面的地方。
+
+### 測試
+- 回歸：check_datamap_lkrev 744/0（修前 704/40）；check_datamap_tft_interact 1192/0；check_datamap_preview 49/0；check_datamap_boe --qm 全民 109/0。快照另一件任務在跑，本件不跑全量快照。
+- 矩陣（暫存腳本，jsdom，不進版控）：型號 × Auto 全部＋Hand 預設（每 3 個取 1）× 鎖定開（含 Benchmark）／關 × SHL 正／反 × 輸出對調開／關，每組 CH1 左→右→左比最小欄距與第一格 x。commit 時已完成前 5 個型號（DAZ6111／6138／6139／7353／E501A 起點）1824 次比較：修前 912 次跳動、修後 0。
+- headless Chrome 真實排版（getBoundingClientRect）：EM01／E503／E512／E501A／EM02／EN01 × SHL × 鎖定開關＝24 組，CH1 左右欄距都是 96、第一格 x＝182、SD／TCON 標籤 0 重疊；線上 v1.35.12 同腳本 20 組欄距 79↔96 跳動（EN01 本來就不換標籤）。
+
+---
+
 ## Data Mapping (datamap) v1.35.12 — 2026-10-16 ｜ PATCH ｜ TFT 接線圖手掌拖曳改成水平＋垂直同時捲（預覽小窗、TFT 卡一般／並排）
 
 判定依據：修正既有拖曳行為的 bug，不改資料、計算結果與輸出 → PATCH（同 v1.35.4／v1.35.11 類）。
