@@ -740,18 +740,19 @@
   function pxIdx(p) { p = p | 0; return p > 0 ? p - 1 : p; }
   function idxPx(i) { return i >= 0 ? i + 1 : i; }
   /* v1.31.0：起始欄 c 可選 pixel 索引（各 gate 列取交集；Dual／Tri 下 gate 列用 c＋1）——deSelForPx 與 pxForDeSel 共用這一份 */
-  function pxCovIdx(c, g) { var rel = mntRel(g, 1); return [2 * (c + rel) - 10, 2 * c - 1]; }
+  function pxCovIdx(c, g) { if (g === 'tri3') return triPxCov(c); var rel = mntRel(g, 1); return [2 * (c + rel) - 10, 2 * c - 1]; }   // v1.34.0：MNT Hand Tri（triOn ⇒ 'tri3'）走獨立分支（3 條 gate、triCodeOk）；EN01 的 'tri' 不變
+  function pxGate(key, s, gate) { return gate || (triOn(key, s) ? 'tri3' : gateOf(key, s)); }
   /* v1.31.0（Bruce 10/14「匯入 code 時依 FORCE_DE_EN／FORCE_DE_SEL 反算出目前涵蓋的 pixel 最小～最大」）：deSelForPx 的反方向。
      FORCE_DE_EN＝0 用 panel 等效值（deAutoSel，與 tWin／tUse 同一規則）；起始欄＝deSelTs 第一欄。 */
   function pxForDeSel(key, s, gate) {
-    var bits = (fieldById(key, 'deSel') || { bits: 6 }).bits, g = gate || gateOf(key, s);
+    var bits = (fieldById(key, 'deSel') || { bits: 6 }).bits, g = pxGate(key, s, gate);
     var en = (s.deEn | 0) === 1, v = en ? (s.deSel | 0) : deAutoSel(s), c = deSelTs(v, en ? bits : 6)[0];
     if (!c) return null;
     var r = pxCovIdx(c, g);
     return { v: v, en: en, base: c, from: idxPx(r[0]), to: idxPx(r[1]) };
   }
   function deSelForPx(key, s, lo, hi, gate) {
-    var bits = (fieldById(key, 'deSel') || { bits: 6 }).bits, mask = (1 << bits) - 1, g = gate || gateOf(key, s);
+    var bits = (fieldById(key, 'deSel') || { bits: 6 }).bits, mask = (1 << bits) - 1, g = pxGate(key, s, gate);
     var a = pxIdx(Math.min(lo, hi)), b = pxIdx(Math.max(lo, hi));
     function cov(c) { return pxCovIdx(c, g); }
     function hit(c) { var r = cov(c); return Math.max(0, Math.min(b, r[1]) - Math.max(a, r[0]) + 1); }
@@ -1445,8 +1446,60 @@
     for (var c = 0; c < 6; c++) { ns['x' + (6 + c)] = 0; ns['x' + (18 + c)] = 0; }
     return { state: ns, text: o.name };
   }
+  /* ── v1.34.0 Tri 下的整批功能（Bruce 10/15「all same pixel…benchmark 反推表…應該都要可以用才對」）：全部只在 triOn 時被呼叫，Single／Dual 不經過。
+     36 個名稱＝TRI_ROWS 列序（Line 1-1、1-2、1-3、2-1、2-2、2-3）× Data 1~6。每列名稱表＝triCellOptions（與 triPick／下拉同一來源，T 以套用前的 state 計），
+     不在該列表內 ⇒ X(31)；第二組 _1／_3 一律寫 0（與 triPick 相同）。All Same Pixel 下拉＝Line 1-1 那列的名稱（同 MNT Dual 用上 gate 那列：其他列沒有的名稱寫 X）。 */
+  function triNames(key, s) { var out = []; for (var r = 0; r < 6; r++) for (var c = 0; c < 6; c++) { var v = triCellView(key, s, r, c); out.push(v.std && v.inTable ? v.txt : 'X'); } return out; }
+  function triApplyNames(key, s, names) {
+    if (!triOn(key, s) || !names || names.length !== 36) return null;
+    var ns = cloneState(s);
+    for (var r = 0; r < 6; r++) {
+      var d = {}; triCellOptions(key, s, r).forEach(function (o) { d[o.name] = o.value; });
+      for (var c = 0; c < 6; c++) { var n = normText(names[r * 6 + c]); ns[triId(r, c)] = (n in d) ? d[n] : 31; }
+    }
+    for (var q = 0; q < 6; q++) { ns['x' + (6 + q)] = 0; ns['x' + (18 + q)] = 0; }
+    return ns;
+  }
+  function triAllSameOptions(key, s) { return triOn(key, s) ? triCellOptions(key, s, 0).map(function (o) { return o.name; }) : []; }
+  function triAllSame(key, s, text) {
+    if (!triOn(key, s)) return null;
+    var t = normText(text); if (triAllSameOptions(key, s).indexOf(t) < 0) t = 'X';
+    var names = []; for (var i = 0; i < 36; i++) names.push(t);
+    return { state: triApplyNames(key, s, names), text: t };
+  }
+  /* Excel：與 excelRows 同格式（A 欄列名、B~G＝Data 1~6），列＝6 列 Tri；檔名 GateType(TriGate) */
+  function triExcelRows(key, s) {
+    var rows = [['', 'Data 1', 'Data 2', 'Data 3', 'Data 4', 'Data 5', 'Data 6']], N = triNames(key, s);
+    for (var r = 0; r < 6; r++) rows.push([TRI_ROWS[r].label].concat(N.slice(r * 6, r * 6 + 6)));
+    return rows;
+  }
+  function triExcelToNames(rows) {
+    var names = [];
+    for (var i = 0; i < 6; i++) {
+      var L = TRI_ROWS[i].label, row = null;
+      for (var r = 0; r < rows.length; r++) if (rows[r] && rows[r][0] === L) { row = rows[r]; break; }
+      if (!row) return { ok: false, reason: 'no ' + L };
+      var vals = row.slice(1).filter(function (v) { return v !== '' && v != null; });
+      if (vals.length !== 6) return { ok: false, reason: L + ': ' + vals.length + ' cells' };
+      names = names.concat(vals.map(String));
+    }
+    return { ok: true, names: names };
+  }
+  function triExcelName(key, s, glass, now) { return excelName(key, s, glass, now).replace('_GateType()_', '_GateType(TriGate)_'); }
+  /* Pixel 範圍（deSelForPx／pxForDeSel 的 Tri 分支）：起始欄 c 時 3 條 gate 各用第 c、c+1、c+2 欄，每欄可選 code＝triCodeOk ⇒ 每列可選 pixel 索引取交集 */
+  function triPxCov(c) {
+    var lo = -Infinity, hi = Infinity;
+    for (var g = 0; g < 3; g++) {
+      var T = c + g, a = Infinity, b = -Infinity;
+      for (var code = 0; code < 30; code++) if (triCodeOk(T, code)) { var p = Math.floor(mntIdx(T, code) / 3); if (p < a) a = p; if (p > b) b = p; }
+      lo = Math.max(lo, a); hi = Math.min(hi, b);
+    }
+    return [lo, hi];
+  }
 
   var API = {
+    triNames: triNames, triApplyNames: triApplyNames, triAllSameOptions: triAllSameOptions, triAllSame: triAllSame,
+    triExcelRows: triExcelRows, triExcelToNames: triExcelToNames, triExcelName: triExcelName, triPxCov: triPxCov,
     TRI: TRI, TRI_ROWS: TRI_ROWS, triOn: triOn, gateItems: gateItems, triCellView: triCellView, triCellOptions: triCellOptions, triPick: triPick, triName: triName, triT: triT,
     MODELS: MODELS, MODEL_KEYS: MODEL_KEYS, MNT_KEYS: MNT_KEYS, PY_TO_KEY: PY_TO_KEY, PY_TABLES: PY_TABLES,
     GN1: GN1, GN2: GN2, D6111: D6111, D7353: D7353, CKS_W: CKS_W, GATE_ITEMS: GATE_ITEMS, RD_MODE_REG: RD_MODE_REG,
