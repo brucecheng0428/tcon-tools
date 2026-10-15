@@ -2,6 +2,22 @@
 
 ---
 
+## Data Mapping (datamap) v1.35.10 — 2026-10-15 ｜ PATCH ｜ TFT 接線圖 TCON Out／SD Out 標籤字級 ×2；拿掉「實驗：Single／Dual／Tri」標籤
+
+**判定依據**：只改畫面呈現（字級、版面間距、移除重複標籤），計算結果不變 → PATCH。
+
+### 起因
+- Bruce 10/15：「T-CON OUT 與 SD OUT 所對應到的 Data 文字大小，我還是覺得太小了…改成現在的兩倍大」。
+- Dispatch 10/15 補充：TFT 接線圖標題旁「實驗：Single／Dual／Tri」是早期留下的，和旁邊「Auto · Dual Gate」重複，整個拿掉。
+
+### 變更
+- 每欄 D₆₍ₙ₎₊ₖ 標籤字級 9／9.5／11 → 18／19／22（下標仍 75%），列頭「TCON Out／SD Out」12 → 24。
+- 放不下時不縮字：欄距 PIT 依最長標籤寬推算（等寬字 0.6 字寬；≥ 原 58px），標籤列高度（top）依字級推算，列頭依實際寬度貼齊最外側。
+- 主圖、TFT 預覽小窗、並排、放大視窗都是同一份 SVG，一起生效。
+- 移除 #dm-pv-exp 元素、.dm-pvexp CSS、i18n dm.pvExpS2／D2／T2（三語）；同頁「測試：Line OD Type」等標籤不動。LOD 列的 data-exp 是另一回事，未動。
+- 測試：check_datamap_preview.js 改驗不再出現「實驗」；check_datamap_tcon_gate.js 字級斷言改 18／19／22＋24。
+- S/D 快照基準未改（tools/datamap_sd_snapshot.json 與 v1.35.9 相同）。TFT 圖幾何（欄距、標籤列高度）改變；以遮掉幾何座標／字級的比對抽樣確認計算與結構相同。
+- 回歸：boe --qm 全民 109/0；tft_interact 962/0；preview 49/0；tcon_gate 63/0；標籤重疊量測（headless Chrome，全型號×Gate×CH1 左右 46 組）0 重疊。
 ## Digital Gamma (dg) v2.6.0 — 2026-10-15 ｜ MINOR
 
 ⚠ 輸出變更：目標非 2.2／6500K 時，圖表及光學比較匯出的參考線改為設定目標；設定區預設展開，舊畫面基線不再適用。

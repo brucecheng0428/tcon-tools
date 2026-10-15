@@ -105,7 +105,7 @@ const ok = (c, m) => { if (c) pass++; else { fail++; console.log('  ✗ ' + m); 
   fire($('dm-c0-0'), 'X');
   ok(npre() === 0 && !wire(1, 1, 'u', 'X') && QA('circle[data-dot="gate"]').length === 24 && Q('text[data-send="1:D1u"]').textContent === 'X', 'X ⇒ TFT 還在、不接線、標 X；前循環收起');
   fire($('dm-c0-0'), 'R1');
-  ok(/實驗：Single/.test($('dm-pv-exp').textContent), '標「實驗」');
+  ok(!$('dm-pv-exp') && !/實驗：/.test($('dm-pv-tfth').textContent), 'v1.35.10：不再標「實驗：Single」');
 
   console.log('── Dual Gate');
   fire($('dm-gate'), 'Dual-Gate');
@@ -130,7 +130,7 @@ const ok = (c, m) => { if (c) pass++; else { fail++; console.log('  ✗ ' + m); 
   fire($('dm-pv-swap'), false);
   fire($('dm-c1-5'), 'R5');
   ok(!!Q('path[data-w="1:D6:d:R5"]') && /^conflict\[(D6d,D7u|D7u,D6d)\]$/.test(st(1, 'R5')) && !!Q('[data-bad]'), 'Line 1-2 Data 6＝R5 ⇒ 和重複組 D7 撞在 R5（衝突標示）');
-  ok(/實驗：Dual/.test($('dm-pv-exp').textContent), 'Dual 標「實驗」');
+  ok(!$('dm-pv-exp') && !/實驗：/.test($('dm-pv-tfth').textContent), 'v1.35.10：Dual 不再標「實驗」');
 
   console.log('── v1.6.2 拖曳捲動');
   const wr = $('dm-pv-wrap'); let SL = 100; Object.defineProperty(wr, 'scrollLeft', { get: () => SL, set: v => { SL = v; }, configurable: true });
