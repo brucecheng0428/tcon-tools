@@ -2,6 +2,15 @@
 
 ---
 
+## Data Mapping (datamap) v1.35.1 — 2026-10-15 ｜ PATCH ｜ 鎖定＋Benchmark 改 Driver／面板後，鎖定狀態「和 ② 一致 a/n」即時更新
+
+**判定依據**：§2 修正既有功能顯示 → PATCH：v1.35.0 線上驗收發現改 Driver／面板（只重畫 ③）後，③ 標題的「和 ② 一致 48/48」沒有重算（接線圖已有 ≠ 格）；改成同時更新鎖定狀態。只在「鎖定＋Benchmark 開啟」時執行，其他情況不變。
+
+### 測試
+- check_datamap_lkrev.js 加：改 Driver／面板後有 ≠ 格時狀態不可顯示全部一致；反推 0 錯時狀態＝全部一致。
+
+---
+
 ## Data Mapping (datamap) v1.35.0 — 2026-10-15 ｜ MINOR ｜ 鎖定架構後在 Benchmark 改 Driver／面板 → 自動反推 TCON 設定
 
 **判定依據**：§2 案例 1（新增功能）→ MINOR：新增（Benchmark「自動反推」），未使用時既有行為不變 ⇒ MINOR。

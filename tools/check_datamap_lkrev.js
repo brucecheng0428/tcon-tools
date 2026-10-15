@@ -61,6 +61,7 @@ const ok = (c, g, m) => { cnt[g] = (cnt[g] || 0) + 1; if (c) pass++; else { fail
     ok(wires() === w0 && err() === e0, 'R1', tag + '：只打開 Benchmark 不應改變接線圖');
     chg.forEach(k => fire($(HW[k][0]), HW[k][2]));
     ok(wires() === w0, 'R1', tag + '：改 Driver／面板後玻璃走線應不動');
+    { const lo = ($('dm-pv-lockst').getAttribute('data-ok') || '').split('/'), ne = d.querySelectorAll('#dm-pv-tft rect[data-glne]').length; ok(ne === 0 || lo[0] !== lo[1], 'R1', tag + '：有 ≠ 格時鎖定狀態不應顯示全部一致：' + lo.join('/') + ' ≠格 ' + ne); }
     if ((chg.includes('swap') || chg.includes('shl')) && !chg.includes('ch1')) ok(attrs('text.dm-tco', 'data-dof') !== dof0, 'R2', tag + '：TCON OUT 標示應照新設定改變');
     if (chg.includes('ch1')) ok(attrs('text.dm-sdo[data-dlab]', 'data-dlab') !== dl0 && $('dm-pv-tft').getAttribute('data-dir') === 'lr', 'R2', tag + '：CH1 改右 ⇒ SD OUT 標號改變、畫面不翻');
     if (chg.includes('bgr')) { const ph1 = attrs('rect[data-phys]', 'data-phys'), sw = ph0.split(',').map(c => c === 'R' ? 'B' : c === 'B' ? 'R' : c).join(','); ok(ph1 === sw, 'R2', tag + '：BGR ⇒ 子像素顏色標示 R↔B'); }
@@ -71,6 +72,7 @@ const ok = (c, g, m) => { cnt[g] = (cnt[g] || 0) + 1; if (c) pass++; else { fail
     ok(wires() === w0, 'R3', tag + '：反推後走線應不動');
     ok(e2 <= e0, 'R3', tag + '：呼吸燈 鎖定時 ' + e0 + '、改後 ' + e1 + '、反推後 ' + e2 + '（' + (R && R.txt) + '）');
     ok(R && (R.bad === 0) === (e2 === 0) && $('dm-bench-revst').textContent === R.txt, 'R3', tag + '：結果行＝' + ($('dm-bench-revst') || {}).textContent);
+    { const lo = ($('dm-pv-lockst').getAttribute('data-ok') || '').split('/'); ok(e2 > 0 || lo[0] === lo[1], 'R3', tag + '：反推 0 錯時鎖定狀態應＝全部一致：' + lo.join('/')); }
     ok(!$('dm-bench-undo').classList.contains('hidden'), 'R3', tag + '：應可復原');
     $('dm-bench-undo').click();
     ok(JSON.stringify(S.cur) === pre && err() === e1, 'R3', tag + '：復原應回到反推前（呼吸燈 ' + err() + ' vs ' + e1 + '）');
