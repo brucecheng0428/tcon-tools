@@ -659,7 +659,7 @@
   <div class="dm-minibody dm-pvdrag" id="dm-mini-body"><div class="dm-mininote hidden" id="dm-mini-note"></div><div class="dm-tftmini" id="dm-mini-svg"></div></div>
 </div>
 
-<script src="common/version.js?v=20261015dm1340"></script>
+<script src="common/version.js?v=20261015dm1350"></script>
 <script src="common/i18n.js?v=20261012dm1220"></script>
 <script>
 (function () {
@@ -1063,6 +1063,12 @@
     'dm.bmDone': ['已套用 Benchmark：{n} 格寫入 Data Mapping 表格', 'Benchmark applied: {n} cells written to the Data Mapping table', '已套用 Benchmark：{n} 格写入 Data Mapping 表格'],
     'dm.bmDoneBad': ['已套用 {n} 格；{b} 格無法寫入（目前設定下不能選這個名稱）：{l}', '{n} cells applied; {b} could not be written (name not selectable now): {l}', '已套用 {n} 格；{b} 格无法写入（目前设定下不能选这个名称）：{l}'],
     'dm.bmUndo': ['復原', 'Undo', '复原'],
+    'dm.bmRev': ['自動反推', 'Auto solve', '自动反推'],
+    'dm.bmRevT': ['接線不動，依目前 Driver／面板設定反推 ②-1、②-2（會開 Hand Mode）', 'Wiring fixed; solve ②-1/②-2 for the current driver/panel settings (turns on Hand Mode)', '接线不动，依目前 Driver／面板设定反推 ②-1、②-2（会开 Hand Mode）'],
+    'dm.bmRevOk': ['反推完成，0 錯（第 {r} 名／{n} 組：{c}）', 'Solved, 0 errors (rank {r}/{n}: {c})', '反推完成，0 错（第 {r} 名／{n} 组：{c}）'],
+    'dm.bmRevMin': ['反推完成，最少 {e} 格錯（第 {r} 名／{n} 組：{c}）', 'Best effort: {e} cells wrong (rank {r}/{n}: {c})', '反推完成，最少 {e} 格错（第 {r} 名／{n} 组：{c}）'],
+    'dm.bmRevNow': ['目前 {e} 格錯', '{e} cells wrong now', '目前 {e} 格错'],
+    'dm.bmRevNa': ['架構不同（Gate／週期），無法反推', 'Architecture differs (gate/period); cannot solve', '架构不同（Gate／周期），无法反推'],
     'dm.bmUndone': ['已復原到套用 Benchmark 之前', 'Restored to before the Benchmark was applied', '已复原到套用 Benchmark 之前'],
     'dm.bmClear': ['清空重來', 'Clear', '清空重来'],
     'dm.bmClearT': ['清空這組 Benchmark？', 'Clear this Benchmark?', '清空这组 Benchmark？'],
@@ -1774,15 +1780,27 @@
     $('dm-pv-wrap').setAttribute('data-locktag', on ? tt('dm.lockTag') : '');
     /* v1.18.6（Bruce 10/8「鎖定此架構按下去以後，Driver 那邊的設定跟面板那邊的設定都不能再變更，只能動 T-CON 的設定」）：
        實體架構（Driver 區、面板區、型號、③ 的 Line OD 測試來源、套用建議）鎖定時停用；TCON 暫存器（② 除 Gate Type 外，v1.19.0）照常可改 */
-    HW_LOCK_IDS.forEach(function (id) { var e = $(id); if (!e) return; e.disabled = on; e.setAttribute('data-hwlock', on ? 1 : 0); e.title = on ? tt('dm.hwLockedT') : ''; });
-    ['dm-drv-form', 'dm-pan-form'].forEach(function (id) { $(id).classList.toggle('dm-hwlocked', on); });
-    [].slice.call(document.querySelectorAll('.dm-locknote')).forEach(function (e) { e.classList.toggle('hidden', !on); });
+    /* v1.35.0（Bruce 10/15）：鎖定＋Benchmark 開啟 ⇒ Source Driver／面板設定可改（玻璃接線仍固定，見 lkHwOf）；Benchmark 關閉時照舊鎖住 */
+    var bmEdit = on && BM.open;
+    HW_LOCK_IDS.forEach(function (id) { var e = $(id); if (!e) return; var lk = on && !(bmEdit && HW_BM_IDS.indexOf(id) >= 0); e.disabled = lk; e.setAttribute('data-hwlock', lk ? 1 : 0); e.title = lk ? tt('dm.hwLockedT') : ''; });
+    ['dm-drv-form', 'dm-pan-form'].forEach(function (id) { $(id).classList.toggle('dm-hwlocked', on && !bmEdit); });
+    [].slice.call(document.querySelectorAll('.dm-locknote')).forEach(function (e) { e.classList.toggle('hidden', !on || (bmEdit && e.id !== 'dm-gate-locknote')); });
     if (!on) PV_COLMODE = '';
     $('dm-pv-colmode').classList.toggle('hidden', !on);
     [].slice.call($('dm-pv-colmode').querySelectorAll('button[data-col]')).forEach(function (b) { b.setAttribute('aria-pressed', b.getAttribute('data-col') === PV_COLMODE ? 'true' : 'false'); });
   }
   var HW_LOCK_IDS = ['dm-model', 'dm-pv-swap', 'dm-pv-first', 'dm-pv-drv', 'dm-pv-stripe', 'dm-pv-lod', 'dm-pv-sugbtn'];
+  var HW_BM_IDS = ['dm-pv-swap', 'dm-pv-first', 'dm-pv-drv', 'dm-pv-stripe'];
   function hwLocked() { return !!(GL.on && S.glass); }
+  function hwFrozen() { return hwLocked() && !BM.open; }   // v1.35.0：Driver／面板 4 項在「鎖定＋Benchmark」時可改
+  /* v1.35.0（Bruce 10/15 追加 3／4）：鎖定＝固定玻璃上「SD Out 腳位 → TFT／子像素」的實體走線（鎖定當下的 Driver／面板設定 GL.hw）。
+     鎖定後在 Benchmark 改 Driver／面板：drain 目標照 GL.hw 推（不重畫走線、畫面方向照鎖定時），每條 SD Out 收到的資料照目前設定
+     （輸出對調／SHL；CH1 左右互換＝SD Out 編號反向）；RGB↔BGR 只改子像素顏色標示，該格應收資料 R↔B。和鎖定時相同 ⇒ null（行為完全不變） */
+  function lkHwOf() {
+    var h = GL.hw; if (!h) return null;
+    if (h.first === pvFirstRight && h.rev === pvDrvRev && h.bgr === pvBGR && h.swap === pvSwapOn) return null;
+    return { first: h.first, rev: h.rev, swap: h.swap, chFlip: h.first !== pvFirstRight, bgrChg: h.bgr !== pvBGR };
+  }
   function bindColMode() {
     [].slice.call($('dm-pv-colmode').querySelectorAll('button[data-col]')).forEach(function (b) {
       b.addEventListener('click', function () { if (!(GL.on && S.glass)) return; PV_COLMODE = b.getAttribute('data-col') || ''; renderPreview(); renderLock(); });
@@ -1790,7 +1808,8 @@
   }
   function bindLock() {
     $('dm-pv-lock').addEventListener('click', function () {
-      if (GL.on && S.glass) { GL.on = false; S.glass = null; log('n', '③ 解除接線鎖定'); render(); return; }
+      if (GL.on && S.glass) { GL.on = false; S.glass = null; GL.hw = null; GL.rev = null; log('n', '③ 解除接線鎖定'); render(); return; }
+      GL.hw = { first: pvFirstRight, rev: pvDrvRev, bgr: pvBGR, swap: pvSwapOn }; GL.rev = null;   // v1.35.0：鎖定當下的 Driver／面板（玻璃走線基準）
       /* v1.18.5（Bruce 10/8「不是 Hand Mode…按接線鎖定以後全部都是灰的」）：v1.18.1 起這裡把 Auto 狀態強制改成 Hand（DM.setHand），
          但 Auto 時 force_sel 表不是實際接法（多半是 0 或殘值）⇒ 鎖定基準變成一張空表、③ 全灰。改成原樣凍結：Auto 就用 Auto Type 推出的接線當基準 */
       S.glass = DM.cloneState(S.cur); S.glassModel = S.model; GL.on = true; PV_COLMODE = '';   // v1.18.7：鎖定剛按下去一律回「全白」
@@ -2193,11 +2212,17 @@
     /* v1.18.0（Bruce 10/8）：面板接線鎖定時，③ 的線位置與 drain 目標改用面板接線（S.glass 照存入當時的設定推出），
        ② 和 Mirror 等設定只決定每條線「收到的資料」（P.recv）；沒鎖定時完全照 v1.17.5 */
     PV_ARCHNG = false;
-    if (GL.on && S.glass && pvLod < 0 && P.ok) {
+    if (GL.on && S.glass && pvLod < 0 && P.ok) { var Pl = lkBuild(P, S.cur, false); if (Pl) P = Pl; else PV_ARCHNG = true; }
+    renderPreview2(P);
+    if (BM.open && hwLocked()) renderRevBtn();   // v1.35.0：改 Driver／面板後結果行即時更新
+  }
+  /* v1.35.0：鎖定接線模型（renderPreview 與 Benchmark 自動反推共用）：Pc0＝某個 TCON state（cs）的模型；回傳鎖定接線 Pg0（含 recv）或 null（架構不同） */
+  function lkBuild(Pc0, cs, fast) {
+    var P = null;
+    {
       /* v1.18.4：鎖定後 Mirror 和鎖定當下不同 ⇒ 每條線收到目前 ② 的 Data k（照目前的 Mirror 解讀，Pc0＝目前的模型），格內加「末」（pvEndNm） */
-      var mFlip = (S.cur.mirror | 0) !== (S.glass.mirror | 0);
-      var Pc0 = P, Pg0 = pvModelState(S.glass);
-      if (!(Pg0.ok && Pc0.ok && Pg0.NG === Pc0.NG && Pg0.period === Pc0.period)) PV_ARCHNG = true;
+      var mFlip = (cs.mirror | 0) !== (S.glass.mirror | 0);
+      var Pg0 = pvModelState(S.glass);
       if (Pg0.ok && Pc0.ok && Pg0.NG === Pc0.NG && Pg0.period === Pc0.period) {
         /* v1.18.9（Bruce 10/8「1D1G 鎖定後改 Zigzag Type 3，只送紅還是全紅」）：鎖定架構和目前設定的 gate 列數不同時（例 1D1G＝2 列、Zigzag LLRR＝4 列、LLLLRRRR＝8 列），
            v1.18.8 只畫鎖定架構的列數 ⇒ Type 3／4／7／8 不同的那幾列（Line 3~8）根本沒畫出來。改成兩邊都照自己的週期循環延伸到較多的列數：
@@ -2205,7 +2230,11 @@
         var nlG = Pg0.nl, nlC = Pc0.nl, nlN = Math.max(nlG, nlC), byK = function (rows) { var m = {}; rows.forEach(function (r) { (m[r.k] = m[r.k] || []).push(r); }); return m; };
         if (nlN > nlG && nlG > 0) { var gk = byK(Pg0.rows); for (var kx = nlG; kx < nlN; kx++) (gk[kx % nlG] || []).forEach(function (r) { Pg0.rows.push({ k: kx, gi: r.gi, names: r.names.slice() }); }); Pg0.nl = nlN; }
         Pg0.recv = {}; Pc0.rows.forEach(function (r) { Pg0.recv[r.k + ':' + r.gi] = r.names; });
-        if (nlN > nlC && nlC > 0) Pg0.rows.forEach(function (r) { if (r.k >= nlC) Pg0.recv[r.k + ':' + r.gi] = Pg0.recv[(r.k % nlC) + ':' + r.gi]; }); Pg0.recvP = Pc0; Pg0.recvShift = mFlip || !S.glass.hand || !S.cur.hand ? 0 : glCompareStates(S.glass, S.cur).shift; /* v1.18.5：Auto 沒有 T 表平移，不比對 force_sel 表 */ Pg0.recvMirFlip = mFlip; Pg0.locked = true; P = Pg0; } }
+        if (nlN > nlC && nlC > 0) Pg0.rows.forEach(function (r) { if (r.k >= nlC) Pg0.recv[r.k + ':' + r.gi] = Pg0.recv[(r.k % nlC) + ':' + r.gi]; }); Pg0.recvP = Pc0; Pg0.recvShift = mFlip || !S.glass.hand || !cs.hand ? 0 : (fast ? glTShift(Pg0, S.glass, Pc0, cs) : glCompareStates(S.glass, cs).shift); /* v1.18.5：Auto 沒有 T 表平移，不比對 force_sel 表 */ Pg0.recvMirFlip = mFlip; Pg0.locked = true; P = Pg0;
+        var lk = lkHwOf(); if (lk) Pg0.lkHw = lk; } }
+    return P;
+  }
+  function renderPreview2(P) {
     var ok = P.ok, NG = P.NG;
     if (P.lod) {
       $('dm-pvtag').textContent = tt('dm.lodTag', { n: P.lod.no }) + ' · ' + GT[P.lod.g];
@@ -2381,11 +2410,12 @@
         /* v1.23.2（Bruce 10/12）：子像素位置固定；輸出對調／SHL 只改「第 p 條線收到哪一筆 TCON 資料」(pvLineSrc)，
            drain 接到這筆資料在 ② 指定的子像素 ⇒ 資料一定正確，差別反映在 drain 長度（v1.17.4～v1.23.1 是 drain 固定、改收到的資料）。
            鎖定時 P＝鎖定的接線、P.recv＝目前設定，兩者用同一個索引 ⇒ 鎖定當下完全一致，之後只有 ② 改變才會不一致。 */
-        var sq = pvLineSrc(P, p, swap, rev);
+        var sq = pvLineSrc(P, p, swap, rev), sqD = sq;
+        if (P.lkHw && P.recv) { sq = pvLineSrc(P, p, P.lkHw.swap, P.lkHw.rev); sqD = pvLineSrc(P, P.lkHw.chFlip ? pvRevIdx(P, p) : p, swap, rev); }   // v1.35.0：走線照鎖定時、資料照目前設定
         var cv = r.names[sq]; if (!cv) continue;
         var t = cv.off ? null : (cv.t !== undefined ? cv.t : pvLin(cv.name));
         var srcN = P.recv ? (P.recv[r.k + ':' + r.gi] || []) : r.names;
-        var rc = srcN[sq], rt = rc && !rc.off ? (rc.t !== undefined ? rc.t : pvLin(rc.name)) : null;
+        var rc = srcN[sqD], rt = rc && !rc.off ? (rc.t !== undefined ? rc.t : pvLin(rc.name)) : null;
         out.push({ k: r.k, gi: r.gi, up: P.NG === 1 || r.gi < P.NG - 1, outer: P.NG === 3 && r.gi === 0, p: p, rep: p >= P.period, src: sq, name: cv.name, off: cv.off, t: t,
           rname: P.recv ? pvRecvName(P, rt) : (rc && !rc.off ? rc.name : null), rt: rt });
       }
@@ -2559,11 +2589,13 @@
     /* 排序（固定、和目前選取無關）：① 資料與顏色全對 → ② 錯的格數少 → ③ 最長 drain 短 → ④ Mirror＝目前值（不必改 TCON 的排前）→ ⑤ 左右線長差小 → 同分依序：
        ⑥ 輸出對調「無」→ ⑦ SHL 正向 → ⑧ RGB → ⑨ CH1 最左。
        v1.27.0（Woody 10/13：Mirror 不改名稱）⇒ TCON Mirror 0＋Driver 反接 與 Mirror 1 會同樣資料全對；改 TCON 的成本高於 0.5 格左右線長差，故「不必改 TCON」排在左右線長差之前。 */
-    var rank = function (c) { return [c.ok ? 0 : 1, c.mis + c.dbad, c.mx, c.mirChg ? 1 : 0, c.bal, c.swap ? 1 : 0, c.rev ? 1 : 0, c.bgr ? 1 : 0, c.first ? 1 : 0]; };   // v1.27.0：Mirror 不必改 移到最長 drain 之後、左右線長差之前
+    var rank = pvRank;   // v1.27.0：Mirror 不必改 移到最長 drain 之後、左右線長差之前；v1.35.0 抽成 pvRank（自動反推共用）
     var groups = {}; out.forEach(function (c) { (groups[c.key] = groups[c.key] || []).push(c); });
     var keys = Object.keys(groups).sort(function (a, b) { var x = rank(groups[a][0]), y = rank(groups[b][0]); for (var i = 0; i < x.length; i++) if (Math.abs(x[i] - y[i]) > 1e-9) return x[i] - y[i]; return 0; });
     return { list: out, groups: groups, order: keys, hasMir: hasMir, curM: curM };
   }
+  function pvRank(c) { return [c.ok ? 0 : 1, c.mis + c.dbad, c.mx, c.mirChg ? 1 : 0, c.bal, c.swap ? 1 : 0, c.rev ? 1 : 0, c.bgr ? 1 : 0, c.first ? 1 : 0]; }
+  function pvRankCmp(x, y) { for (var i = 0; i < x.length; i++) if (Math.abs(x[i] - y[i]) > 1e-9) return x[i] - y[i]; return 0; }
   function pvComboName(c) { return (c.first ? 'CH1 在最右' : 'CH1 在最左') + '＋' + (c.rev ? '反向' : '正向') + '＋' + (c.bgr ? 'BGR' : 'RGB') + (c.swap ? '＋' + tt('dm.pvSwapS') : '') + (c.mirChg ? '＋' + tt('dm.pvCMirSet', { m: c.mirror }) : ''); }
   /* v1.18.17：套用某一種配置到上方 Driver／面板設定（建議按鈕與比較表點列共用）。鎖定時不套用、只提示 */
   /* v1.18.17：套用某一種配置到上方 Driver／面板設定（建議按鈕與比較表點列共用）。
@@ -2619,7 +2651,7 @@
     if (note) note.textContent = sel > 0 && nl0 > sel ? tt('dm.pvVlMore', { p: nl0, n: sel }) : '';
   }
   function renderPvTft(P) {
-    pvFlipNow = pvRL();   // 只看 CH1 位置
+    pvFlipNow = P && P.lkHw ? !!P.lkHw.first : pvRL();   // 只看 CH1 位置（v1.35.0：鎖定後改 CH1 ⇒ 畫面方向照鎖定時，玻璃不動）
     try { return renderPvTft0(pvVRep(P)); } finally { pvFlipNow = false; renderPvVl(P); }
   }
   /* v1.18.25（Bruce 10/8「T-CON OUT 字太小了，請把它改成跟 pixel 裡面的英文與數字大小一樣；SD OUT 跟 T-CON OUT 兩者都將字體放大一點（兩者字體要一樣大）」）：
@@ -2631,15 +2663,16 @@
     /* v1.17.1（Bruce 10/8）：CH1 在右（整張圖左右翻）時，主循環改畫在最左邊：左邊那組（原 D(n+1)~D(2n)）當主循環、標 Dn+k，
        右邊靠 CH1 那組當重複組、標 Dn、Dn−1…；兩組接法相同（重複組＝主循環平移一個週期），只換亮暗、標號與格內名稱（往回平移一個週期） */
     var FL = pvFlipNow; PV_LOCK = { ok: 0, n: 0 };
+    var LKH = P.lkHw || null, FRL = LKH ? !!LKH.first : pvRL(), FLn = LKH && LKH.chFlip ? !FL : FL, lkP = function (p) { return LKH && LKH.chFlip ? pvRevIdx(P, p) : p; };   // v1.35.0
     /* v1.18.24：24 條時 CH1 在右 ⇒ 主循環＝最左那組（最後一個週期 p ≥ nD−n），標 Dn+1~Dn+n；往右（靠 CH1）依序 Dn、Dn−1…；格內名稱往回平移 (組數−1) 個週期 */
     if (FL) spec.forEach(function (w) { w.rep = w.p < nD - n; });
     /* v1.18.25（Bruce 10/8「hand mode enable 的模式，亮的部分要配合 data mapping 表格所設定的個數…只有 line 1 跟 line 2 是亮的，下方其他部分都要是暗的」）：
        Hand Mode 開（不是 Auto、不是 Line OD 測試）時，v1.18.24 垂直重複出來的列（k ≥ ② 表格定義的列數 P.vrep）整列算前後循環（調暗）；水平仍只有 D1~D(週期) 亮。Auto 維持 v1.18.24（重複列不淡化） */
     var HDIM = !!(P.vrep && S.cur && (S.cur.hand | 0) && !P.lod && P.autoE === undefined);
     if (HDIM) spec.forEach(function (w) { if (w.k >= P.vrep) w.rep = true; });
-    var dLab = function (p) { if (!FL) return 'D' + (p + 1); var k = p - (nD - n) + 1; return 'Dn' + (k > 0 ? '+' + k : (k < 0 ? '−' + (-k) : '')); };
+    var dLab = function (p) { if (FLn !== FL) p = nD - 1 - p; if (!FLn) return 'D' + (p + 1); var k = p - (nD - n) + 1; return 'Dn' + (k > 0 ? '+' + k : (k < 0 ? '−' + (-k) : '')); };
     var shownPos = function (s0) { return FL ? s0 - pSub * (NGR - 1) : s0; };
-    var dofOf = function (p) { return (pvLineSrc(P, p, swap, pvDrvRev) % n) + 1; };
+    var dofOf = function (p) { return (pvLineSrc(P, lkP(p), swap, pvDrvRev) % n) + 1; };
     var DX = !!P.recv, PR = P.recvP || P;   // v1.23.2：未鎖定時收到的資料＝drain 目標（格內只寫固定的位置名稱）；鎖定時才寫收到的資料
     var G0 = []; for (var i0 = 0; i0 < n; i0++) G0.push(i0 * per);
     var c0 = pvCost(G0, spec, smin, mainMax, n), pl = pvPlace(spec, smin, mainMax, per, n), Gm = pl.G, labs = {};
@@ -2720,7 +2753,7 @@
     });
     /* 3) Data 線 D1~D(2×週期)；對調時標「送 Dn」；重複組調暗 */
     for (var p = 0; p < nD; p++) {
-      var sq = pvLineSrc(P, p, swap, pvDrvRev), rep = FL ? p < nD - n : p >= n, dx = gapX(G[p]), path = 'M' + dx + ' ' + (top - 26), s = '';
+      var sq = pvLineSrc(P, lkP(p), swap, pvDrvRev), rep = FL ? p < nD - n : p >= n, dx = gapX(G[p]), path = 'M' + dx + ' ' + (top - 26), s = '';
       var sw = (sq % n) !== (p % n);   // 對調／SHL 讓這條線收到別筆資料
       gys.forEach(function (gl) { path += ' V' + (gl.y - R) + ' A' + R + ' ' + R + ' 0 0 1 ' + dx + ' ' + (gl.y + R); });
       path += ' V' + (H - 2);
@@ -2739,7 +2772,7 @@
       o2 += svgEl('text', { x: 4, y: g.bxY + CH / 2 + 4, fill: '#64748b', 'font-size': 11 }, tt('dm.pvRow', { n: k + 1 }));
       for (var s = smin; s <= smax; s++) {
         /* v1.23.2：posLb＝固定的子像素軸名稱（畫面由左到右遞增、最左＝表格用到的最小編號，不隨 Mirror／CH1／對調／SHL 改變）；phys＝這格收到的資料名稱 */
-        var bx = boxX(s), posLb = pvAxisNm(s), phys = pvNm0(shownPos(s)), physCh = pvPhysCh(s, pvRL(), pvBGR), pc = pvFill(physCh + '1'), ins = g.hit[s] || [], st = ins.length > 1 ? 'conflict' : (ins.length ? 'ok' : 'none');
+        var bx = boxX(s), posLb = pvAxisNm(s), phys = pvNm0(shownPos(s)), physCh = pvPhysCh(s, FRL, pvBGR), pc = pvFill(physCh + '1'), ins = g.hit[s] || [], st = ins.length > 1 ? 'conflict' : (ins.length ? 'ok' : 'none');
         /* v1.26.2（Bruce 10/13「為什麼沒有讓 Data Mapping 那邊對應到的 subpixel 用比較亮一點的呈現…全部都是暗的」，全民 code＋v1.26.0）：
            根因＝原本多一個條件「s ≥ 0」（格子在 R1 右邊才算主循環），v1.26.0 起 T1 從第 1 欄解讀，全民表格名稱都在 R1 左邊（B-1…B-3），
            主循環 D1~D6 接到的格子全被判成暗。改成只看「有沒有主循環（非重複組）的線接到」＝和 ② 表格同一個來源，負索引的格子一樣亮。 */
@@ -2749,7 +2782,9 @@
         var dumPos = posLb ? /^[RGB]-\d/.test(posLb) : s < 0;
         /* v1.17.2：SHL 反向時格內寫「這顆實際收到的資料」（同一組內對稱那條線的資料） */
         var dwR = ins.filter(function (w) { return !w.rep; })[0] || ins[0];
-        var posNm = P.recv && P.chrb ? DM.rbSwapName(phys) : phys;   // v1.23.2：鎖定的接線若 CHRB＝1，這格「該收到的資料」也是 R↔B 後的名稱（和 pvChrb 同一定義）
+        var posNm = P.recv && P.chrb ? DM.rbSwapName(phys) : phys;
+        if (LKH && LKH.bgrChg) posNm = DM.rbSwapName(posNm);   // v1.35.0：鎖定後改 RGB↔BGR ⇒ 這格的顏色 R↔B，該收的資料跟著換色（pixel 編號不變）
+        // v1.23.2：鎖定的接線若 CHRB＝1，這格「該收到的資料」也是 R↔B 後的名稱（和 pvChrb 同一定義）
         if (DX && dwR) phys = dwR.rt === null || dwR.rt === undefined ? 'X' : (FLIP ? pvEndNm(pvNmCur(shownPos(dwR.rt))) : pvNm0(shownPos(pvRecvT(P, dwR.rt))));
         var endJ = +phys.slice(2), endTip = FLIP && dwR && /末/.test(phys) ? tt(endJ > 0 ? 'dm.pvEndTip' : 'dm.pvEndTipOut', { k: dofOf(dwR.p), j: phys.slice(2), o: -endJ, c: phys.charAt(0) }) + '；' : '';
         /* v1.17.0：格內寫「這顆實際收到的資料」（CHRB＝1 時 R↔B 後的名稱）；沒有 CHRB 時＝位置名稱，畫面和舊版相同 */
@@ -2831,10 +2866,10 @@
     svg.setAttribute('data-nd', nD); svg.setAttribute('data-nl', P.nl); svg.setAttribute('data-vper', P.vrep || P.nl); svg.setAttribute('data-handdim', HDIM ? 1 : 0);   // v1.18.24／v1.18.25
     svg.setAttribute('width', W); svg.setAttribute('height', H); svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
     var body = o + '<g opacity="0.45" data-rep="1">' + oR + '</g>' + oT + o2;
-    svg.innerHTML = pvRL() ? '<g transform="translate(' + W + ',0) scale(-1,1)" data-flip="1">' + body + '</g>' : body;
+    svg.innerHTML = FRL ? '<g transform="translate(' + W + ',0) scale(-1,1)" data-flip="1">' + body + '</g>' : body;
     /* v1.18.15：圖內每個可點的 Dn／Data k 加滑鼠提示（<title data-jt>，SVG 比對時正規化拿掉） */
     Array.prototype.forEach.call(svg.querySelectorAll('text[data-jump]'), function (t) { var ti = document.createElementNS('http://www.w3.org/2000/svg', 'title'); ti.setAttribute('data-jt', '1'); ti.textContent = tt(t.getAttribute('data-jump') === 'sd' ? 'dm.jumpSdT' : 'dm.jumpTcT'); t.appendChild(ti); });
-    svg.setAttribute('data-dir', pvRL() ? 'rl' : 'lr'); svg.setAttribute('data-first', pvFirstRight ? 'r' : 'l'); svg.setAttribute('data-drv', pvDrvRev ? 'r' : 'f'); svg.setAttribute('data-stripe', pvBGR ? 'bgr' : 'rgb');
+    svg.setAttribute('data-dir', FRL ? 'rl' : 'lr'); if (LKH) svg.setAttribute('data-lkhw', (LKH.chFlip ? 'c' : '') + (LKH.bgrChg ? 'b' : '') + (LKH.swap !== pvSwapOn ? 's' : '') + (LKH.rev !== pvDrvRev ? 'r' : '')); else svg.removeAttribute('data-lkhw'); svg.setAttribute('data-first', pvFirstRight ? 'r' : 'l'); svg.setAttribute('data-drv', pvDrvRev ? 'r' : 'f'); svg.setAttribute('data-stripe', pvBGR ? 'bgr' : 'rgb');
     /* v1.31.1：Data 線位置／線長／週期說明文字刪除（數值仍在 svg data-*） */
   }
 
@@ -3059,6 +3094,103 @@
     var ro = !!S.ro;
     $('dm-bench-apply').disabled = ro || !L.n; $('dm-bench-clear').disabled = !L.n && !L.bad;
     $('dm-bench-undo').classList.toggle('hidden', !BM.undo); $('dm-bench-undo').disabled = ro || S.busy;
+    renderRevBtn();
+  }
+  /* ── v1.35.0 Benchmark「自動反推」（Bruce 10/15，含追加 1～4）───────────────────────────────────
+     只在「已鎖定（確定此架構）＋ Benchmark 開啟」出現（按鈕與結果行用 JS 建立，未使用時 DOM 完全不變）。
+     目標＝鎖定時每個子像素收到的資料（S.glass 推出，Auto／Hand 起點同一種）；玻璃走線固定（lkHwOf）。
+     按下：強制 Hand Mode Enable → 以目前 Driver／面板設定為固定條件，②-1 的 Mirror（連帶 READ_RVS）／CHRB 有限組合各解一次；
+     每組用「逐格直接解」：②-2 每格在下拉選項中挑讓錯格最少的名稱（同一套 pvModel／lkBuild／pvWiresSpec 計算，不另寫模型、不做全格組合枚舉），
+     錯格＝TFT 接線圖呼吸燈（衝突、顏色不符、收到≠應收）。多組解依 32 種排列同一個排名（pvRank：全對→錯格數→最長 drain→Mirror 不必改→左右線長差），
+     再依 CHRB 不必改、改動格數少。套用走 commit（可「復原」、已改標示照常）。 */
+  function lkErr(P) {
+    var FRL = P.lkHw ? !!P.lkHw.first : pvRL(), FL = FRL, n = P.period, nD = pvNDof(n), pSub = n * P.NG, NGR = nD / n, smin = -pvPreCount(P);
+    var spec = pvWiresSpec(P, pvSwapOn, pvDrvRev), PRc = P.recvP || P, FLIP = !!P.recvMirFlip, bad = 0, tot = 0, hit = {};
+    if (FL) spec.forEach(function (w) { w.rep = w.p < nD - n; });
+    var shownPos = function (s0) { return FL ? s0 - pSub * (NGR - 1) : s0; };
+    var nm0 = function (x) { return pvName(P.mirror ? pvSpanRev(P, x) : x); }, nmCur = function (x) { return pvName(PRc.mirror ? pvSpanRev(PRc, x) : x); };
+    spec.forEach(function (w) { if (w.off || w.t === null || w.t === undefined || w.t < smin) return; var k = w.k + ':' + w.t; (hit[k] = hit[k] || []).push(w); });
+    Object.keys(hit).forEach(function (key) {
+      var ins = hit[key], s = ins[0].t, dwR = ins.filter(function (w) { return !w.rep; })[0] || ins[0];
+      var phys = nm0(shownPos(s)), physCh = pvPhysCh(s, FRL, pvBGR), posNm = P.chrb ? DM.rbSwapName(phys) : phys;
+      if (P.lkHw && P.lkHw.bgrChg) posNm = DM.rbSwapName(posNm);
+      phys = dwR.rt === null || dwR.rt === undefined ? 'X' : (FLIP ? pvEndNm(nmCur(shownPos(dwR.rt))) : nm0(shownPos(pvRecvT(P, dwR.rt))));
+      if (PRc.chrb) phys = DM.rbSwapName(phys);
+      var e = ins.length > 1 || physCh !== phys.charAt(0) || phys !== posNm;
+      tot++; if (e) bad++;
+    });
+    return { bad: bad, tot: tot };
+  }
+  function lkEval(cs) {
+    var Pc = pvModelState(cs); if (!Pc.ok) return null;
+    var Pl = lkBuild(Pc, cs, true); return Pl ? { P: Pl, e: lkErr(Pl) } : null;
+  }
+  function lkErrNow() { if (!hwLocked()) return null; var r = lkEval(S.cur); return r ? r.e : null; }
+  function lkSolve() {
+    if (!(hwLocked() && BM.open) || S.ro || isEn01()) return null;
+    var m = S.model, undo = DM.cloneState(S.cur), t0 = Date.now();
+    if (!(S.cur.hand | 0)) {   // 強制 Hand Mode Enable（與勾選框同一條路）
+      var hs = DM.setHand(m, S.cur, true);
+      if (S.deDef && (isMnt() || nbPxFix()) && S.src.kind === 'none' && !S.raw && DM.fieldById(m, 'deEn') && !(hs.deEn | 0)) { hs.deEn = 1; hs.deSel = 0x0E; }
+      S.deDef = false; log('n', 'Benchmark 自動反推：Hand Mode Enable ← 1'); commit(hs, 'Hand Mode Enable'); initHandFill();
+      BM.undo = { model: m, st: undo, en01T: S.en01T.slice() };
+    }
+    var base = S.cur, tri = DM.triOn(m, base), cells = [];
+    if (tri) { for (var tr = 0; tr < 6; tr++) for (var tc = 0; tc < 6; tc++) cells.push([tr, tc]); }
+    else for (var r = 0; r < 4; r++) for (var c = 0; c < 6; c++) { var v = DM.cellView(m, base, r, c); if (!v.blank && v.editable) cells.push([r, c]); }
+    var sync = function (ns) { return tri ? ns : DM.firstEdit(m, base, ns).state; };
+    var opts = function (st, r, c) { return (tri ? DM.triCellOptions(m, st, r) : DM.cellOptions(m, st, r, c)).map(function (o) { return o.name; }); };
+    var pick = function (st, r, c, nm) { var x = tri ? DM.triPick(m, st, r, c, nm) : DM.pickCell(m, st, r, c, nm); return x ? x.state : null; };
+    var score = function (st) { var x = lkEval(sync(st)); return x ? x.e.bad : Infinity; };
+    var hasM = !!DM.fieldById(m, 'mirror') && pvMirOk({ m: m }), hasC = !!DM.fieldById(m, 'chrb'), m0 = base.mirror | 0, c0 = base.chrb | 0, vars = [];
+    (hasM ? [m0, 1 - m0] : [m0]).forEach(function (mi) { (hasC ? [c0, 1 - c0] : [c0]).forEach(function (ci) { vars.push([mi, ci]); }); });
+    var res = vars.map(function (vc) {
+      var st = DM.cloneState(base);
+      if (vc[0] !== m0) { st.mirror = vc[0]; rvsSet(st, vc[0] ? rvsFull() : 0); }
+      if (hasC) st.chrb = vc[1];
+      var cur = score(st);
+      for (var pass = 0; pass < 3 && cur > 0 && cur < Infinity; pass++) {
+        var imp = false;
+        cells.forEach(function (rc) {
+          if (!cur) return;
+          var bs = null, be = cur;
+          opts(st, rc[0], rc[1]).forEach(function (nm) { var ns = pick(st, rc[0], rc[1], nm); if (!ns) return; var e = score(ns); if (e < be) { be = e; bs = ns; } });
+          if (bs) { st = bs; cur = be; imp = true; }
+        });
+        if (!imp) break;
+      }
+      var x = lkEval(sync(st)), mx = 0, bal = 0;
+      if (x) { var Pl = x.P, sp = pvWiresSpec(Pl, pvSwapOn, pvDrvRev), nn = Pl.period, plc = pvPlace(sp, -pvPreCount(Pl), Math.max(11, nn * Pl.NG - 1), Pl.NG, nn); if (plc.cost) { mx = plc.cost[0]; bal = plc.cost[1]; } }
+      var fs = sync(st), nChg = DM.fieldsOf(m).filter(function (f) { return (fs[f.id] >>> 0) !== (undo[f.id] >>> 0); }).length;
+      var cb = { ok: cur === 0, mis: 0, dbad: cur, mx: mx, mirChg: vc[0] !== (undo.mirror | 0), bal: bal, swap: pvSwapOn, rev: pvDrvRev, bgr: pvBGR, first: pvFirstRight };
+      return { st: st, bad: cur, mir: vc[0], chrb: vc[1], key: pvRank(cb).concat([vc[1] !== (undo.chrb | 0) ? 1 : 0, nChg]), nChg: nChg };
+    });
+    res.sort(function (a, b) { return pvRankCmp(a.key, b.key); });
+    var best = res[0];
+    if (!best || best.bad === Infinity) { GL.rev = { txt: tt('dm.bmRevNa'), bad: -1 }; GL.rev.sig = lkSig(); renderBench(); toast('e', GL.rev.txt); return GL.rev; }
+    BM.undo = { model: m, st: undo, en01T: S.en01T.slice() };
+    var why = 'Mirror ' + best.mir + (hasC ? '、CHRB ' + best.chrb : '');
+    GL.rev = { txt: tt(best.bad ? 'dm.bmRevMin' : 'dm.bmRevOk', { e: best.bad, r: 1, n: res.length, c: why }), bad: best.bad, ms: Date.now() - t0, rank: res.map(function (x) { return { mir: x.mir, chrb: x.chrb, bad: x.bad }; }) };
+    log('n', 'Benchmark 自動反推：' + GL.rev.txt + '（' + GL.rev.ms + ' ms）');
+    commit(best.st, 'Benchmark 自動反推', tri ? { noSync: true } : undefined);
+    GL.rev.sig = lkSig(); renderRevBtn();
+    toast(best.bad ? 'e' : 'ok', GL.rev.txt);
+    return GL.rev;
+  }
+  function lkSig() { return JSON.stringify([S.model, S.cur, pvFirstRight, pvDrvRev, pvBGR, pvSwapOn]); }
+  function renderRevBtn() {
+    var show = BM.open && hwLocked() && !isEn01(), b = $('dm-bench-rev'), st = $('dm-bench-revst');
+    if (!show) { if (b) b.remove(); if (st) st.remove(); return; }
+    if (!b) {
+      b = document.createElement('button'); b.className = 'sbtn pri'; b.id = 'dm-bench-rev'; b.textContent = tt('dm.bmRev'); b.title = tt('dm.bmRevT');
+      b.addEventListener('click', function () { lkSolve(); });
+      st = document.createElement('span'); st.className = 'dm-sub'; st.id = 'dm-bench-revst';
+      var bar = document.querySelector('#dm-bench .dm-benchbar'); bar.insertBefore(st, bar.firstChild); bar.insertBefore(b, bar.firstChild);
+    }
+    b.disabled = !!S.ro || S.busy;
+    var e = lkErrNow(), R = GL.rev && GL.rev.sig === lkSig() ? GL.rev : null;
+    st.textContent = R ? R.txt : (e ? tt('dm.bmRevNow', { e: e.bad }) : '');
+    st.setAttribute('data-bad', R ? R.bad : (e ? e.bad : ''));
   }
   /* 套用：onlyFilled＝未填（X）的格不動；回傳 { n, bad[] } */
   function benchApply(onlyFilled) {
@@ -3097,7 +3229,7 @@
     ask(tt('dm.bmClearT'), tt('dm.bmClearD', { n: (BM.last && BM.last.n) || 0 }), tt('dm.bmClearYes'), tt('dm.askNo2'), go, function () {});
   }
   function bindBench() {
-    $('dm-bench-tog').addEventListener('click', function () { BM.open = !BM.open; if (BM.open) BM.fold = false; bmSave(); renderBench(); });
+    $('dm-bench-tog').addEventListener('click', function () { BM.open = !BM.open; if (BM.open) BM.fold = false; bmSave(); renderBench(); if (hwLocked()) renderLock(); });
     var hd = $('dm-bench-h'), fold = function () { BM.fold = !BM.fold; bmSave(); renderBench(); };
     hd.addEventListener('click', fold);
     hd.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fold(); } });
@@ -3108,7 +3240,8 @@
   /* 測試／自動化入口 */
   window.dmBench = { key: bmKey, state: benchState, cells: bmCells, names: bmNames, pick: onBenchPick, apply: benchApply, undo: benchUndo, clear: function () { benchClear(true); },
     _setNames: function (N) { if (N && Object.keys(N).length) BM.all[bmKey()] = { names: N, at: Date.now() }; else delete BM.all[bmKey()]; bmSave(); renderBench(); },
-    open: function (on) { BM.open = on !== false; BM.fold = false; bmSave(); renderBench(); }, view: bmView, lsKey: BM_LS };
+    open: function (on) { BM.open = on !== false; BM.fold = false; bmSave(); renderBench(); if (hwLocked()) renderLock(); }, view: bmView, lsKey: BM_LS,
+    reverse: function () { return lkSolve(); }, lockErr: function () { return lkErrNow(); } };
   function onCodeText(a, txt) {
     if (imgAddrs().indexOf(a) < 0 || S.ro) { render(); return; }
     var v = parseInt(String(txt).trim() || '0', 16);        // PY:12433-12438：解析失敗 ⇒ 00
@@ -3281,7 +3414,7 @@
     try {
       var r = await checkTcon();
       if (r && r.key) {
-        if (GL.on && S.glass && S.glassModel && S.glassModel !== r.key) { S.glass = null; GL.on = false; toast('n', tt('dm.lockCheckChg', { a: S.glassModel, b: r.key })); log('n', tt('dm.lockCheckChg', { a: S.glassModel, b: r.key })); }   // v1.18.12
+        if (GL.on && S.glass && S.glassModel && S.glassModel !== r.key) { S.glass = null; GL.on = false; GL.hw = null; toast('n', tt('dm.lockCheckChg', { a: S.glassModel, b: r.key })); log('n', tt('dm.lockCheckChg', { a: S.glassModel, b: r.key })); }   // v1.18.12
         S.model = r.key; S.e503ok = !!r.e503; S.checked = r.key;
         $('dm-ic').textContent = r.info; log('w', r.info);
         S.cur = DM.emptyState(S.model); S.img = {};
@@ -3362,7 +3495,7 @@
     /* v1.18.6：鎖定中匯入同型號的 code ⇒ 只改 TCON 值，鎖定與 Driver／面板設定保留；型號不同（實體架構改變）⇒ 自動解鎖（v1.18.1 行為） */
     var keepLock = !!(GL.on && S.glass && r.model === S.model);
     if ($('dm-pxlo')) { $('dm-pxlo').value = ''; $('dm-pxhi').value = ''; }   // v1.31.0：匯入 code ⇒ Pixel 範圍依 code 的 FORCE_DE_EN／FORCE_DE_SEL 反算
-    if (!keepLock) { if (GL.on && S.glass) toast('n', tt('dm.lockModelChg')); S.glass = null; GL.on = false; }
+    if (!keepLock) { if (GL.on && S.glass) toast('n', tt('dm.lockModelChg')); S.glass = null; GL.on = false; GL.hw = null; }
     if (r.model !== S.model) S.en01T = [];
     S.model = r.model; S.cur = r.state; S.e503ok = false; S.en01Seg = r.seg || null;
     S.img = {}; imgAddrs().forEach(function (a) { var o = r.fileOf(a); S.img[a] = (o >= 0 && o < bytes.length) ? bytes[o] : 0; });
@@ -3380,7 +3513,7 @@
   }
   /* v1.3.0（Bruce 10/7 卡死回報）：回到「這個型號、沒有匯入」的狀態。型號選單、匯入、清除匯入任何時候都不鎖。 */
   function resetToModel(k, keepLock) {
-    if (!keepLock) { S.glass = null; GL.on = false; }
+    if (!keepLock) { S.glass = null; GL.on = false; GL.hw = null; }
     if (k !== S.model) S.en01T = [];
     S.en01Seg = null;
     S.model = k; S.cur = DM.emptyState(k); S.img = {}; S.baseImg = null; S.savedImg = null; S.src = { kind: 'none' };
@@ -3652,10 +3785,10 @@
       e.preventDefault(); pvApplyCombo(tr.getAttribute('data-combo'), true);
     }); });
     ['click', 'keydown'].forEach(function (ev) { $('dm-pv-tft').addEventListener(ev, onJump); $('dm-mini-svg').addEventListener(ev, onJump); $('card-dm').addEventListener(ev, onJump); $('dm-drv-sec').addEventListener(ev, onJump); $('dm-pv-tfth').addEventListener(ev, onJump); });
-    $('dm-pv-first').addEventListener('change', function () { if (hwLocked()) { this.value = pvFirstRight ? 'r' : 'l'; return; } pvFirstRight = this.value === 'r'; pvAutoFirst = null; renderPreview(); });
-    $('dm-pv-drv').addEventListener('change', function () { if (hwLocked()) { this.value = pvDrvRev ? 'r' : 'f'; return; } pvDrvRev = this.value === 'r'; pvDrvAuto = null; renderPreview(); });
-    $('dm-pv-stripe').addEventListener('change', function () { if (hwLocked()) { this.value = pvBGR ? 'bgr' : 'rgb'; return; } pvBGR = this.value === 'bgr'; renderPreview(); });
-    $('dm-pv-swap').addEventListener('change', function () { if (hwLocked()) { this.checked = pvSwapOn; return; } pvSwapOn = this.checked; $('dm-pv-swapbox').classList.toggle('on', pvSwapOn); renderPreview(); });   // v1.5.0：只重畫預覽
+    $('dm-pv-first').addEventListener('change', function () { if (hwFrozen()) { this.value = pvFirstRight ? 'r' : 'l'; return; } pvFirstRight = this.value === 'r'; pvAutoFirst = null; renderPreview(); });
+    $('dm-pv-drv').addEventListener('change', function () { if (hwFrozen()) { this.value = pvDrvRev ? 'r' : 'f'; return; } pvDrvRev = this.value === 'r'; pvDrvAuto = null; renderPreview(); });
+    $('dm-pv-stripe').addEventListener('change', function () { if (hwFrozen()) { this.value = pvBGR ? 'bgr' : 'rgb'; return; } pvBGR = this.value === 'bgr'; renderPreview(); });
+    $('dm-pv-swap').addEventListener('change', function () { if (hwFrozen()) { this.checked = pvSwapOn; return; } pvSwapOn = this.checked; $('dm-pv-swapbox').classList.toggle('on', pvSwapOn); renderPreview(); });   // v1.5.0：只重畫預覽
     $('dm-pv-lod').addEventListener('change', function () { if (hwLocked()) { this.value = pvLod < 0 ? '' : String(pvLod); return; } var v = parseInt(this.value, 10); pvLod = isNaN(v) ? -1 : v; renderPreview(); });   // v1.7.0：只重畫預覽，不碰 S.cur
     $('dm-logclr').addEventListener('click', function () { $('dm-log').innerHTML = ''; });
     $('dm-hand').addEventListener('change', function () {
