@@ -17,7 +17,7 @@
      🔴 版號一律從 common/version.js 讀（TOOL_VERSIONS.dg），不在這裡硬編字串 ——
         硬編就是第二個來源，遲早跟 dg.html 各講各的，正好是本次要修的那個病。
      🔴 本頁其餘部分仍是自給自足的單檔（不載 i18n/common.js），只多這一個相依。 -->
-<script src="common/version.js?v=20261009dg248"></script>
+<script src="common/version.js?v=20261015dg260"></script>
 <style>
   /* ═══════════════════════════════════════════════════════════════════════
      即時量測分頁（DG 第 2 部分的第二個輸入管道）
@@ -2027,9 +2027,7 @@
     + '若現場出現看不懂的回應或 ER50 這種規格表上沒有的錯誤碼，這一行就是原因。';
   var DGM_LK_LEGACY_FORCED = '⚠ 相容模式（8N1，無流量控制）是「連線參數」選單指定的'
     + ' —— 與原廠規格 §1.1.1 不符，可能偶發亂碼。要照規格走請把選單切回「自動」或「規格 7E2」。';
-  var DGM_LK_SPEC_FORCED = '⚠ 規格模式握手沒過，但「連線參數」選單指定了「規格 7E2」'
-    + ' ⇒ **不自動退回**（強制就是強制）。埠仍然開著。若接下來一直沒有回應，'
-    + '請把選單切成「自動」或「相容 8N1」再連一次。';
+  var DGM_LK_SPEC_FORCED = '量測儀握手失敗，已關閉序列埠，請確認接線與連線參數。';
 
   /* ═══════════════════════════════════════════════════════════════════════
      v1.56.0：兩段式開埠（這一版的主體）
@@ -2053,7 +2051,9 @@
       lk('呼叫前 port.readable ＝ 有（已經開著）⇒ 不重開，沿用現有的埠 · '
         + (dgmPortModeUsed ? dgmModeLabel(dgmPortModeUsed) : '模式不明（不是這一頁開的）'));
       log('沿用上一次已經開著的埠', 'o');
-      return true;
+      var current = await dgmHandshake();
+      if (!current.ok) { await dgmHardClose('握手失敗'); msg('量測儀未回應或回應無效', 'err'); }
+      return current.ok;
     }
     var want = dgmSerialMode();
     var order = (want === 'spec') ? ['spec'] : (want === 'legacy') ? ['legacy'] : ['spec', 'legacy'];
@@ -2099,14 +2099,16 @@
       dgmSerialCh.rxBuf = '';
       if (!dgmSerialCh.readLoopRunning) { dgmSerialCh.keepReading = true; readLoop(); }
       dgmPortModeUsed = which;
-      if (which === 'spec') {
+      {
         var hs = await dgmHandshake();
         if (!hs.ok) {
           if (last) {
-            /* 只會是 want === 'spec'（使用者強制）。強制就不自動退回，但要吵。 */
+            /* 所有模式皆須有效儀器回應；最後一個候選失敗即關埠。 */
             lk(DGM_LK_SPEC_FORCED, 'e');
-            log('規格模式握手沒過（' + hs.why + '），但使用者指定強制規格模式', 'e');
-            return true;
+            log('儀器握手沒過（' + hs.why + '）', 'e');
+            await dgmHardClose('握手失敗');
+            msg('量測儀未回應或回應無效', 'err');
+            return false;
           }
           lk('✕ 規格模式握手沒過（' + hs.why + '）⇒ 退回相容模式', 'e');
           await dgmHardClose('握手沒過');

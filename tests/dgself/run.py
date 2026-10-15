@@ -27,6 +27,9 @@ CHROME = os.environ.get('CHROME', '/Applications/Google Chrome.app/Contents/MacO
 
 # 名稱, 情境檔, 網址查詢字串, 是否假裝由 DG 開啟, 額外的 pre 變數, reduced-motion[, 頁面（預設 dg-selftest.html）]
 SCENARIOS = [
+    ('BARRY', 'BARRY_target_ui.js', '', False, {}, False, 'dg.html'),
+    ('BARRY-METER', 'BARRY_meter.js', '', False, {}, False),
+    ('BARRY-PC', 'BARRY_pc_meter.js', '', False, {}, False, 'dg-measure.html'),
     ('A',         'A_dgen_switch_lut.js',     '',                     False, {},                         False),
     ('C',         'C_round1_recommend.js',    '?round=1&job=main',    True,  {},                         False),
     ('E',         'E_identnote_i18n.js',      '',                     False, {},                         False),

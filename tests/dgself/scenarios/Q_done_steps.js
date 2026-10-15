@@ -82,12 +82,13 @@
       __ok('Q-W1 part 1 is the current step; parts 2/3 and 計算 not shown at all', vis($('dg-part-lut').querySelector('.dg-part-head'))
         && !vis('dg-part-gray') && !vis('dg-part-prim') && !vis('dg-calc-act'));
       __ok('Q-W1 focus moved to part 1', scrolled.indexOf('dg-part-lut') >= 0, JSON.stringify(scrolled));
-      __ok('Q-W1 setup card folded (title visible, body hidden)', vis(hd('dg-card-setup')) && !vis($('dg-card-setup').querySelector('.card-body'))
-        && hd('dg-card-setup').getAttribute('aria-expanded') === 'false');
+      // Barry 10/15 要求：僅位元深度與目標設定、位元深度與輸出格式預設展開。
+      __ok('Q-W1 setup card expanded (title and body visible)', vis(hd('dg-card-setup')) && vis($('dg-card-setup').querySelector('.card-body'))
+        && hd('dg-card-setup').getAttribute('aria-expanded') === 'true');
       hd('dg-card-setup').click(); await __wait(50);
-      __ok('Q-W2 click setup title ⇒ opens', vis('dg-gamma'));
+      __ok('Q-W2 click setup title ⇒ folded', !vis('dg-gamma'));
       hd('dg-card-setup').click(); await __wait(50);
-      __ok('Q-W2 click again ⇒ folded', !vis('dg-gamma'));
+      __ok('Q-W2 click again ⇒ opens', vis('dg-gamma'));
       $('dg-done-wmode').click(); await __wait(50);
       __ok('Q-W3 click ✓ line ⇒ mode buttons back (can switch)', has('dg-card-wmode', 'tc-step-peek') && vis('dg-btn-wmode-tcon'));
       $('dg-done-wmode').click(); await __wait(50);

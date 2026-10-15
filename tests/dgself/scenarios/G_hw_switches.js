@@ -42,7 +42,7 @@
     Object.defineProperty(navigator, 'serial', { configurable: true, value: {
       getPorts: function () { return Promise.resolve([]); },
       requestPort: function () { window.__reqPort++; return window.__cancelPick ? Promise.reject(new DOMException('No port selected by the user.', 'NotFoundError')) : Promise.resolve(fakePort()); } } });
-    dstCaCmd = async function (cmd) { return 'OK00'; };
+    dstCaCmd = async function (cmd) { return cmd === 'BPR' ? 'OK00,115200' : 'OK00'; };
 
     await __boot(700);
     var box = document.getElementById('dst-hw-more');
