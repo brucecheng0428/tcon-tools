@@ -659,7 +659,7 @@
   <div class="dm-minibody dm-pvdrag" id="dm-mini-body"><div class="dm-mininote hidden" id="dm-mini-note"></div><div class="dm-tftmini" id="dm-mini-svg"></div></div>
 </div>
 
-<script src="common/version.js?v=20261015dm1356"></script>
+<script src="common/version.js?v=20261015dm1357"></script>
 <script src="common/i18n.js?v=20261012dm1220"></script>
 <script>
 (function () {
@@ -2183,7 +2183,7 @@
       if (a.x < 90 && a['text-anchor'] === undefined) a['text-anchor'] = 'end';
     }
     var s = '<' + tag; for (var k in a) if (a[k] !== undefined) s += ' ' + k + '="' + a[k] + '"';   // v1.18.7：undefined 的屬性不輸出
-    return s + (txt != null ? '>' + esc(String(txt)) + '</' + tag + '>' : '/>');
+    return s + (txt != null ? '>' + (txt && txt.raw !== undefined ? txt.raw : esc(String(txt))) + '</' + tag + '>' : '/>');   // v1.35.5：{ raw } ＝已組好的安全標記（下標 tspan）
   }
   function pvFill(name) { var k = colorKeyOf(name); return CELL_RGB[k] || CELL_RGB.x; }
   var PV_DOT = '#e2e8f0', PV_WIRE = '#94a3b8', PV_BAD = '#f97316';
@@ -2714,6 +2714,9 @@
        SD OUT 與 TCON OUT 標籤都寫「D週期(組)+組內序號」：CH1 在左＝D6(0)+1…D6(0)+6、D6(1)+1…；CH1 在右＝最遠那組 D6(n)+6…+1、往 CH1 依序 D6(n−1)…。
        TCON OUT 用這條線收到的那筆 TCON 資料（含輸出對調／SHL）編號。只改顯示文字；data-dof／data-src 等計算值不變（快照照比）。 */
     var gLab = function (q) { var b = Math.floor(q / n), k = q - b * n + 1, d = NGR - 1 - b; return 'D' + n + '(' + (FLn ? (d ? 'n−' + d : 'n') : b) + ')+' + k; };
+    /* v1.35.5（Bruce 10/15「D6 連在一起…看起來很像每個都是 Data 6」；Dispatch 10/15 最終定案）：D 維持原大小，後面「6(n)+k」整段一起變下標 D_{6(n)+k}
+       （tspan 字級 75%＋baseline-shift 下沉 0.2 字高），讓 6 讀成和 (n) 相乘＝第 6n+k 條。data-dlab 與 textContent 不變，只改呈現。 */
+    var gLabH = function (q) { var t = gLab(q); return { raw: 'D<tspan font-size="75%" baseline-shift="' + (-HFS * 0.2).toFixed(1) + '">' + esc(t.slice(1)) + '</tspan>' }; };   // 下沉 0.2 字高（不用 sub）：兩列間距 14px，TCON 列下標不碰到 SD 列、SD 列下標不壓到 Data 線頂端
     var HFS = n >= 12 ? 9 : (NG >= 2 ? 11 : 9.5);   // 標籤變長：Single 間距 58px ⇒ 10px、Dual 以上 11px、週期 12 ⇒ 9px，兩列不重疊
     var shownPos = function (s0) { return FL ? s0 - pSub * (NGR - 1) : s0; };
     var dofOf = function (p) { return (pvLineSrc(P, lkP(p), swap, pvDrvRev) % n) + 1; };
@@ -2803,11 +2806,11 @@
       path += ' V' + (H - 2);
       Vs.push({ x: dx, y1: top - 26, y2: H - 2, id: 'dl' + p });
       s += svgEl('path', { d: path, fill: 'none', stroke: '#7dd3fc', 'stroke-width': 2, 'data-dl': p + 1, 'data-x': Math.round(dx), 'data-gap': G[p], 'data-src': sq + 1, 'data-rep': rep ? 1 : 0 });
-      s += svgEl('text', { x: dx, y: top - 31, 'text-anchor': 'middle', fill: '#7dd3fc', 'font-size': HFS, 'font-weight': 700, 'data-dlab': gLab(lkP(p)), 'class': 'dm-sdo', 'data-jump': 'sd', tabindex: 0, role: 'link' }, gLab(lkP(p)));
+      s += svgEl('text', { x: dx, y: top - 31, 'text-anchor': 'middle', fill: '#7dd3fc', 'font-size': HFS, 'font-weight': 700, 'data-dlab': gLab(lkP(p)), 'class': 'dm-sdo', 'data-jump': 'sd', tabindex: 0, role: 'link' }, gLabH(lkP(p)));
       /* v1.17.4（Bruce 10/8）：小字＝這條線實際收到 TCON 送出的第幾筆資料（＝② 表格的 Data k）：含輸出對調，SHL 反向時同一組內倒過來；大字（位置）只看 CH1 位置 */
       var kq = dofOf(p);
       /* v1.18.14 層次：主循環＝亮紫粗體；對調／SHL 反向後收到別條的資料＝更亮的淡紫（原琥珀色）；前後循環（重複組）＝同色 60%（不放進 45% 的暗組） */
-      var tco = svgEl('text', { x: dx, y: top - 45, 'text-anchor': 'middle', fill: sw ? '#e9d5ff' : '#c084fc', 'font-size': HFS, 'data-dof': kq, 'class': 'dm-tco' + (sw ? ' sw' : ''), opacity: rep ? 0.6 : 1, 'data-jump': 'tc', tabindex: 0, role: 'link' }, gLab(sq));
+      var tco = svgEl('text', { x: dx, y: top - 45, 'text-anchor': 'middle', fill: sw ? '#e9d5ff' : '#c084fc', 'font-size': HFS, 'data-dof': kq, 'class': 'dm-tco' + (sw ? ' sw' : ''), opacity: rep ? 0.6 : 1, 'data-jump': 'tc', tabindex: 0, role: 'link' }, gLabH(sq));
       if (rep) { oR += s; oT += tco; } else o += s + tco;
     }
     /* 4) 子像素方格：三級亮度（主循環被 D1~D(週期) 接到＝高亮／重複組或前循環有接到＝暗色／沒人接＝暗灰 dummy）；格內只寫實體名稱，來源放 <title> */

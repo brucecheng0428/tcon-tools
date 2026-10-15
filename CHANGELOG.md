@@ -2,6 +2,26 @@
 
 ---
 
+## Data Mapping (datamap) v1.35.7 — 2026-10-15 ｜ PATCH ｜ TFT 接線圖 SD OUT／TCON OUT 標籤改成 D 加下標「6(n)+k」
+
+**判定依據**：§2 修正既有顯示（易誤讀）→ PATCH：只改標籤的呈現方式，不動任何計算；data-dlab 與文字內容（textContent）不變。
+
+### 起因
+- Bruce 10/15：「SD out 跟 T-CON out 的名稱，它那個 D6 連在一起，我覺得這樣看起來很像每個都是 Data 6。」
+- Dispatch 10/15 最終定案（取代先前「只把 6 變下標」與「放大 D」兩案）：D 維持正常大小、不加粗，後面「6(n)+k」整段一起變下標 D_{6(n)+k}（6 讀成和 (n) 相乘＝第 6n+k 條）；下標字級約 D 的 75%；n 維持小寫。
+
+### 修正
+- gLabH：SVG 標籤內容改為 `D<tspan font-size="75%" baseline-shift="−0.2 字高">6(n)+k</tspan>`；svgEl 支援 `{ raw }` 已組好的安全標記（其餘數值仍 esc）。
+- 下沉量用 0.2 字高（非 baseline-shift="sub"）：實測 sub 會讓 TCON 列下標貼到 SD 列、SD 列下標壓到 Data 線頂端；0.2 字高時兩列與 Data 線都留空隙。
+- 正向／反向（SHL）、CH1 左／右（D6(n−1)…）、並排、TFT 預覽小窗、放大視窗都是同一份 SVG（小窗為 cloneNode），一致。此標籤只出現在 SVG，沒有 HTML 版，故無 <sub>。
+- check_datamap_sd_snapshot.js：標籤略過規則改成「文字＋<tspan> 下標」一起略過，之後的 <title> 照比（與舊規則同範圍）；基準不重拍。
+
+### 測試
+- 標籤實測（headless Chrome 1600px，自寫檢查）：11 型號 × CH1 左／右 × SHL 正／反＝44 組，每組 48 個標籤全為 D＋75% 下標 tspan，同列相鄰標籤外框 0 重疊；TFT 預覽小窗內容＝主圖、放大視窗 48/48 下標 0 重疊；並排（1600px）同一張圖。
+- 合併 v1.35.6（cd40980）後重跑：check_datamap_sd_snapshot 24608 pass／0 fail（11104 組，基準未動）；check_datamap_boe --qm 全民 109/0（24/24 格一致）；check_datamap_tft_interact 962/0。
+
+---
+
 ## Data Mapping (datamap) v1.35.6 — 2026-10-15 ｜ PATCH ｜ Benchmark 自動反推：第二組 force_sel（長循環 Line 5～8）納入逐格解
 
 **判定依據**：§2 修正既有功能錯誤 → PATCH：Bruce 10/15 驗收矩陣（全部 Auto 架構 × 各型 TCON × 鎖定後改條件 → 反推，逐格比對畫出來的 TFT 圖）抓到 MNT 的 ZZ+LLLLRRRR／RRRRLLLL（含 Mir 版）CH1 換邊到不了 0 錯。
