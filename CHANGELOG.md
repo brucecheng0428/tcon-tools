@@ -2,6 +2,31 @@
 
 ---
 
+## Data Mapping (datamap) v1.35.9 — 2026-10-15 ｜ PATCH ｜ 自動反推可改 NB（E50x／DAZ613x）FORCE_DE_SEL、依 T 欄最寬選值、按反推必開 Hand
+
+**判定依據**：§2 修正既有功能錯誤（Bruce 10/15 決定）→ PATCH。
+
+### 起因
+- v1.35.8 後 E503 HSD Type 4+Z-Zag(BOE)：CH1 在最左鎖定 → 只把 CH1 改到最右 → 自動反推仍 4 錯（Dual 下 gate 列要 G-5，FORCE_DE_SEL 0xE＝第 2 欄起到不了）。窮舉 0～15：bit0＝1（第 1 欄起）全部 0 錯。
+- Bruce 10/15：NB 的 FORCE_DE_SEL 也納入反推搜尋，和 MNT 同一套函式；預設值維持 0xE，只有按下自動反推、而且需要改的時候才動，其他情況（包括 Hand 開著）一律照舊寫 0xE；反推選值依 Woody 規則選 T 欄最寬、同寬選最接近 0xE，MNT 同一規則；按自動反推不論幾錯都要勾上 Hand Mode Enable。
+
+### 修正（通用）
+- pyNormalize：e50x NB 照舊寫 0xE，只有反推選出的值（state.deRev，非暫存器欄位，不進匯出）保留；rowDict 的 pool 起始欄只在 deRev 時跟著 FORCE_DE_SEL（mntBaseT，與 MNT 同一函式），其餘仍是 0xE 的第 2 欄 ⇒ 快照與 v1.35.8 相同。
+- 自動反推：E50x／DAZ613x 的 FORCE_DE_SEL 列入第二層候選暫存器（畫面欄位仍唯讀）；找到改了 FORCE_DE_SEL 的 0 錯解後，對該暫存器所有值逐一驗證 0 錯，依「T 欄數多（DM.tWin，T1＝最低位元欄…最高位元欄＋4）→ 與 0x0E 不同的 bit 少 → 數值接近 0x0E」排序取第一個；MNT 同一段程式。候選與 T 範圍寫入 ④ 記錄。
+- Pixel 列：NB 仍唯讀；反推改過 FORCE_DE_SEL 時顯示「自動反推：FORCE_DE_SEL＝值」與實際範圍，不再寫固定 14。
+- 自動反推按下就開 Hand Mode Enable（有錯仍不套用、②-2 不寫入）；「架構不同，無法反推」不開。
+- 沒有 FORCE_DE_SEL 的型號（DAZ6111／DAZ7353）隱藏的 f-deSel 固定停用＋唯讀，不殘留前一個型號的屬性。
+- 已列入 assistant_kb/reference/DataMapping_待問RD清單.md：NB FORCE_DE_SEL 網頁可改（Python UI 寫死 0xE），待 RD 確認。
+
+### 結果
+- E503 HSD Type 4+Z-Zag(BOE) CH1 左鎖定 → 右 → 反推：4 錯 → 0 錯，FORCE_DE_SEL 0x0E→0x0F。0 錯候選：0x01（第 1～5 欄）、0x03（1～6）、0x05／0x07（1～7）、0x09／0x0B／0x0D／0x0F（1～8）；8 欄的四個中 0x0F 與 0x0E 只差 1 bit ⇒ 選 0x0F。套用後 TFT 圖 204 格逐格與鎖定相同。
+- E503 Normal 0 錯（FORCE_DE_SEL 維持 0x0E）；EM01 (22) HSD+RBG/GRB 0 錯。
+
+### 測試
+- 見完成回報。
+
+---
+
 ## Data Mapping (datamap) v1.35.8 — 2026-10-15 ｜ PATCH ｜ NB（E50x／DAZ613x）force_sel 名稱改用與 MNT 同一個 pool（可用到 R-6）
 
 **判定依據**：§2 修正既有功能錯誤（Bruce 10/15 決定）→ PATCH。

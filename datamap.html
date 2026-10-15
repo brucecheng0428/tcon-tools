@@ -659,7 +659,7 @@
   <div class="dm-minibody dm-pvdrag" id="dm-mini-body"><div class="dm-mininote hidden" id="dm-mini-note"></div><div class="dm-tftmini" id="dm-mini-svg"></div></div>
 </div>
 
-<script src="common/version.js?v=20261015dm1358"></script>
+<script src="common/version.js?v=20261015dm1359"></script>
 <script src="common/i18n.js?v=20261012dm1220"></script>
 <script>
 (function () {
@@ -1085,7 +1085,7 @@
 <script src="common/subpix-colors.js?v=20261008dm11825"></script>
 <script src="common/xlsx.js?v=20261008dm11825"></script>
 <script src="common/syscrc.js?v=20261014dm1290"></script>
-<script src="common/datamap-core.js?v=20261015dm1358"></script>
+<script src="common/datamap-core.js?v=20261015dm1359"></script>
 <script src="common/datamap-lod.js?v=20261012dm1220"></script>
 <script src="common/datamap-auto.js?v=20261014dm1282"></script>
 <script src="common/i2c-mbus.js?v=20261008dm11825"></script>
@@ -1397,7 +1397,8 @@
     $('dm-pxapply').classList.toggle('hidden', fix);
     $('dm-pxapply').disabled = fix || !!S.ro || S.busy;
     var res = $('dm-pxres');
-    if (fix) { res.textContent = tt('dm.pxNbFix'); res.classList.remove('over'); res.setAttribute('data-v', 14); res.setAttribute('data-over', 0); res.setAttribute('data-fix', 1); }
+    if (fix && S.cur.deRev && (S.cur.deSel | 0) !== 0x0E) { res.textContent = '自動反推：FORCE_DE_SEL＝' + (S.cur.deSel | 0) + '（0x' + hex(S.cur.deSel | 0, 2) + '）'; res.classList.remove('over'); res.setAttribute('data-v', S.cur.deSel | 0); res.setAttribute('data-over', 0); res.setAttribute('data-fix', 1); }   // v1.35.9：反推改過才顯示實際值
+    else if (fix) { res.textContent = tt('dm.pxNbFix'); res.classList.remove('over'); res.setAttribute('data-v', 14); res.setAttribute('data-over', 0); res.setAttribute('data-fix', 1); }
     else if (res.getAttribute('data-fix') === '1') { res.textContent = ''; res.removeAttribute('data-fix'); res.removeAttribute('data-v'); res.removeAttribute('data-over'); }
     if (show) pxSync();
   }
@@ -1409,7 +1410,7 @@
   function pxSync() {
     var lo = $('dm-pxlo'), hi = $('dm-pxhi'), ae = document.activeElement;
     if (ae === lo || ae === hi) return;
-    if (nbPxFix()) { var nbs = DM.cloneState(S.cur); nbs.deEn = 1; nbs.deSel = 0xE; var nbr = DM.pxForDeSel(S.model, nbs); if (nbr) { lo.value = nbr.from; hi.value = nbr.to; } return; }   // v1.35.7：NB 與 MNT 同一個 pool／同一個換算（FORCE_DE_SEL 0xE ⇒ 第 2 欄），不再寫死 -2～4
+    if (nbPxFix()) { var nbs = DM.cloneState(S.cur); nbs.deEn = 1; nbs.deSel = S.cur.deRev ? (S.cur.deSel | 0) : 0xE; var nbr = DM.pxForDeSel(S.model, nbs); if (nbr) { lo.value = nbr.from; hi.value = nbr.to; } return; }   // v1.35.7：NB 與 MNT 同一個 pool／同一個換算（FORCE_DE_SEL 0xE ⇒ 第 2 欄），不再寫死 -2～4
     var a = parseInt(lo.value, 10), b = parseInt(hi.value, 10);
     if ((isNaN(a) || isNaN(b)) && S.src.kind === 'none' && !S.raw) { a = -2; b = 4; lo.value = a; hi.value = b; }
     var cur = DM.pxForDeSel(S.model, S.cur); if (!cur) return;
@@ -1972,7 +1973,7 @@
       if (nbPxFix()) { $('f-deSel').disabled = true; $('f-deSel').readOnly = true; } else $('f-deSel').readOnly = false;   // v1.31.4：NB 固定 14 ⇒ 唯讀顯示
       $('f-deEn').checked = !!S.cur.deEn;
       $('f-deSel').max = (1 << DM.fieldById(S.model, 'deSel').bits) - 1; if (document.activeElement !== $('f-deSel')) $('f-deSel').value = S.cur.deSel | 0;
-    }
+    } else { $('f-deSel').disabled = true; $('f-deSel').readOnly = true; }   // v1.35.9：沒有 FORCE_DE_SEL 的型號（DAZ6111／DAZ7353）隱藏欄位固定停用＋唯讀，不殘留前一個型號的狀態（v1.35.8 時前一個 NB 固定 14 留下的就是停用＋唯讀）
     var g0 = DM.gateOf(S.model, S.cur), bt = mnt ? DM.mntBaseT(S.cur, g0) : null;
     if (hasDe) renderDeSel(S.cur, g0, bt);
     if (!mnt) return;
@@ -3181,7 +3182,7 @@
      READ_RVS（跟著 Mirror，rvsSet）、Hand（反推強制 1）、唯讀（lkRo）。不看機種名稱。 */
   var LK_BUDGET = 8000, LK_MAXBITS = 6, LK_L2 = 4;
   var LK_NORO = false;   // 測試用：解除唯讀只為了證明「到不了 0 是唯讀暫存器限制」，頁面永遠是 false
-  function lkRo(id) { return !LK_NORO && (id === 'deSel' && nbPxFix()); }   // 與 ② 欄位唯讀（v1.31.4 NB 固定 14）同一判斷
+  function lkRo(id) { return !LK_NORO && (id === 'deSel' && nbPxFix() && DM.MODELS[S.model].sem !== 'e50x'); }   // v1.35.9（Bruce 10/15）：E50x／DAZ613x 的 FORCE_DE_SEL 畫面仍唯讀（預設 0xE），但自動反推可以改   // 與 ② 欄位唯讀（v1.31.4 NB 固定 14）同一判斷
   /* 同一等價類取哪個值：先照該暫存器的常用值表（FORCE_DE_SEL＝DM.DE_COMMON，與「Pixel 最小～最大」反推 deSelForPx 同一份），沒有才取與目前值相差最少 bit */
   function lkPref(id) { return id === 'deSel' ? DM.DE_COMMON : []; }
   function lkKnobs(m) {
@@ -3200,6 +3201,7 @@
     /* v1.35.2（Bruce 10/15「每次反推都以鎖定當下為基準…改回原設定時結果要回到原本的表格／Panel mode」）：
        起點一律＝鎖定當下的 ②（S.glass 的表格、Mirror、CHRB、READ_RVS），不是上一次反推的結果 ⇒ 可無限次重複、結果只由「鎖定目標＋目前 Driver／面板」決定 */
     var base = DM.cloneState(hs);
+    if (DM.MODELS[m].kind === 'nb' && DM.MODELS[m].sem === 'e50x' && DM.fieldById(m, 'deSel')) base.deRev = 1;   // v1.35.9：反推評估時 FORCE_DE_SEL 可改（pyNormalize 只保留 deRev 的值）
     DM.fieldsOf(m).forEach(function (f) { if (/^([cxe]\d+|mirror|chrb|rvsL|rvsH)$/.test(f.id)) base[f.id] = S.glass[f.id]; });
     var tri = DM.triOn(m, base), cells = [];
     if (tri) { for (var tr = 0; tr < 6; tr++) for (var tc = 0; tc < 6; tc++) cells.push([tr, tc]); }
@@ -3348,7 +3350,17 @@
       res.sort(function (a, b) { return pvRankCmp(a.key, b.key); });
     }
     var best = res[0];
-    if (!best || best.bad === Infinity) { GL.rev = { txt: tt('dm.bmRevNa'), bad: -1 }; GL.rev.sig = lkSig(); renderBench(); toast('e', GL.rev.txt); return GL.rev; }
+    /* v1.35.9（Bruce 10/15）：FORCE_DE_SEL 依 Woody 規則（T1＝最低位元那一欄，延續到最高位元那一欄＋4），在所有 0 錯的值裡選涵蓋 T 欄數最多（窗口最寬）；
+       欄數一樣選最接近預設 0x0E（先比不同的 bit 數，再比數值差）。MNT／NB 同一套，只在反推真的改了 FORCE_DE_SEL 時才做。 */
+    if (best && best.bad === 0 && best.st && DM.fieldById(m, 'deSel') && KN.some(function (f) { return f.id === 'deSel'; }) && (best.st.deSel >>> 0) !== (base.deSel >>> 0)) {
+      var dBits = DM.fieldById(m, 'deSel').bits, dCand = [], dPc = function (x) { var c = 0; while (x) { c += x & 1; x >>>= 1; } return c; };
+      for (var dv = 1; dv < (1 << dBits); dv++) { var dSt = DM.cloneState(best.st); dSt.deSel = dv; dSt.deEn = 1; if (score(dSt) === 0) { var dTs = DM.tWin(m, dSt).ts; dCand.push({ v: dv, n: dTs.length, c0: dTs[0], c1: dTs[dTs.length - 1] }); } }
+      dCand.sort(function (a, b) { return b.n - a.n || dPc(a.v ^ 0x0E) - dPc(b.v ^ 0x0E) || Math.abs(a.v - 0x0E) - Math.abs(b.v - 0x0E) || a.v - b.v; });
+      if (dCand.length) { best.st.deSel = dCand[0].v; best.st.deEn = 1; GL.revDe = dCand;
+        log('n', 'FORCE_DE_SEL 0 錯候選（T 欄數多 → 與 0x0E 不同的 bit 少 → 數值接近 0x0E）：' + dCand.map(function (x) { return '0x' + hex(x.v, 2) + '＝第' + x.c0 + '～' + x.c1 + '欄（T1～T' + x.n + '）'; }).join('、')); }
+    }
+    if (best && best.st && best.st.deRev && (best.st.deSel >>> 0) === 0x0E) delete best.st.deRev;
+    if (!best || best.bad === Infinity) { GL.rev = { txt: tt("dm.bmRevNa"), bad: -1 }; GL.rev.sig = lkSig(); renderBench(); toast('e', GL.rev.txt); return GL.rev; }
     var why = 'Mirror ' + best.mir + (hasC ? '、CHRB ' + best.chrb : '');
     if (best.nK) KN.forEach(function (f) { var a = base[f.id] >>> 0, b = best.st[f.id] >>> 0; if (a !== b) why += '、' + f.name + ' 0x' + hex(a, 2) + '→0x' + hex(b, 2); });   // v1.35.5：第二層改到的暫存器寫明
     GL.rev = { txt: tt(best.bad ? 'dm.bmRevMin' : 'dm.bmRevOk', { e: best.bad, r: 1, n: res.length, c: why }), bad: best.bad, ms: Date.now() - t0, knStat: GL.revKn || null, kn: KN.filter(function (f) { return (best.st[f.id] >>> 0) !== (base[f.id] >>> 0); }).map(function (f) { return f.id + '=' + best.st[f.id]; }), rank: res.map(function (x) { return { mir: x.mir, chrb: x.chrb, bad: x.bad, key: x.key, t0: [0, 1, 2, 3, 4, 5].map(function (c) { return view(x.st, 0, c); }).join(' ') }; }) };
@@ -3360,6 +3372,7 @@
       log('e', 'Benchmark 自動反推：' + GL.rev.txt + '（' + GL.rev.ms + ' ms）');
       log('n', '最佳候選 ②-2：' + [0, 1, 2, 3].map(function (r) { return [0, 1, 2, 3, 4, 5].map(function (c) { return view(best.st, r, c) || '·'; }).join(' '); }).join('｜'));
       log('n', '錯格（面板要 → 收到）：' + wl.slice(0, 24).map(function (x) { return x.want + '→' + x.got; }).join('、') + (wl.length > 24 ? '…共 ' + wl.length + ' 格' : ''));
+      if (needHand) { S.deDef = false; log("n", "Benchmark 自動反推：Hand Mode Enable ← 1（有錯不套用，只開 Hand）"); commit(hs, "Hand Mode Enable"); initHandFill(); }   // v1.35.9（Bruce 10/15「只要按下自動反推，不論結果幾錯，都要自動勾上 Hand Mode Enable」）
       GL.rev.sig = lkSig(); renderRevBtn();
       toast('e', GL.rev.txt);
       return GL.rev;
