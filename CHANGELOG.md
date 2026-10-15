@@ -2,6 +2,24 @@
 
 ---
 
+## Data Mapping (datamap) v1.35.6 — 2026-10-15 ｜ PATCH ｜ Benchmark 自動反推：第二組 force_sel（長循環 Line 5～8）納入逐格解
+
+**判定依據**：§2 修正既有功能錯誤 → PATCH：Bruce 10/15 驗收矩陣（全部 Auto 架構 × 各型 TCON × 鎖定後改條件 → 反推，逐格比對畫出來的 TFT 圖）抓到 MNT 的 ZZ+LLLLRRRR／RRRRLLLL（含 Mir 版）CH1 換邊到不了 0 錯。
+
+### 根因
+- 8 列循環（panel 1、sub 6／7，line58）時 Line 5～8 的資料由第二組 force_sel（x0～x23）決定；反推的逐格解只搜第一組（c0～c23），第二組固定在鎖定時的值，任何設定都解不出來。
+  第二組是「會影響 mapping 的可調暫存器」，v1.35.5 第二層也因為 x 是格子類而排除，兩層都沒搜到。
+
+### 修正（通用）
+- DM.secondEditable 判定可填的列（長循環 free／mux3 規則，與 ② 的第二組下拉同一來源）一律加入逐格解，選項＝DM.secondOptions（code 0～29＋X），寫入走 DM.pickSecond；
+  與第一組同一套下降／整表平移／暖啟動。短循環（第二組＝第一組複本）不加，結果不變。
+- EM01／EM02／E512 ZZ+LLLLRRRR 等 4 種 8 列循環，鎖定 → CH1 最右 → 反推：96 錯 → 0 錯。
+
+### 測試
+- 見完成回報（畫面驗收 check_datamap_lkrev_dom --all-chg、既有回歸）。
+
+---
+
 ## Data Mapping (datamap) v1.35.5 — 2026-10-15 ｜ PATCH ｜ Benchmark 自動反推：搜尋空間改成「該機種所有可調、會影響 mapping 的暫存器」（通用，不做機種／case 特例）
 
 **判定依據**：§2 修正既有功能錯誤 → PATCH：v1.35.3 的反推只搜 ②-2 格子＋Mirror／CHRB，硬體可達的解（要改 FORCE_DE_SEL）找不到，EM01 HSD 鎖定後 CH1 換邊最少仍 4 錯。第一層有 0 錯解的情況結果完全不變。

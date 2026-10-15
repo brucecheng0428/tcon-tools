@@ -659,7 +659,7 @@
   <div class="dm-minibody dm-pvdrag" id="dm-mini-body"><div class="dm-mininote hidden" id="dm-mini-note"></div><div class="dm-tftmini" id="dm-mini-svg"></div></div>
 </div>
 
-<script src="common/version.js?v=20261015dm1355"></script>
+<script src="common/version.js?v=20261015dm1356"></script>
 <script src="common/i18n.js?v=20261012dm1220"></script>
 <script>
 (function () {
@@ -3201,14 +3201,17 @@
     var tri = DM.triOn(m, base), cells = [];
     if (tri) { for (var tr = 0; tr < 6; tr++) for (var tc = 0; tc < 6; tc++) cells.push([tr, tc]); }
     else for (var r = 0; r < 4; r++) for (var c = 0; c < 6; c++) { var v = DM.cellView(m, base, r, c); if (!v.blank && v.editable) cells.push([r, c]); }
+    /* v1.35.6（Bruce 10/15 驗收矩陣：EM01／EM02／E512 ZZ+LLLLRRRR 等 8 列循環 CH1 換邊到不了 0）：第二組 force_sel（x0～x23，長循環時是 Line 5～8 等）也是會影響 mapping 的可調暫存器，
+       原本逐格解只搜第一組。改成：DM.secondEditable 說可填的列一律加入逐格解（列號＋10 代表第二組），與第一組同一套下降／平移／暖啟動；短循環（第二組＝第一組複本）不加，結果不變 */
+    if (!tri) for (var r2 = 0; r2 < 4; r2++) if (DM.secondEditable(m, base, r2)) for (var c2 = 0; c2 < 6; c2++) cells.push([r2 + 10, c2]);
     var sync = function (ns) { return tri ? ns : DM.firstEdit(m, base, ns).state; };
-    var opts = function (st, r, c) { return (tri ? DM.triCellOptions(m, st, r) : DM.cellOptions(m, st, r, c)).map(function (o) { return o.name; }); };
-    var pick = function (st, r, c, nm) { var x = tri ? DM.triPick(m, st, r, c, nm) : DM.pickCell(m, st, r, c, nm); return x ? x.state : null; };
+    var opts = function (st, r, c) { if (r >= 10) return DM.secondOptions().map(function (o) { return o.value === 31 ? 'X' : String(o.value); }); return (tri ? DM.triCellOptions(m, st, r) : DM.cellOptions(m, st, r, c)).map(function (o) { return o.name; }); };
+    var pick = function (st, r, c, nm) { var x = r >= 10 ? (/^(X|\d+)$/.test(String(nm)) ? DM.pickSecond(m, st, r - 10, c, nm === 'X' ? 31 : +nm) : null) : tri ? DM.triPick(m, st, r, c, nm) : DM.pickCell(m, st, r, c, nm); return x ? x.state : null; };
     var score = function (st) { var x = lkEval(sync(st)); return x ? x.e.bad : Infinity; };
     var hasM = !!DM.fieldById(m, 'mirror') && pvMirOk({ m: m }), hasC = !!DM.fieldById(m, 'chrb'), m0 = base.mirror | 0, c0 = base.chrb | 0, vars = [];
     (hasM ? [m0, 1 - m0] : [m0]).forEach(function (mi) { (hasC ? [c0, 1 - c0] : [c0]).forEach(function (ci) { vars.push([mi, ci]); }); });
     var KN = lkKnobs(m);   // v1.35.5：第二層候選暫存器（由機種暫存器定義產生）
-    var view = function (st, r, c) { var v = tri ? DM.triCellView(m, st, r, c) : DM.cellView(m, st, r, c); return v && !v.blank && v.std ? v.txt : null; };
+    var view = function (st, r, c) { if (r >= 10) { var xv = st['x' + ((r - 10) * 6 + c)] | 0; return xv === 31 ? 'X' : String(xv); } var v = tri ? DM.triCellView(m, st, r, c) : DM.cellView(m, st, r, c); return v && !v.blank && v.std ? v.txt : null; };
     /* v1.35.3（Dispatch 10/15「兩組都全對時照 32 排列同一套 tie-break：最長 drain 短者優先…」）：
        同一個 Mirror／CHRB 下，整張表名稱一起平移整 pixel（T 表起點的自由度，例 B3 G3 R3… ↔ B2 G2 R2…）呼吸燈數相同；逐格解只會停在其中一組。
        ⇒ 每組解再試整表平移 ±1～±4 pixel，全部候選用 pvRank 排（全對 → 錯格 → 最長 drain → Mirror 不必改 → 左右線長差 → CHRB 不必改 → 改動少）。
