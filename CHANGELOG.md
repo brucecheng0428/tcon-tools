@@ -2,6 +2,25 @@
 
 ---
 
+## Data Mapping (datamap) v1.33.0 — 2026-10-15 ｜ MINOR ｜ 鎖定架構後 CHWB＝1 ⇒ TFT 接線圖逐格亮暗反相
+
+**判定依據**：§2 案例 1（新增功能）→ MINOR：只改鎖定後 TFT 接線圖的顯示；寫入 byte、script、計算不變。
+
+### 起因
+- Bruce 2026-10-15：「在鎖定 TFT 接線圖架構以後…CHWB 那邊如果打勾，應該要顯示對應的變化…選擇只送紅色，那就等於綠色跟藍色都是黑的…按下那個勾選，應該要反過來，變成綠色跟藍色都是亮的、紅色變暗的…黑轉白、白轉黑的概念，在 CHWB 按下去的那一刻，應該要可以實現在 TFT 接線圖上。」
+
+### 語意出處
+- EM02A1_RegisterBank.model:18168-18174 `reg_chwb`：「Inverse pixel R, pixel G and pixel B. / 0: don't inverse / 1: inverse」；DAZ6111_for_FAE_20240509_20240830.model:2906-2914、DAZ7353_20190418.model:2923-2931「1 : RGB data inverse」。R／G／B 全部反相，無其他條件。RM8100x／RM81010／RM81008 的 CHWB 註解為空白。
+
+### 變更
+- datamap.html renderPvTft0：鎖定（P.recv）且 CHWB＝1 時，每個非 dummy 格依原本「畫面樣式」算出的亮暗（這格收到的資料是否為送出的顏色）再反相；全白 ⇒ 全暗、只送紅 ⇒ 收到 R 的格暗、其餘亮；只送 R1 同理。格子加 `data-chwb="1"`，tooltip 加「（CHWB＝1）」。勾／取消即時重畫；預覽小窗（#dm-pv-tft 複本）同步。
+- 未鎖定時 CHWB 不改圖（同 v1.32.0）。
+
+### 測試
+- 新增 tools/check_datamap_chwb.js：E503／EM02／DAZ6111 鎖定後 全白／只送紅／綠／藍 × CHWB 0/1 逐格亮暗、只動 chwb 欄位、取消回原圖、預覽小窗同步、未鎖定不變；EN01 暫不支援預覽，不計。
+
+---
+
 ## Data Mapping (datamap) v1.32.0 — 2026-10-15 ｜ MINOR ｜ MNT Tri-Gate 6 列表（Line 1-1～2-3）＋Hand Tri TFT 接線圖；NB Gate Type 不列 Tri
 
 **判定依據**：§2 案例 1（新增功能）→ MINOR：MNT Hand＋Tri 多了可編輯的 6 列表與 TFT 圖，Single／Dual 畫面、寫入 byte、script、TFT 逐格不變（快照測試證明）。
