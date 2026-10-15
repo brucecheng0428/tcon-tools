@@ -275,7 +275,7 @@ const regOf = (b, maps) => { const r = {}; maps.forEach(([f, t, l]) => { for (le
     } else skip('F1567 實檔不在本機，頁面匯入段略過');
     fire($('dm-model'), 'E503');
     if (!$('dm-ask').classList.contains('hidden')) w.dmAskAnswer(true);   // 有未匯出的修改 ⇒ 換型號前先問（既有行為），答「是」
-    ok(!g.classList.contains('en01') && g.querySelectorAll('select.dm-cell').length === 24 && Array.from($('dm-gate').options).length === 3 && !$('dm-pvnote').textContent.includes('EN01'), '換回 E503 ⇒ 4×6 表格、Gate 3 項、③ 不再顯示 EN01 註記');
+    ok(!g.classList.contains('en01') && g.querySelectorAll('select.dm-cell').length === 24 && Array.from($('dm-gate').options).length === 2 && !$('dm-pvnote').textContent.includes('EN01'), '換回 E503 ⇒ 4×6 表格、Gate 2 項（v1.32.0：NB 不列 Tri）、③ 不再顯示 EN01 註記');
   }
   {
     for (const k of Object.keys(mem)) delete mem[k];

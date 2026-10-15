@@ -147,7 +147,9 @@ const ok = (c, m) => { if (c) pass++; else { fail++; console.log('  ✗ ' + m); 
   w.dispatchEvent(new w.MouseEvent('mousemove', { bubbles: true, clientX: 100 }));
   ok(SL === 220 && !wr.classList.contains('dragging'), '放開後不再跟著動');
   console.log('── Tri、切型號');
-  fire($('dm-gate'), 'Tri-Gate');
+  /* v1.32.0（Bruce 10/15「如果真的 NB 的 Tcon 沒辦法手動編輯 tri-gate，就不用」）：E503 的 Gate Type 不列 Tri ⇒ 直接放讀到 Tri 的暫存器（PANEL＝3、RD＝2） */
+  ok(Array.from($('dm-gate').options).every(o => o.value !== 'Tri-Gate'), 'v1.32.0：E503 Gate Type 不列 Tri');
+  Object.assign(w.dmState.cur, { panel: 3, rd: 2 }); w.dmRender();
   ok($('dm-pvbody').classList.contains('hidden') && /Tri-Gate/.test($('dm-pvnote').textContent), 'Tri ⇒ 預覽顯示不支援');
   fire($('dm-model'), 'DAZ7353');
   ok($('dm-model').value === 'DAZ7353' && $('dm-pvtag').textContent === 'Auto · Normal' && QA('rect[data-pv]').length > 0, 'v1.14.0：切 DAZ7353（Hand 關）⇒ Auto Type Normal 有畫（來源說明 v1.31.1 刪除）');

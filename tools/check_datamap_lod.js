@@ -175,7 +175,9 @@ if (SRC) {
   /* v1.21.0（Bruce 10/12）：FEATURE_LINE_OD＝false 時 Line OD 畫面全部隱藏 ⇒ Tri 提示不提 Line OD；開關打開時照舊驗 v1.7.0 的提示 */
   if (w.DM_FEATURE_LINE_OD !== false) ok($('dm-pvbody').classList.contains('hidden') && /測試：Line OD Type/.test($('dm-pvnote').textContent), '② 選 Tri-Gate：依 code 不畫，提示改用測試 Type 17~21');
   else {
-    ok($('dm-pvbody').classList.contains('hidden') && /無法畫圖/.test($('dm-pvnote').textContent) && !/Line OD/.test($('dm-pvnote').textContent), 'v1.21.0 Line OD 隱藏：② 選 Tri-Gate 依 code 不畫，提示不提 Line OD');
+    /* v1.32.0（Bruce 10/15 Tri-Gate 規劃方案 A）：MNT Hand 選 Tri-Gate ⇒ ② 換 6 列表、③ 依 code 畫 Tri 接線（與 Auto (17) 同一套）；格子不在該列 T 表時寫明原因、不提 Line OD */
+    { const drawn = !$('dm-pvbody').classList.contains('hidden'), note = $('dm-pvnote').textContent + $('dm-tftnote').textContent;
+      ok(!$('dm-tribox').classList.contains('hidden') && (drawn ? $('dm-pv-tft').getAttribute('data-ng') === '3' : /T 表/.test(note)) && !/Line OD/.test(note), 'v1.32.0：② 選 Tri-Gate ⇒ 6 列表；③ ' + (drawn ? '畫 3 條 gate' : '寫明原因：' + note) + '，提示不提 Line OD'); }
     fire($('dm-gate'), 'Dual-Gate'); fire($('dm-hand'), false); fire($('dm-auto'), pval(5));
     const sc = w.dmBuildScript().text;
     ok(d.documentElement.classList.contains('dm-nolod') && !d.querySelector('#card-reg tr[data-f^="lod"]') && /^write -m 09C7 /m.test(sc) && /^write -m 09C9 /m.test(sc) && $('dm-lodrow').getAttribute('data-state') === 'ok',

@@ -1402,7 +1402,52 @@
     return null;
   }
 
+  /* ── v1.32.0 Tri-Gate（Bruce 2026-10-15 核可規劃 assistant_kb/reference/DataMapping_TriGate規劃_20261015.md 方案 A）──────────────
+     硬性限制（Bruce 10/15「任何 tri-gate 的新增設定，千萬不要影響到原本 single gate 跟 dual gate 的結果」）：以下全是新函式，
+     既有 Single／Dual 函式一行不改；只在 TRI.on 且 gateOf＝'tri' 時由頁面呼叫。TRI.on＝false ⇒ 行為與 v1.31.4 相同（退回開關）。
+     MNT（EM01／EM02／E512）6 列（瑞鼎 EM01A1_rt7_register_force_mapping.xlsx LTPS 分頁 Z／AA／AB 欄：r0_0＝line0 時槽0、r0_1＝時槽1、r2_0＝時槽2，
+       r0_2／r0_3／r2_2＝line1 三個時槽）：Line k-1＝主組 _(2k-2)、k-2＝主組 _(2k-1)、k-3＝第二組 r2..b3 _(2k-2)；第二組 _1／_3 固定寫 0（原廠 RT7 17~21）。
+       名稱表：第 g 條 gate（0~2）＝起始欄（mntBaseT）＋g（datamap-auto wiringFromState Tri 分支同一規則），code 只列該欄 code 表有定義的（LOD.tName：⌊code/6⌋≤欄）。
+     NB（E503／E501A／E501B／DAZ6138／DAZ6139）：force_sel 只有一組 _0~_3 × R0..B1（RM8100x_for_FAE_20240925_20250311.model:8588-8790，24 格，0x323~0x331），
+       沒有第二組 r2..b3、沒有第 3 條 gate 的暫存器；Python UI V5.0.4 Tri 時表格停用（PY:12513-12528、10613-10620）⇒ NB 不做手動 Tri（Bruce 10/15「如果真的 NB 的 Tcon
+       沒辦法手動編輯 tri-gate，就不用」）：Hand Mode 的 Gate Type 不列 Tri；DAZ6111／DAZ7353 model PANEL 只有 0~2 也不列。EN01 不動。 */
+  var TRI = { on: true };
+  var TRI_ROWS = [
+    { label: 'Line 1-1', f: 'c', slot: 0, g: 0 }, { label: 'Line 1-2', f: 'c', slot: 1, g: 1 }, { label: 'Line 1-3', f: 'x', slot: 0, g: 2 },
+    { label: 'Line 2-1', f: 'c', slot: 2, g: 0 }, { label: 'Line 2-2', f: 'c', slot: 3, g: 1 }, { label: 'Line 2-3', f: 'x', slot: 2, g: 2 }
+  ];
+  function triOn(key, s) { return !!TRI.on && MODELS[key] && MODELS[key].kind === 'mnt' && gateOf(key, s) === 'tri'; }
+  function gateItems(key) {
+    var all = GATE_ITEMS.slice(1);
+    if (!TRI.on || !MODELS[key] || MODELS[key].kind !== 'nb') return all;
+    return all.filter(function (g) { return g !== 'Tri-Gate'; });
+  }
+  function triId(row, col) { var R = TRI_ROWS[row]; return R.f + (R.slot * 6 + col); }
+  function triT(s, row) { return mntBaseT(s, 'tri').t + TRI_ROWS[row].g; }
+  function triCodeOk(T, code) { code = code | 0; return code === 31 || (code >= 0 && code <= 29 && Math.floor(code / 6) <= T); }
+  function triName(T, code) { code = code | 0; if (code === 31) return 'X'; if (code < 0 || code > 29) return null; return linName(mntIdx(T, code)); }
+  function triCellView(key, s, row, col) {
+    var id = triId(row, col), raw = s[id] | 0, T = triT(s, row), nm = triName(T, raw);
+    return { id: id, raw: raw, t: T, txt: nm !== null ? nm : '0x' + hex(raw, 2), std: nm !== null, inTable: triCodeOk(T, raw), color: nm !== null ? colorOfName(nm) : 'ns',
+      field: fieldById(key, id).name, low: TRI_ROWS[row].g === 2 };
+  }
+  function triCellOptions(key, s, row) {
+    var T = triT(s, row), out = [];
+    for (var c = 0; c < 30; c++) if (triCodeOk(T, c)) out.push({ name: triName(T, c), value: c });
+    out.push({ name: 'X', value: 31 });
+    return out;
+  }
+  function triPick(key, s, row, col, name) {
+    if (!triOn(key, s)) return null;
+    var o = triCellOptions(key, s, row).filter(function (x) { return x.name === name; })[0];
+    if (!o) return null;
+    var ns = cloneState(s); ns[triId(row, col)] = o.value;
+    for (var c = 0; c < 6; c++) { ns['x' + (6 + c)] = 0; ns['x' + (18 + c)] = 0; }
+    return { state: ns, text: o.name };
+  }
+
   var API = {
+    TRI: TRI, TRI_ROWS: TRI_ROWS, triOn: triOn, gateItems: gateItems, triCellView: triCellView, triCellOptions: triCellOptions, triPick: triPick, triName: triName, triT: triT,
     MODELS: MODELS, MODEL_KEYS: MODEL_KEYS, MNT_KEYS: MNT_KEYS, PY_TO_KEY: PY_TO_KEY, PY_TABLES: PY_TABLES,
     GN1: GN1, GN2: GN2, D6111: D6111, D7353: D7353, CKS_W: CKS_W, GATE_ITEMS: GATE_ITEMS, RD_MODE_REG: RD_MODE_REG,
     PANEL_MODES: PANEL_MODES, SUB_PANEL: SUB_PANEL, SUB_PANEL_REG: SUB_PANEL_REG, RD_MODES: RD_MODES, PRESETS: PRESETS, CH_NAMES: CH_NAMES,
