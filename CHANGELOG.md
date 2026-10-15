@@ -2,6 +2,29 @@
 
 ---
 
+## Data Mapping (datamap) v1.35.0 — 2026-10-15 ｜ MINOR ｜ 鎖定架構後在 Benchmark 改 Driver／面板 → 自動反推 TCON 設定
+
+**判定依據**：§2 案例 1（新增功能）→ MINOR：新增（Benchmark「自動反推」），未使用時既有行為不變 ⇒ MINOR。
+
+### 起因
+- Bruce 2026-10-15：確定此架構（鎖定）後，按下 Benchmark 要可以改 Source Driver／面板設定，再按一個自動反推的鈕（一定在 Benchmark 裡），強制 Hand Mode Enable，改 ②-2 表格與 ②-1 Panel mode，讓每個 switch 都沒有呼吸燈。
+- 追加 1：Hand Mode 起點也要能反推。追加 2：沒鎖定時就是一般 Benchmark；多解依 32 種排列的同一套排名挑最適合。
+- 追加 3：鎖定＝接線不動；面板 RGB→BGR 只改顏色標示（R 位置變 B），反推時接線完全不能動。追加 4：Driver 設定（輸出對調、SHL、CH1 左右）照常更新上方 TCON OUT／SD OUT，SD Out 以下玻璃走線不動。
+
+### 行為
+- 鎖定當下記住 Driver／面板設定（GL.hw）＝玻璃走線基準；鎖定＋Benchmark 開啟時「輸出對調、SHL、CH1 位置、子像素排列」4 項可改（Benchmark 關閉照舊鎖住；型號、Line OD 測試、Gate Type 仍鎖）。
+- 改了以後：每條 drain 的目標照鎖定時推（走線、畫面方向不動）；每條 SD Out 收到的資料照目前設定（對調／SHL；CH1 左右＝SD Out 編號反向，SD OUT 標號跟著改）；RGB↔BGR 只改子像素顏色，該格應收資料 R↔B。不一致的格子照舊呼吸燈。
+- 「自動反推」只在已鎖定＋Benchmark 開啟時出現（JS 建立，未使用時 DOM 不變）：強制 Hand Mode Enable → ②-1 Mirror（連帶 READ_RVS）× CHRB 有限組合各解一次，②-2 每格在下拉選項中挑錯格最少的名稱（同一套 pvModel／lkBuild／pvWiresSpec，不另寫模型、不做全格組合枚舉）→ 依 pvRank（32 種排列同一排名：全對→錯格數→最長 drain→Mirror 不必改→左右線長差）再依 CHRB 不必改、改動欄位少挑第 1 名 → commit（可「復原」）。結果一行：「反推完成，0 錯（第 1 名／4 組：Mirror 0、CHRB 0）」或「最少 N 格錯」。
+
+### 測試
+- 新增 tools/check_datamap_lkrev.js：起點 Auto（EM01 HSD type4+BOE zigzag、EM01 Zigzag、EM02 1D1G）與 Hand（EM01 RT7 (32)(23)(28) Manual、E512 Dual、E501A NB Single）× 變更（對調、SHL、BGR、CH1、對調＋BGR、SHL＋CH1）：走線不動、TCON OUT／SD OUT／顏色標示照規則變、反推後呼吸燈 ≤ 鎖定當下、Hand 自動開、可復原；另測未鎖定沒有按鈕、鎖定＋Benchmark 關時 4 項停用且改不動。
+- check_datamap_sd_snapshot.js 100% 相同；tft_all、boe、axis、pxrange、desel、nbpx、chwb、bench、tri、tri_tools 0 fail。
+
+### 限制
+- Tri（RT7 (18) Tri+ZZ+LR）改 Driver／面板後反推最少 4 格錯：需要的名稱（B-1）不在該列 Tri code 可選範圍（triCodeOk 受 T 表限制）；不改 FORCE_DE_SEL。
+
+---
+
 ## Data Mapping (datamap) v1.34.0 — 2026-10-15 ｜ MINOR ｜ MNT Hand＋Tri 下 All Same Pixel、Benchmark、Excel、Pixel 範圍都能用
 
 **判定依據**：§2 案例 1（新增功能）→ MINOR：v1.32.0 只做了 Tri 6 列表與 TFT 圖，本版把 v1.32.0「未做（後續）」的整批功能接到 6 列表；Single／Dual 畫面、寫入 byte、script、TFT 逐格不變（快照測試證明）。派工標 bugfix，依「Tri 下原本不能用 → 能用」屬新增可用操作，取 MINOR。
