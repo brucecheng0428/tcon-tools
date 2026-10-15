@@ -659,7 +659,7 @@
   <div class="dm-minibody dm-pvdrag" id="dm-mini-body"><div class="dm-mininote hidden" id="dm-mini-note"></div><div class="dm-tftmini" id="dm-mini-svg"></div></div>
 </div>
 
-<script src="common/version.js?v=20261015dm1354"></script>
+<script src="common/version.js?v=20261015dm1355"></script>
 <script src="common/i18n.js?v=20261012dm1220"></script>
 <script>
 (function () {
@@ -1066,6 +1066,7 @@
     'dm.bmRev': ['自動反推', 'Auto solve', '自动反推'],
     'dm.bmRevT': ['接線不動，依目前 Driver／面板設定反推 ②-1、②-2（會開 Hand Mode）', 'Wiring fixed; solve ②-1/②-2 for the current driver/panel settings (turns on Hand Mode)', '接线不动，依目前 Driver／面板设定反推 ②-1、②-2（会开 Hand Mode）'],
     'dm.bmRevOk': ['反推完成，0 錯（第 {r} 名／{n} 組：{c}）', 'Solved, 0 errors (rank {r}/{n}: {c})', '反推完成，0 错（第 {r} 名／{n} 组：{c}）'],
+    'dm.bmRevNo': ['反推沒有 0 錯解，未套用（保留原設定）；最佳候選仍錯 {e} 格（{c}），錯格見 ④ 記錄', 'No 0-error solution; nothing applied (settings kept). Best candidate still has {e} wrong cells ({c}); see log ④', '反推没有 0 错解，未套用（保留原设定）；最佳候选仍错 {e} 格（{c}），错格见 ④ 记录'],
     'dm.bmRevMin': ['反推完成，最少 {e} 格錯（第 {r} 名／{n} 組：{c}）', 'Best effort: {e} cells wrong (rank {r}/{n}: {c})', '反推完成，最少 {e} 格错（第 {r} 名／{n} 组：{c}）'],
     'dm.bmRevNow': ['目前 {e} 格錯', '{e} cells wrong now', '目前 {e} 格错'],
     'dm.bmRevNa': ['架構不同（Gate／週期），無法反推', 'Architecture differs (gate/period); cannot solve', '架构不同（Gate／周期），无法反推'],
@@ -3148,9 +3149,10 @@
      每組用「逐格直接解」：②-2 每格在下拉選項中挑讓錯格最少的名稱（同一套 pvModel／lkBuild／pvWiresSpec 計算，不另寫模型、不做全格組合枚舉），
      錯格＝TFT 接線圖呼吸燈（衝突、顏色不符、收到≠應收）。多組解依 32 種排列同一個排名（pvRank：全對→錯格數→最長 drain→Mirror 不必改→左右線長差），
      再依 CHRB 不必改、改動格數少。套用走 commit（可「復原」、已改標示照常）。 */
+  var LK_WANT = false;   // v1.35.5：只有最後一次（列錯格）才收集清單，評分迴圈不多配置
   function lkErr(P) {
     var FRL = P.lkHw ? !!P.lkHw.first : pvRL(), FL = FRL, n = P.period, nD = pvNDof(n), pSub = n * P.NG, NGR = nD / n, smin = -pvPreCount(P), LKC = !!(P.lkHw && P.lkHw.chFlip);
-    var spec = pvWiresSpec(P, pvSwapOn, pvDrvRev), PRc = P.recvP || P, FLIP = !!P.recvMirFlip && !LKC, bad = 0, tot = 0, hit = {};
+    var spec = pvWiresSpec(P, pvSwapOn, pvDrvRev), PRc = P.recvP || P, FLIP = !!P.recvMirFlip && !LKC, bad = 0, tot = 0, hit = {}, list = [];
     if (FL) spec.forEach(function (w) { w.rep = w.p < nD - n; });
     var shownPos = function (s0) { return FL ? s0 - pSub * (NGR - 1) : s0; };
     var nm0 = function (x) { return pvName(P.mirror ? pvSpanRev(P, x) : x); }, nmCur = function (x) { return pvName(PRc.mirror ? pvSpanRev(PRc, x) : x); };
@@ -3163,27 +3165,38 @@
       if (PRc.chrb) phys = DM.rbSwapName(phys);
       if (LKC && dwR.chN !== undefined) phys = dwR.chN;   // v1.35.4：CH1 換邊 ⇒ 確切 pixel，逐格精確比對
       var e = ins.length > 1 || physCh !== phys.charAt(0) || phys !== posNm;
-      tot++; if (e) bad++;
+      tot++; if (e) { bad++; if (LK_WANT) list.push({ want: posNm, got: ins.length > 1 ? phys + '（衝突 ' + ins.length + '）' : phys }); }
     });
-    return { bad: bad, tot: tot };
+    return { bad: bad, tot: tot, list: list };
   }
   function lkEval(cs) {
     var Pc = pvModelState(cs); if (!Pc.ok) return null;
     var Pl = lkBuild(Pc, cs, true); return Pl ? { P: Pl, e: lkErr(Pl) } : null;
   }
   function lkErrNow() { if (!hwLocked()) return null; var r = lkEval(S.cur); return r ? r.e : null; }
+  /* v1.35.5：自動反推第二層——可調暫存器清單（單一來源：DM.fieldsOf）。排除：②-2 格子（第一層逐格解）、Mirror／CHRB（第一層組合）、
+     READ_RVS（跟著 Mirror，rvsSet）、Hand（反推強制 1）、唯讀（lkRo）。不看機種名稱。 */
+  var LK_BUDGET = 8000, LK_MAXBITS = 6, LK_L2 = 4;
+  var LK_NORO = false;   // 測試用：解除唯讀只為了證明「到不了 0 是唯讀暫存器限制」，頁面永遠是 false
+  function lkRo(id) { return !LK_NORO && (id === 'deSel' && nbPxFix()); }   // 與 ② 欄位唯讀（v1.31.4 NB 固定 14）同一判斷
+  /* 同一等價類取哪個值：先照該暫存器的常用值表（FORCE_DE_SEL＝DM.DE_COMMON，與「Pixel 最小～最大」反推 deSelForPx 同一份），沒有才取與目前值相差最少 bit */
+  function lkPref(id) { return id === 'deSel' ? DM.DE_COMMON : []; }
+  function lkKnobs(m) {
+    return (DM.fieldsOf(m) || []).filter(function (f) { return !/^([cxe]\d+|mirror|chrb|rvsL|rvsH|hand)$/.test(f.id) && !lkRo(f.id) && (f.bits | 0) > 0; });
+  }
   function lkSolve() {
     if (!(hwLocked() && BM.open) || S.ro || isEn01()) return null;
     var m = S.model, undo = DM.cloneState(S.cur), t0 = Date.now();
-    if (!(S.cur.hand | 0)) {   // 強制 Hand Mode Enable（與勾選框同一條路）
-      var hs = DM.setHand(m, S.cur, true);
+    /* v1.35.5（Bruce 10/15「有錯的結果不可以套用到主表、不可以寫入。0 錯才套用；有錯就保留原狀」）：
+       Hand Mode Enable 先只算在評估用的狀態（hs），不寫入；0 錯才連同 Hand 一起 commit，有錯什麼都不改 */
+    var needHand = !(S.cur.hand | 0), hs = S.cur;
+    if (needHand) {   // 強制 Hand Mode Enable（與勾選框同一條路，但延到確定 0 錯才寫入）
+      hs = DM.setHand(m, S.cur, true);
       if (S.deDef && (isMnt() || nbPxFix()) && S.src.kind === 'none' && !S.raw && DM.fieldById(m, 'deEn') && !(hs.deEn | 0)) { hs.deEn = 1; hs.deSel = 0x0E; }
-      S.deDef = false; log('n', 'Benchmark 自動反推：Hand Mode Enable ← 1'); commit(hs, 'Hand Mode Enable'); initHandFill();
-      BM.undo = { model: m, st: undo, en01T: S.en01T.slice() };
     }
     /* v1.35.2（Bruce 10/15「每次反推都以鎖定當下為基準…改回原設定時結果要回到原本的表格／Panel mode」）：
        起點一律＝鎖定當下的 ②（S.glass 的表格、Mirror、CHRB、READ_RVS），不是上一次反推的結果 ⇒ 可無限次重複、結果只由「鎖定目標＋目前 Driver／面板」決定 */
-    var base = DM.cloneState(S.cur);
+    var base = DM.cloneState(hs);
     DM.fieldsOf(m).forEach(function (f) { if (/^([cxe]\d+|mirror|chrb|rvsL|rvsH)$/.test(f.id)) base[f.id] = S.glass[f.id]; });
     var tri = DM.triOn(m, base), cells = [];
     if (tri) { for (var tr = 0; tr < 6; tr++) for (var tc = 0; tc < 6; tc++) cells.push([tr, tc]); }
@@ -3194,6 +3207,7 @@
     var score = function (st) { var x = lkEval(sync(st)); return x ? x.e.bad : Infinity; };
     var hasM = !!DM.fieldById(m, 'mirror') && pvMirOk({ m: m }), hasC = !!DM.fieldById(m, 'chrb'), m0 = base.mirror | 0, c0 = base.chrb | 0, vars = [];
     (hasM ? [m0, 1 - m0] : [m0]).forEach(function (mi) { (hasC ? [c0, 1 - c0] : [c0]).forEach(function (ci) { vars.push([mi, ci]); }); });
+    var KN = lkKnobs(m);   // v1.35.5：第二層候選暫存器（由機種暫存器定義產生）
     var view = function (st, r, c) { var v = tri ? DM.triCellView(m, st, r, c) : DM.cellView(m, st, r, c); return v && !v.blank && v.std ? v.txt : null; };
     /* v1.35.3（Dispatch 10/15「兩組都全對時照 32 排列同一套 tie-break：最長 drain 短者優先…」）：
        同一個 Mirror／CHRB 下，整張表名稱一起平移整 pixel（T 表起點的自由度，例 B3 G3 R3… ↔ B2 G2 R2…）呼吸燈數相同；逐格解只會停在其中一組。
@@ -3207,24 +3221,25 @@
       if (Pc.ok) { var sp = pvWiresSpec(Pc, pvSwapOn, pvDrvRev), nn = Pc.period, plc = pvPlace(sp, -pvPreCount(Pc), Math.max(11, nn * Pc.NG - 1), Pc.NG, nn); if (plc.cost) { mx = plc.cost[0]; bal = plc.cost[1]; } }
       var nChg = DM.fieldsOf(m).filter(function (f) { return (fs[f.id] >>> 0) !== (base[f.id] >>> 0); }).length;   // v1.35.2：改動量對鎖定當下比
       var cb = { ok: bad === 0, mis: 0, dbad: bad, mx: mx, mirChg: vc[0] !== m0, bal: bal, swap: pvSwapOn, rev: pvDrvRev, bgr: pvBGR, first: pvFirstRight };
-      return { st: fs, bad: bad, mir: vc[0], chrb: vc[1], mx: mx, key: pvRank(cb).concat([pxBag(Pc) === pxG ? 0 : 1, vc[1] !== c0 ? 1 : 0, nChg]), nChg: nChg };
+      var nK = KN.filter(function (f) { return (fs[f.id] >>> 0) !== (base[f.id] >>> 0); }).length, key = pvRank(cb); key.splice(2, 0, nK);   // v1.35.5：第 3 碼＝額外改動的暫存器數（第一層全為 0 ⇒ 原排名不變）
+      return { st: fs, bad: bad, mir: vc[0], chrb: vc[1], mx: mx, key: key.concat([pxBag(Pc) === pxG ? 0 : 1, vc[1] !== c0 ? 1 : 0, nChg]), nChg: nChg, nK: nK };
     };
-    var res = [];
-    vars.forEach(function (vc) {
-      var st = DM.cloneState(base);
-      if (vc[0] !== m0) { st.mirror = vc[0]; rvsSet(st, vc[0] ? rvsFull() : 0); }
-      if (hasC) st.chrb = vc[1];
-      var cur = score(st);
+    var res = [], seeds = [], dl = Infinity;   // dl：第二層的截止時間（第一層不限，行為與 v1.35.4 相同）
+    /* 逐格下降（每格在下拉選項中挑讓錯格最少的名稱，最多 3 輪）＋整表平移候選；第一層與第二層共用同一段 */
+    var descend = function (st, cur) {
       for (var pass = 0; pass < 3 && cur > 0 && cur < Infinity; pass++) {
         var imp = false;
         cells.forEach(function (rc) {
-          if (!cur) return;
+          if (!cur || Date.now() > dl) return;
           var bs = null, be = cur;
           opts(st, rc[0], rc[1]).forEach(function (nm) { var ns = pick(st, rc[0], rc[1], nm); if (!ns) return; var e = score(ns); if (e < be) { be = e; bs = ns; } });
           if (bs) { st = bs; cur = be; imp = true; }
         });
         if (!imp) break;
       }
+      return { st: st, cur: cur };
+    };
+    var addCands = function (st, vc, cur) {
       res.push(cand(st, vc, cur));
       if (cur === Infinity) return;
       [-12, -9, -6, -3, 3, 6, 9, 12].forEach(function (sh) {
@@ -3233,13 +3248,119 @@
         if (!s2) return;
         var e2 = score(s2); if (e2 <= cur) res.push(cand(s2, vc, e2));
       });
+    };
+    vars.forEach(function (vc) {
+      var st = DM.cloneState(base);
+      if (vc[0] !== m0) { st.mirror = vc[0]; rvsSet(st, vc[0] ? rvsFull() : 0); }
+      if (hasC) st.chrb = vc[1];
+      var d = descend(st, score(st));
+      seeds.push({ vc: vc, st: d.st, cur: d.cur });
+      addCands(d.st, vc, d.cur);
     });
     res.sort(function (a, b) { return pvRankCmp(a.key, b.key); });
+    /* v1.35.5（Bruce 10/15「演算法不是應該全部通用？」）：第二層搜尋空間＝該機種所有可調、會影響 mapping 的暫存器，由 DM.fieldsOf（機種暫存器定義）自動產生，
+       不寫機種、面板或 case 判斷（MNT／NB 共用；EN01 本來就不反推）。第一層（②-2 格子＋Mirror／CHRB）到不了 0 錯才展開——
+       排名 key 第 3 碼＝額外改動的暫存器數，第一層候選全為 0 ⇒ 第一層有 0 錯解時結果與 v1.35.4 完全相同（展開與否不影響排名，只是剪枝）。
+       ・候選暫存器（KN）：fieldsOf 扣掉 ②-2 格子（c／x／e）、第一層已搜的 Mirror／CHRB 與跟著 Mirror 的 READ_RVS、強制開的 Hand、唯讀欄位（lkRo：NB 固定 14 的 FORCE_DE_SEL）。
+       ・每個暫存器窮舉全部值（位元寬度由欄位定義），以「模型（各 gate 列實際送的 pixel）＋各格下拉選項」簽章分等價類：
+         跟目前同簽章＝不影響 mapping（例 Hand 下的 SUB_PANEL、Line OD 表）自動略過；例 FORCE_DE_SEL 64 值依 T1 起始欄只剩幾類；每類取值照 lkPref（常用值優先，否則相差最少 bit）。
+       ・架構不同（Gate 列數／週期變）評分＝∞，自動剪掉。
+       ・每類從第一層各 Mirror／CHRB 的解出發（同名 pixel 在新選項中重選，保留已對的格子），依暖啟動錯格數由少到多逐格下降＋整表平移，有 0 錯就停。
+       ・先改一個額外暫存器，不夠再改兩個（見下方 LK_L2）；只有到 0 錯才採用（到不了就保留第一層結果）；總時間上限 LK_BUDGET ms。 */
+    GL.revKn = null;
+    if (res[0] && res[0].bad > 0 && res[0].bad !== Infinity && KN.length) {
+      var ksig = function (st) {
+        var P = pvModelState(st), o = [P.ok ? 1 : 0, P.NG, P.period, P.nl];
+        if (P.ok) P.rows.forEach(function (r) { o.push(r.k + ':' + r.gi + '=' + r.names.map(function (c) { return !c ? '-' : c.off ? 'X' : String(c.raw || c.name); }).join(',')); });
+        cells.forEach(function (rc) { o.push(opts(st, rc[0], rc[1]).join(',')); });
+        return JSON.stringify(o);
+      };
+      var bitc = function (x) { var n = 0; while (x) { n += x & 1; x >>>= 1; } return n; };
+      var apply = function (st, chg) { var o = DM.cloneState(st); Object.keys(chg).forEach(function (id) { o[id] = chg[id]; }); return o; };
+      /* 以 b 為起點列出「改一個暫存器」的等價類（chg0＝b 相對 base 已改的，帶進類別裡） */
+      var neutral = [];   // 改了但目前不影響 mapping 的暫存器（可能是別的暫存器的開關，例 FORCE_DE_EN）——第二步的起點候選
+      var enumCls = function (b, chg0) {
+        var sig0 = ksig(b), cls = {};
+        KN.forEach(function (f) {
+          if (f.id in chg0) return;
+          var v0 = b[f.id] >>> 0, nv = Math.min(1 << f.bits, 1 << LK_MAXBITS), mk = nv - 1;
+          /* 剪枝：先試 3 個探測值（翻最低 bit／翻全部／翻最高 bit），都和目前同簽章＝這個暫存器在目前狀態不影響 mapping（例 Hand 下的 Line OD 表、FORCE_DE_EN＝0 時的 FORCE_DE_SEL）⇒ 不窮舉 */
+          var inert = [v0 ^ 1, v0 ^ mk, v0 ^ (nv >> 1)].every(function (pv) { if (pv === v0 || pv >= nv) return true; var ps = DM.cloneState(b); ps[f.id] = pv; return ksig(ps) === sig0; });
+          if (inert) { if (nv > 1) neutral.push({ chg: (function () { var c = {}; Object.keys(chg0).forEach(function (id) { c[id] = chg0[id]; }); c[f.id] = v0 ^ 1; return c; })(), bits: f.bits, tag: f.id }); return; }
+          for (var v = 0; v < nv; v++) {
+            if (v === v0) continue;
+            var ks = DM.cloneState(b); ks[f.id] = v;
+            var sg = ksig(ks); if (sg === sig0) continue;
+            var key = f.id + '|' + sg, o = cls[key], pr = lkPref(f.id).indexOf(v); if (pr < 0) pr = 99;
+            var dist = bitc(v ^ (base[f.id] >>> 0));
+            if (!o || pr < o.pr0 || (pr === o.pr0 && (dist < o.d0 || (dist === o.d0 && v < o.v0)))) { var chg = {}; Object.keys(chg0).forEach(function (id) { chg[id] = chg0[id]; }); chg[f.id] = v; cls[key] = { chg: chg, pr0: pr, d0: dist, v0: v }; }
+          }
+        });
+        return Object.keys(cls).map(function (k) { var c = cls[k]; c.pr = 0; c.dist = 0; Object.keys(c.chg).forEach(function (id) { var p = lkPref(id).indexOf(c.chg[id]); c.pr += p < 0 ? 99 : p; c.dist += bitc(c.chg[id] ^ (base[id] >>> 0)); }); c.tag = Object.keys(c.chg).sort().map(function (id) { return id + '=' + c.chg[id]; }).join(','); return c; });
+      };
+      /* 剪枝：每個（類 × 第一層 Mirror／CHRB 解）先只算一次「同名 pixel 重選後」的錯格數（暖啟動分數），由低到高才做逐格下降；有 0 錯就停 */
+      var warmOf = function (list) {
+        var warm = [];
+        list.forEach(function (kc) {
+          seeds.forEach(function (sd) {
+            if (sd.cur === Infinity) return;
+            var st2 = apply(sd.st, kc.chg);
+            for (var ci = 0; ci < cells.length && st2; ci++) { var nm0 = view(sd.st, cells[ci][0], cells[ci][1]); if (nm0 === null) continue; var p2 = pick(st2, cells[ci][0], cells[ci][1], nm0); if (p2) st2 = p2; }
+            var c2 = score(st2); if (c2 < Infinity) warm.push({ st: st2, vc: sd.vc, c: c2, kc: kc });
+          });
+        });
+        return warm.sort(function (a, b) { return a.c - b.c || a.kc.pr - b.kc.pr || a.kc.dist - b.kc.dist || (a.kc.tag < b.kc.tag ? -1 : a.kc.tag > b.kc.tag ? 1 : 0); });
+      };
+      var runWarm = function (warm) {
+        for (var wi = 0; wi < warm.length && Date.now() < dl; wi++) {
+          var d2 = descend(warm[wi].st, warm[wi].c); GL.revKn.tried++;
+          addCands(d2.st, warm[wi].vc, d2.cur);
+          if (d2.cur === 0) return true;
+        }
+        return false;
+      };
+      var t1 = Date.now(); dl = t0 + LK_BUDGET;
+      var L1 = enumCls(base, {}), w1 = warmOf(L1), hit = false;
+      GL.revKn = { n: L1.length, warm: w1.length, tried: 0, depth: 1 };
+      hit = runWarm(w1);
+      /* 一個暫存器不夠時才改兩個（互相牽動的暫存器，例 FORCE_DE_EN＝0 時 FORCE_DE_SEL 不作用、要兩個一起改）：
+         只展開第一層暖啟動分數最好的前 LK_L2 類，在那個狀態上再列一次等價類；同樣依暖啟動分數排序、有 0 錯就停、受同一個時間上限 */
+      if (!hit && Date.now() < dl) {
+        var seen = {}, top = [];
+        w1.forEach(function (x) { if (!seen[x.kc.tag] && top.length < LK_L2) { seen[x.kc.tag] = 1; top.push(x.kc); } });
+        /* 再加「改了但當下不作用」的暫存器（位元少的優先＝開關類），各取翻最低 bit 的值當起點 */
+        neutral.sort(function (a, b) { return a.bits - b.bits || (a.tag < b.tag ? -1 : 1); }).slice(0, LK_L2).forEach(function (n) { top.push(n); });
+        neutral = [];
+        var L2 = [], tags = {};
+        top.forEach(function (kc) { if (Date.now() < dl) enumCls(apply(base, kc.chg), kc.chg).forEach(function (c) { if (!tags[c.tag]) { tags[c.tag] = 1; L2.push(c); } }); });
+        GL.revKn.depth = 2; GL.revKn.n2 = L2.length;
+        runWarm(warmOf(L2));
+      }
+      GL.revKn.ms = Date.now() - t1;
+      /* 額外暫存器只在能到 0 錯時才改（到不了 0 就不為了少幾格去動 panel_mode 這類設定，保留第一層結果） */
+      res = res.filter(function (x) { return !x.nK || x.bad === 0; });
+      res.sort(function (a, b) { return pvRankCmp(a.key, b.key); });
+    }
     var best = res[0];
     if (!best || best.bad === Infinity) { GL.rev = { txt: tt('dm.bmRevNa'), bad: -1 }; GL.rev.sig = lkSig(); renderBench(); toast('e', GL.rev.txt); return GL.rev; }
-    BM.undo = { model: m, st: undo, en01T: S.en01T.slice() };
     var why = 'Mirror ' + best.mir + (hasC ? '、CHRB ' + best.chrb : '');
-    GL.rev = { txt: tt(best.bad ? 'dm.bmRevMin' : 'dm.bmRevOk', { e: best.bad, r: 1, n: res.length, c: why }), bad: best.bad, ms: Date.now() - t0, rank: res.map(function (x) { return { mir: x.mir, chrb: x.chrb, bad: x.bad, key: x.key, t0: [0, 1, 2, 3, 4, 5].map(function (c) { return view(x.st, 0, c); }).join(' ') }; }) };
+    if (best.nK) KN.forEach(function (f) { var a = base[f.id] >>> 0, b = best.st[f.id] >>> 0; if (a !== b) why += '、' + f.name + ' 0x' + hex(a, 2) + '→0x' + hex(b, 2); });   // v1.35.5：第二層改到的暫存器寫明
+    GL.rev = { txt: tt(best.bad ? 'dm.bmRevMin' : 'dm.bmRevOk', { e: best.bad, r: 1, n: res.length, c: why }), bad: best.bad, ms: Date.now() - t0, knStat: GL.revKn || null, kn: KN.filter(function (f) { return (best.st[f.id] >>> 0) !== (base[f.id] >>> 0); }).map(function (f) { return f.id + '=' + best.st[f.id]; }), rank: res.map(function (x) { return { mir: x.mir, chrb: x.chrb, bad: x.bad, key: x.key, t0: [0, 1, 2, 3, 4, 5].map(function (c) { return view(x.st, 0, c); }).join(' ') }; }) };
+    if (best.bad) {
+      /* 有錯：不套用、不寫入（Hand、②-1、②-2 全部保留原狀），只列最佳候選的表格與錯在哪幾格（面板子像素：要的 → 收到的） */
+      LK_WANT = true; var bx = lkEval(best.st); LK_WANT = false; var wl = bx && bx.e.list ? bx.e.list : [];
+      GL.rev.applied = false; GL.rev.best = best.st; GL.rev.wrong = wl;
+      GL.rev.txt = tt('dm.bmRevNo', { e: best.bad, c: why });
+      log('e', 'Benchmark 自動反推：' + GL.rev.txt + '（' + GL.rev.ms + ' ms）');
+      log('n', '最佳候選 ②-2：' + [0, 1, 2, 3].map(function (r) { return [0, 1, 2, 3, 4, 5].map(function (c) { return view(best.st, r, c) || '·'; }).join(' '); }).join('｜'));
+      log('n', '錯格（面板要 → 收到）：' + wl.slice(0, 24).map(function (x) { return x.want + '→' + x.got; }).join('、') + (wl.length > 24 ? '…共 ' + wl.length + ' 格' : ''));
+      GL.rev.sig = lkSig(); renderRevBtn();
+      toast('e', GL.rev.txt);
+      return GL.rev;
+    }
+    if (needHand) { S.deDef = false; log('n', 'Benchmark 自動反推：Hand Mode Enable ← 1'); commit(hs, 'Hand Mode Enable'); initHandFill(); }
+    BM.undo = { model: m, st: undo, en01T: S.en01T.slice() };
+    GL.rev.applied = true;
     log('n', 'Benchmark 自動反推：' + GL.rev.txt + '（' + GL.rev.ms + ' ms）');
     commit(best.st, 'Benchmark 自動反推', { noSync: true });   // v1.35.2：best.st 已是評估用的同一份（firstEdit 對鎖定起點做過）
     GL.rev.sig = lkSig(); renderRevBtn();
@@ -3310,7 +3431,8 @@
   window.dmBench = { key: bmKey, state: benchState, cells: bmCells, names: bmNames, pick: onBenchPick, apply: benchApply, undo: benchUndo, clear: function () { benchClear(true); },
     _setNames: function (N) { if (N && Object.keys(N).length) BM.all[bmKey()] = { names: N, at: Date.now() }; else delete BM.all[bmKey()]; bmSave(); renderBench(); },
     open: function (on) { BM.open = on !== false; BM.fold = false; bmSave(); renderBench(); if (hwLocked()) renderLock(); }, view: bmView, lsKey: BM_LS,
-    reverse: function () { return lkSolve(); }, lockErr: function () { return lkErrNow(); } };
+    reverse: function () { return lkSolve(); }, lockErr: function () { return lkErrNow(); },
+    budget: function (ms) { var o = LK_BUDGET; if (ms) LK_BUDGET = ms; return o; }, noRo: function (on) { LK_NORO = !!on; } };   // v1.35.5 測試用：第二層時間上限／唯讀證明
   function onCodeText(a, txt) {
     if (imgAddrs().indexOf(a) < 0 || S.ro) { render(); return; }
     var v = parseInt(String(txt).trim() || '0', 16);        // PY:12433-12438：解析失敗 ⇒ 00
