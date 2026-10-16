@@ -2,6 +2,34 @@
 
 ---
 
+## Data Mapping (datamap) v1.35.19 — 2026-10-16 ｜ PATCH ｜ ⚠ 輸出變更 ｜ EN01：表格欄標題改 Data1～Data12；每列 T 改唯讀、由 FORCE_DE_SEL 自動推出（相對 T＋同事E S 欄）
+
+⚠ 輸出變更：EN01 Excel 匯出的表頭由 R0…B3 改成 Data1…Data12（儲存格內容、列號不變；WPF Import 只看欄位置，舊檔／新檔都能互相匯入）；EN01 畫面不再能手動選 T，舊版手動改過 T 的保存狀態還原後一律照 FORCE_DE_SEL 顯示。寫進 TCON 的 byte、匯出 script、CKS 全部不變。
+
+判定依據：修正 EN01 與原廠不一致的顯示（R1）：T 下拉在原廠 WPF 只換名稱對照表、不寫暫存器，留著會讓畫面名稱與晶片實際解讀不一致；改用 FORCE_DE_SEL 推出後「換欄」這件事仍可做（改 FORCE_DE_SEL），沒有能力被移除、控制項位置不動 → PATCH（曾考慮 §2 案例 6「移除既有功能」，因能力仍在且屬修正，依 R2 補充 3 取較低級別）。欄標題改名＝文案（案例 3 微調）。只動 EN01 分支，MNT／NB／Dual／Tri 不變。版號接在 #305483ea（v1.35.18）之後。取代派工 236836337360179200（只改標題）。
+
+### 起因
+- Bruce 10/16 21:0x：「我看了 EN01 的 Data Mapping 表格，上方的 R0、G0、B0 一直到 R3、G3、B3，這些應該要改成像是其他 TCON 的寫法，就是 Data1、Data2、Data3 一直到 Data12 吧？」
+- Bruce 10/16 21:1x 問 T 階數可手動選卻「不寫入 TCON」是否合理、MNT 與 EN01 T 是否同一做法 → Dispatch 建議 A（EN01 改用和 MNT 一樣的相對 T、顯示「T1（S2）」、拿掉每列 T 下拉改唯讀）；Bruce 21:2x：「你剛才問的問題可以依你建議，但是一樣，絕對絕對要查清楚，你自己要下去看。」
+
+### 查證（親自讀原始碼／原始檔）
+- WPF RomCodeProcessUI：Models/DataMappingLine.cs:24-37 TabNum setter 只 NotifyPropertiesChanged(DataMappingRGBInfo)＋TabNumChangeHandle；DataMappingModule.cs:32-34 TabNumChangeHandle → :409 MappingCellInfoValueChanged → ProgressModule.SetTasks(TaskInitial)（:78 起：重建畫面格、讀 DataMappingDataWrapper，沒有寫入）；:260-272 Hand Mode 只寫 FORCE_DE_EN／FORCE_SEL_EN／FORCE_DE_SEL＝0xE；寫 cell byte 的只有 :650／:680（cell code 值）。⇒ TabNum（T）不寫入任何暫存器。
+- WPF Excel Import（DataMappingModule.cs Import 段）：從第 1 列起、cellIdx＝欄號−1 對應格子，不讀表頭 ⇒ 表頭改名不影響互通。
+- E507_rt7_sram_w_hand(1T4P).xlsm FORCE 分頁第 1 列：J～S 欄＝S1～S10（欄 I＝8'h01 沒有表頭）⇒ 括號只對 S1～S10 顯示。
+
+### 變更（只改 EN01 顯示；byte 不變）
+- datamap-core.js：新增 `EN01_HD`（Data1～Data12，R0→Data1 … B3→Data12）；`EN01_CH` 保留給暫存器名稱 FORCE_SEL_R0_0…。新增 `en01TRel`（相對 T＝en01RowT−en01BaseT＋1，SW1＝T1）、`en01SName`（S1～S10）、`en01TLabel`（「T1（S2）」）。`en01ExcelRows` 表頭改 EN01_HD。
+- datamap.html：EN01 ②-2 表格（含 Benchmark 表，同一個 buildGridEn01）欄標題 Data1～Data12；T 欄由 `<select>` 改唯讀 `<span class="dm-en01t">`，文字＝DM.en01TLabel，提示「由 FORCE_DE_SEL 決定，不能單獨設定」（三語）；拿掉 T 的 change 事件；`en01Tabs()` 只用 DM.en01RowT(S.cur, r)（單一來源；S.en01T 不再讀，舊保存值忽略）⇒ 名稱、All Same、Excel 匯出入、Benchmark、自動反推都用同一個 T。FORCE_DE_SEL 旁說明改相對編號：「0x04 → SW1＝T1（S2），SW2＝T2（S3）…」。格子提示、記錄訊息改 Data n 與 T 標籤。
+- EN01 ③ TFT 接線圖本來就不畫（沒有原廠依據），不受影響。
+
+### 驗證
+- check_datamap_en01：表頭 Data1～12、24 個唯讀 T（沒有 select）、預設 T1（S1）＋提示文字；匯入 F1567 L1-1 T1（S1）；Hand 開 FORCE_DE_SEL 0x04 ⇒ L1-1 T1（S2）、0x3D4 仍 23、名稱 B8（S2 欄 code 23），只有 0x394 改變；0x02 ⇒ T1（S1）B4；改回 0x0E ⇒ B4；en01TLabel 0x04＋HSD SW2＝T2（S3）、0x0E SW2＝T2（S2）、0x01 只顯示 T1；Excel 表頭 Data1～12、往返 72 格相同。
+- S/D 快照（全部 11 型號、11104 組）：v1.35.18（7aa2fda）與本版各拍一份逐組比對 ⇒ 只有 EN01 的 ② 表格 128 組、整頁 128 組不同（欄標題／T 標籤），暫存器／script／CKS／第二組／TFT 接線 全部相同，其他 10 個型號 0 差異。基準檔只把 EN01 的 ② 表格欄位換成本版值（Bruce 同意本件範圍重拍）；對 repo 基準 16016 pass／8592 fail，與 v1.35.18 相同（8592 是 v1.35.10 起各版留下、未重拍的既有差異，含 EN01 整頁 128，不是本件造成）。
+- check_datamap_boe --qm /tmp/qm.bin 109/0；check_datamap_en01 70/0；check_datamap_tft_interact 1192/0（v1.35.18 同為 1192/0）；check_datamap_page 39/0。
+- headless Chrome 本機實看：EN01 Hand＋Dual，FORCE_DE_SEL 0x02 ⇒ L1-1 T1（S1）、L1-2 T2（S2），code 0 ＝R5／R9；0x04 ⇒ T1（S2）／T2（S3），R9／R13（＝FORCE 分頁 S1/S2/S3 欄 code 0），console 無錯誤。
+
+---
+
 ## Data Mapping (datamap) v1.35.18 — 2026-10-16 ｜ PATCH ｜ TFT 並排：① 卡移到左欄、長檔名換行；左欄表格放不下時有看得到的橫向捲軸＋Line 欄固定（接在 v1.35.17 之後）
 
 判定依據：只調整 TFT 並排（≥1200px）時的版面與捲動，控制項都還在原卡片內、順序不變，不改任何換算、接線、暫存器、匯出結果；不並排時排列與 v1.35.17 相同 → PATCH（VERSIONING §2 案例 3 微調）。版號接在 #039d9c53（v1.35.17）之後。

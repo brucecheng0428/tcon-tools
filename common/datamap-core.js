@@ -191,7 +191,11 @@
      ・其他欄位（MODEL）：SUB_PANEL_MODE 0x390[6:4]（:11061）、LTPS_ZIGZAG_MODE 0x390[3:2]（:11081）、MIRROR 0x392[6]（:12244）、
        CHRB 0x392[4]（:12219）、CHWB 0x392[5]（:12212）、READ_RVS 0x3A5[7:0]（:12253）。
        ⚠ MODEL:11092 也把 0x392[7] 定義成 FORCE_DIV3_EN（與 FORCE_DE_EN 同 bit）⇒ 照 ICD 當 FORCE_DE_EN，列入未確認。 */
-  var EN01_CH = ['R0', 'G0', 'B0', 'R1', 'G1', 'B1', 'R2', 'G2', 'B2', 'R3', 'G3', 'B3'];
+  var EN01_CH = ['R0', 'G0', 'B0', 'R1', 'G1', 'B1', 'R2', 'G2', 'B2', 'R3', 'G3', 'B3'];   // 暫存器名稱用（FORCE_SEL_R0_0…，MODEL／ICD 原名，不改）
+  /* v1.35.19（Bruce 10/16 21:0x「上方的 R0、G0、B0 一直到 R3、G3、B3，這些應該要改成像是其他 TCON 的寫法，就是 Data1、Data2、Data3 一直到 Data12」）：
+     畫面欄標題、Excel 匯出表頭、Benchmark、記錄訊息改 Data1～Data12（R0→Data1 … B3→Data12，同一順序）；暫存器名稱仍是 FORCE_SEL_R0_0…。
+     WPF Import 依欄位置讀（DataMappingModule.cs Import：cellIdx＝欄號−1，不看表頭）⇒ 表頭改名不影響 WPF 匯入網頁匯出的檔。 */
+  var EN01_HD = ['Data1', 'Data2', 'Data3', 'Data4', 'Data5', 'Data6', 'Data7', 'Data8', 'Data9', 'Data10', 'Data11', 'Data12'];
   var EN01_TABS = [2, 4, 8, 16, 32, 64, 128, 256, 512, 1024];
   var EN01_TDEF = 1;   // v1.36.0：沒有 state 時的預設＝0x0E 的 SW1（舊版 4＝WPF TabNum 16）
   var EN01_REG = {
@@ -225,7 +229,12 @@
      ・每列預設 T＝FORCE_DE_SEL 最小設 1 的 bit n（8'h02⇒T1、8'h01⇒T0；0x0E⇒T1，與 MNT 同一個 deSelTs）＋SW 時槽 k−1（en01Rel）：
        同事H 表 FORCE_DE_SEL 8'h02 時 SW1 在 S1、SW2 在 S2 解讀，4 條 line 都一樣（例 L1-1 R0＝14⇒B1、L1-2 R0＝24⇒R1）；
        Tri／MUX4／MUX6 照 MNT「每多一條 gate 往右一欄」同理推廣（Bruce 10/16 17:3x）。Mirror 不改名稱（同 MNT，同事A 10/13）。
-       FORCE_DE_EN＝0 或值 0 ⇒ 當 WPF 預設 0x0E（EN01 沒有 auto 等效表的依據）。下拉仍可手動改（不寫入 TCON）。 */
+       FORCE_DE_EN＝0 或值 0 ⇒ 當 WPF 預設 0x0E（EN01 沒有 auto 等效表的依據）。
+     ・v1.35.19（Bruce 10/16 21:2x 依 Dispatch 建議 A）：每列 T 改唯讀、只由 FORCE_DE_SEL＋SW 自動推出（拿掉手動下拉）。依據＝WPF 原始碼：
+       DataMappingLine.cs:24-37 TabNum 改變只換名稱對照表＋TabNumChangeHandle（→ DataMappingModule.cs:409 MappingCellInfoValueChanged＝重跑 TaskInitial 重讀畫面），
+       不寫暫存器；寫 byte 的只有 cell code 值；Hand Mode 只寫 FORCE_DE_EN／FORCE_SEL_EN／FORCE_DE_SEL＝0xE（:260-272）。要換欄＝改 FORCE_DE_SEL（會寫入 TCON）。
+       顯示用 MNT 同樣的「相對」編號：T1＝FORCE_DE_SEL 起始欄（SW1），SW k＝T k；括號保留 同事E FORCE 分頁的 S 欄名（J～S 欄表頭 S1～S10，xlsm 第 1 列）。
+       例 0x02 SW1＝T1（S1）、0x04 SW1＝T1（S2）、0x0E＋HSD SW2＝T2（S2）。內部換算仍用絕對欄 en01RowT（＝S 編號），名稱與 byte 不變。 */
   var EN01_TMAX = 12;   // 8'h80（n＝7）＋SW6（＋5）
   function en01T(t) { if (t === null || t === undefined || t === '' || isNaN(+t)) return EN01_TDEF; t = +t | 0; return t < 0 ? 0 : (t > EN01_TMAX ? EN01_TMAX : t); }
   function en01BaseT(s) {
@@ -237,6 +246,10 @@
      EN01 每個 SW 時槽同理：SW k＝起始 T＋(k−1)（同事E FORCE 分頁 HSD 範例 SW1→S1、SW2→S2 證實）。只對 RD_MODE 用到的時槽右移，未用的列＝起始 T。 */
   function en01Rel(s, row) { var np = en01Phases(s && s.rd) || 1, ph = (row | 0) % 6; return ph < np ? ph : 0; }
   function en01RowT(s, row) { return en01T(en01BaseT(s) + en01Rel(s, row)); }
+  /* v1.35.19：顯示用。相對 T（SW1＝T1，同 MNT deSelText 的 T1＝起始欄）；S 名＝同事E FORCE 分頁欄名（只有 S1～S10 有表頭：欄 I＝8'h01 沒標、S11 以後分頁沒有） */
+  function en01TRel(s, row) { return en01RowT(s, row) - en01BaseT(s) + 1; }
+  function en01SName(t) { t = en01T(t); return t >= 1 && t <= 10 ? 'S' + t : ''; }
+  function en01TLabel(s, row) { var sn = en01SName(en01RowT(s, row)); return 'T' + en01TRel(s, row) + (sn ? '（' + sn + '）' : ''); }
   var _en01Defs = {};
   /* 某階數的候選（R→G→B、編號小→大，X 最後）；名稱＝共用 pool（poolIdx step 12） */
   function en01Defs(t) {
@@ -296,7 +309,7 @@
     return 'DataMapping Export ' + d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + '_' + p(h) + p(d.getMinutes()) + p(d.getSeconds()) + '.xlsx';
   }
   function en01ExcelRows(s, rows, tabs) {
-    var out = [[''].concat(EN01_CH)];
+    var out = [[''].concat(EN01_HD)];   // v1.35.19：表頭 Data1～Data12（WPF Import 只看欄位置）
     rows.forEach(function (r) {
       var row = [en01RowLabel(r)];
       for (var c = 0; c < 12; c++) { var v = en01CellView(s, r, c, tabs ? tabs[r] : EN01_TDEF); row.push(v.std ? v.txt : ''); }
@@ -1561,7 +1574,7 @@
     buildScript: buildScript, applyScript: applyScript, pyScriptRows: pyScriptRows, applyPyScriptRows: applyPyScriptRows,
     excelName: excelName, excelRows: excelRows, excelToNames: excelToNames, readXlsxRows: readXlsxRows,
     writeRegs: writeRegs, readSpans: readSpans, readState: readState, modelByIcId: modelByIcId, hex: hex,
-    SELECT_KEYS: SELECT_KEYS, EN01_CH: EN01_CH, EN01_TABS: EN01_TABS, EN01_TDEF: EN01_TDEF, EN01_TMAX: EN01_TMAX, EN01_POOL: EN01_POOL, MNT_POOL: MNT_POOL,
+    SELECT_KEYS: SELECT_KEYS, EN01_CH: EN01_CH, EN01_HD: EN01_HD, en01TRel: en01TRel, en01SName: en01SName, en01TLabel: en01TLabel, EN01_TABS: EN01_TABS, EN01_TDEF: EN01_TDEF, EN01_TMAX: EN01_TMAX, EN01_POOL: EN01_POOL, MNT_POOL: MNT_POOL,
     poolIdx: poolIdx, poolCov: poolCov, linPx: linPx, en01BaseT: en01BaseT, en01RowT: en01RowT, EN01_GATES: EN01_GATES, EN01_PANEL: EN01_PANEL,
     en01Seg: en01Seg, en01Addr: en01Addr, en01RowLabel: en01RowLabel, en01Phases: en01Phases, en01Rows: en01Rows, en01Defs: en01Defs, en01Name: en01Name, en01Value: en01Value,
     en01Gate: en01Gate, en01CellView: en01CellView, en01Pick: en01Pick, en01SameOptions: en01SameOptions, en01AllSame: en01AllSame,

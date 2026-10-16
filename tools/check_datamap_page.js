@@ -131,9 +131,9 @@ function same(a, b, tag) {
     w.dmBench.open(true); w.dmFold.set('card-dm', true); w.dmFold.set('card-src', true);
     fire(w, $('dm-slave'), '105'); $('dm-live').checked = false; $('dm-live').dispatchEvent(new w.Event('change', { bubbles: true }));
   });
-  await scenario('EN01 改 T', async (w, $) => {
+  await scenario('EN01 改 FORCE_DE_SEL', async (w, $) => {   // v1.35.19：T 唯讀，改 FORCE_DE_SEL 換欄
     fire(w, $('dm-model'), 'EN01');
-    const t = w.document.querySelector('select.dm-en01t'); if (t) fire(w, t, t.options[t.options.length - 1].value);
+    fire(w, $('f-deSel'), '4');
   });
 
   /* ④ 每個型號：欄位狀態＝舊版切過去；還原＝切過去 */
