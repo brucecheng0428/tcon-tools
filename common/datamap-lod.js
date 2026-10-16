@@ -231,7 +231,11 @@
   { id: 'hsd8', lod: 29, hsd: true, nml: false, v: '16 17 7 10 0 1 16 6 7 10 11 1 21 12 14 15 17 8 21 23 14 15 6 8 17 7 10 0 1 4 6 7 10 11 1 4 12 14 15 17 8 9 23 14 15 6 8 9' }
 
   ];
-  function tName(n, code) { var g = Math.floor(code / 6), j = code % 6; if (code > 29 || g > n) return null; return 3 * (2 * (n - 1) - 2 * g) + j; }
+  /* v1.35.21（Bruce 10/17「你決定」→ Dispatch：修；派工 236884173342228480）：code 範圍與 ② 表格同一政策（DM.mntInRange／codeIdx：code 0～29 每一欄都合法）。
+     依據：同事A EM01A1_rt7_register_force_mapping.xlsx 1D1G!C26:C55 Pool 列出 code 0～29（空白＝負 pixel／AA 區外 dummy，Bruce 10/13 決策 A5）；
+     EM01 RApp_TX.cpp:9506-9511 StringGrid 只在 >29 時夾成 29；EM02A1_RegisterBank.model:18264 force_sel 5 bit。舊版多一個 g>n（⌊code/6⌋≤欄）限制，
+     ② 可選的 R-3～R-6（第 2 欄 code 18～29）在 Auto 接線換算（datamap-auto wiringFromState）被當成無效 code（why:'code'）。g≤n 時算式不變，其他 code 結果不變。 */
+  function tName(n, code) { var g = Math.floor(code / 6), j = code % 6; if (code < 0 || code > 29) return null; return 3 * (2 * (n - 1) - 2 * g) + j; }
   /* 範例 → 每條 gate 的 D1..Dn 名稱：single ⇒ G1~G8（第一組 _0~_3、第二組 _0~_3）；hsd ⇒ line 1、2 × 上下，8-pixel 再接 D7~D12 */
   function xlsxRows(c) {
     var v = c.v.split(' ').map(Number), de = c.nml ? 0 : 1, rows = [];
