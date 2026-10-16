@@ -966,7 +966,7 @@
     'dm.en01RowTip': ['Line {l} 第 {k} 個時槽，不是第 {k} 條 gate', 'Line {l} time slot {k}, not gate {k}', 'Line {l} 第 {k} 个时槽，不是第 {k} 条 gate'],
     'dm.en01Unused': ['未用', 'unused', '未用'],
     'dm.en01T': ['T 階數', 'T level', 'T 阶数'],
-    'dm.en01TTip': ['T 階數（不寫入 TCON）', 'T level (not written to the TCON)', 'T 阶数（不写入 TCON）'],
+    'dm.en01TTip': ['T（不寫入 TCON）：預設＝FORCE_DE_SEL 最小設 1 的 bit＋(SW−1)（T n＝Abel FORCE 分頁 S n 欄，每個 T 12 subpixel）', 'T (not written to the TCON): default = lowest set bit of FORCE_DE_SEL + (SW−1) (T n = column S n of the FORCE sheet, 12 subpixels per T)', 'T（不写入 TCON）：默认＝FORCE_DE_SEL 最小设 1 的 bit＋(SW−1)（T n＝Abel FORCE 分页 S n 栏，每个 T 12 subpixel）'],
     'dm.en01Seg': ['code 的 header 沒有載入 {s} ⇒ 那些列不顯示、不匯出', 'The code header does not load {s} ⇒ those rows are hidden and not exported', 'code 的 header 没有加载 {s} ⇒ 那些列不显示、不导出'],
     'dm.en01Off': ['Hand Mode 關（FORCE_SEL_EN 與 FORCE_DE_EN 都要開）', 'Hand Mode off (FORCE_SEL_EN and FORCE_DE_EN both needed)', 'Hand Mode 关（FORCE_SEL_EN 与 FORCE_DE_EN 都要开）'],
     'dm.en01Pv': ['EN01 暫不支援預覽', 'EN01 preview not supported', 'EN01 暂不支持预览'],
@@ -1154,7 +1154,7 @@
   function isMnt() { return DM.MODELS[S.model].kind === 'mnt'; }
   function isEn01() { return DM.MODELS[S.model].kind === 'en01'; }
   /* v1.20.0 EN01：每列 T（預設 T4＝WPF V2 TabNum 16）、目前顯示的列（P1 一定有；P2／P3 依 code header） */
-  function en01Tabs() { var t = []; for (var r = 0; r < 24; r++) t.push(S.en01T[r] || DM.EN01_TDEF); return t; }
+  function en01Tabs() { var t = []; for (var r = 0; r < 24; r++) t.push(S.en01T[r] != null ? S.en01T[r] : DM.en01RowT(S.cur, r)); return t; }   // v1.36.0：預設＝FORCE_DE_SEL 最小 bit＋(SW−1)（DM.en01RowT），手動改過的列照手動
   function en01Rows() { return DM.en01Rows(S.en01Seg); }
   function clone(o) { return JSON.parse(JSON.stringify(o)); }
 
@@ -1249,7 +1249,7 @@
       var sg = DM.en01Seg(r).toUpperCase();
       h += '<tr id="' + P + 'etr' + r + '" class="' + (r % 6 === 0 && r ? 'en01l' : '') + '" title="' + esc(tt('dm.en01RowTip', { l: Math.floor(r / 6) + 1, k: r % 6 + 1 })) + '"><th><span>' + DM.en01RowLabel(r) + '</span><span class="dm-rs" id="' + P + 'ers' + r + '">SW' + (r % 6 + 1) + '·' + sg + '</span></th>';
       h += '<td><select class="dm-en01t" id="' + P + 'et' + r + '" data-r="' + r + '" title="' + esc(tt('dm.en01TTip')) + '" aria-label="' + DM.en01RowLabel(r) + ' T">';
-      DM.EN01_TABS.forEach(function (n, i) { h += '<option value="' + (i + 1) + '">T' + (i + 1) + '</option>'; });
+      for (var ti = 0; ti <= DM.EN01_TMAX; ti++) h += '<option value="' + ti + '">T' + ti + (ti >= 1 && ti <= 10 ? '（S' + ti + '）' : '') + '</option>';   // v1.36.0：T0～T12（T n＝Abel FORCE 分頁 S n 欄）
       h += '</select></td>';
       for (var c3 = 0; c3 < 12; c3++) h += '<td><select class="dm-cell" id="' + P + 'e' + r + '-' + c3 + '" data-r="' + r + '" data-c="' + c3 + '" aria-label="' + DM.en01RowLabel(r) + ' ' + DM.EN01_CH[c3] + '"></select></td>';
       h += '</tr>';
@@ -1424,11 +1424,11 @@
     if (ae === lo || ae === hi) return;
     if (nbPxFix()) { var nbs = DM.cloneState(S.cur); nbs.deEn = 1; nbs.deSel = nbDeSelNow(); var nbr = DM.pxForDeSel(S.model, nbs); if (nbr) { lo.value = nbr.from; hi.value = nbr.to; } return; }   // v1.35.7：NB 與 MNT 同一個 pool／同一個換算（FORCE_DE_SEL 0xE ⇒ 第 2 欄），不再寫死 -2～4
     var a = parseInt(lo.value, 10), b = parseInt(hi.value, 10);
-    if ((isNaN(a) || isNaN(b)) && S.src.kind === 'none' && !S.raw) { a = -2; b = 4; lo.value = a; hi.value = b; }
+    if (!isEn01() && (isNaN(a) || isNaN(b)) && S.src.kind === 'none' && !S.raw) { a = -2; b = 4; lo.value = a; hi.value = b; }   // v1.36.0：EN01 不套 MNT 預設 -2～4，直接用 pxForDeSel
     var cur = DM.pxForDeSel(S.model, S.cur); if (!cur) return;
     var mapped = (isNaN(a) || isNaN(b)) ? null : DM.deSelForPx(S.model, S.cur, a, b).v;
     if (mapped === cur.v && (S.cur.deEn | 0) === 1) return;
-    if (mapped !== null && (S.cur.deEn | 0) !== 1 && S.src.kind === 'none' && !S.raw && a === -2 && b === 4) return;   // 預設（Auto）：保留 -2～4
+    if (!isEn01() && mapped !== null && (S.cur.deEn | 0) !== 1 && S.src.kind === 'none' && !S.raw && a === -2 && b === 4) return;   // 預設（Auto）：保留 -2～4
     lo.value = cur.from; hi.value = cur.to;
   }
   function pxApply() {
@@ -1505,13 +1505,21 @@
   function deSelCols(ts) { return ts.map(function (t) { return '第' + t + '欄'; }).join('、'); }
   /* v1.27.6（Woody 10/14 新版 BOE 分頁；取代 v1.26.2「可用 T 數＝設 1 的 bit 數」）：T1＝最小設 1 的 bit 那欄，連續往右到最大 bit 那欄＋4（DM.deSelTs／DM.tWin 單一來源）。
      FORCE_DE_EN＝0 時不看這個值：v1.28.1 起依 panel 等效 de_sel（1D1G 0x01、Zigzag 0x06、HSD 0x0A、LTPS 0x0C）套同一規則（DM.tWin）。 */
+  /* v1.36.0 EN01：FORCE_DE_SEL 說明改用 EN01 自己的 T（DM.en01BaseT：最小設 1 的 bit n ⇒ SW1＝T n＝Abel S n 欄，SW k＝T(n+k−1)），不顯示 MNT 的 BOE 欄窗 */
+  function en01DeText(v, full) {
+    var s = Object.assign({}, S.cur || {}, { deSel: v }), n = DM.en01BaseT(s), en = !!(s.deEn | 0);
+    var head = en ? '0x' + hex(v & 0xFF, 2) : 'FORCE_DE_EN＝0：當 0x0E';
+    return head + ' → SW1＝T' + n + (n >= 1 && n <= 10 ? '（S' + n + '）' : '') + (full ? '，SW2＝T' + Math.min(n + 1, DM.EN01_TMAX) + '…（每多一個 SW 時槽往右一個 T，同 MNT 每多一條 gate 往右一欄；EN01 每個 T＝12 subpixel）' : '');
+  }
   function deSelLabel(v) {
+    if (isEn01()) return en01DeText(v, true);
     var b = deBits(), cur = S.cur || {}, W = DM.tWin(S.model, Object.assign({}, cur, { deSel: v })), ts = W.ts, n = ts.length;
     if (!n) return tt('dm.deSelNone');
     return (W.en ? '' : tt('dm.deSelEn0', { v: hex(W.sel, 2) }) + '：') + tt('dm.deSelAvail', { b: ts[0] }) + '，' + tt('dm.deSelRange', { n: n, c0: ts[0], c1: ts[n - 1] });
   }
   /* v1.28.2（Bruce 10/14「說明越少越好」）：輸入框旁只留一行「0x1F → T1～T9（第 1～9 欄）」，完整句子放 title（ⓘ） */
   function deSelShort(v) {
+    if (isEn01()) return en01DeText(v, false);
     var cur = S.cur || {}, W = DM.tWin(S.model, Object.assign({}, cur, { deSel: v })), ts = W.ts, n = ts.length;
     if (!n) return '0x' + hex(v & 0xFF, 2) + ' → ' + tt('dm.deSelNone');
     return (W.en ? '0x' + hex(v & 0xFF, 2) : tt('dm.deSelEn0S', { v: hex(W.sel, 2) })) + ' → T1～T' + n + '（' + tt('dm.deSelColS', { c0: ts[0], c1: ts[n - 1] }) + '）';

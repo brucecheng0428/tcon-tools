@@ -36,7 +36,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     ok(vis === want, `${k}（${m.kind}${hasSel ? '' : '，無 FORCE_DE_SEL'}）Hand 開 ⇒ Pixel 列${want ? '顯示' : '不顯示'}（實際 ${vis ? '顯示' : '隱藏'}）`);
     if (!want) continue;
     shown++;
-    const pf0 = m.kind === 'nb' ? DM.pxForDeSel(k, Object.assign({}, S.cur, { deEn: 1, deSel: 14 })) : { from: -2, to: 4 };   // v1.35.14：NB 0xE 涵蓋＝pxForDeSel（v1.35.7 起 Single -6～4）；MNT／EN01 沒匯入 code 預設 -2～4
+    const pf0 = (m.kind === 'nb' || m.kind === 'en01') ? DM.pxForDeSel(k, Object.assign({}, S.cur, { deEn: 1, deSel: 14 })) : { from: -2, to: 4 };   // v1.36.0：EN01 改用自己的 pool（0x0E Single＝-36～8），不再套 MNT 預設 -2～4   // v1.35.14：NB 0xE 涵蓋＝pxForDeSel（v1.35.7 起 Single -6～4）；MNT／EN01 沒匯入 code 預設 -2～4
     ok($('dm-pxlo').value === String(pf0.from) && $('dm-pxhi').value === String(pf0.to), `${k}：輸入框 ${pf0.from}～${pf0.to}（${$('dm-pxlo').value}～${$('dm-pxhi').value}）`);
     ok((S.cur.deEn | 0) === 1 && (S.cur.deSel | 0) === 14, `${k}：FORCE_DE_EN＝1、FORCE_DE_SEL＝14（${S.cur.deEn}/${S.cur.deSel}）`);
     ok(+$('f-deSel').value === 14, `${k}：FORCE_DE_SEL 欄位＝14（${$('f-deSel').value}）`);

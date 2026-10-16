@@ -193,7 +193,7 @@
        ⚠ MODEL:11092 也把 0x392[7] 定義成 FORCE_DIV3_EN（與 FORCE_DE_EN 同 bit）⇒ 照 ICD 當 FORCE_DE_EN，列入未確認。 */
   var EN01_CH = ['R0', 'G0', 'B0', 'R1', 'G1', 'B1', 'R2', 'G2', 'B2', 'R3', 'G3', 'B3'];
   var EN01_TABS = [2, 4, 8, 16, 32, 64, 128, 256, 512, 1024];
-  var EN01_TDEF = 4;
+  var EN01_TDEF = 1;   // v1.36.0：沒有 state 時的預設＝0x0E 的 SW1（舊版 4＝WPF TabNum 16）
   var EN01_REG = {
     hand: [0x393, 7, 7, 'FORCE_SEL_EN'], deEn: [0x392, 7, 7, 'FORCE_DE_EN'], deSel: [0x394, 7, 0, 'FORCE_DE_SEL'],
     panel: [0x390, 1, 0, 'PANEL_MODE'], subPanel: [0x390, 6, 4, 'SUB_PANEL_MODE'], ltpsZz: [0x390, 3, 2, 'LTPS_ZIGZAG_MODE'],
@@ -216,15 +216,34 @@
   function en01Phases(rd) { return ({ 0: 1, 1: 2, 2: 3, 3: 4, 5: 6 })[rd | 0] || null; }
   /* 顯示哪些列：P1 一定有；P2／P3 依 code 的 header 有沒有載入那一段（DMM:356-374）。seg 缺省＝全部 */
   function en01Rows(seg) { var out = []; for (var r = 0; r < 24; r++) { var g = en01Seg(r); if (g === 'p1' || !seg || seg[g]) out.push(r); } return out; }
-  function en01T(t) { t = t | 0; return t >= 1 && t <= 10 ? t : EN01_TDEF; }
+  /* v1.36.0（Bruce 10/16「woody 那邊表格是 6 個 subpixel 為一組…EN01 是 12 個 subpixel 為一組…原理是一樣的，只是一個是 6 的倍數，一個是 12 的倍數」；
+     依據＝Abel 10/16 轉寄 Kang 4/8 指定的 E507_rt7_sram_w_hand(1T4P).xlsm「FORCE」分頁＋John 3/17 EN01 表）：
+     ・EN01 改用和 MNT 同一個 pool 公式 poolIdx（每個 T 往右 step 個 subpixel；MNT step 6、EN01 step 12＝1T4P），名稱＝linName（負＝R-1…）。
+       FORCE 分頁第 S n 欄（8'h0x 表頭：欄 I＝8'h01、J＝8'h02＝S1…）code v ⇒ subpixel 12n−12⌊v/12⌋＋v%12，即 EN01 的 T n＝pool 第 n+1 欄。
+       正 pixel 與 FORCE 分頁 S1～S10 逐格相同（1320/1320）；表上空白格（⌊v/12⌋＞n）照同一公式得負 pixel（例 S1 的 code 24～35＝R-4～B-1）。
+       code 0～131（11 組×12）每個 T 都有名稱（＝MNT 的 code 0～29 在每欄都有定義）；T0＝8'h01 那欄（FORCE 分頁欄 I）。
+     ・每列預設 T＝FORCE_DE_SEL 最小設 1 的 bit n（8'h02⇒T1、8'h01⇒T0；0x0E⇒T1，與 MNT 同一個 deSelTs）＋SW 時槽 k−1（en01Rel）：
+       John 表 FORCE_DE_SEL 8'h02 時 SW1 在 S1、SW2 在 S2 解讀，4 條 line 都一樣（例 L1-1 R0＝14⇒B1、L1-2 R0＝24⇒R1）；
+       Tri／MUX4／MUX6 照 MNT「每多一條 gate 往右一欄」同理推廣（Bruce 10/16 17:3x）。Mirror 不改名稱（同 MNT，Woody 10/13）。
+       FORCE_DE_EN＝0 或值 0 ⇒ 當 WPF 預設 0x0E（EN01 沒有 auto 等效表的依據）。下拉仍可手動改（不寫入 TCON）。 */
+  var EN01_TMAX = 12;   // 8'h80（n＝7）＋SW6（＋5）
+  function en01T(t) { if (t === null || t === undefined || t === '' || isNaN(+t)) return EN01_TDEF; t = +t | 0; return t < 0 ? 0 : (t > EN01_TMAX ? EN01_TMAX : t); }
+  function en01BaseT(s) {
+    var en = !!(s && (s.deEn | 0)), v = en ? ((s.deSel | 0) & 0xFF) : 0;
+    if (!v) v = 0x0E;   // FORCE_DE_EN＝0 或值 0：EN01 的 auto 等效值原廠沒定義 ⇒ 當 WPF 開 Hand 會寫的 0x0E（不套 MNT 的 panel 等效表）
+    return deSelTs(v, 8)[0] - 1;   // 與 MNT 同一函式（Woody BOE 分頁：起始欄＝最小設 1 的 bit，bit n＝第 n+1 欄）；EN01 的 T n＝第 n+1 欄 ⇒ T＝bit n
+  }
+  /* 相位右移（Bruce 10/16 17:3x「原理應該是一樣的」）：MNT 每多一條 gate 往右一欄（Dual 下 gate＝起始欄＋1、Tri 第 k 條＝＋k，Woody BOE 分頁／mntRel）；
+     EN01 每個 SW 時槽同理：SW k＝起始 T＋(k−1)（Abel FORCE 分頁 HSD 範例 SW1→S1、SW2→S2 證實）。只對 RD_MODE 用到的時槽右移，未用的列＝起始 T。 */
+  function en01Rel(s, row) { var np = en01Phases(s && s.rd) || 1, ph = (row | 0) % 6; return ph < np ? ph : 0; }
+  function en01RowT(s, row) { return en01T(en01BaseT(s) + en01Rel(s, row)); }
   var _en01Defs = {};
-  /* 某階數的候選（WPF 下拉 MappingCellInfo：R→G→B、編號小→大，X 最後） */
+  /* 某階數的候選（R→G→B、編號小→大，X 最後）；名稱＝共用 pool（poolIdx step 12） */
   function en01Defs(t) {
     t = en01T(t);
     if (_en01Defs[t]) return _en01Defs[t];
-    var g = [], list = [], v, b, k;
-    for (b = t; b >= 0; b--) for (k = 1; k <= 4; k++) g.push(4 * b + k);
-    for (v = 0; v < g.length * 3; v++) list.push({ name: 'RGB'.charAt(v % 3) + g[Math.floor(v / 3)], value: v, c: v % 3, n: g[Math.floor(v / 3)] });
+    var list = [], v;
+    for (v = 0; v < EN01_POOL.n; v++) { var nm = linName(poolIdx(EN01_POOL.step, t + 1, v)); list.push({ name: nm, value: v, c: v % 3, n: linPx(nm) }); }
     list.sort(function (x, y) { return x.c - y.c || x.n - y.n; });
     list = list.map(function (x) { return { name: x.name, value: x.value }; });
     list.push({ name: 'X', value: 0xFF });
@@ -634,7 +653,14 @@
        ・位置 k＝T 表（Single／Dual 上 gate＝T2、Dual 下 gate＝T3）全範圍：k＝3×(2(T−1)−2⌊code/6⌋)＋code%6；
        ・Mirror＝1：送到 D1 起第 p＝−1−k 顆，名稱照原廠 Pixel mapping 檢視（每組 6×gate 數顆左右反轉；資料顏色＝code 的顏色）。 */
   function linName(k) { var px = Math.floor(k / 3), c = k - px * 3; return 'RGB'.charAt(c) + (px >= 0 ? px + 1 : px); }
-  function mntIdx(T, code) { return 3 * (2 * (T - 1) - 2 * Math.floor(code / 6)) + code % 6; }
+  /* v1.36.0：pool 公式單一來源——第 col 欄的 code ⇒ subpixel 位置 step(col−1) − step⌊code/step⌋ ＋ code%step。
+     MNT／NB e50x：step 6（2 pixel／T，code 0～29）；EN01：step 12（4 pixel／T＝1T4P，code 0～131）。mntIdx＝poolIdx(6, …)，數值與舊式相同。 */
+  var MNT_POOL = { step: 6, n: 30 }, EN01_POOL = { step: 12, n: 132 };
+  function poolIdx(step, col, code) { return step * (col - 1) - step * Math.floor(code / step) + code % step; }
+  function mntIdx(T, code) { return poolIdx(MNT_POOL.step, T, code); }
+  function linPx(name) { var m = /^[RGB](-?\d+)$/.exec(name || ''); return m ? +m[1] : null; }
+  /* 起始欄 c、各列額外右移 rel 欄時，全部列都選得到的 pixel 索引範圍（MNT 與 EN01 共用；P＝每欄 pixel 數、B＝code 組數） */
+  function poolCov(pool, c, rel) { var P = pool.step / 3, B = pool.n / pool.step; return [P * (c + (rel | 0) - 1) - P * (B - 1), P * c - 1]; }
   /* v1.3.2（Bruce 10/12「要去看所有的演算法有沒有矛盾的地方…統一」）：名稱⇄線性位置、code⇄位置、R↔B 的唯一換算。
      datamap.html 原本各自另寫一份（pvLin／pvName／pvRawIdx 與三處 R↔B regex），改成全部呼叫這裡，避免日後只改一邊。
      linIdx 是 linName 的反函數（R1＝0、G1＝1、B1＝2、R2＝3…；R-1＝−3、B-1＝−1）；codeIdx＝mntIdx 加上 code 範圍（0~29，其餘＝null）。 */
@@ -740,13 +766,19 @@
   function pxIdx(p) { p = p | 0; return p > 0 ? p - 1 : p; }
   function idxPx(i) { return i >= 0 ? i + 1 : i; }
   /* v1.31.0：起始欄 c 可選 pixel 索引（各 gate 列取交集；Dual／Tri 下 gate 列用 c＋1）——deSelForPx 與 pxForDeSel 共用這一份 */
-  function pxCovIdx(c, g) { if (g === 'tri3') return triPxCov(c); var rel = mntRel(g, 1); return [2 * (c + rel) - 10, 2 * c - 1]; }   // v1.34.0：MNT Hand Tri（triOn ⇒ 'tri3'）走獨立分支（3 條 gate、triCodeOk）；EN01 的 'tri' 不變
-  function pxGate(key, s, gate) { return gate || (triOn(key, s) ? 'tri3' : gateOf(key, s)); }
+  function pxCovIdx(c, g) { if (g === 'tri3') return triPxCov(c); if (/^en01:/.test(g)) return poolCov(EN01_POOL, c, +g.slice(5) - 1); return poolCov(MNT_POOL, c, mntRel(g, 1)); }   // v1.34.0：MNT Hand Tri（triOn ⇒ 'tri3'）走獨立分支（3 條 gate、triCodeOk）
+  /* v1.36.0：EN01 ⇒ 'en01:<相位數>'（poolCov step 12；SW n 列＝起始欄＋n−1，與 en01RowT 同規則 ⇒ 全部用到的列取交集）。
+     MNT／NB 仍是 poolCov step 6（＝舊式 [2(c+rel)−10, 2c−1]）。 */
+  function pxGate(key, s, gate) {
+    if (MODELS[key] && MODELS[key].kind === 'en01') return 'en01:' + (en01Phases(s && s.rd) || 1);   // en01Rel：SW k＝起始＋(k−1) ⇒ 各列交集
+    return gate || (triOn(key, s) ? 'tri3' : gateOf(key, s));
+  }
   /* v1.31.0（Bruce 10/14「匯入 code 時依 FORCE_DE_EN／FORCE_DE_SEL 反算出目前涵蓋的 pixel 最小～最大」）：deSelForPx 的反方向。
      FORCE_DE_EN＝0 用 panel 等效值（deAutoSel，與 tWin／tUse 同一規則）；起始欄＝deSelTs 第一欄。 */
   function pxForDeSel(key, s, gate) {
     var bits = (fieldById(key, 'deSel') || { bits: 6 }).bits, g = pxGate(key, s, gate);
     var en = (s.deEn | 0) === 1, v = en ? (s.deSel | 0) : deAutoSel(s), c = deSelTs(v, en ? bits : 6)[0];
+    if (MODELS[key] && MODELS[key].kind === 'en01') { c = en01BaseT(s) + 1; v = en && (s.deSel & 0xFF) ? (s.deSel & 0xFF) : 0x0E; }   // v1.36.0：起始欄與表格名稱同一來源（en01BaseT）
     if (!c) return null;
     var r = pxCovIdx(c, g);
     return { v: v, en: en, base: c, from: idxPx(r[0]), to: idxPx(r[1]) };
@@ -1529,7 +1561,8 @@
     buildScript: buildScript, applyScript: applyScript, pyScriptRows: pyScriptRows, applyPyScriptRows: applyPyScriptRows,
     excelName: excelName, excelRows: excelRows, excelToNames: excelToNames, readXlsxRows: readXlsxRows,
     writeRegs: writeRegs, readSpans: readSpans, readState: readState, modelByIcId: modelByIcId, hex: hex,
-    SELECT_KEYS: SELECT_KEYS, EN01_CH: EN01_CH, EN01_TABS: EN01_TABS, EN01_TDEF: EN01_TDEF, EN01_GATES: EN01_GATES, EN01_PANEL: EN01_PANEL,
+    SELECT_KEYS: SELECT_KEYS, EN01_CH: EN01_CH, EN01_TABS: EN01_TABS, EN01_TDEF: EN01_TDEF, EN01_TMAX: EN01_TMAX, EN01_POOL: EN01_POOL, MNT_POOL: MNT_POOL,
+    poolIdx: poolIdx, poolCov: poolCov, linPx: linPx, en01BaseT: en01BaseT, en01RowT: en01RowT, EN01_GATES: EN01_GATES, EN01_PANEL: EN01_PANEL,
     en01Seg: en01Seg, en01Addr: en01Addr, en01RowLabel: en01RowLabel, en01Phases: en01Phases, en01Rows: en01Rows, en01Defs: en01Defs, en01Name: en01Name, en01Value: en01Value,
     en01Gate: en01Gate, en01CellView: en01CellView, en01Pick: en01Pick, en01SameOptions: en01SameOptions, en01AllSame: en01AllSame,
     en01Ids: en01Ids, en01ExportRegs: en01ExportRegs, en01ExcelName: en01ExcelName, en01ExcelRows: en01ExcelRows, en01ExcelApply: en01ExcelApply,
