@@ -20,15 +20,20 @@
 - 提示：值＝14 時「此型號預設 14（-6～4）」；其他值「目前 N（a～b）；此型號預設 14（-6～4）」（新 i18n dm.pxNbCur，三語）。原「自動反推：FORCE_DE_SEL＝…」一行併入「目前 N」。
 - 算式（代表案例）：15＝0b1111，最小設 1 的 bit＝bit0 ⇒ T1 起始欄 c＝1（deSelTs）；Single 涵蓋 pixel 索引 [2c−10, 2c−1]＝[-8, 1] ⇒ -8～2（pxCovIdx）；14 ⇒ c＝2 ⇒ -6～4。
 
-### 與瑞鼎 Python UI 的差異（待 Bruce 決定）
+### 與瑞鼎 Python UI 的差異（Bruce 10/16 決定：不照 Python UI）
 - Python UI V5.0.4 write_dm_info_to_code（PY:29267-29280／29377-29390）每次改表格／Gate 都把 FORCE_DE_SEL[7:4] 寫成 0xE。
 - 本版網頁：手改值、匯入 code 的非 0xE 值在之後改表格／Gate 時保留（不照 Python UI 覆寫）；沒手改過、沒匯入（deRev 未設）時仍照 Python UI 寫 0xE，舊結果不變。匯出／寫入就是畫面上的值。
-- 是否要改成「改表格／Gate 時照 Python UI 蓋回 14」由 Bruce 決定（Dispatch 轉問）。
+- 決定：Bruce 2026-10-16 17:2x「不用依照python」⇒ 維持本版做法：手改值與匯入 code 的值在改表格／Gate 時保留，不照 Python UI 蓋回 14。
 
 ### 測試
 - tools/check_datamap_nbpx.js：NB 預期改為可輸入／可套用／欄位可改；新增手改 15 ⇒ deRev、輸入框＝pxForDeSel、提示「目前 15（-8～2）；此型號預設 14（-6～4）」、② 名稱跟著變、改 Gate 後仍 15、改回 14 提示回預設；NB 也跑與 MNT 相同的套用矩陣與 1～15 round-trip。結果 376 pass／0 fail（型號 11）。
 - 本機 headless Chrome（自有 profile，真鍵盤輸入）E503 → Hand → Single → FORCE_DE_EN → FORCE_DE_SEL 14→15：Pixel -6～4 → -8～2、提示更新、② 第 1 列 R3→R1（同 code、起始欄左移一欄）、TFT 96/96 格有色、CKS 0x1347→0x02C1；改 ② 第 1 格後仍 15；Pixel -2～4 套用 ⇒ 14。
-- 回歸（--scope ui）：check_datamap_boe --qm（全民）109/0；check_datamap_tft_interact（E503、EM01）636/0（與 v1.35.14 相同）；check_datamap_sd_snapshot（基準 v1.35.9 格式 2）23008 pass／1600 fail：② 表格名稱、③ TFT 逐格、暫存器 byte／mask／script／CKS、第二組全部 0 差異；1600 組全是「整頁」，組數與 v1.35.14 重拍 NB 五型號（E501A／E501B／E503／DAZ6138／DAZ6139）時的整頁組數相同（推定即這 5 型號），差異為頁面上 f-deSel、dm-pxlo、dm-pxhi 拿掉 disabled／readonly、dm-pxapply 拿掉 hidden／disabled（抽 DAZ6138 de0/0、E503 de1/14 兩組逐行比對 HEAD 與本版 body，只有這 4 個元素的屬性不同）。基準未重拍（未 --write），預期值變更待 Bruce 同意後以 SNAP_ONLY 重拍這 5 型號。
+- 回歸（--scope ui）：check_datamap_boe --qm（全民）109/0；check_datamap_tft_interact（E503、EM01）636/0（與 v1.35.14 相同）；check_datamap_sd_snapshot（基準 v1.35.9 格式 2）23008 pass／1600 fail：② 表格名稱、③ TFT 逐格、暫存器 byte／mask／script／CKS、第二組全部 0 差異；1600 組全是「整頁」，組數與 v1.35.14 重拍 NB 五型號（E501A／E501B／E503／DAZ6138／DAZ6139）時的整頁組數相同（推定即這 5 型號），差異為頁面上 f-deSel、dm-pxlo、dm-pxhi 拿掉 disabled／readonly、dm-pxapply 拿掉 hidden／disabled（抽 DAZ6138 de0/0、E503 de1/14 兩組逐行比對 HEAD 與本版 body，只有這 4 個元素的屬性不同）。基準未重拍（未 --write），預期值變更交 Bruce 確認。
+
+### 快照基準重拍（不進版，2026-10-16 17:2x 後）
+- 依 Bruce 決定與 Dispatch 指示：整頁 1600 組差異只來自本版「預設 14、可以改」的解鎖（Bruce 要求的行為），以 SNAP_ONLY=E501A,E501B,E503,DAZ6138,DAZ6139 --write 只重拍這 5 個 NB e50x 型號。
+- 重拍前後基準逐筆比對（展開 layouts／ct 參照）：11104 組 id 相同；只有這 5 型號各 320 組的 body（整頁）簽章改變，regs／grid／x／pv 全部相同；其他型號 0 筆改變；fmt 2、基準來源 v1.35.9 (241ca45) 不變。
+- 重拍後全量 check_datamap_sd_snapshot：24608 pass／0 fail（11104 組、整頁重畫 3376 組，877.5 s）。
 
 ---
 
