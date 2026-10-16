@@ -2,6 +2,36 @@
 
 ---
 
+## Data Mapping (datamap) v1.35.15 — 2026-10-16 ｜ PATCH ｜ NB e50x FORCE_DE_SEL「預設 14、可以改」（撤回唯讀）
+
+判定依據：Bruce 指正既有行為與需求不符（不是鎖住、只是預設），只放開 NB e50x 的 FORCE_DE_SEL／Pixel 列編輯，沿用 MNT／EN01 既有 UI 與換算；不改其他型號、Gate、預設值的結果 → PATCH。
+
+### 起因
+- Bruce 10/16 16:0x：「force de sel 預設 14，但是可以改，我已經講過很多遍了：不是鎖住，而是預設的是 14，但是可以改。」
+- Bruce 10/16 14:3x：「E503 並沒有固定是 -2 到 4，只是預設是 -2 到 4，它是要可以修改的啊。」「目前網頁版本好像不讓我改 force de sel 這個地方，這個是不是也有問題呀？」
+- 取代 10/14 22:28（v1.31.4「連改都不能改，只是顯示」）與 10/15 21:5x 的唯讀決定。
+
+### 修改（datamap.html）
+- 適用：有 FORCE_DE_SEL 欄位的 NB（E503／E501A／E501B／DAZ6138／DAZ6139，皆 sem e50x；nbPxFix）。
+- ② FORCE_DE_SEL 欄位、Pixel 最小～最大輸入框、「套用」鈕：不再 disabled／readonly／隱藏，與 MNT／EN01 同一套。
+- 雙向連動：改 FORCE_DE_SEL ⇒ Pixel 範圍＝DM.pxForDeSel；Pixel 範圍＋套用 ⇒ FORCE_DE_EN＝1、FORCE_DE_SEL＝DM.deSelForPx（與 MNT 同一函式）。
+- 使用者手改或套用 ⇒ state.deRev＝1（v1.35.9 自動反推已有的旗標）：② rowDict 依該值的 T1 起始欄（mntBaseT）出名稱，③ TFT／暫存器／CKS 跟著；pyNormalize（改表格／Gate）保留該值，不蓋回 0xE。
+- 匯入 code／I2C 讀回：FORCE_DE_EN＝1 且 FORCE_DE_SEL≠0、≠0xE ⇒ 也設 deRev（依 code 值解讀）。沒匯入 code ⇒ 0xE＝14（v1.31.3 起預設不變）。
+- 提示：值＝14 時「此型號預設 14（-6～4）」；其他值「目前 N（a～b）；此型號預設 14（-6～4）」（新 i18n dm.pxNbCur，三語）。原「自動反推：FORCE_DE_SEL＝…」一行併入「目前 N」。
+- 算式（代表案例）：15＝0b1111，最小設 1 的 bit＝bit0 ⇒ T1 起始欄 c＝1（deSelTs）；Single 涵蓋 pixel 索引 [2c−10, 2c−1]＝[-8, 1] ⇒ -8～2（pxCovIdx）；14 ⇒ c＝2 ⇒ -6～4。
+
+### 與瑞鼎 Python UI 的差異（待 Bruce 決定）
+- Python UI V5.0.4 write_dm_info_to_code（PY:29267-29280／29377-29390）每次改表格／Gate 都把 FORCE_DE_SEL[7:4] 寫成 0xE。
+- 本版網頁：手改值、匯入 code 的非 0xE 值在之後改表格／Gate 時保留（不照 Python UI 覆寫）；沒手改過、沒匯入（deRev 未設）時仍照 Python UI 寫 0xE，舊結果不變。匯出／寫入就是畫面上的值。
+- 是否要改成「改表格／Gate 時照 Python UI 蓋回 14」由 Bruce 決定（Dispatch 轉問）。
+
+### 測試
+- tools/check_datamap_nbpx.js：NB 預期改為可輸入／可套用／欄位可改；新增手改 15 ⇒ deRev、輸入框＝pxForDeSel、提示「目前 15（-8～2）；此型號預設 14（-6～4）」、② 名稱跟著變、改 Gate 後仍 15、改回 14 提示回預設；NB 也跑與 MNT 相同的套用矩陣與 1～15 round-trip。結果 376 pass／0 fail（型號 11）。
+- 本機 headless Chrome（自有 profile，真鍵盤輸入）E503 → Hand → Single → FORCE_DE_EN → FORCE_DE_SEL 14→15：Pixel -6～4 → -8～2、提示更新、② 第 1 列 R3→R1（同 code、起始欄左移一欄）、TFT 96/96 格有色、CKS 0x1347→0x02C1；改 ② 第 1 格後仍 15；Pixel -2～4 套用 ⇒ 14。
+- 回歸（--scope ui）：check_datamap_boe --qm（全民）109/0；check_datamap_tft_interact（E503、EM01）636/0（與 v1.35.14 相同）；check_datamap_sd_snapshot（基準 v1.35.9 格式 2）23008 pass／1600 fail：② 表格名稱、③ TFT 逐格、暫存器 byte／mask／script／CKS、第二組全部 0 差異；1600 組全是「整頁」，組數與 v1.35.14 重拍 NB 五型號（E501A／E501B／E503／DAZ6138／DAZ6139）時的整頁組數相同（推定即這 5 型號），差異為頁面上 f-deSel、dm-pxlo、dm-pxhi 拿掉 disabled／readonly、dm-pxapply 拿掉 hidden／disabled（抽 DAZ6138 de0/0、E503 de1/14 兩組逐行比對 HEAD 與本版 body，只有這 4 個元素的屬性不同）。基準未重拍（未 --write），預期值變更待 Bruce 同意後以 SNAP_ONLY 重拍這 5 型號。
+
+---
+
 ## Data Mapping (datamap) v1.35.14 — 2026-10-16 ｜ PATCH ｜ NB e50x Hand Single：表格選 R-3～R-6（code 18～29）時 TFT 接線圖整張空白
 
 判定依據：修正既有 bug（③ 解碼與 ② 表格用不同名稱表），不改版面、不改其他型號／Gate 的結果 → PATCH。

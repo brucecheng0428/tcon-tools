@@ -3,8 +3,8 @@
    所有型號（SELECT_KEYS）矩陣：不匯入 code → 勾 Hand Mode
    ・有 FORCE_DE_SEL 欄位的 NB（E503／E501A／E501B／DAZ6138／DAZ6139）與 MNT（EM01／EM02／E512）⇒ Pixel 列顯示、-2～4、FORCE_DE_EN＝1、FORCE_DE_SEL＝14
    ・沒有 FORCE_DE_SEL 的型號（DAZ6111／DAZ7353）⇒ 不顯示
-   ・v1.31.4 NB（Bruce 10/14「連改都不能改，只是顯示」）：輸入框 disabled＋readonly、沒有套用鈕、FORCE_DE_SEL 欄位唯讀、提示「此型號預設 14（-6～4）」（v1.35.14：動態＝DM.pxForDeSel；Bruce 10/16「固定」→「預設」）；
-     強行改值＋點套用／按 Enter ⇒ 狀態不變；Hand 關 ⇒ 列隱藏
+   ・v1.35.15 NB（Bruce 10/16「預設 14，但是可以改」，取代 v1.31.4 唯讀）：輸入框可改、套用鈕在、FORCE_DE_SEL 欄位可改、提示「此型號預設 14（-6～4）」；
+     手改 15 ⇒ deRev、輸入框／提示跟著變、改 Gate 後仍 15、改回 14 提示回預設；之後跑與 MNT 相同的套用矩陣與 round-trip；Hand 關 ⇒ 列隱藏
    ・v1.31.4 EN01（Bruce 10/14「EN01…跟 MNT TCON 一樣，可以改」）：Hand 開 ⇒ 顯示、可輸入、-2～4／14；5 種 Gate × 9 組範圍套用 ⇒ FORCE_DE_SEL＝DM.deSelForPx；
      FORCE_DE_SEL 1～255 全部純函式 round-trip；頁面手改代表值（每個起始欄、one-hot、常用值、0xFF/0xAA/0x55…）⇒ 輸入框＝DM.pxForDeSel
    ・MNT（EM01／EM02／E512）：輸入框可改、套用鈕在，同一矩陣（不受影響）
@@ -40,20 +40,29 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     ok($('dm-pxlo').value === String(pf0.from) && $('dm-pxhi').value === String(pf0.to), `${k}：輸入框 ${pf0.from}～${pf0.to}（${$('dm-pxlo').value}～${$('dm-pxhi').value}）`);
     ok((S.cur.deEn | 0) === 1 && (S.cur.deSel | 0) === 14, `${k}：FORCE_DE_EN＝1、FORCE_DE_SEL＝14（${S.cur.deEn}/${S.cur.deSel}）`);
     ok(+$('f-deSel').value === 14, `${k}：FORCE_DE_SEL 欄位＝14（${$('f-deSel').value}）`);
-    const fix = m.kind === 'nb';
-    ok($('dm-pxlo').disabled === fix && $('dm-pxhi').disabled === fix && $('dm-pxlo').readOnly === fix && $('dm-pxhi').readOnly === fix, `${k}：輸入框${fix ? '' : '不'}唯讀（disabled ${$('dm-pxlo').disabled}）`);
-    ok($('dm-pxapply').classList.contains('hidden') === fix, `${k}：套用鈕${fix ? '隱藏' : '顯示'}`);
-    ok($('f-deSel').disabled === fix, `${k}：FORCE_DE_SEL 欄位${fix ? '唯讀' : '可改'}（disabled ${$('f-deSel').disabled}）`);
+    const fix = m.kind === 'nb';   // v1.35.15（Bruce 10/16「預設 14，但是可以改」）：NB e50x 與 MNT／EN01 一樣可輸入、可套用、FORCE_DE_SEL 可改
+    ok(!$('dm-pxlo').disabled && !$('dm-pxhi').disabled && !$('dm-pxlo').readOnly && !$('dm-pxhi').readOnly, `${k}：輸入框可改（disabled ${$('dm-pxlo').disabled}／readOnly ${$('dm-pxlo').readOnly}）`);
+    ok(!$('dm-pxapply').classList.contains('hidden') && !$('dm-pxapply').disabled, `${k}：套用鈕顯示可按`);
+    ok(!$('f-deSel').disabled && !$('f-deSel').readOnly, `${k}：FORCE_DE_SEL 欄位可改（disabled ${$('f-deSel').disabled}／readOnly ${$('f-deSel').readOnly}）`);
     if (fix) {
       ok($('dm-pxres').textContent === `此型號預設 14（${pf0.from}～${pf0.to}）`, `${k}：提示「${$('dm-pxres').textContent}」`);
-      for (const [lo, hi] of [[1, 12], [-8, 2], [0, 6], [4, -2], [-2, 4]]) {
-        $('dm-pxlo').value = String(lo); $('dm-pxhi').value = String(hi); $('dm-pxapply').click();
-        $('dm-pxlo').dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Enter' })); await sleep(15);
-        ok((S.cur.deEn | 0) === 1 && (S.cur.deSel | 0) === 14, `${k} 強行 ${lo}～${hi}＋套用／Enter ⇒ 仍 14（${S.cur.deSel}）`);
-        w.dmRender(); await sleep(5);
-        ok($('dm-pxlo').value === String(pf0.from) && $('dm-pxhi').value === String(pf0.to), `${k} 重繪後輸入框回 ${pf0.from}～${pf0.to}`);
+      // 手改 FORCE_DE_SEL 15 ⇒ deRev、輸入框＝pxForDeSel(15)、提示列出目前與預設；改 Gate（pyNormalize）後仍 15；改回 14 ⇒ 提示回預設
+      $('f-deSel').value = '15'; $('f-deSel').dispatchEvent(new w.Event('change')); await sleep(10);
+      const p15 = DM.pxForDeSel(k, S.cur);
+      ok((S.cur.deSel | 0) === 15 && S.cur.deRev === 1 && $('dm-pxlo').value === String(p15.from) && $('dm-pxhi').value === String(p15.to), `${k}：手改 15 ⇒ FORCE_DE_SEL＝15、deRev、輸入框 ${p15.from}～${p15.to}（${S.cur.deSel}／${$('dm-pxlo').value}～${$('dm-pxhi').value}）`);
+      ok($('dm-pxres').textContent === `目前 15（${p15.from}～${p15.to}）；此型號預設 14（${pf0.from}～${pf0.to}）`, `${k}：手改 15 提示「${$('dm-pxres').textContent}」`);
+      const nm15 = DM.cellView(k, S.cur, 0, 0).txt, nm14 = DM.cellView(k, Object.assign({}, S.cur, { deRev: 0 }), 0, 0).txt;
+      ok(nm15 !== nm14 || DM.cellView(k, S.cur, 0, 0).blank, `${k}：手改 15 ⇒ ② 第 1 格名稱跟著 T1 起始欄變（15：${nm15}／14：${nm14}）`);
+      const gsel = $('dm-gate');
+      if (gsel && gsel.options.length > 1) {
+        const g0 = gsel.value, other = [].find.call(gsel.options, o => o.value !== g0 && !o.disabled);
+        if (other) { gsel.value = other.value; gsel.dispatchEvent(new w.Event('change')); await sleep(15); gsel.value = g0; gsel.dispatchEvent(new w.Event('change')); await sleep(15);
+          ok((S.cur.deSel | 0) === 15, `${k}：改 Gate ${g0}→${other.value}→${g0}（pyNormalize）後 FORCE_DE_SEL 仍 15（${S.cur.deSel}）`); }
       }
-    } else {
+      $('f-deSel').value = '14'; $('f-deSel').dispatchEvent(new w.Event('change')); await sleep(10);
+      ok((S.cur.deSel | 0) === 14 && $('dm-pxres').textContent === `此型號預設 14（${pf0.from}～${pf0.to}）` && $('dm-pxlo').value === String(pf0.from), `${k}：改回 14 ⇒ 提示回預設「${$('dm-pxres').textContent}」`);
+    }
+    {
       const gates = m.kind === 'en01' ? [['single', 0], ['dual', 1], ['tri', 2], ['mux4', 3], ['mux6', 5]] : [[DM.gateOf(k, S.cur), null]];
       for (const [gn, rd] of gates) {
         if (rd !== null) { S.cur.rd = rd; S.cur.deSel = 14; w.dmRender(); await sleep(10); }
