@@ -667,7 +667,7 @@
   <div class="dm-minibody dm-pvdrag" id="dm-mini-body"><div class="dm-mininote hidden" id="dm-mini-note"></div><div class="dm-tftmini" id="dm-mini-svg"></div></div>
 </div>
 
-<script src="common/version.js?v=20261016dm13513"></script>
+<script src="common/version.js?v=20261016dm13514"></script>
 <script src="common/i18n.js?v=20261012dm1220"></script>
 <script>
 (function () {
@@ -797,7 +797,7 @@
     'dm.pxApplyT': ['依 pixel 範圍設定 FORCE_DE_SEL（並開 FORCE_DE_EN）', 'Set FORCE_DE_SEL (and FORCE_DE_EN) from the pixel range', '依 pixel 范围设定 FORCE_DE_SEL（并开 FORCE_DE_EN）'],
     'dm.pxCommon': ['（常用）', ' (common)', '（常用）'],
     'dm.i2cOffImp': ['I2C 離線（已匯入 code）', 'I2C offline (code imported)', 'I2C 离线（已导入 code）'],
-    'dm.pxNbFix': ['此型號固定 14（-2～4）', 'Fixed at 14 (-2–4) for this model', '此型号固定 14（-2～4）'],
+    'dm.pxNbFix': ['此型號預設 {v}（{a}～{b}）', 'Default {v} ({a}–{b}) for this model', '此型号默认 {v}（{a}～{b}）'],   // v1.35.14（Bruce 10/16）：「固定」→「預設」，範圍依目前 FORCE_DE_SEL／Gate 由 DM.pxForDeSel 算出（0xE Single＝-6～4），不寫死
     'dm.pxOver': ['範圍太大，最多 {a}～{b}', 'Range too wide; max {a}–{b}', '范围太大，最多 {a}～{b}'],
     'dm.fDe': ['用 FORCE_DE_SEL 指定 T1 起始欄', 'FORCE_DE_SEL sets the T1 start column', '用 FORCE_DE_SEL 指定 T1 起始栏'],
     'dm.fRvs': ['各 port 反向讀取', 'per-port reverse read', '各 port 反向读取'],
@@ -1090,7 +1090,7 @@
 <script src="common/subpix-colors.js?v=20261008dm11825"></script>
 <script src="common/xlsx.js?v=20261008dm11825"></script>
 <script src="common/syscrc.js?v=20261014dm1290"></script>
-<script src="common/datamap-core.js?v=20261015dm13510"></script>
+<script src="common/datamap-core.js?v=20261016dm13514"></script>
 <script src="common/datamap-lod.js?v=20261012dm1220"></script>
 <script src="common/datamap-auto.js?v=20261014dm1282"></script>
 <script src="common/i2c-mbus.js?v=20261008dm11825"></script>
@@ -1403,7 +1403,8 @@
     $('dm-pxapply').disabled = fix || !!S.ro || S.busy;
     var res = $('dm-pxres');
     if (fix && S.cur.deRev && (S.cur.deSel | 0) !== 0x0E) { res.textContent = '自動反推：FORCE_DE_SEL＝' + (S.cur.deSel | 0) + '（0x' + hex(S.cur.deSel | 0, 2) + '）'; res.classList.remove('over'); res.setAttribute('data-v', S.cur.deSel | 0); res.setAttribute('data-over', 0); res.setAttribute('data-fix', 1); }   // v1.35.9：反推改過才顯示實際值
-    else if (fix) { res.textContent = tt('dm.pxNbFix'); res.classList.remove('over'); res.setAttribute('data-v', 14); res.setAttribute('data-over', 0); res.setAttribute('data-fix', 1); }
+    else if (fix) { var nfs = DM.cloneState(S.cur); nfs.deEn = 1; nfs.deSel = (S.cur.deSel | 0) || 0xE; var nfr = DM.pxForDeSel(S.model, nfs);   // v1.35.14（Bruce 10/16「FORCE_DE_SEL 設定 14…Pixel 是從 -6 到正 4…相關的註明也要跟著一起更改」）：與輸入框同一個換算（pxSync）
+      res.textContent = nfr ? tt('dm.pxNbFix', { v: nfr.v, a: nfr.from, b: nfr.to }) : ''; res.classList.remove('over'); res.setAttribute('data-v', nfr ? nfr.v : 14); res.setAttribute('data-over', 0); res.setAttribute('data-fix', 1); }
     else if (res.getAttribute('data-fix') === '1') { res.textContent = ''; res.removeAttribute('data-fix'); res.removeAttribute('data-v'); res.removeAttribute('data-over'); }
     if (show) pxSync();
   }
@@ -2089,7 +2090,9 @@
     if (g === 'single' && DM.MODELS[m].sem === 'e50x') {
       var raw = function (pre) { return function (r, c) { var v = s[pre + (r * 6 + c)] | 0;
         if (DM.MODELS[m].kind === 'mnt') { var nm = DM.mntName('single', r, v, false, DM.mntBaseT(s, 'single').t); return nm === null ? '0x' + DM.hex(v, 2) : nm; }
-        for (var kk in DM.GN1) if (DM.GN1[kk] === v && kk !== 'X') return kk; return v === 31 ? 'X' : '0x' + DM.hex(v, 2); }; };
+        /* v1.35.14：v1.35.7 起 NB e50x 的表格／下拉用和 MNT 同一個 pool（code 0～29，R-3～R-6 等），這裡原本仍查 GN1（只有 code 0～17）⇒
+           ② 選 R-3～R-6（code 18～29）時 ③ 拿到「0x12」之類的非名稱，整張圖沒有顏色。改成和表格同一個 rowDict（DM.codeName）；code 0～17 名稱與 GN1 逐一相同 */
+        var nb = DM.codeName(m, s, r, 'single', v); if (nb !== null && nb !== 'X') return nb; return v === 31 ? 'X' : '0x' + DM.hex(v, 2); }; };
       if (DM.MODELS[m].kind !== 'mnt') {
         /* v1.15.0 NB（RM81010 Kick Off「Data hand mode」E36:R51 公式）：每一欄＝下一組 6 條 Data 線（往右 2 pixel），
            line 0 偶數組用 _0、奇數組用 _1；line 1 用 _2／_3。Normal & Zigzag 只填第一行（_1＝_0、_3＝_2）⇒ 兩條 Line、週期 6；

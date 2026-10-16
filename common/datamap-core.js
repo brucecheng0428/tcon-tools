@@ -826,6 +826,9 @@
     if (se === 'daz6111') return D6111;
     return (gate === 'dual' && (row & 1)) ? GN2 : GN1;
   }
+  /* v1.35.14（Bruce 10/16「E503 Hand Single、表格填 R-4／B-5…，右邊 TFT 接線圖整個是空的」）：某一列暫存器 code → 名稱，
+     與 ② 表格（cellView）、下拉（cellOptions）同一份 rowDict；③ TFT 的 NB e50x Single 解碼改用這個，不再自己查 GN1（GN1 只有 code 0～17）。 */
+  function codeName(key, s, row, gate, v) { return inv(rowDict(key, row, gate, s), v | 0); }
   function colorOfName(n) {   // PY:10547-10600：依序找 R、G、B、X
     if (!n) return 'x';
     if (n.indexOf('R') >= 0) return 'r';
@@ -1515,7 +1518,7 @@
     fieldsOf: fieldsOf, fieldById: fieldById, readField: readField, splitField: splitField,
     emptyState: emptyState, cloneState: cloneState, decode: decode, encode: encode, encodeFields: encodeFields,
     changedIds: changedIds, diffRegs: diffRegs, regsOf: regsOf, maskedMerge: maskedMerge,
-    gateOf: gateOf, gateText: gateText, cellView: cellView, editCell: editCell, applyNames: applyNames, allSame: allSame,
+    gateOf: gateOf, gateText: gateText, cellView: cellView, codeName: codeName, editCell: editCell, applyNames: applyNames, allSame: allSame,
     mntName: mntName, mntIdx: mntIdx, linName: linName, linIdx: linIdx, codeIdx: codeIdx, rbSwapName: rbSwapName, mntBaseT: mntBaseT, mntTOf: mntTOf, mntInRange: mntInRange, mntInTable: mntInTable, mntRel: mntRel, mntCands: mntCands, mntMirT: mntMirT, deSelTs: deSelTs, deSelText: deSelText, deSelForPx: deSelForPx, pxForDeSel: pxForDeSel, pxCovIdx: pxCovIdx, DE_COMMON: DE_COMMON, deSelBase: deSelBase, tWin: tWin, deAutoBase: deAutoBase, deAutoSel: deAutoSel, DE_AUTO_SEL: DE_AUTO_SEL, tUse: tUse,
     setGate: setGate, setHand: setHand, pyNormalize: pyNormalize, pyNames: pyNames, cks: cks, preLabels: preLabels,
     inputDict: inputDict, colorOfName: colorOfName, codeAddrs: codeAddrs, byteOf: byteOf, regNote: regNote, fieldsAt: fieldsAt,
