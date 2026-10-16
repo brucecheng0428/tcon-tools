@@ -200,7 +200,7 @@ const regOf = (b, maps) => { const r = {}; maps.forEach(([f, t, l]) => { for (le
     const ap = DM.applyScript(out.text, im), back = DM.decode('EN01', a => im.get(a));
     ok(ap.bad.length === 0 && DM.en01Ids(seg).every(id => (back[id] | 0) === (s[id] | 0)), '套回 script ⇒ 匯出的欄位全部＝狀態（' + ap.count + ' 行）');
     const tabs = Array(24).fill(4), rows = DM.en01Rows({ p2: false, p3: false }), xr = DM.en01ExcelRows(s, rows, tabs);
-    ok(xr[0].join('|') === '|R0|G0|B0|R1|G1|B1|R2|G2|B2|R3|G3|B3' && xr[1][0] === 'L1-1' && xr[7][0] === 'L2-1' && xr[4].length === 0, 'Excel 版面＝WPF Export：第 1 列表頭、列號＝row＋2（只有 P1 時 L1-4~L1-6 那幾列空白）');
+    ok(xr[0].join('|') === '|Data1|Data2|Data3|Data4|Data5|Data6|Data7|Data8|Data9|Data10|Data11|Data12' && xr[1][0] === 'L1-1' && xr[7][0] === 'L2-1' && xr[4].length === 0, 'Excel 版面＝WPF Export（v1.35.19 表頭 Data1～Data12；WPF Import 只看欄位置）：第 1 列表頭、列號＝row＋2（只有 P1 時 L1-4~L1-6 那幾列空白）');
     const u8 = XL.build([{ name: 'DataMapping Export', rows: xr }]);
     const rd = await DM.readXlsxRows(u8, async x => new Uint8Array(zlib.inflateRawSync(Buffer.from(x))));
     let s2 = DM.setHand('EN01', DM.emptyState('EN01'), true); const res = DM.en01ExcelApply(s2, rd, rows, tabs);
@@ -252,9 +252,9 @@ const regOf = (b, maps) => { const r = {}; maps.forEach(([f, t, l]) => { for (le
     ok(opts.map(o => o.value).join() === DM.SELECT_KEYS.join() && opts.every(o => !o.disabled) && opts[7].textContent === 'EN01 (RM81008)', '型號下拉：EN01 (RM81008) 在 E503 後、可選（不再是「暫不支援」）');
     fire($('dm-model'), 'EN01');
     const g = $('dm-grid');
-    ok(S.model === 'EN01' && g.classList.contains('en01') && g.querySelectorAll('tbody tr').length === 24 && g.querySelectorAll('select.dm-cell').length === 288 && g.querySelectorAll('select.dm-en01t').length === 24 && Array.from(g.querySelectorAll('thead th')).map(x => x.textContent).slice(2).join() === DM.EN01_CH.join(),
-      '選 EN01（沒匯入）⇒ 表格 24 列 × 12 欄（R0…B3）＋每列 T 下拉');
-    ok(Array.from(g.querySelectorAll('select.dm-en01t')).every(x => x.value === '1') && Array.from($('dm-gate').options).map(o => o.value).join('|') === DM.EN01_GATES.map(x => x[0]).join('|'), '每列 T 預設 T1（沒匯入＝WPF Hand 預設 0x0E 的最小 bit；v1.36.0）；Gate Type＝Single／Dual／Tri／MUX4／MUX6');
+    ok(S.model === 'EN01' && g.classList.contains('en01') && g.querySelectorAll('tbody tr').length === 24 && g.querySelectorAll('select.dm-cell').length === 288 && g.querySelectorAll('select.dm-en01t').length === 0 && g.querySelectorAll('span.dm-en01t').length === 24 && Array.from(g.querySelectorAll('thead th')).map(x => x.textContent).slice(2).join() === 'Data1,Data2,Data3,Data4,Data5,Data6,Data7,Data8,Data9,Data10,Data11,Data12',
+      '選 EN01（沒匯入）⇒ 表格 24 列 × 12 欄（v1.35.19 欄標題 Data1…Data12）＋每列 T 唯讀標籤（沒有下拉）');
+    ok(Array.from(g.querySelectorAll('span.dm-en01t')).every(x => x.textContent === 'T1（S1）' && x.dataset.t === '1' && x.title === '由 FORCE_DE_SEL 決定，不能單獨設定') && Array.from($('dm-gate').options).map(o => o.value).join('|') === DM.EN01_GATES.map(x => x[0]).join('|'), '每列 T 唯讀＝T1（S1）（沒匯入＝WPF Hand 預設 0x0E 的最小 bit；v1.35.19 相對 T＋Abel S 欄）、提示「由 FORCE_DE_SEL 決定，不能單獨設定」；Gate Type＝Single／Dual／Tri／MUX4／MUX6');
     ok($('dm-pvbody').classList.contains('hidden') && /EN01 暫不支援預覽/.test($('dm-pvnote').textContent) && !$('dm-pvnote').classList.contains('hidden'), '③ 明寫 EN01 預覽／比較表暫不支援（不推接線）');
     ok(!$('dm-gridnote').classList.contains('hidden') && /FORCE_SEL_EN 與 FORCE_DE_EN/.test($('dm-gridnote').textContent) && $('dm-e0-0').disabled && $('dm-gate').disabled, 'Hand 關：表格與 Gate Type 停用，提示兩個 bit 都要開');
     ['mirror', 'chrb', 'chwb', 'rvsL'].forEach(k => ok(!d.querySelector('.dm-fieldrow[data-need="' + k + '"]').classList.contains('hidden'), '② 顯示 ' + k + ' 列（EN01 model 有這個欄位）'));
@@ -264,16 +264,23 @@ const regOf = (b, maps) => { const r = {}; maps.forEach(([f, t, l]) => { for (le
       await P.waitFor(() => S.src.kind === 'file', '匯入 F1567');
       ok(S.model === 'EN01' && JSON.stringify(S.en01Seg) === '{"p2":true,"p3":false}' && g.querySelectorAll('tbody tr').length === 12 && !$('dm-e12-0') && !!$('dm-e3-0'), '匯入 F1567（檔名 RM81008）：P3 沒載入 ⇒ 只顯示 12 列（L1-1~L2-6）');
       ok(!d.querySelector('#dm-code tr[data-f="e144"]') && !!d.querySelector('#dm-code tr[data-f="e143"]') && !$('dm-hand').checked, 'Register 表不列 P3；Hand 關（原檔 FORCE_SEL_EN＝0）');
-      ok($('dm-e0-0').value === 'R-4' && $('dm-e1-0').value === 'B-8' && $('dm-et0').value === '1', '格子名稱（v1.36.0 T 依 FORCE_DE_SEL，Hand 關＝當 0x0E ⇒ T1）：L1-1 R0＝24 ⇒ R-4、L1-2 R0＝38 ⇒ B-8');
+      ok($('dm-e0-0').value === 'R-4' && $('dm-e1-0').value === 'B-8' && $('dm-et0').textContent === 'T1（S1）', '格子名稱（v1.36.0 T 依 FORCE_DE_SEL，Hand 關＝當 0x0E ⇒ T1）：L1-1 R0＝24 ⇒ R-4、L1-2 R0＝38 ⇒ B-8');
       ok(/^SW1·P1$/.test($('dm-ers0').textContent) && /^SW2·P1 未用$/.test($('dm-ers1').textContent) && /不是第 2 條 gate/.test($('dm-etr1').title),
         'v1.20.1 列標 SW 時槽；RD_MODE 0（1 個時槽）⇒ SW2 起標「未用」；列提示與圖例寫明 SW≠gate');
       fire($('dm-hand'), true);
       ok(S.cur.hand === 1 && S.cur.deEn === 1 && S.cur.deSel === 0x0E && !$('dm-e0-0').disabled && !$('dm-gate').disabled && $('dm-gridnote').classList.contains('hidden'), '勾 Hand Mode ⇒ FORCE_SEL_EN＋FORCE_DE_EN＝1、FORCE_DE_SEL＝0x0E，表格可改');
       fire($('dm-e0-0'), 'B4');
       ok(S.cur.e0 === 23 && $('dm-e0-0').classList.contains('chg'), 'L1-1 R0 選 B4（T1）⇒ 0x3D4＝23（0x17），格子標「已修改」');
-      fire($('dm-et0'), '4');
-      ok(S.cur.e0 === 23 && $('dm-e0-0').value === 'B16' && S.en01T[0] === 4, 'L1-1 手動改 T4 ⇒ 值不變（23），名稱改用 T4 換算＝B16；T 不寫入');
-      fire($('dm-et0'), '1');
+      /* v1.35.19：T 不能單獨改；改 FORCE_DE_SEL（會寫入 TCON）才換欄。0x04 ⇒ SW1＝T1（S2）：byte 不變（23），名稱照 S2 換算＝B8（FORCE 分頁 S2 欄 code 23）；改回 0x0E 名稱回 B4 */
+      { const regs0 = JSON.stringify(DM.en01ExportRegs(Object.assign({}, S.cur, { deSel: 0x0E }), S.en01Seg).filter(x => x.reg !== 0x394));
+        $('f-deSel').value = '4'; $('f-deSel').dispatchEvent(new w.Event('change'));
+        ok((S.cur.deSel | 0) === 4 && S.cur.e0 === 23 && $('dm-et0').textContent === 'T1（S2）' && $('dm-e0-0').value === 'B8' && DM.en01Name(2, 23) === 'B8' && $('dm-e0-0').getAttribute('data-t') === '2',
+          'FORCE_DE_SEL 0x04 ⇒ L1-1 T 顯示 T1（S2）、0x3D4 仍＝23、名稱依 S2＝B8（' + $('dm-et0').textContent + '／' + $('dm-e0-0').value + '）');
+        ok(JSON.stringify(DM.en01ExportRegs(S.cur, S.en01Seg).filter(x => x.reg !== 0x394)) === regs0 && regs0.length > 100, '換 FORCE_DE_SEL 只改 0x394，其他寫入 byte 全同（T 不寫入）');
+        $('f-deSel').value = '14'; $('f-deSel').dispatchEvent(new w.Event('change'));
+        ok($('dm-et0').textContent === 'T1（S1）' && $('dm-e0-0').value === 'B4' && S.cur.e0 === 23, '改回 0x0E ⇒ T1（S1）、B4、byte 23'); }
+      { const s3 = DM.cloneState(S.cur); s3.rd = 1; s3.deSel = 0x04; ok(DM.en01TLabel(s3, 0) === 'T1（S2）' && DM.en01TLabel(s3, 1) === 'T2（S3）' && DM.en01TLabel(Object.assign(s3, { deSel: 0x0E }), 1) === 'T2（S2）' && DM.en01TLabel(Object.assign(s3, { deSel: 0x02 }), 0) === 'T1（S1）' && DM.en01Name(1, 23) === 'B4' && DM.en01TLabel(Object.assign(s3, { deSel: 0x01 }), 0) === 'T1' && DM.en01TLabel(Object.assign(s3, { deSel: 0x80, rd: 5 }), 5) === 'T6',
+        'en01TLabel：0x04＋HSD SW1＝T1（S2）、SW2＝T2（S3）；0x0E SW2＝T2（S2）；0x02 SW1＝T1（S1）、code 23＝B4（John 表 8\'h02 SW1＝S1）；0x01＝S0 欄（FORCE 分頁欄 I 沒有 S 表頭）只顯示 T1；0x80＋MUX6 SW6＝T6（S12 分頁沒有）'); }
       { const s2 = DM.cloneState(S.cur); s2.rd = 1; ok(DM.en01RowT(s2, 0) === 1 && DM.en01RowT(s2, 1) === 2 && DM.en01RowT(s2, 7) === 2 && DM.en01RowT(Object.assign(s2, { deSel: 0x10 }), 1) === 5 && DM.en01RowT(Object.assign(s2, { deSel: 0x01, rd: 5 }), 4) === 4 && DM.en01RowT(Object.assign(s2, { deSel: 0x0E, rd: 0 }), 1) === 1,
         'T 依 FORCE_DE_SEL（同 MNT deSelTs）：0x0E＋HSD ⇒ SW1＝T1、SW2＝T2（Abel FORCE 分頁範例）；0x10 ⇒ SW2＝T5；0x01＋MUX6 ⇒ SW5＝T4；Single 未用的 SW2＝起始 T1'); }
       fire($('dm-gate'), 'MUX6 (RD_MODE=5)');
@@ -282,7 +289,7 @@ const regOf = (b, maps) => { const r = {}; maps.forEach(([f, t, l]) => { for (le
       ok(lines.some(l => /^write -m 03D4 17 FF/.test(l)) && lines.some(l => /^write -m 041C 05 07/.test(l)) && !lines.some(l => /^write -m 11/.test(l)), '匯出 script：0x3D4←17、0x41C←05（mask 07）、沒有 P3');
       const sameOpts = Array.from($('dm-samev').options).map(o => o.value);
       fire($('dm-samev'), 'G3'); $('dm-same').click();
-      ok(sameOpts[0] === 'X' && S.cur.e0 === DM.en01Value(S.en01T[0] != null ? S.en01T[0] : DM.en01RowT(S.cur, 0), 'G3') && S.cur.e143 === DM.en01Value(DM.en01RowT(S.cur, 11), 'G3'), 'All Same Pixel（X 先、再 R→G→B）選 G3 ⇒ 12 列全部＝G3');
+      ok(sameOpts[0] === 'X' && S.cur.e0 === DM.en01Value(DM.en01RowT(S.cur, 0), 'G3') && S.cur.e143 === DM.en01Value(DM.en01RowT(S.cur, 11), 'G3'), 'All Same Pixel（X 先、再 R→G→B）選 G3 ⇒ 12 列全部＝G3');
     } else skip('F1567 實檔不在本機，頁面匯入段略過');
     fire($('dm-model'), 'E503');
     if (!$('dm-ask').classList.contains('hidden')) w.dmAskAnswer(true);   // 有未匯出的修改 ⇒ 換型號前先問（既有行為），答「是」

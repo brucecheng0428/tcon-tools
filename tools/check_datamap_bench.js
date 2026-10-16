@@ -35,13 +35,13 @@ const ok = (c, g, m) => { cnt[g] = (cnt[g] || 0) + 1; if (c) pass++; else { fail
     const t = $(id); if (!t) return null;
     return { head: Array.from(t.querySelectorAll('thead th')).map(x => x.textContent),
       rows: Array.from(t.querySelectorAll('tbody tr')).map(tr => ({ th: tr.querySelector('th').textContent, cls: tr.className,
-        tsel: (tr.querySelector('select.dm-en01t') || {}).value,
+        tsel: (tr.querySelector('.dm-en01t') || {}).textContent,   // v1.35.19：T 唯讀標籤
         cells: Array.from(tr.querySelectorAll('select.dm-cell')).map(s => ({ v: s.value, dis: s.disabled, cls: Array.from(s.classList).filter(c => !IGN.test(c)).sort().join(' '),
           opts: Array.from(s.options).map(o => o.value).join(','), t: s.getAttribute('data-t'), tt: ((s.parentNode.querySelector('.dm-tt') || {}).textContent) || '' })) })) };
   };
   const diff = (a, b) => { const A = JSON.stringify(a), Bs = JSON.stringify(b); if (A === Bs) return ''; for (let i = 0; i < Math.max(A.length, Bs.length); i++) if (A[i] !== Bs[i]) return '…' + A.slice(Math.max(0, i - 60), i + 40) + ' ≠ …' + Bs.slice(Math.max(0, i - 60), i + 40); return '?'; };
   const en = k => DM.MODELS[k].kind === 'en01';
-  const tabs = () => { const t = []; for (let r = 0; r < 24; r++) t.push(S.en01T[r] != null ? S.en01T[r] : DM.en01RowT(S.cur, r)); return t; };
+  const tabs = () => { const t = []; for (let r = 0; r < 24; r++) t.push(DM.en01RowT(S.cur, r)); return t; };   // v1.35.19：T 只由 FORCE_DE_SEL 推出
   const viewTxt = (k, s, r, c) => { const v = en(k) ? DM.en01CellView(s, r, c, tabs()[r]) : DM.cellView(k, s, r, c); return v.blank ? null : (v.std ? v.txt : '0x' + DM.hex(v.raw, 2)); };
   const allNames = (k, s) => { const o = []; const rows = en(k) ? DM.en01Rows(S.en01Seg) : [0, 1, 2, 3]; rows.forEach(r => { for (let c = 0; c < (en(k) ? 12 : 6); c++) o.push(viewTxt(k, s, r, c)); }); return o; };
   /* 和頁面 All Same Pixel 一樣：經 commit 的 firstEdit */
