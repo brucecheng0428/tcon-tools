@@ -2,6 +2,31 @@
 
 ---
 
+## Data Mapping (datamap) v1.35.20 — 2026-10-17 ｜ PATCH ｜ ⚠ 輸出變更 ｜ 三型號依 Gate 顯示列統一：新增共用列清單 DM.rowsFor；EN01 只顯示該 Gate 用到的 SW 列、列名對齊 MNT
+
+⚠ 輸出變更（只有 EN01）：② 表格／Benchmark 表只顯示 RD_MODE 用到的 SW 列（Single＝每條 line SW1、Dual／HSD＝SW1～2、Tri＝SW1～3、MUX4＝SW1～4、MUX6＝SW1～6），列名改成和 MNT 一樣（Line n／Line n-k／Line n·SWk，括號＝FORCE_SEL_*_r），取代原本 L1-1…L4-6 全列＋「未用」標示；EN01 Excel 匯出只填顯示中的列（隱藏列空白、列號仍照 WPF 位置），Excel 匯入／All Same Pixel 只改顯示中的列，隱藏列保留原值。寫進 TCON 的 byte、匯出 script、CKS 不變（隱藏列不改值）。MNT／NB 畫面與輸出 0 差異。
+
+判定依據：§2 案例 2 修正既有功能（EN01 列顯示與原廠 RD_MODE 時槽數不一致：用不到的 SW 列原本可編、會被 All Same 改到），輸出會變 → PATCH＋⚠ 輸出變更（R1）。沒有新增使用者能做的事、控制項位置不動（列名文案屬案例 3 微調）；隱藏列＝原本就不被晶片讀的時槽，非移除能力，依 R2 補充 3 取較低級別。版號接在 v1.35.19（20fc04c）之後。
+
+### 起因
+- Bruce 10/16 21:2x：「EN01 的 data mapping 表格，在 gate 那一列有 L1-1 到 L1-6、L2-1 到 L2-6 之類的，一直到 L4-6。這個有沒有辦法對應成現在 monitor 在用的表格…這個請跟 monitor 的做法都一致化」「不管是 Monitor、EN01 還是 E503，都應該要做到對應不同的 Gate 就要有對應的隱藏。像是 Single Gate、Dual Gate 或是 Tri Gate，都要有各自的搭配才對。」
+- Bruce 10/16 21:3x 對 Dispatch 統一方案：「依你建議」。派工 236845185584205824；依據＝3×3 對照回報 236839557071507456。
+
+### 依據
+- MNT／NB 現況已依 Gate 顯示（3×3 對照：MNT Single Line 1～4、Dual Line n-1/n-2、Tri 6 列；NB Single 複本列 PY:12521-12526、29753-29776；NB 不做 Tri）。
+- EN01：RD_MODE 決定一條 line 幾個時槽（RM81008.model RD_MODE 註解；Gate 只寫 RD_MODE，DataMappingModule.cs:423-442）；原廠 WPF V2 不遮格、不改值（:447-457）⇒ 隱藏列寫法＝保留原值。L3／L4 只在 code header 有 P3 時存在（:356-374）。line 循環數（2 或 4）與未用列填值查不到 ⇒ 畫面一行註明「未確認」。
+
+### 變更
+- datamap-core.js：新增 `rowsFor(型號, state, {seg, four})` 回傳每列｛r、label、show、hide（'copy'＝NB 複本列、'keep'＝EN01 未用 SW 保留原值）、copyOf｝與 `rowsShown`、`en01RowName`。MNT／NB 4 列列名與複本列＝原 datamap.html rowLabel／copyRow 邏輯原樣搬入；MNT Tri＝TRI_ROWS。
+- datamap.html：② 表格 rowLabel／copyRow、Benchmark 格名改由 DM.rowsFor 取；EN01 表格（主表＋Benchmark）、All Same 選項與套用、Benchmark 可編格與全 X、Excel 匯出入、匯入時的非標準值記錄都改用顯示中的列（en01Vis＝DM.rowsShown）；列尾改標段 P1／P2／P3，列提示寫 FORCE_SEL_*_r＋時槽；表格下方 caption 一行註明未確認；EN01 列名欄寬 132px。TCON Register 確認清單仍列 code 有載入的全部暫存器（不是畫面列）。
+- TFT 接線圖、自動反推：EN01 本來就不支援（不畫、不反推）；MNT／NB 這兩處不讀列名，不需改。
+
+### 驗證
+- S/D 快照 v1.35.19（20fc04c）vs v1.35.20，全部 11 型號（逐型號拍 v1.35.19 基準再比）：DAZ6111 400/0、DAZ6138 2560/0、DAZ6139 2560/0、DAZ7353 400/0、E501A 2560/0、E501B 2560/0、E503 2560/0、E512 3328/0、EM01 3328/0、EM02 3328/0 ⇒ MNT／NB 0 差異；EN01 768 pass／256 fail＝只有 ② 表格 128 組＋整頁 128 組，暫存器／script／CKS／第二組／TFT 全同。repo 基準只重拍 EN01 的 ② 表格欄位（128 組）；EN01 對 repo 基準 640/384，與 v1.35.19 對舊基準 640/384 相同（其餘為既有差異）。
+- check_datamap_en01 75/0（更新斷言：Single 4 列／F1567 2 列、列名 Line n（_r）、隱藏 SW2 不顯示但 byte 保留、Dual 4 列 Line n-1/n-2、Tri 6 列 Line n-1～n-3、MUX6 12 列 Line n·SWk、Dual All Same 不改隱藏列、Excel 只匯出顯示列、I2C 讀回 Dual 8 列）；check_datamap_boe --qm（全民 EM01 20260429171306.bin）109/0；check_datamap_tft_interact 1192/0；check_datamap_page 39/0。
+- check_datamap_nbpx：單次跑超過 30 分鐘（與快照同時跑），依派工「太慢用抽樣」停掉；本件未改 Pixel 範圍程式，NB／MNT Pixel 列已含在快照整頁比對（0 差異）。check_datamap_bench 依指示未跑。
+- 真的 Chrome（headless）本機截圖：EN01 Single／Dual／Tri／MUX4、E503 Single、EM01 Tri；EN01 列名欄不重疊、表格下方一行註明未確認。
+
 ## Data Mapping (datamap) v1.35.19 — 2026-10-16 ｜ PATCH ｜ ⚠ 輸出變更 ｜ EN01：表格欄標題改 Data1～Data12；每列 T 改唯讀、由 FORCE_DE_SEL 自動推出（相對 T＋同事E S 欄）
 
 ⚠ 輸出變更：EN01 Excel 匯出的表頭由 R0…B3 改成 Data1…Data12（儲存格內容、列號不變；WPF Import 只看欄位置，舊檔／新檔都能互相匯入）；EN01 畫面不再能手動選 T，舊版手動改過 T 的保存狀態還原後一律照 FORCE_DE_SEL 顯示。寫進 TCON 的 byte、匯出 script、CKS 全部不變。
