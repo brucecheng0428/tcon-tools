@@ -791,6 +791,7 @@
   function pxForDeSel(key, s, gate) {
     var bits = (fieldById(key, 'deSel') || { bits: 6 }).bits, g = pxGate(key, s, gate);
     var en = (s.deEn | 0) === 1, v = en ? (s.deSel | 0) : deAutoSel(s), c = deSelTs(v, en ? bits : 6)[0];
+    if (nbE50x(key)) { v = nbSel(key, s); c = deSelTs(v, 4)[0]; }   // v1.35.21：NB e50x 起始欄與 ② 名稱（rowDict）同一來源
     if (MODELS[key] && MODELS[key].kind === 'en01') { c = en01BaseT(s) + 1; v = en && (s.deSel & 0xFF) ? (s.deSel & 0xFF) : 0x0E; }   // v1.36.0：起始欄與表格名稱同一來源（en01BaseT）
     if (!c) return null;
     var r = pxCovIdx(c, g);
@@ -862,11 +863,18 @@
      （GN1＝第 2 欄 code 0～17、GN2＝第 3 欄 code 0～23），差別只在 Python UI 沒列出 code 18～29（R-3～R-6 等）。下拉、反推、Pixel 範圍三邊都走這一個函式。
      DAZ6111／DAZ7353 是另一套字典（D6111／D7353），不變。 */
   function nbBaseT() { return deSelTs(0xE, 4)[0]; }   // ＝2（0xE 最小設 1 的 bit＝bit1）
+  /* v1.35.21（派工 236884173342228480，網頁已知問題 NB 第 1 項）：NB e50x 實際用的 FORCE_DE_SEL（單一來源）。② 名稱（rowDict）、Pixel 範圍（pxForDeSel）、
+     頁面 nbDeSelNow 都用這一個值（tWin 照舊描述暫存器本身的值，給 FORCE_DE_SEL 輸入框旁說明用） ⇒ 起始欄＝它最低設 1 的 bit＋1（原理 2.1）。state.deRev（使用者手改 FORCE_DE_SEL、套用 Pixel、自動反推，或匯入／讀回 code 的值≠0xE：
+     datamap.html afterLoad）且 FORCE_DE_EN＝1、值≠0 ⇒ 依該值（Bruce 10/16「預設 14，但是可以改」「有 code／連線時依 code 值」）；其他 ⇒ 0xE（pyNormalize 下次改表格會寫回 0xE，
+     名稱要和寫出去的值一致；Python UI 開 Hand 寫 0xE：PY:29274-29280；FORCE_DE_EN 不開時 FORCE_DE_SEL 預設 2＝第 2 欄：PY:1793）。判斷＝v1.35.20 rowDict（名稱不變）；
+     舊版 Pixel 範圍／tWin 看暫存器值（FORCE_DE_EN＝0 還套 Woody 的 MNT panel 等效值）、頁面 nbDeSelNow 只看 deRev，三邊對不上。預設 14（Single -6～4／Dual -4～4）與可改（v1.35.15）不變。 */
+  function nbE50x(key) { return !!MODELS[key] && MODELS[key].kind === 'nb' && semOf(key) === 'e50x'; }
+  function nbSel(key, s) { var v = s ? (s.deSel | 0) & 0xF : 0; return (s && s.deRev && (s.deEn | 0) && v) ? v : 0xE; }
   function poolKind(key) { return MODELS[key].kind === 'mnt' || semOf(key) === 'e50x'; }
   function rowDict(key, row, gate, s) {
     var se = semOf(key);
     /* NB：Python UI 開 Hand 一律寫 FORCE_DE_SEL＝0xE（PY:29280，pyNormalize），GN1／GN2 對應的就是第 2 欄 ⇒ NB 起始欄固定用 0xE 的第 2 欄（不隨匯入 code 裡殘留的 de_sel 改變，舊存檔名稱不變） */
-    if (poolKind(key) && (gate === 'single' || gate === 'dual')) return mntDict(gate, row, !!(s && (s.mirror | 0)), (MODELS[key].kind === "mnt" || (s && s.deRev && (s.deEn | 0) && (s.deSel | 0))) ? mntBaseT(s, gate).t : nbBaseT());
+    if (poolKind(key) && (gate === 'single' || gate === 'dual')) return mntDict(gate, row, !!(s && (s.mirror | 0)), MODELS[key].kind === "mnt" ? mntBaseT(s, gate).t : deSelTs(nbSel(key, s), 4)[0]);   // v1.35.21：NB 起始欄＝nbSel（與 pxForDeSel、頁面 nbDeSelNow 同一來源）
     if (se === 'daz7353') return D7353;
     if (se === 'daz6111') return D6111;
     return (gate === 'dual' && (row & 1)) ? GN2 : GN1;
@@ -982,7 +990,7 @@
      其餘（含 Single 鏡射、連動欄位）完全走 editCell。 */
   function pickCell(key, s, row, col, name) {
     var t = normText(name), g = gateOf(key, s);
-    if (MODELS[key].kind !== 'mnt' && semOf(key) === 'e50x' && g === 'dual' && (row & 1) && (t in GN2) && !(t in GN1)) {
+    if (MODELS[key].kind !== 'mnt' && semOf(key) === 'e50x' && !poolKind(key) && g === 'dual' && (row & 1) && (t in GN2) && !(t in GN1)) {   // v1.35.21：e50x 走 pool（rowDict 已含 R5／R6…且跟起始欄），GN2 固定第 3 欄的捷徑不再用
       if (!cellView(key, s, row, col).editable) return null;
       var ns = cloneState(s); ns['c' + (row * 6 + col)] = GN2[t];
       return { state: pyNormalize(key, ns), text: t };
@@ -1608,7 +1616,7 @@
     emptyState: emptyState, cloneState: cloneState, decode: decode, encode: encode, encodeFields: encodeFields,
     changedIds: changedIds, diffRegs: diffRegs, regsOf: regsOf, maskedMerge: maskedMerge,
     gateOf: gateOf, gateText: gateText, cellView: cellView, codeName: codeName, editCell: editCell, applyNames: applyNames, allSame: allSame,
-    mntName: mntName, mntIdx: mntIdx, linName: linName, linIdx: linIdx, codeIdx: codeIdx, rbSwapName: rbSwapName, mntBaseT: mntBaseT, mntTOf: mntTOf, mntInRange: mntInRange, mntInTable: mntInTable, mntRel: mntRel, mntCands: mntCands, mntMirT: mntMirT, deSelTs: deSelTs, deSelText: deSelText, deSelForPx: deSelForPx, pxForDeSel: pxForDeSel, pxCovIdx: pxCovIdx, DE_COMMON: DE_COMMON, deSelBase: deSelBase, tWin: tWin, deAutoBase: deAutoBase, deAutoSel: deAutoSel, DE_AUTO_SEL: DE_AUTO_SEL, tUse: tUse,
+    nbSel: nbSel, nbE50x: nbE50x, mntName: mntName, mntIdx: mntIdx, linName: linName, linIdx: linIdx, codeIdx: codeIdx, rbSwapName: rbSwapName, mntBaseT: mntBaseT, mntTOf: mntTOf, mntInRange: mntInRange, mntInTable: mntInTable, mntRel: mntRel, mntCands: mntCands, mntMirT: mntMirT, deSelTs: deSelTs, deSelText: deSelText, deSelForPx: deSelForPx, pxForDeSel: pxForDeSel, pxCovIdx: pxCovIdx, DE_COMMON: DE_COMMON, deSelBase: deSelBase, tWin: tWin, deAutoBase: deAutoBase, deAutoSel: deAutoSel, DE_AUTO_SEL: DE_AUTO_SEL, tUse: tUse,
     setGate: setGate, setHand: setHand, pyNormalize: pyNormalize, pyNames: pyNames, cks: cks, preLabels: preLabels,
     inputDict: inputDict, colorOfName: colorOfName, codeAddrs: codeAddrs, byteOf: byteOf, regNote: regNote, fieldsAt: fieldsAt,
     applyPreset: applyPreset, matchPreset: matchPreset, PRESET_SECOND: PRESET_SECOND, presetHasSecond: presetHasSecond,

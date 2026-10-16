@@ -45,7 +45,7 @@ ok(PER[29].px === 8 && PER[31].px === 4 && PER[30].px === 4 && PER[0].px === 2 &
 ok([0, 1, 2, 3, 4, 5].every(c => [0, 1].every(g => LOD.at(LOD.TYPES[31], 0, g, c + 6) === LOD.at(LOD.TYPES[31], 0, g, c) + 12)) && [0, 1, 2, 3, 4, 5].some(c => LOD.at(LOD.TYPES[29], 0, 0, c + 6) !== LOD.at(LOD.TYPES[29], 0, 0, c) + 12), "31：D7~D12＝D1~D6＋4 pixel（6 條就重複）；29：D7~D12 不是 D1~D6＋4 pixel（例：D8 上 R5≠B-1＋4px）");
 
 console.log('── v1.9.0 原廠 E512_V512 data mapping 圖解 xlsx 範例（T 表解碼）');
-ok(LOD.tName(1, 0) === LOD.lin('R1') && LOD.tName(1, 6) === LOD.lin('R-2') && LOD.tName(2, 6) === LOD.lin('R1') && LOD.tName(2, 17) === LOD.lin('B-1') && LOD.tName(4, 18) === LOD.lin('R1') && LOD.tName(1, 12) === null, 'T 表：T1 0→R1、6→R-2；T2 6→R1、17→B-1；T4 18→R1；T1 沒有 12 以上');
+ok(LOD.tName(1, 0) === LOD.lin('R1') && LOD.tName(1, 6) === LOD.lin('R-2') && LOD.tName(2, 6) === LOD.lin('R1') && LOD.tName(2, 17) === LOD.lin('B-1') && LOD.tName(4, 18) === LOD.lin('R1') && LOD.tName(1, 12) === LOD.lin('R-4') && LOD.tName(1, 24) === LOD.lin('R-8') && LOD.tName(1, 30) === null, 'T 表：T1 0→R1、6→R-2；T2 6→R1、17→B-1；T4 18→R1；T1 12→R-4、24→R-8（v1.35.21：Excel 空白＝負 pixel，code 0～29 每欄都合法，決策 A5）；30 以上無');
 LOD.XLSX_CASES.forEach(c => { const r = LOD.xlsxCheck(c);
   if (c.id === 'zz5' || c.id === 'zz6') { const sw = LOD.xlsxCheck(Object.assign({}, c, { lod: c.id === 'zz5' ? 6 : 5 }));
     ok(!r.ok && r.bad.every(b => / D[2-6] /.test(b)) && sw.bad.every(b => / D1 /.test(b)) && sw.bad.length === 8, 'xlsx ' + c.id + '：r0 欄＝' + (c.id === 'zz5' ? 'LRRL' : 'RLLR') + '，g0~b1 五欄是相反的序列（xlsx 本身不一致）'); }

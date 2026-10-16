@@ -2,6 +2,37 @@
 
 ---
 
+## Data Mapping (datamap) v1.35.21 — 2026-10-17 ｜ PATCH ｜ 網頁已知問題修正：MNT R-3～R-6 Auto 接線換算、NB 起始欄單一來源、Check T-CON DAZ613x
+
+判定依據：§2 案例 2 修正既有功能（同一份暫存器在不同換算得到不同結果），不新增使用者能做的事、控制項不動 → PATCH（R1）。版號接在 v1.35.20（4a2d064）之後。
+
+### 起因
+- Bruce 10/17 00:0x「你決定」（Dispatch 問專家逐行讀網頁發現的第 1、3 項要不要排在依 Gate 隱藏列之後一起修；Dispatch 決定：修；派工 236884173342228480）。問題原文（#adc54bc7 回報 236877232138207232）：1. MNT 表格選得到 R-3～R-6，但 Auto 接線換算不收這些 code。3. NB 名稱用的起始欄和 Pixel 範圍的來源不一致；Check T-CON 認不出 DAZ6139、DAZ7353。
+
+### 依據（親自讀原始檔）
+- R-3～R-6 合法：Woody `EM01A1_rt7_register_force_mapping.xlsx`（reply_110503_0924）1D1G!C26:C55 Pool 列出 code 0～29，欄 H～S 只畫到 code＜6×欄、其餘空白（Bruce 10/13 決策 A5：空白＝負 pixel／AA 區外 dummy）；EM01 `RApp_TX.cpp:9506-9511` StringGrid 只在 >29 時夾成 29；`EM02A1_RegisterBank.model:18264` reg_force_sel_r0_0 5 bit。Python UI V5.0.4 沒有 MNT。⇒ 合法，Auto 接線換算要支援（不是移除下拉）。
+- NB 起始欄：Python UI 開 Hand 寫 FORCE_DE_SEL 0xE（PY:29274-29280），FORCE_DE_EN 不開時預設 2（PY:1793）；Bruce 10/16「預設 14，但是可以改」「有 code／連線時依 code 值」（v1.35.15）。
+- DAZ6138／DAZ6139：同一顆 IC E418A4（assistant_kb `IC外部型號總表.md:47-48`）；Python UI `i2c_check_e503_ver`（PY:31698-31712）7D:007D 不在 0～4 只印「DAZZO Old TCON #DAZ613x」，`tcon_id_dict`（PY:2600-2604）只有 0x7E＝DAZ6111；DAZ7353（E404A3）在 PY、WPF（ICInfo.cs 只有 DAZ6111）、Jacky 2022 版都沒有任何 ID 判斷。
+
+### 變更
+- `common/datamap-lod.js:238` `tName`：拿掉 `⌊code/6⌋ ≤ 欄` 限制，code 範圍＝0～29（與 ② 表格 `DM.mntInRange`／`codeIdx` 同一政策）；g≤欄 時算式不變。`datamap-auto.js` wiringFromState（Auto 接線換算，Hand Tri TFT 接線、Line OD 自動跟隨）因此接受 R-3～R-6。
+- `common/datamap-core.js:871-872` 新增 `nbE50x`、`nbSel`（NB e50x 實際用的 FORCE_DE_SEL：deRev＋FORCE_DE_EN＝1＋值≠0 ⇒ 該值，其他 ⇒ 0xE；＝v1.35.20 rowDict 的判斷）；`rowDict`（:877）、`pxForDeSel`（:794）、頁面 `nbDeSelNow`（datamap.html:1428）都改用它。舊版 Pixel 範圍看 `deRev ? deSel : 0xE`（不看 FORCE_DE_EN、值 0 時範圍消失），名稱看 `deRev && deEn && deSel`。
+- `datamap-core.js:993` pickCell：e50x 已走 pool（rowDict 已含 R5／R6 且跟起始欄），GN2 固定第 3 欄的捷徑不再用（起始欄被改時會寫錯位置）。
+- `datamap.html:3681` Check T-CON 落到 DAZ613x 分支時：目前已選 DAZ6139 就保留 DAZ6139，否則 DAZ6138（同一顆 IC、Data Mapping 位址相同）。DAZ7353 沒有原廠判斷依據，不加（不猜）。
+- `tools/check_datamap_lod.js:48` 預期值依決策 A5 更正（T1 code 12→R-4、24→R-8、30 以上無）；新增 `tools/check_datamap_codefix.js` 矩陣測試。
+
+### 沒改（列出供審查）
+- Tri 表格下拉 `triCodeOk`（core:1484）仍只列 ⌊code/6⌋≤欄，與 Single／Dual 0～29 不同：改了會改 Tri 下拉與 Tri Pixel 範圍預期值（決策 C 要 Bruce 同意），本版不動，交 Dispatch。
+- `tWin`（FORCE_DE_SEL 輸入框旁說明）照舊描述暫存器本身的值；FORCE_DE_EN＝0 時仍套 Woody 的 MNT panel 等效值（NB 網頁已知問題第 3 項，未在本派工範圍）。
+- NB CKS（PY 規則，用名稱算）R-3～R-6 照 PY 當 X 計（NB 已知問題第 2 項後半）。
+
+### 驗證（Mac mini 實跑，worktree 與提交內容 cmp 相同）
+- 新增 `tools/check_datamap_codefix.js` 271990 pass / 0 fail：tName≡codeIdx 495 格；MNT wiringFromState 50760 組（EM01／EM02／E512 × Single／Dual／Tri × FORCE_DE_SEL 全值 × Mirror × CHRB × code 0～29）全 ok、位置＝codeIdx、名稱＝mntName；NB e50x 1280 組名稱起始欄＝Pixel 起始欄、Pixel 範圍＝名稱交集，下拉 round-trip 89280 次；對 v1.35.20：舊版一致的 1020 組結果相同、不一致的 260 組修正；預設 14（Single -6～4／Dual -4～4、-2～4→14、改 1 保留）。同一支測試跑 v1.35.20：1a／1b 抓到 R-3～R-6 被拒（反例成立）。
+- S/D 快照（暫存基準：v1.35.20 HEAD 4a2d064 以 SNAP_FILE 另拍，repo 基準未寫）：22976 pass／1632 fail；差異逐組分類＝MNT Hand 1248 組只有 wiringFromState 由 why:'code' 變 ok（暫存器、script、CKS、② 名稱、下拉、All Same 0 差異），EM02 頁面 384 組＝Line OD 檢查原因由「② 有非標準值」變「找不到合法的 de／line／pix」（expectedLod 仍 ok:false，Line OD 暫存器不變）。對 repo 基準（v1.35.9）14768／9840，比改前 16016／8592 多的 1248 組＝同一類。
+- boe --qm（全民 EM01 20260429171306.bin）109/0、fold 50/0、page 39/0、tft_interact 1192/0、lod 161/0、auto 92/0、desel 133/0、kickoff 15/0、pxrange 58/0、tri 115/0、nbfields 17/0；tri_tools 444/1（EN01 Pixel 公式項，v1.35.20 同樣 444/1，非本版）。
+- headless Chrome：E503 Hand、FORCE_DE_SEL 改 0 ⇒ v1.35.20 顯示「目前 0（?～?）」（名稱仍用第 2 欄），v1.35.21「預設 14（-6～4）」與名稱一致；改 1 ⇒ -8～2、名稱第 1 欄。
+- Check T-CON 需實機 I2C，未實測（只讀碼）。
+
 ## Data Mapping (datamap) v1.35.20 — 2026-10-17 ｜ PATCH ｜ ⚠ 輸出變更 ｜ 三型號依 Gate 顯示列統一：新增共用列清單 DM.rowsFor；EN01 只顯示該 Gate 用到的 SW 列、列名對齊 MNT
 
 ⚠ 輸出變更（只有 EN01）：② 表格／Benchmark 表只顯示 RD_MODE 用到的 SW 列（Single＝每條 line SW1、Dual／HSD＝SW1～2、Tri＝SW1～3、MUX4＝SW1～4、MUX6＝SW1～6），列名改成和 MNT 一樣（Line n／Line n-k／Line n·SWk，括號＝FORCE_SEL_*_r），取代原本 L1-1…L4-6 全列＋「未用」標示；EN01 Excel 匯出只填顯示中的列（隱藏列空白、列號仍照 WPF 位置），Excel 匯入／All Same Pixel 只改顯示中的列，隱藏列保留原值。寫進 TCON 的 byte、匯出 script、CKS 不變（隱藏列不改值）。MNT／NB 畫面與輸出 0 差異。
