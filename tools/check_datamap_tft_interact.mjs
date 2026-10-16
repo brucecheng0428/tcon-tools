@@ -34,6 +34,8 @@ async function session(width, height) {
   await cdp('Page.addScriptToEvaluateOnNewDocument', { source: "window.WebSocket=function(){throw new Error('no ws in test')};" });
   const load = async () => { await cdp('Page.navigate', { url: 'file://' + path.join(ROOT, 'datamap.html') }); await sleep(1500); errs.length = 0;
     await ev(`(function(){var e=document.getElementById('dm-model');e.value=${JSON.stringify(S_MODEL)};e.dispatchEvent(new Event('change'));return 1})()`); await sleep(300);
+    /* v1.35.17：TCON Register／④ 預設收折後頁面變短，捲到底時縮下邊會被瀏覽器夾住捲動位置（不是拖曳邏輯）⇒ 拖曳驗證沿用原本「全部展開」的版面 */
+    await ev('window.dmFold.all(false)'); await sleep(200);
     if (S_HAND) { await ev(`(function(){var h=document.getElementById('dm-hand');if(!h.checked){h.checked=true;h.dispatchEvent(new Event('change'))}return 1})()`); await sleep(300); }
     await ev(`(function(){window.__sc=[];var o=Element.prototype.scrollIntoView;Element.prototype.scrollIntoView=function(a){window.__sc.push(this.id||this.className);return o.call(this,a)};return 1})()`); };
   const mouse = (type, x, y, extra = {}) => cdp('Input.dispatchMouseEvent', Object.assign({ type, x, y, button: 'left', buttons: type === 'mouseReleased' ? 0 : 1, clickCount: 1 }, extra));

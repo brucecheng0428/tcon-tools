@@ -2,6 +2,28 @@
 
 ---
 
+## Data Mapping (datamap) v1.35.17 — 2026-10-16 ｜ PATCH ｜ 重新整理保留整頁狀態＋「清除」鈕回預設（EM01、TFT 並排開、Benchmark 關、32 組排列／TCON Register／匯出 script 收折）（接在 v1.35.16 之後）
+
+### 起因
+- Bruce 10/16 20:4x：「Data Mapping 網頁，我需要做到只要重新整理網頁，預設的都是 TFT 並排要開啟，然後 Benchmark 預設是關閉的。然後 32 組排列，預設也是收折的然後 T-CON Register 跟匯出 script，預設也是收折。」「然後 TCON 預設選擇的是 EM01」
+- Bruce 10/16 20:5x 更正：「請在 TFT 並排那邊多一個『清除』的按鈕。按了清除以後，就會照剛才上面我所說的這些動作執行。如果沒有按清除的話，重新整理網頁時，我希望它可以做到記錄原本網頁的內容：網頁有匯入資料或什麼的都把它保留，包含卡片的收折設定等也都要保留。只有按清除，它才會回到我剛才說的上述那幾種狀態。」
+
+### 改動（只改 UI 狀態，計算不變）
+- 保存：localStorage `dm.page.v1`＝型號、S.cur／S.img／基準／已存、來源、初始快照、EN01 T、Excel 離線資料、接線鎖定（S.glass＋鎖定當下 Driver／面板）、③ Driver／面板／Line OD／V 方向 Line 數／畫面樣式、Pixel 範圍輸入、Slave、即時寫入、各 `<details>` 開合、TFT 預覽小窗。改動後 0.3 秒、離開頁面（pagehide／切到背景）都會存。
+  卡片收摺（dm.fold.v1）、Benchmark（tcon.datamap.bench.v1）、TFT 並排（dm.tftside.v1）、小窗位置／尺寸沿用原本各自的 key。
+- 原始 code（S.raw，只在換型號重新解析時用）存 `dm.page.raw.v1`（base64）；存不下改存 IndexedDB（dm-page／raw）；再不行只存解析後的值並提示。
+- 還原＝把存下的值原樣放回再 render（不重算、不重新解析）；I2C 連線不還原（要再按連線）。記錄區不保留，還原時寫一行「已還原重新整理前的頁面狀態（hh:mm:ss 存）」。
+- 第一次開（沒有 dm.page.v1）與按清除後＝預設：T-CON＝EM01（等同從選單選 EM01，FORCE_DE_SEL 預設 14）、TFT 並排開、Benchmark 關、③ 排列組合統計（32 組）收折、TCON Register 收折、④ 寫入 TCON 或匯出 script 收折，其他卡展開。
+  窄螢幕（<1200px）沿用原規則不並排、也不顯示「TFT 並排」鈕；偏好仍記為開，回到寬螢幕即並排。
+- 「清除」鈕放在頁首「TFT 並排／TFT 預覽」旁（窄螢幕也看得到）：確認框 → 連線中先斷線 → 刪掉 dm.page.v1／原始 code／收摺記憶、TFT 並排設回開、Benchmark 關 → 重新載入（和第一次開走同一條路，不留殘值）→ 記錄與提示「已清除頁面狀態，回到預設（EM01）」。
+  不清：Benchmark 已填的表格（它有自己的清空鈕）、接線圖／小窗的位置與尺寸。
+- 離開頁面確認：離線編輯已保存 ⇒ 重新整理不再跳「確定離開？」；I2C 連線中還有沒寫進 TCON 的改動照舊提醒。
+- 排列組合統計 `<details>` 拿掉預設 open；S.combosLockPrev 初值 false（第一次 render 不再把它展開；鎖定／解鎖時的自動收合規則照舊）。
+
+### 驗證
+- 新增 tools/check_datamap_page.js（jsdom）：第一次開 6 項預設；EM01 匯入全民 code＋改表格＋V Line 8＋BGR＋收折、E503 Hand＋改表格＋CH1 右＋SHL 反＋鎖定＋Benchmark 開＋Slave／即時寫入、EN01 改 T 三組 → 重新載入：S 的值、原始 code、表格、TFT 圖、TCON Register、排列組合、匯出 script、收折、開合、表單全同（再載入一次仍同）；清除：取消不動、確認後刪保存並重新載入＝第一次開；11 個型號：還原進來＝切過去，預設 EM01 切過去＝舊版（預設 E503）切過去（看得到的欄位 disabled／readOnly／值）。
+- tools/check_datamap_fold.js：預設改成 TCON Register／④ 收折（Bruce 10/16 決定）；「重整後依 dm.fold.v1 還原」改在有 dm.page.v1 的情況下驗。
+
 ## Data Mapping (datamap) v1.35.16 — 2026-10-16 ｜ PATCH ｜ EN01：候選名稱、每列 T、Pixel 範圍改用與 MNT 同一套 pool 演算法（每 T 12 subpixel）
 
 判定依據：修正 EN01 與原廠資料不一致的換算（只動 EN01 分支），MNT／NB／Dual／Tri 結果不變 → PATCH。版號接在 #0842d9e8（v1.35.15）之後。
