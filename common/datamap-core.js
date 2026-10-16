@@ -1553,6 +1553,50 @@
     return [lo, hi];
   }
 
+  /* v1.35.20（Bruce 10/16 21:2x「不管是 Monitor、EN01 還是 E503，都應該要做到對應不同的 Gate 就要有對應的隱藏。像是 Single Gate、Dual Gate 或是 Tri Gate，
+     都要有各自的搭配才對」「這個請跟 monitor 的做法都一致化」；Dispatch 統一方案 Bruce 21:3x「依你建議」；派工 236845185584205824，依據 3×3 對照 236839557071507456）：
+     三種型號共用的「列清單」——② 表格、Benchmark 表、EN01 Excel 匯出入、All Same Pixel 的列都從這裡取，不再各自判斷。
+     回傳 [{ r, label, show, hide, copyOf }]：r＝列號（MNT／NB 0~3、MNT Tri 0~5＝TRI_ROWS、EN01 0~23＝FORCE_SEL_*_r）；
+       show＝false ⇒ 畫面不顯示、不能改；hide＝不顯示或不能改的列怎麼寫：
+         'copy'＝NB Single 複本列（Line x′＝上一列，自動複製；PY:12521-12526、29753-29776；畫面照舊顯示暗色、不能改）；
+         'keep'＝EN01 這個 RD_MODE 用不到的 SW 時槽：不顯示、保留原值不改（原廠 WPF V2 不遮格、不改值 DataMappingModule.cs:447-457；
+                晶片依 RD_MODE 不讀＝推論；要不要填某值、line 循環 2 或 4 條＝未確認）。
+         MNT Tri 第二組 _1／_3 寫 0 是 triApply 的寫法（不是列），MNT 第二組短循環複製是 syncX（既有），這裡不重複。
+     命名對齊 MNT：Single＝Line n、Dual／HSD＝Line n-1、n-2、Tri＝Line n-1～n-3；EN01 MUX4／MUX6（MNT 沒有）＝Line n·SW1～SWk；括號＝暫存器列尾碼。
+     EN01 line 數照 code header（en01Rows：P3 有載入才有 Line 3、4；I2C 讀回／沒匯入＝全部）。
+     MNT／NB 4 列的列名與複本列＝v1.15.0 datamap.html rowLabel／renderGrid copyRow 原樣搬來（畫面 0 差異）。opt.four＝只要 4 列表（不換成 Tri 6 列）。 */
+  var ROWS4 = ['Line 1-1', 'Line 1-2', 'Line 2-1', 'Line 2-2'];
+  function en01RowName(rd, row) {
+    var n = Math.floor(row / 6) + 1, k = row % 6 + 1, np = en01Phases(rd);
+    if (np === 1) return 'Line ' + n;
+    if (np === 2 || np === 3) return 'Line ' + n + '-' + k;
+    return 'Line ' + n + '·SW' + k;   // MUX4／MUX6；RD_MODE 4／6／7（model 寫 not support）全部顯示
+  }
+  function rowsFor(key, s, opt) {
+    var M = MODELS[key]; if (!M) return [];
+    s = s || {}; opt = opt || {};
+    if (M.kind === 'en01') {
+      var np = en01Phases(s.rd);
+      return en01Rows(opt.seg).map(function (r) {
+        var on = np === null || (r % 6) < np;
+        return { r: r, label: en01RowName(s.rd, r) + '（_' + r + '）', show: on, hide: on ? null : 'keep', copyOf: null, seg: en01Seg(r) };
+      });
+    }
+    if (!opt.four && triOn(key, s)) return TRI_ROWS.map(function (R, i) { return { r: i, label: R.label, show: true, hide: null, copyOf: null }; });
+    var g = gateOf(key, s), mnt = M.kind === 'mnt', out = [];
+    for (var r = 0; r < 4; r++) {
+      var suf = '（_' + r + '）', lb;
+      if (g === 'dual') lb = 'Line ' + ((r >> 1) + 1) + '-' + ((r & 1) + 1) + suf;
+      else if (g === 'single') lb = mnt ? 'Line ' + (r + 1) + suf : 'Line ' + ((r >> 1) + 1) + ((r & 1) ? '′' : '') + suf;
+      else lb = ROWS4[r];
+      var cp = M.sem === 'e50x' && g === 'single' && (r & 1) === 1 && !mnt;
+      out.push({ r: r, label: lb, show: true, hide: cp ? 'copy' : null, copyOf: cp ? r - 1 : null });
+    }
+    return out;
+  }
+  /* 顯示中的列號（rowsFor 的 show） */
+  function rowsShown(key, s, opt) { return rowsFor(key, s, opt).filter(function (x) { return x.show; }).map(function (x) { return x.r; }); }
+
   var API = {
     triNames: triNames, triApplyNames: triApplyNames, triAllSameOptions: triAllSameOptions, triAllSame: triAllSame,
     triExcelRows: triExcelRows, triExcelToNames: triExcelToNames, triExcelName: triExcelName, triPxCov: triPxCov,
@@ -1579,7 +1623,7 @@
     en01Seg: en01Seg, en01Addr: en01Addr, en01RowLabel: en01RowLabel, en01Phases: en01Phases, en01Rows: en01Rows, en01Defs: en01Defs, en01Name: en01Name, en01Value: en01Value,
     en01Gate: en01Gate, en01CellView: en01CellView, en01Pick: en01Pick, en01SameOptions: en01SameOptions, en01AllSame: en01AllSame,
     en01Ids: en01Ids, en01ExportRegs: en01ExportRegs, en01ExcelName: en01ExcelName, en01ExcelRows: en01ExcelRows, en01ExcelApply: en01ExcelApply,
-    en01Maps: en01Maps, parseEn01: parseEn01
+    en01Maps: en01Maps, parseEn01: parseEn01, rowsFor: rowsFor, rowsShown: rowsShown, en01RowName: en01RowName
   };
   if (typeof module === 'object' && module.exports) module.exports = API;
   else root.TCONDataMap = API;

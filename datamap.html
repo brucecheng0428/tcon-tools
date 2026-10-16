@@ -296,6 +296,8 @@
   .dm-grid.en01 tr.en01l td, .dm-grid.en01 tr.en01l th { padding-top: 7px; }
   .dm-grid.en01 .dm-rs { display: block; margin-left: 0; }
   .dm-grid.en01 tr.en01un th .dm-rs { color: #f59e0b; }
+  .dm-grid.en01 caption.dm-en01cap { caption-side: bottom; text-align: left; font-size: 12px; color: var(--muted, #9aa4b2); padding: 6px 4px 2px; }   /* v1.35.20 */
+  .dm-grid.en01 col.dm-hc, .dm-grid.en01 tbody th { width: 132px; }   /* v1.35.20：EN01 列名 Line n·SWk（_r）較長 */
   .dm-pmhelp table td, .dm-pmhelp table th { padding: 4px 6px; vertical-align: top; font-size: 12.5px; }
   .dm-pvtag { display: inline-block; padding: 1px 9px; border-radius: 10px; border: 1px solid #0ea5e9; color: #7dd3fc; font-size: 12px; font-weight: 700; }
   .dm-pvtag.auto { border-color: #f59e0b; color: #fde68a; }
@@ -684,7 +686,7 @@
   <div class="dm-minibody dm-pvdrag" id="dm-mini-body"><div class="dm-mininote hidden" id="dm-mini-note"></div><div class="dm-tftmini" id="dm-mini-svg"></div></div>
 </div>
 
-<script src="common/version.js?v=20261016dm13519"></script>
+<script src="common/version.js?v=20261017dm13520"></script>
 <script src="common/i18n.js?v=20261012dm1220"></script>
 <script>
 (function () {
@@ -990,6 +992,8 @@
     'dm.clear': ['清除', 'Clear', '清除'],
     'dm.en01RowTip': ['Line {l} 第 {k} 個時槽，不是第 {k} 條 gate', 'Line {l} time slot {k}, not gate {k}', 'Line {l} 第 {k} 个时槽，不是第 {k} 条 gate'],
     'dm.en01Unused': ['未用', 'unused', '未用'],
+    'dm.en01RowTip2': ['FORCE_SEL_*_{n}：line {l} 的第 {k} 個時槽（SW{k}，{s}）', 'FORCE_SEL_*_{n}: line {l}, time slot {k} (SW{k}, {s})', 'FORCE_SEL_*_{n}：line {l} 的第 {k} 个时槽（SW{k}，{s}）'],   // v1.35.20
+    'dm.en01Unk': ['只顯示此 Gate（RD_MODE）用到的 SW 列，其他列保留原值不改；line 循環數（2 或 4）、未用列填值：未確認', 'Only SW rows used by this Gate (RD_MODE) are shown; other rows keep their values. Line cycle (2 or 4) and fill value of unused rows: unconfirmed', '只显示此 Gate（RD_MODE）用到的 SW 列，其他列保留原值不改；line 循环数（2 或 4）、未用列填值：未确认'],   // v1.35.20
     'dm.en01T': ['T 階數', 'T level', 'T 阶数'],
     'dm.en01TTip': ['由 FORCE_DE_SEL 決定，不能單獨設定', 'Set by FORCE_DE_SEL; cannot be set on its own', '由 FORCE_DE_SEL 决定，不能单独设定'],   // v1.35.19（Bruce 10/16 21:2x）：T 唯讀
     'dm.en01Seg': ['code 的 header 沒有載入 {s} ⇒ 那些列不顯示、不匯出', 'The code header does not load {s} ⇒ those rows are hidden and not exported', 'code 的 header 没有加载 {s} ⇒ 那些列不显示、不导出'],
@@ -1116,7 +1120,7 @@
 <script src="common/subpix-colors.js?v=20261008dm11825"></script>
 <script src="common/xlsx.js?v=20261008dm11825"></script>
 <script src="common/syscrc.js?v=20261014dm1290"></script>
-<script src="common/datamap-core.js?v=20261016dm13519"></script>
+<script src="common/datamap-core.js?v=20261017dm13520"></script>
 <script src="common/datamap-lod.js?v=20261012dm1220"></script>
 <script src="common/datamap-auto.js?v=20261014dm1282"></script>
 <script src="common/i2c-mbus.js?v=20261008dm11825"></script>
@@ -1181,7 +1185,9 @@
   function isEn01() { return DM.MODELS[S.model].kind === 'en01'; }
   /* v1.20.0 EN01：每列 T（預設 T4＝WPF V2 TabNum 16）、目前顯示的列（P1 一定有；P2／P3 依 code header） */
   function en01Tabs() { var t = []; for (var r = 0; r < 24; r++) t.push(DM.en01RowT(S.cur, r)); return t; }   // v1.35.19：只由 FORCE_DE_SEL＋SW 推出（DM.en01RowT 單一來源；S.en01T 不再使用，舊保存值忽略）   // v1.36.0：預設＝FORCE_DE_SEL 最小 bit＋(SW−1)（DM.en01RowT），手動改過的列照手動
-  function en01Rows() { return DM.en01Rows(S.en01Seg); }
+  function en01Rows() { return DM.en01Rows(S.en01Seg); }   // code 有載入的全部列（TCON Register 確認清單用）
+  /* v1.35.20：EN01 畫面／Benchmark／Excel／All Same 用的列＝DM.rowsFor 顯示中的列（RD_MODE 用不到的 SW 不顯示、保留原值） */
+  function en01Vis(st) { return DM.rowsShown(S.model, st || S.cur, { seg: S.en01Seg }); }
   function clone(o) { return JSON.parse(JSON.stringify(o)); }
 
   /* ── 影像：Data Mapping 相關位址的 byte（目前／來源基準／上次匯出或寫入） ── */
@@ -1217,7 +1223,7 @@
   /* v1.20.0 EN01：值不在該列 T 階數候選內的格子（只記錄，畫面顯示「非標準」） */
   function afterLoadEn01() {
     var T = en01Tabs(), ns = [];
-    en01Rows().forEach(function (r) { for (var c = 0; c < 12; c++) { var v = DM.en01CellView(S.cur, r, c, T[r]); if (!v.std) ns.push(DM.en01RowLabel(r) + ' ' + DM.EN01_HD[c] + ' = ' + v.txt); } });
+    var LB = en01Labels(S.cur); en01Vis().forEach(function (r) { for (var c = 0; c < 12; c++) { var v = DM.en01CellView(S.cur, r, c, T[r]); if (!v.std) ns.push(LB[r] + ' ' + DM.EN01_HD[c] + ' = ' + v.txt); } });
     if (ns.length) log('e', tt('dm.en01Ns', { n: ns.length, l: ns.slice(0, 12).join('、') + (ns.length > 12 ? '…' : '') }));
     if (S.en01Seg && (!S.en01Seg.p2 || !S.en01Seg.p3)) log('n', tt('dm.en01Seg', { s: [!S.en01Seg.p2 ? 'P2' : '', !S.en01Seg.p3 ? 'P3' : ''].filter(Boolean).join('、') }));
   }
@@ -1263,36 +1269,37 @@
     });
   }
   /* v1.20.0 EN01 表格：列＝目前有的段（L1-1…L4-6），第 1 欄 T 階數，後 12 欄（WPF DataMappingView.xaml 的 V2 版面）；v1.35.19 欄標題 Data1～Data12、T 唯讀 */
-  function buildGridEn01(rows, G) {
+  /* v1.35.20：EN01 列名（DM.rowsFor 單一來源）；r → label */
+  function en01Labels(st) { var o = {}; DM.rowsFor(S.model, st || S.cur, { seg: S.en01Seg }).forEach(function (x) { o[x.r] = x.label; }); return o; }
+  function buildGridEn01(rows, G, LB) {
     G = G || GRID_MAIN;
     var P = G.p;
-    var h = '<colgroup><col class="dm-hc"><col style="width:66px">';
+    var h = '<caption class="dm-en01cap" id="' + P + 'en01cap">' + esc(tt('dm.en01Unk')) + '</caption><colgroup><col class="dm-hc"><col style="width:66px">';   // v1.35.20：一行註明未確認（Dispatch 方案第 4 點）
     for (var c = 0; c < 12; c++) h += '<col>';
     h += '</colgroup><thead><tr><th></th><th title="' + esc(tt('dm.en01TTip')) + '">' + esc(tt('dm.en01T')) + '</th>';
     DM.EN01_HD.forEach(function (n) { h += '<th>' + n + '</th>'; });
     h += '</tr></thead><tbody>';
     rows.forEach(function (r) {
       var sg = DM.en01Seg(r).toUpperCase();
-      h += '<tr id="' + P + 'etr' + r + '" class="' + (r % 6 === 0 && r ? 'en01l' : '') + '" title="' + esc(tt('dm.en01RowTip', { l: Math.floor(r / 6) + 1, k: r % 6 + 1 })) + '"><th><span>' + DM.en01RowLabel(r) + '</span><span class="dm-rs" id="' + P + 'ers' + r + '">SW' + (r % 6 + 1) + '·' + sg + '</span></th>';
-      h += '<td><span class="dm-en01t" id="' + P + 'et' + r + '" data-r="' + r + '" title="' + esc(tt('dm.en01TTip')) + '" aria-label="' + DM.en01RowLabel(r) + ' T"></span></td>';   // v1.35.19：唯讀，renderGridEn01 填 DM.en01TLabel
-      for (var c3 = 0; c3 < 12; c3++) h += '<td><select class="dm-cell" id="' + P + 'e' + r + '-' + c3 + '" data-r="' + r + '" data-c="' + c3 + '" aria-label="' + DM.en01RowLabel(r) + ' ' + DM.EN01_HD[c3] + '"></select></td>';
+      h += '<tr id="' + P + 'etr' + r + '" class="' + (r % 6 === 0 && r ? 'en01l' : '') + '"><th><span id="' + P + 'erl' + r + '">' + esc(LB[r]) + '</span><span class="dm-rs" id="' + P + 'ers' + r + '">' + sg + '</span></th>';   // v1.35.20：列名＝DM.rowsFor（同 MNT），列尾＝段
+      h += '<td><span class="dm-en01t" id="' + P + 'et' + r + '" data-r="' + r + '" title="' + esc(tt('dm.en01TTip')) + '" aria-label="' + esc(LB[r]) + ' T"></span></td>';   // v1.35.19：唯讀，renderGridEn01 填 DM.en01TLabel
+      for (var c3 = 0; c3 < 12; c3++) h += '<td><select class="dm-cell" id="' + P + 'e' + r + '-' + c3 + '" data-r="' + r + '" data-c="' + c3 + '" aria-label="' + esc(LB[r]) + ' ' + DM.EN01_HD[c3] + '"></select></td>';
       h += '</tr>';
     });
     var g = $(G.tbl);
-    g.innerHTML = h + '</tbody>'; g.className = 'dm-grid en01'; g.dataset.kind = 'en01:' + rows.join(',');
+    g.innerHTML = h + '</tbody>'; g.className = 'dm-grid en01'; g.dataset.kind = 'en01:' + rows.map(function (r) { return r + '=' + LB[r]; }).join(',');
     Array.prototype.forEach.call(g.querySelectorAll('select.dm-cell'), function (sel) { sel.addEventListener('change', function () { G.pickEn01(+sel.dataset.r, +sel.dataset.c, sel.value); }); });
   }
   function renderGridEn01(G) {
     G = G || GRID_MAIN;
     var P = G.p, busy = G.main ? S.busy : false;
-    var s = G.st(), rows = en01Rows(), T = en01Tabs(), g = DM.en01Gate(s);
-    if ($(G.tbl).dataset.kind !== 'en01:' + rows.join(',')) buildGridEn01(rows, G);
-    var np = DM.en01Phases(s.rd);
+    /* v1.35.20（Bruce 10/16 21:2x 各 Gate 要有各自的隱藏）：列＝DM.rowsFor 顯示中的列——Single 每條 line 只有 SW1、Dual／HSD SW1~2、Tri SW1~3、MUX4／MUX6 SW1~4／1~6；
+       用不到的 SW 不顯示、保留原值不改（取代 v1.20.1 的「未用」標示）。列名同 MNT：Line n／Line n-k／Line n·SWk（括號＝FORCE_SEL_*_r） */
+    var s = G.st(), RF = DM.rowsFor(S.model, s, { seg: S.en01Seg }), rows = [], LB = {}, T = en01Tabs(), g = DM.en01Gate(s);
+    RF.forEach(function (x) { if (x.show) { rows.push(x.r); LB[x.r] = x.label; } });
+    if ($(G.tbl).dataset.kind !== 'en01:' + rows.map(function (r) { return r + '=' + LB[r]; }).join(',')) buildGridEn01(rows, G, LB);
     rows.forEach(function (r) {
-      /* v1.20.1：列尾標 SW 時槽；超過 RD_MODE 用到的時槽數 ⇒ 標「未用」（只提示，不停用；原廠 V2 也不遮格） */
-      var un = np !== null && (r % 6) >= np, rs = $(P + 'ers' + r);
-      rs.textContent = 'SW' + (r % 6 + 1) + '·' + DM.en01Seg(r).toUpperCase() + (un ? ' ' + tt('dm.en01Unused') : '');
-      $(P + 'etr' + r).classList.toggle('en01un', un);
+      $(P + 'etr' + r).title = tt('dm.en01RowTip2', { n: r, l: Math.floor(r / 6) + 1, k: r % 6 + 1, s: DM.en01Seg(r).toUpperCase() });
       var ts = $(P + 'et' + r), tl = DM.en01TLabel(S.cur, r); ts.textContent = tl; ts.dataset.t = String(T[r]);   // v1.35.19：唯讀；與 en01Tabs 同一份 S.cur（Benchmark 表也照主表 T）
       var defs = DM.en01Defs(T[r]);
       for (var c = 0; c < 12; c++) {
@@ -1317,7 +1324,7 @@
         if (G.mark) G.mark(sel, r, c, v);
       }
     });
-    var note = g === 'off' ? tt('dm.en01Off') : '';
+    var note = g === 'off' ? tt('dm.en01Off') : '';   // gridnote＝蓋在表上的遮罩，只用於 Hand 關；v1.35.20 未確認註記在表格下方 caption
     $(P + 'gridnote').textContent = note; $(P + 'gridnote').classList.toggle('hidden', !note);
   }
   function colorKeyOf(name) { return DM.colorOfName(name); }
@@ -1338,12 +1345,8 @@
   /* v1.15.0（Bruce 10/7「它明明就不是 HSD 的架構或者叫 Dual Gate 的架構，為什麼會有 Line 1-1 跟 Line 1-2…應該是 Line 1、Line 2、Line 3、Line 4 才對吧」）：
      列名依 Gate 架構：Dual＝Line k-1／k-2（上／下 gate）；Single：MNT＝Line 1~4（_0~_3 各一條 gate，E512 圖解）、
      NB（RM81010 Kick Off「Data hand mode」：line 0＝_0、line 1＝_2，Normal & Zigzag 只填第一行）＝Line 1、Line 1′（複本）、Line 2、Line 2′。括號＝暫存器尾碼。 */
-  function rowLabel(m, g, r) {
-    var suf = '（_' + r + '）';
-    if (g === 'dual') return 'Line ' + ((r >> 1) + 1) + '-' + ((r & 1) + 1) + suf;
-    if (g === 'single') return DM.MODELS[m].kind === 'mnt' ? 'Line ' + (r + 1) + suf : 'Line ' + ((r >> 1) + 1) + ((r & 1) ? '′' : '') + suf;
-    return ROWS[r];
-  }
+  /* v1.35.20：列名、複本列改由 DM.rowsFor（三型號共用的列清單）取，內容與 v1.15.0 相同 */
+  function rowLabel(m, s, r) { return DM.rowsFor(m, s, { four: true })[r].label; }
   function renderGrid(G) {
     G = G || GRID_MAIN;
     /* v1.32.0：MNT Hand＋Tri ⇒ 6 列表取代 4 列表（獨立分支；Single／Dual 只多一次 classList 判斷，不改內容） */
@@ -1353,11 +1356,12 @@
     var P = G.p, busy = G.main ? S.busy : false;
     if ($(G.tbl).dataset.kind !== 'py') buildGrid(G);
     var m = S.model, s = G.st(), g = DM.gateOf(m, s), e50 = DM.MODELS[m].sem === 'e50x';
-    for (var r0 = 0; r0 < 4; r0++) $(P + 'rh' + r0).textContent = rowLabel(m, g, r0);
+    var RF = DM.rowsFor(m, s, { four: true });
+    for (var r0 = 0; r0 < 4; r0++) $(P + 'rh' + r0).textContent = RF[r0].label;
     for (var r = 0; r < 4; r++) {
-      var copyRow = e50 && g === 'single' && (r & 1) === 1 && DM.MODELS[m].kind !== 'mnt';
+      var copyRow = RF[r].hide === 'copy';
       $(P + 'tr' + r).className = copyRow ? 'dm-copyrow' : '';
-      $(P + 'tr' + r).title = copyRow ? tt('dm.rowSameTip', { r: rowLabel(m, g, r - 1) }) : '';
+      $(P + 'tr' + r).title = copyRow ? tt('dm.rowSameTip', { r: RF[RF[r].copyOf].label }) : '';
       $(P + 'rs' + r).textContent = copyRow ? tt('dm.rowSame', { r: 'Line ' + ((r >> 1) + 1) }) : (e50 && g === 'dual' && (r & 1) ? tt('dm.rowGn2') : '');
       for (var c = 0; c < 6; c++) {
         var sel = $(P + 'c' + r + '-' + c), v = DM.cellView(m, s, r, c), opts = S.ro ? [] : DM.cellOptions(m, s, r, c);
@@ -1569,7 +1573,7 @@
     $('dm-legend').innerHTML = '<span><i class="chgk"></i> ' + esc(tt('dm.lgChg')) + '</span><span><i class="nsk"></i> ' + esc(tt('dm.lgNs')) + '</span>';
   }
   function renderSame() {
-    var sel = $('dm-samev'), keep = sel.value, names = S.ro ? [] : (DM.triOn(S.model, S.cur) ? DM.triAllSameOptions(S.model, S.cur) : isEn01() ? (DM.en01Gate(S.cur) === 'off' ? [] : DM.en01SameOptions(en01Rows(), en01Tabs())) : DM.allSameOptions(S.model, S.cur));
+    var sel = $('dm-samev'), keep = sel.value, names = S.ro ? [] : (DM.triOn(S.model, S.cur) ? DM.triAllSameOptions(S.model, S.cur) : isEn01() ? (DM.en01Gate(S.cur) === 'off' ? [] : DM.en01SameOptions(en01Vis(), en01Tabs())) : DM.allSameOptions(S.model, S.cur));
     sel.innerHTML = '';
     names.forEach(function (n) { sel.appendChild(optEl(n, n, colorKeyOf(n))); });
     if (names.indexOf(keep) >= 0) sel.value = keep; else if (names.length) sel.value = names[names.length - 1];
@@ -3098,9 +3102,9 @@
     if (name === '__ns') return;
     var res = DM.en01Pick(S.cur, r, c, en01Tabs()[r], name);
     if (!res) { render(); return; }
-    log('n', DM.en01RowLabel(r) + ' ' + DM.EN01_HD[c] + ' ← ' + res.text + '（' + DM.en01TLabel(S.cur, r) + '）');
+    log('n', en01Labels(S.cur)[r] + ' ' + DM.EN01_HD[c] + ' ← ' + res.text + '（' + DM.en01TLabel(S.cur, r) + '）');
     BM.hit = { r: r, c: c };   // v1.23.0
-    commit(res.state, DM.en01RowLabel(r) + ' ' + DM.EN01_HD[c]);
+    commit(res.state, en01Labels(S.cur)[r] + ' ' + DM.EN01_HD[c]);
   }
   /* 長循環時填第二組（MUX3 的 _1／_3 由 pickSecond 一律寫 0） */
   function onPickSecond(r, c, value) {
@@ -3141,12 +3145,12 @@
   function bmCells(st) {
     var out = [];
     if (bmTri()) { for (var tr = 0; tr < 6; tr++) for (var tc = 0; tc < 6; tc++) out.push([tr, tc]); return out; }
-    if (bmEn()) { if (DM.en01Gate(st) === 'off') return out; var T = en01Tabs(); en01Rows().forEach(function (r) { for (var c = 0; c < 12; c++) if (DM.en01CellView(st, r, c, T[r]).editable) out.push([r, c]); }); return out; }
+    if (bmEn()) { if (DM.en01Gate(st) === 'off') return out; var T = en01Tabs(); en01Vis(st).forEach(function (r) { for (var c = 0; c < 12; c++) if (DM.en01CellView(st, r, c, T[r]).editable) out.push([r, c]); }); return out; }
     for (var r = 0; r < 4; r++) for (var c2 = 0; c2 < 6; c2++) { var v = DM.cellView(S.model, st, r, c2); if (!v.blank && v.editable) out.push([r, c2]); }
     return out;
   }
   function bmNames() { var e = BM.all[bmKey()]; return (e && e.names) || {}; }
-  function bmAllX(st) { if (bmTri()) { var tx = DM.triAllSame(S.model, st, 'X'); return tx ? tx.state : DM.cloneState(st); } var r = bmEn() ? (DM.en01Gate(st) === 'off' ? null : DM.en01AllSame(st, 'X', en01Rows(), en01Tabs())) : DM.allSame(S.model, st, 'X'); return r ? r.state : DM.cloneState(st); }
+  function bmAllX(st) { if (bmTri()) { var tx = DM.triAllSame(S.model, st, 'X'); return tx ? tx.state : DM.cloneState(st); } var r = bmEn() ? (DM.en01Gate(st) === 'off' ? null : DM.en01AllSame(st, 'X', en01Vis(st), en01Tabs())) : DM.allSame(S.model, st, 'X'); return r ? r.state : DM.cloneState(st); }
   /* Benchmark 的 state：目前設定為底、全部 X、再填存下來的名稱 */
   function benchState() {
     var st = bmAllX(S.cur), N = bmNames(), bad = 0, n = 0;
@@ -3173,7 +3177,7 @@
     log('n', 'Benchmark ' + bmCellName(r, c) + ' ← ' + res.text);
     renderBench();
   }
-  function bmCellName(r, c) { if (bmTri()) return DM.TRI_ROWS[r].label + ' Data ' + (c + 1); return bmEn() ? DM.en01RowLabel(r) + ' ' + DM.EN01_HD[c] : rowLabel(S.model, DM.gateOf(S.model, S.cur), r).replace(/（.*$/, '') + ' Data ' + (c + 1); }
+  function bmCellName(r, c) { if (bmTri()) return DM.TRI_ROWS[r].label + ' Data ' + (c + 1); return bmEn() ? en01Labels(S.cur)[r] + ' ' + DM.EN01_HD[c] : rowLabel(S.model, S.cur, r).replace(/（.*$/, '') + ' Data ' + (c + 1); }
   /* 黃框：原表格上最後改的那格（反推時就是剛改成 R1 的那格），它目前不是 X 才標 */
   function bmHitCell() {
     var h = BM.hit; if (!h) return null;
@@ -3896,7 +3900,7 @@
     if (isEn01()) {   // v1.20.0：WPF Data Mapping Export（DataMappingModule.cs:510-556）
       if (DM.en01Gate(S.cur) === 'off') return;
       var fn1 = DM.en01ExcelName();
-      download(fn1, TCONXlsx.build([{ name: 'DataMapping Export', rows: DM.en01ExcelRows(S.cur, en01Rows(), en01Tabs()) }]), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      download(fn1, TCONXlsx.build([{ name: 'DataMapping Export', rows: DM.en01ExcelRows(S.cur, en01Vis(), en01Tabs()) }]), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       toast('ok', fn1); return;
     }
     var glass = $('dm-glass').value;
@@ -3916,7 +3920,7 @@
     if (S.linked) { askGoOffline(function (p) { Promise.resolve(p).then(function () { importExcel(u8, name); }); }); return; }
     try {
       if (isEn01()) {   // v1.20.0：WPF Import（DataMappingModule.cs:575-616）：Hand Mode 才能匯入、空白格略過、名稱要在該列 T 階數的候選內
-        var xr = await DM.readXlsxRows(u8, inflateRaw), ap = DM.en01ExcelApply(S.cur, xr, en01Rows(), en01Tabs());
+        var xr = await DM.readXlsxRows(u8, inflateRaw), ap = DM.en01ExcelApply(S.cur, xr, en01Vis(), en01Tabs());
         if (!ap) throw new Error('Hand Mode');
         toast('ok', tt('dm.en01XlsOk', { f: name, n: ap.cells, k: ap.skipped }));
         commit(ap.state, 'Import Excel', { noLive: true }); S.offline = S.offline || { kind: 'xls', name: name }; initSnap(tt('dm.rstWhatXls', { f: name })); render();
@@ -4113,7 +4117,7 @@
     $('dm-samev').addEventListener('change', function () { paintSel(this, colorKeyOf(this.value)); });
     $('dm-same').addEventListener('click', function () {
       if (DM.triOn(S.model, S.cur)) { var rt = DM.triAllSame(S.model, S.cur, $('dm-samev').value); if (rt) { log('n', 'All Same Pixel ← ' + rt.text); commit(rt.state, 'All Same Pixel ' + rt.text, { noSync: true }); } return; }   // v1.34.0：Tri 36 格（獨立分支）
-      var r = isEn01() ? DM.en01AllSame(S.cur, $('dm-samev').value, en01Rows(), en01Tabs()) : DM.allSame(S.model, S.cur, $('dm-samev').value);
+      var r = isEn01() ? DM.en01AllSame(S.cur, $('dm-samev').value, en01Vis(), en01Tabs()) : DM.allSame(S.model, S.cur, $('dm-samev').value);
       if (r) { log('n', 'All Same Pixel ← ' + r.text); commit(r.state, 'All Same Pixel ' + r.text); }
     });
     $('dm-expx').addEventListener('click', exportExcel);
