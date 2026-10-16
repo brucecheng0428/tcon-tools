@@ -667,7 +667,7 @@
   <div class="dm-minibody dm-pvdrag" id="dm-mini-body"><div class="dm-mininote hidden" id="dm-mini-note"></div><div class="dm-tftmini" id="dm-mini-svg"></div></div>
 </div>
 
-<script src="common/version.js?v=20261016dm13514"></script>
+<script src="common/version.js?v=20261016dm13515"></script>
 <script src="common/i18n.js?v=20261012dm1220"></script>
 <script>
 (function () {
@@ -798,6 +798,7 @@
     'dm.pxCommon': ['（常用）', ' (common)', '（常用）'],
     'dm.i2cOffImp': ['I2C 離線（已匯入 code）', 'I2C offline (code imported)', 'I2C 离线（已导入 code）'],
     'dm.pxNbFix': ['此型號預設 {v}（{a}～{b}）', 'Default {v} ({a}–{b}) for this model', '此型号默认 {v}（{a}～{b}）'],   // v1.35.14（Bruce 10/16）：「固定」→「預設」，範圍依目前 FORCE_DE_SEL／Gate 由 DM.pxForDeSel 算出（0xE Single＝-6～4），不寫死
+    'dm.pxNbCur': ['目前 {v}（{a}～{b}）；此型號預設 {d}（{da}～{db}）', 'Now {v} ({a}–{b}); default {d} ({da}–{db}) for this model', '目前 {v}（{a}～{b}）；此型号默认 {d}（{da}～{db}）'],   // v1.35.15
     'dm.pxOver': ['範圍太大，最多 {a}～{b}', 'Range too wide; max {a}–{b}', '范围太大，最多 {a}～{b}'],
     'dm.fDe': ['用 FORCE_DE_SEL 指定 T1 起始欄', 'FORCE_DE_SEL sets the T1 start column', '用 FORCE_DE_SEL 指定 T1 起始栏'],
     'dm.fRvs': ['各 port 反向讀取', 'per-port reverse read', '各 port 反向读取'],
@@ -1179,6 +1180,7 @@
     S.ro = v512 && v512.length ? v512 : null;
     resetX();
     if (isEn01()) { afterLoadEn01(); return; }
+    if (nbPxFix() && (S.cur.deEn | 0) && (S.cur.deSel | 0) && (S.cur.deSel | 0) !== 0x0E) S.cur.deRev = 1;   // v1.35.15（Bruce 10/16「有 code／連線時依 code 值」）：NB e50x 依 code 的 FORCE_DE_SEL 解讀
     if (isMnt()) log('n', 'r2..b3: ' + DM.secondSetRule(S.model, S.cur).mode + ' (' + DM.secondSetRule(S.model, S.cur).basis + ')');
     if (S.ro) toast('e', tt('dm.v512', { a: S.ro.slice(0, 4).map(function (a) { return '0x' + hex(a, 4) + '=' + hex(S.img[a] | 0, 2); }).join(', ') + (S.ro.length > 4 ? '…' : '') }));
     var ns = [];
@@ -1392,19 +1394,23 @@
      ⇒ 同一套 BOE de phase 規則（bit n＝第 n+1 欄，T1＝最小 bit 欄…最大 bit 欄＋4），Pixel 列與 MNT 共用 DM.deSelForPx／DM.pxForDeSel（8 bit ⇒ 起始欄 1～8）。
      Gate：Single／Dual／Tri／MUX4／MUX6 才顯示（Dual／Tri 下 gate 列＋1，MUX 同一條 gate ⇒ 不加）。EN01 實機未量測。 */
   function nbPxFix() { return DM.MODELS[S.model].kind === 'nb' && !!DM.fieldById(S.model, 'deSel'); }
+  /* v1.35.15（Bruce 10/16「force de sel 預設 14，但是可以改…不是鎖住，而是預設的是 14，但是可以改」；取代 v1.31.4 唯讀）：
+     NB e50x（E503／E501A／E501B／DAZ6138／DAZ6139；名稱沿用 nbPxFix）FORCE_DE_SEL 欄位、Pixel 輸入框、套用鈕與 MNT／EN01 同一套 UI 與雙向連動。
+     使用者手改 FORCE_DE_SEL 或套用 Pixel 範圍 ⇒ state.deRev＝1（v1.35.9 自動反推同一旗標）：② rowDict 依該值的 T1 起始欄（mntBaseT）、pyNormalize 保留不蓋回 0xE。
+     匯入 code／I2C 讀回 FORCE_DE_EN＝1 且 FORCE_DE_SEL≠0、≠0xE ⇒ 也設 deRev（依 code 值）。沒匯入 code ⇒ 0xE＝14。 */
+  function nbDeSelNow() { return S.cur.deRev ? (S.cur.deSel | 0) : 0xE; }
   function en01Px() { return isEn01() && !!DM.fieldById(S.model, 'deSel') && ['single', 'dual', 'tri', 'mux4', 'mux6'].indexOf(DM.gateOf(S.model, S.cur)) >= 0; }
   function renderPx() {
     var row = $('dm-pxrow'); if (!row) return;
     var g = DM.gateOf(S.model, S.cur), fix = nbPxFix(), show = (isMnt() && !!DM.fieldById(S.model, 'deSel') && (g === 'single' || g === 'dual' || g === 'tri')) || (fix && !!(S.cur.hand | 0)) || en01Px();
     row.classList.toggle('hidden', !show);
     row.setAttribute('data-fix', fix ? 1 : 0);
-    ['dm-pxlo', 'dm-pxhi'].forEach(function (id) { $(id).disabled = fix; $(id).readOnly = fix; });
-    $('dm-pxapply').classList.toggle('hidden', fix);
-    $('dm-pxapply').disabled = fix || !!S.ro || S.busy;
+    ['dm-pxlo', 'dm-pxhi'].forEach(function (id) { $(id).disabled = false; $(id).readOnly = false; });   // v1.35.15（Bruce 10/16「不是鎖住，而是預設的是 14，但是可以改」）：NB e50x 與 MNT／EN01 同一套，可輸入、可套用
+    $('dm-pxapply').classList.remove('hidden');
+    $('dm-pxapply').disabled = !!S.ro || S.busy;
     var res = $('dm-pxres');
-    if (fix && S.cur.deRev && (S.cur.deSel | 0) !== 0x0E) { res.textContent = '自動反推：FORCE_DE_SEL＝' + (S.cur.deSel | 0) + '（0x' + hex(S.cur.deSel | 0, 2) + '）'; res.classList.remove('over'); res.setAttribute('data-v', S.cur.deSel | 0); res.setAttribute('data-over', 0); res.setAttribute('data-fix', 1); }   // v1.35.9：反推改過才顯示實際值
-    else if (fix) { var nfs = DM.cloneState(S.cur); nfs.deEn = 1; nfs.deSel = (S.cur.deSel | 0) || 0xE; var nfr = DM.pxForDeSel(S.model, nfs);   // v1.35.14（Bruce 10/16「FORCE_DE_SEL 設定 14…Pixel 是從 -6 到正 4…相關的註明也要跟著一起更改」）：與輸入框同一個換算（pxSync）
-      res.textContent = nfr ? tt('dm.pxNbFix', { v: nfr.v, a: nfr.from, b: nfr.to }) : ''; res.classList.remove('over'); res.setAttribute('data-v', nfr ? nfr.v : 14); res.setAttribute('data-over', 0); res.setAttribute('data-fix', 1); }
+    if (fix) { var nfd = DM.cloneState(S.cur); nfd.deEn = 1; nfd.deSel = 0xE; var nfr0 = DM.pxForDeSel(S.model, nfd), nfv = nbDeSelNow(), nfs = DM.cloneState(S.cur); nfs.deEn = 1; nfs.deSel = nfv; var nfr = DM.pxForDeSel(S.model, nfs);   // v1.35.15：目前值＝nbDeSelNow（與 pxSync／② rowDict 同一判斷）；不是 14 時同時列出預設 14 的範圍   // v1.35.14（Bruce 10/16「FORCE_DE_SEL 設定 14…Pixel 是從 -6 到正 4…相關的註明也要跟著一起更改」）：與輸入框同一個換算（pxSync）
+      res.textContent = !nfr0 ? '' : (nfv === 0xE ? tt('dm.pxNbFix', { v: 14, a: nfr0.from, b: nfr0.to }) : tt('dm.pxNbCur', { v: nfv, a: nfr ? nfr.from : '?', b: nfr ? nfr.to : '?', d: 14, da: nfr0.from, db: nfr0.to })); res.classList.remove('over'); res.setAttribute('data-v', nfv); res.setAttribute('data-over', 0); res.setAttribute('data-fix', 1); }
     else if (res.getAttribute('data-fix') === '1') { res.textContent = ''; res.removeAttribute('data-fix'); res.removeAttribute('data-v'); res.removeAttribute('data-over'); }
     if (show) pxSync();
   }
@@ -1416,7 +1422,7 @@
   function pxSync() {
     var lo = $('dm-pxlo'), hi = $('dm-pxhi'), ae = document.activeElement;
     if (ae === lo || ae === hi) return;
-    if (nbPxFix()) { var nbs = DM.cloneState(S.cur); nbs.deEn = 1; nbs.deSel = S.cur.deRev ? (S.cur.deSel | 0) : 0xE; var nbr = DM.pxForDeSel(S.model, nbs); if (nbr) { lo.value = nbr.from; hi.value = nbr.to; } return; }   // v1.35.7：NB 與 MNT 同一個 pool／同一個換算（FORCE_DE_SEL 0xE ⇒ 第 2 欄），不再寫死 -2～4
+    if (nbPxFix()) { var nbs = DM.cloneState(S.cur); nbs.deEn = 1; nbs.deSel = nbDeSelNow(); var nbr = DM.pxForDeSel(S.model, nbs); if (nbr) { lo.value = nbr.from; hi.value = nbr.to; } return; }   // v1.35.7：NB 與 MNT 同一個 pool／同一個換算（FORCE_DE_SEL 0xE ⇒ 第 2 欄），不再寫死 -2～4
     var a = parseInt(lo.value, 10), b = parseInt(hi.value, 10);
     if ((isNaN(a) || isNaN(b)) && S.src.kind === 'none' && !S.raw) { a = -2; b = 4; lo.value = a; hi.value = b; }
     var cur = DM.pxForDeSel(S.model, S.cur); if (!cur) return;
@@ -1426,16 +1432,15 @@
     lo.value = cur.from; hi.value = cur.to;
   }
   function pxApply() {
-    if (nbPxFix()) return;
     var lo = parseInt($('dm-pxlo').value, 10), hi = parseInt($('dm-pxhi').value, 10);
     if (isNaN(lo) && isNaN(hi)) return;
     if (isNaN(lo)) lo = hi; if (isNaN(hi)) hi = lo;
-    if (nbPxFix()) return;   // v1.31.4：NB 固定 14 只顯示、不能改
     var r = DM.deSelForPx(S.model, S.cur, lo, hi), res = $('dm-pxres');
     res.textContent = (r.over ? tt('dm.pxOver', { a: r.from, b: r.to }) + ' ' : '') + '→ ' + r.v + ' (0x' + hex(r.v, 2) + ')' + (r.common ? tt('dm.pxCommon') : '');
     res.classList.toggle('over', r.over); res.setAttribute('data-v', r.v); res.setAttribute('data-over', r.over ? 1 : 0);
-    if ((S.cur.deEn | 0) === 1 && (S.cur.deSel | 0) === r.v) return;
+    if ((S.cur.deEn | 0) === 1 && (S.cur.deSel | 0) === r.v && (!nbPxFix() || S.cur.deRev || r.v === 0x0E)) return;
     var ns = DM.cloneState(S.cur); ns.deEn = 1; ns.deSel = r.v;
+    if (nbPxFix()) ns.deRev = 1;   // v1.35.15：NB e50x 使用者指定的值 ⇒ 改表格／Gate 時 pyNormalize 不再蓋回 0xE（同 v1.35.9 自動反推）
     log('n', 'Pixel ' + Math.min(lo, hi) + '～' + Math.max(lo, hi) + ' → FORCE_DE_SEL ← 0x' + hex(r.v, 2));
     commit(ns, 'deEn＋deSel');
   }
@@ -1977,7 +1982,7 @@
     var hasDe = !!DM.fieldById(S.model, 'deSel');
     if (hasDe) {
       ['f-deEn', 'f-deSel'].forEach(function (id) { $(id).disabled = !!S.ro; });
-      if (nbPxFix()) { $('f-deSel').disabled = true; $('f-deSel').readOnly = true; } else $('f-deSel').readOnly = false;   // v1.31.4：NB 固定 14 ⇒ 唯讀顯示
+      $('f-deSel').readOnly = false;   // v1.35.15：NB e50x 也可改（預設 14；v1.31.4 的唯讀撤回）
       $('f-deEn').checked = !!S.cur.deEn;
       $('f-deSel').max = (1 << DM.fieldById(S.model, 'deSel').bits) - 1; if (document.activeElement !== $('f-deSel')) $('f-deSel').value = S.cur.deSel | 0;
     } else { $('f-deSel').disabled = true; $('f-deSel').readOnly = true; }   // v1.35.9：沒有 FORCE_DE_SEL 的型號（DAZ6111／DAZ7353）隱藏欄位固定停用＋唯讀，不殘留前一個型號的狀態（v1.35.8 時前一個 NB 固定 14 留下的就是停用＋唯讀）
@@ -4098,7 +4103,8 @@
     $('f-chwb').addEventListener('change', function () { setF('chwb', this.checked ? 1 : 0); });
     $('f-deEn').addEventListener('change', function () { S.deDef = false; setF('deEn', this.checked ? 1 : 0); });
     $('f-deSel').addEventListener('input', function () { renderDeSelPreview(parseInt(this.value, 10) || 0); });
-    $('f-deSel').addEventListener('change', function () { var mx = +this.max || 63; setF('deSel', Math.max(0, Math.min(mx, parseInt(this.value, 10) || 0))); });
+    $('f-deSel').addEventListener('change', function () { var mx = +this.max || 63, v = Math.max(0, Math.min(mx, parseInt(this.value, 10) || 0));
+      if (nbPxFix()) { var ns = DM.cloneState(S.cur); ns.deSel = v; ns.deRev = 1; commit(ns, 'deSel'); } else setF('deSel', v); });   // v1.35.15：NB e50x 手改 ⇒ deRev（見 nbDeSelNow）
     $('f-rvs').addEventListener('change', function () { var v = (parseInt(this.value, 16) || 0) & rvsFull(); var ns = DM.cloneState(S.cur); rvsSet(ns, v); commit(ns, 'read_rvs'); });
     window.addEventListener('beforeunload', function (e) {
       try { if (S.ws) S.ws.close(); } catch (e2) {}
