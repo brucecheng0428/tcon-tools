@@ -2,6 +2,26 @@
 
 ---
 
+## Data Mapping (datamap) v1.35.18 — 2026-10-16 ｜ PATCH ｜ TFT 並排：① 卡移到左欄、長檔名換行；左欄表格放不下時有看得到的橫向捲軸＋Line 欄固定（接在 v1.35.17 之後）
+
+判定依據：只調整 TFT 並排（≥1200px）時的版面與捲動，控制項都還在原卡片內、順序不變，不改任何換算、接線、暫存器、匯出結果；不並排時排列與 v1.35.17 相同 → PATCH（VERSIONING §2 案例 3 微調）。版號接在 #039d9c53（v1.35.17）之後。
+
+### 起因
+- Bruce 10/16 20:5x：「TFT 並排，我希望是連第一張卡片都放在左側，TFT 接線圖直接在右邊的最上面。所以第一張卡片如果有匯入資料的時候，要注意檔名很長的話，要把它變成兩列或三列，因為它只剩目前長度的一半了嘛。當然，如果 TFT 不是並排，就會回到原本的排列。」
+- Bruce 10/16 21:0x：「另外，當我 TFT 併排的時候，Data Mapping 表格寬度也會只剩下一半。那這時候應該也要有橫向的捲軸，可以讓我移到被擋住的地方吧？」
+
+### 變更
+- datamap.html：#card-src（①）移進 `.dm-livel` 最上面。並排時 ① 在左欄頂端，右欄 #card-tft 與它頂端對齊（sticky 行為不變）；不並排時 `.dm-live／.dm-livel` 是一般區塊，順序仍是 ① → ②-1 → ②-2 → ③ → TFT。元素 id 不變。
+- CSS（只在 `html.dm-side`、≥1200px）：① 的欄位名欄縮成 110～150px；`#dm-src-text` 獨占一列、`overflow-wrap:anywhere`，長檔名換成 2～3 列；按鈕列、I2C 列照 flex-wrap 換行。
+- CSS＋JS（只在並排）：左欄 `.dm-gridwrap` 捲軸改成一直看得到（macOS 預設不捲不顯示）；`.dm-grid` 的 Line 名稱欄（tbody th、左上角）`position:sticky; left:0` 固定在左邊；表格放不下時 `hsxSync()` 在表格上方插一條同步捲軸 `.dm-hsx`（sticky 停在頁首下方，捲很長的 EN01 表也不用捲到底才拉得到），兩邊 scrollLeft 互相同步；不並排、沒溢出、表格藏起來時拿掉。ResizeObserver＋resize＋sideApply 觸發。
+- version.js datamap → v1.35.18；datamap.html／index.html 的 version.js `?v=` 更新。
+
+### 證據
+- headless Chrome 1400 寬本機：並排 ① 在左（677px）、TFT 卡頂端與 ① 同高；匯入 150 字元長檔名 ⇒ 3 列、卡片不溢出；關並排 ⇒ ① 全寬在上。EN01（13 欄、表寬 1040px／外框 641px）⇒ 上方同步捲軸出現，捲到最右 Line 欄留在原位；Benchmark 表同樣；EM01（6 欄放得下）不插捲軸；不並排不插。console 無錯。
+- 回歸見 commit 訊息。
+
+---
+
 ## Data Mapping (datamap) v1.35.17 — 2026-10-16 ｜ PATCH ｜ 重新整理保留整頁狀態＋「清除」鈕回預設（EM01、TFT 並排開、Benchmark 關、32 組排列／TCON Register／匯出 script 收折）（接在 v1.35.16 之後）
 
 判定依據：依 Bruce 指示調整既有頁面的預設狀態與重新整理行為（保存／還原既有的值、加清除鈕），不改任何換算、接線、匯出結果 → PATCH。版號接在 #6effb6aa（v1.35.16）之後。
