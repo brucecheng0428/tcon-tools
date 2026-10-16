@@ -2,6 +2,48 @@
 
 ---
 
+## Data Mapping (datamap) v1.35.14 — 2026-10-16 ｜ PATCH ｜ NB e50x Hand Single：表格選 R-3～R-6（code 18～29）時 TFT 接線圖整張空白
+
+判定依據：修正既有 bug（③ 解碼與 ② 表格用不同名稱表），不改版面、不改其他型號／Gate 的結果 → PATCH。
+
+### 起因
+- Bruce 10/16 14:3x（附照片，實機 Windows Chrome，線上 v1.35.13）：「T-CON 先預設 E503，然後 hand mode Enable 先打勾、Single Gate，接著 Force DE sel 也打勾，預設就是 14。Data Mapping 的表格如拍照的設定，你可以看一下右邊的 TFT 接線圖，整個都是空的。」表格：Line1 R-4 G-4 B-4 R-3 G-3 B-3、Line2 B-5 R-4 G-4 B-4 R-3 G-3。
+- 補充：「E503 並沒有固定是 -2 到 4，只是預設是 -2 到 4，它是要可以修改的啊。」
+
+### 定義對照
+- ② 表格名稱（cellView／cellOptions／editCell）：v1.35.7 起 NB e50x（E501A／E501B／E503／DAZ6138／DAZ6139）與 MNT 共用 pool（DM rowDict→mntDict，code 0～29，FORCE_DE_SEL 0xE ⇒ 起始欄第 2 欄 ⇒ 可選 R-6～B4）。
+- ③ TFT 接線圖：每條 Data 線收到的名稱應＝② 表格同一格的名稱。
+
+### 根因
+- datamap.html pvModel 的「e50x Single、非 MNT」分支（Kick Off E36:R51 交錯公式）自己用 DM.GN1 反查 code→名稱；GN1 只有 code 0～17（Python UI 字典），v1.35.7 擴充 pool 時這裡沒跟著改。
+- ⇒ 表格選 R-3～R-6（code 18～29）時 ③ 拿到「0x12」「0x1D」等非名稱，pvMk 判為不送 ⇒ 整張灰色。Dual（走 cellView）、MNT（走 mntName）、Tri（獨立分支）不受影響。
+- 與 Pixel 範圍輸入框（-6～4）、FORCE_DE_SEL 欄位唯讀無關（那兩項是不同程式段，見下方「未改」）。
+
+### 修改
+- common/datamap-core.js：新增並匯出 DM.codeName(key, s, row, gate, v)＝inv(rowDict(...), v)，與 ② 表格／下拉同一份字典（單一來源）。
+- datamap.html pvModel：NB e50x Single 解碼改用 DM.codeName（code 0～17 名稱與 GN1 逐一相同，舊結果不變；18～29 現在有名稱）。
+- Pixel 列提示（Bruce 10/16 15:0x「FORCE_DE_SEL 如果設定 14 的話，是不是實際上 Pixel 是從 -6 到正 4？如果是的話，在網頁上面相關的註明也要跟著一起更改」＋「E503 並沒有固定是 -2 到 4，只是預設是 -2 到 4」）：dm.pxNbFix「此型號固定 14（-2～4）」→「此型號預設 {v}（{a}～{b}）」，值由 DM.pxForDeSel 依目前 FORCE_DE_SEL／Gate 算（0xE：Single -6～4、Dual -4～4）；三語同步。算式：0x0E 最小設 1 的 bit＝bit1 ⇒ T1 起始欄 c＝2（deSelTs）；每欄 pixel 索引 [2c−10, 2c−1]＝[-6, 3] ⇒ -6～4（pxCovIdx）；Dual 下 gate 用 c＋1 ⇒ -4～4。「0x0E→T1～T7（第2～8欄）」本來就正確，未改。
+- 輸入框／FORCE_DE_SEL 欄位的唯讀行為本版不動（Bruce 16:0x 要求改成「預設 14、可以改」，另案處理）。
+- tools/check_datamap_nbpx.js：NB 輸入框預期改用 DM.pxForDeSel（v1.35.7 起即為 -6～4，此測試未跟著更新）、提示文字改新字串。
+- tools/datamap_sd_snapshot.json：經 Bruce 10/16 16:0x 同意，只以 SNAP_ONLY 重拍 E501A／E501B／E503／DAZ6138／DAZ6139（差異＝TFT 640 組（P0 格值含 code 18～29 × Hand × Single）＋整頁 1600 組（含提示文字）；② 表格、暫存器／CKS／script、第二組 0 差異）；其他型號基準不動。
+
+### 全面審查（同一條 code→名稱資料流）
+- ② cellView／cellOptions／editCell／applyNames／allSame：都走 rowDict ✓。
+- ③ pvModel Dual／一般：走 cellView ✓；MNT Single：mntName（同 pool）✓；Tri：pvTriModel 獨立 ✓；鎖定比對 glCompareStates、Benchmark bmView：走 cellView ✓。
+- 剩下一處不同來源：pvModel 的 xname（MNT 第二組 x 暫存器，secondSetRule pix58／row34 才用）仍查 GN1／GN2；只影響 MNT，本次限定不改，另列待決。
+- tUse 註解「NB 名稱是固定 GN1／GN2」已過時（只影響說明，邏輯只用 gate 規則），未改。
+
+### 測試
+- 重現：線上 v1.35.13 同設定 TFT 96 格全灰、0 格有色；修後本機 R/G/B 各 32 格有色、名稱與表格一致（截圖）。
+- 矩陣（暫存腳本，headless Chrome，不進版控）：E501A／E501B／E503／DAZ6138／DAZ6139 × Single／Dual × Mirror 0／1 × CHRB 0／1 × 下拉全部選項輪流填入（每組 6 輪）＝240 組：修後 240/0；修前 Single 的 code 18～29 輪次全錯。
+- 回歸：lkrev 744/0、boe --qm 全民 109/0、combos 29/0、nbpool compat 2520/0、蘇坤 axis 33226/0、lkrev_hsd 15/0、tri 115/0、tft_all 1299/0、tft_interact（E503、EM01）636/0、preview 49/0（--em02 60/4 與修前相同）、nbpx 301/0；快照見上。
+
+### 未改（另案）
+- FORCE_DE_SEL 欄位／Pixel 輸入框對 NB e50x 唯讀（v1.31.4、v1.35.9）；Bruce 10/16 16:0x 要「預設 14、可以改」，另開任務。
+- MNT 第二組 x 暫存器（pix58／row34）在 pvModel 仍查 GN1／GN2（與主表 pool 不同來源），待決。
+
+---
+
 ## Data Mapping (datamap) 測試工具 — 2026-10-16｜不進版（只改 tools/，頁面與版號不變）｜S/D 快照改用 Pixel／Gate 邏輯位置（快照格式 2）
 
 ### 起因
