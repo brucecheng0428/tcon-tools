@@ -29,6 +29,7 @@ async function open(opt) {
         : { getItem: k => (k in mem ? mem[k] : null), setItem: (k, v) => { mem[k] = String(v); }, removeItem: k => { delete mem[k]; } };
       Object.defineProperty(w, 'localStorage', { configurable: true, get: () => store });
       if (opt.fold) store.setItem('dm.fold.v1', JSON.stringify(opt.fold));
+      if (opt.page) store.setItem('dm.page.v1', JSON.stringify(opt.page));   // v1.35.17：有保存的頁面狀態才依 dm.fold.v1 還原；沒有＝預設
     } });
   await new Promise(r => dom.window.addEventListener('load', r));
   return dom;
@@ -43,7 +44,8 @@ async function open(opt) {
     const hd = id => Array.from($(id).children).find(e => e.classList.contains('stp-hd'));
     const plain = cards.filter(id => id !== 'card-reg');
     ok(plain.every(id => hd(id) && hd(id).classList.contains('dm-foldhd') && hd(id).getAttribute('role') === 'button' && hd(id).querySelector('.dm-foldcar')), '每張卡的標題列可點（role=button＋箭頭）');
-    ok(plain.every(id => $(id).getAttribute('data-fold') === '0') && $('dm-codebox').open, '預設全部展開');
+    ok(plain.every(id => $(id).getAttribute('data-fold') === (id === 'card-out' ? '1' : '0')) && !$('dm-codebox').open, '預設（v1.35.17 Bruce 10/16）：TCON Register、④ 匯出 script 收折，其他卡展開');
+    $('dm-fold-open').click();   // 以下沿用原本「從全部展開開始」的驗法
     // 點 ① 標題列
     hd('card-src').querySelector('.stp-t').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
     ok($('card-src').getAttribute('data-fold') === '1' && hd('card-src').getAttribute('aria-expanded') === 'false', '點 ① 標題列 ⇒ 收摺');
@@ -69,7 +71,7 @@ async function open(opt) {
     dom.window.close();
   }
   {
-    const dom = await open({ fold: { 'card-dm': 1, 'card-tft': 1, 'card-reg': 1 } }); const d = dom.window.document, $ = id => d.getElementById(id);
+    const dom = await open({ fold: { 'card-dm': 1, 'card-tft': 1, 'card-reg': 1 }, page: { v: 1, at: 0, s: { model: 'EM01' } } }); const d = dom.window.document, $ = id => d.getElementById(id);
     ok($('card-dm').getAttribute('data-fold') === '1' && $('card-tft').getAttribute('data-fold') === '1' && !$('dm-codebox').open && $('card-src').getAttribute('data-fold') === '0', '重整後依 localStorage 還原收摺狀態');
     // 收摺中 TFT 卡：改設定 ⇒ 展開後是新的圖
     $('dm-pv-first').value = 'r'; $('dm-pv-first').dispatchEvent(new dom.window.Event('change'));
