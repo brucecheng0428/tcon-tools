@@ -76,21 +76,30 @@ const regOf = (b, maps) => { const r = {}; maps.forEach(([f, t, l]) => { for (le
     ok(DM.MODEL_KEYS.indexOf('EN01') < 0 && DM.SELECT_KEYS.join() === 'DAZ6111,DAZ6138,DAZ6139,DAZ7353,E501A,E501B,E503,EN01,EM01,EM02,E512', 'MODEL_KEYS（PY＋MNT）不變；下拉 SELECT_KEYS 把 EN01 接在 E503 後');
   }
 
-  sec('A2 候選值（T1~T10）');
+  sec('A2 候選值（T0~T12，pool step 12）');
   {
     const want = t => { const g = []; for (let b = t; b >= 0; b--) for (let k = 1; k <= 4; k++) g.push(4 * b + k); return g; };
     let good = true;
-    for (let t = 1; t <= 10; t++) {
+    /* v1.36.0（Bruce 10/16「EN01 是 12 個 subpixel 為一組…原理一樣」）：與 MNT 同一個 pool 公式（step 12）。
+       正 pixel（v＜12(T+1)）＝WPF gValues／同事E FORCE 分頁 S T 欄；之後（表上空白格）＝負 pixel（每 12 個 code 往左 4 pixel）；code 132 起＝非標準 */
+    let negOk = true;
+    for (let t = 0; t <= DM.EN01_TMAX; t++) {
       const d = DM.en01Defs(t), g = want(t);
-      if (d.length !== 12 * (t + 1) + 1 || d[d.length - 1].name !== 'X' || d[d.length - 1].value !== 0xFF) good = false;
-      for (let v = 0; v < 12 * (t + 1); v++) if (DM.en01Name(t, v) !== 'RGB'[v % 3] + g[Math.floor(v / 3)]) good = false;
-      if (DM.en01Name(t, 12 * (t + 1)) !== null) good = false;
+      if (d.length !== 132 + 1 || d[d.length - 1].name !== 'X' || d[d.length - 1].value !== 0xFF) good = false;
+      for (let v = 0; v < 132; v++) {
+        const nm = DM.en01Name(t, v), k = 12 * t - 12 * Math.floor(v / 12) + v % 12, px = Math.floor(k / 3);
+        if (nm !== 'RGB'[v % 3] + (px >= 0 ? px + 1 : px)) good = false;
+        if (v < 12 * (t + 1) ? nm !== 'RGB'[v % 3] + g[Math.floor(v / 3)] : !/-/.test(nm)) negOk = false;
+      }
+      if (DM.en01Name(t, 132) !== null) good = false;
     }
-    ok(good, '每階 12(T+1) 個＋X(0xFF)，值 v ⇒ RGB[v%3]＋gValues[v/3]，超出範圍＝非標準');
+    ok(good && negOk, '每個 T 都是 code 0～131＋X(0xFF)：正 pixel＝WPF gValues，表上空白格＝負 pixel（step 12 pool），132 起＝非標準');
+    ok(DM.en01Name(1, 24) === 'R-4' && DM.en01Name(1, 35) === 'B-1' && DM.en01Name(1, 36) === 'R-8' && DM.en01Name(0, 0) === 'R1' && DM.en01Name(0, 12) === 'R-4',
+      '同事E FORCE 分頁 S1 欄空白格 code 24～35＝R-4～B-1、36＝R-8；T0（8\'h01 欄）code 0＝R1、12＝R-4');
     ok(DM.en01Name(1, 0) === 'R5' && DM.en01Name(1, 12) === 'R1' && DM.en01Name(2, 12) === 'R5' && DM.en01Name(4, 0) === 'R17' && DM.en01Name(4, 59) === 'B4' && DM.en01Name(4, 11) === 'B20' && DM.en01Value(1, 'R5') === 0 && DM.en01Value(2, 'R5') === 12,
       '原廠指南的例子：同樣 R5，T1 寫 0、T2 寫 12；0x00 在 T4 顯示 R17');
     const d1 = DM.en01Defs(1).map(x => x.name);
-    ok(d1.slice(0, 8).join() === 'R1,R2,R3,R4,R5,R6,R7,R8' && d1[8] === 'G1' && d1[d1.length - 1] === 'X', '下拉順序：R→G→B、編號小→大，X 最後（WPF MappingCellInfo）');
+    ok(d1[0] === 'R-36' && d1.slice(36, 44).join() === 'R1,R2,R3,R4,R5,R6,R7,R8' && d1[44] === 'G-36' && d1[d1.length - 1] === 'X', '下拉順序：R→G→B、編號小→大（負值在前），X 最後');
     if (fs.existsSync(ICD)) {
       const src = fs.readFileSync(ICD, 'utf8'), re = /rm81008\.DataMappingRGBInfos\.Add\(new DataMappingRGBInfo\((\d+), GenDataMappingDefine\((\d+), new\[\] \{([^}]*)\}\)/g;
       let m, n = 0, same = true;
@@ -98,9 +107,9 @@ const regOf = (b, maps) => { const r = {}; maps.forEach(([f, t, l]) => { for (le
         n++; const tab = +m[1], cnt = +m[2], g = m[3].split(',').map(x => +x.trim()), t = DM.EN01_TABS.indexOf(tab) + 1, d = DM.en01Defs(t);
         const vMax = Math.max(...g);
         for (let v = 0; v < cnt; v++) if (DM.en01Name(t, v) !== ['R', 'G', 'B'][v % 3] + g[Math.floor(v / 3) % vMax]) same = false;
-        if (d.length !== cnt + 1) same = false;
+        if (d.length !== 133) same = false;
       }
-      ok(n === 10 && same, 'ICDefine.cs 原文 10 階 GenDataMappingDefine(count, gValues) 逐值相同（' + n + ' 階）');
+      ok(n === 10 && same, 'ICDefine.cs 原文 10 階 GenDataMappingDefine(count, gValues) 的正 pixel 逐值相同（' + n + ' 階；v1.36.0 起另補負 pixel）');
     } else skip('ICDefine.cs 不在本機，候選值原文對拍略過');
   }
 
@@ -245,7 +254,7 @@ const regOf = (b, maps) => { const r = {}; maps.forEach(([f, t, l]) => { for (le
     const g = $('dm-grid');
     ok(S.model === 'EN01' && g.classList.contains('en01') && g.querySelectorAll('tbody tr').length === 24 && g.querySelectorAll('select.dm-cell').length === 288 && g.querySelectorAll('select.dm-en01t').length === 24 && Array.from(g.querySelectorAll('thead th')).map(x => x.textContent).slice(2).join() === DM.EN01_CH.join(),
       '選 EN01（沒匯入）⇒ 表格 24 列 × 12 欄（R0…B3）＋每列 T 下拉');
-    ok(Array.from(g.querySelectorAll('select.dm-en01t')).every(x => x.value === '4') && Array.from($('dm-gate').options).map(o => o.value).join('|') === DM.EN01_GATES.map(x => x[0]).join('|'), '每列 T 預設 T4（WPF V2）；Gate Type＝Single／Dual／Tri／MUX4／MUX6');
+    ok(Array.from(g.querySelectorAll('select.dm-en01t')).every(x => x.value === '1') && Array.from($('dm-gate').options).map(o => o.value).join('|') === DM.EN01_GATES.map(x => x[0]).join('|'), '每列 T 預設 T1（沒匯入＝WPF Hand 預設 0x0E 的最小 bit；v1.36.0）；Gate Type＝Single／Dual／Tri／MUX4／MUX6');
     ok($('dm-pvbody').classList.contains('hidden') && /EN01 暫不支援預覽/.test($('dm-pvnote').textContent) && !$('dm-pvnote').classList.contains('hidden'), '③ 明寫 EN01 預覽／比較表暫不支援（不推接線）');
     ok(!$('dm-gridnote').classList.contains('hidden') && /FORCE_SEL_EN 與 FORCE_DE_EN/.test($('dm-gridnote').textContent) && $('dm-e0-0').disabled && $('dm-gate').disabled, 'Hand 關：表格與 Gate Type 停用，提示兩個 bit 都要開');
     ['mirror', 'chrb', 'chwb', 'rvsL'].forEach(k => ok(!d.querySelector('.dm-fieldrow[data-need="' + k + '"]').classList.contains('hidden'), '② 顯示 ' + k + ' 列（EN01 model 有這個欄位）'));
@@ -255,23 +264,25 @@ const regOf = (b, maps) => { const r = {}; maps.forEach(([f, t, l]) => { for (le
       await P.waitFor(() => S.src.kind === 'file', '匯入 F1567');
       ok(S.model === 'EN01' && JSON.stringify(S.en01Seg) === '{"p2":true,"p3":false}' && g.querySelectorAll('tbody tr').length === 12 && !$('dm-e12-0') && !!$('dm-e3-0'), '匯入 F1567（檔名 RM81008）：P3 沒載入 ⇒ 只顯示 12 列（L1-1~L2-6）');
       ok(!d.querySelector('#dm-code tr[data-f="e144"]') && !!d.querySelector('#dm-code tr[data-f="e143"]') && !$('dm-hand').checked, 'Register 表不列 P3；Hand 關（原檔 FORCE_SEL_EN＝0）');
-      ok($('dm-e0-0').value === 'R9' && $('dm-e1-0').value === 'B5', '格子名稱：L1-1 R0＝24 ⇒ T4 的 R9、L1-2 R0＝38 ⇒ B5');
+      ok($('dm-e0-0').value === 'R-4' && $('dm-e1-0').value === 'B-8' && $('dm-et0').value === '1', '格子名稱（v1.36.0 T 依 FORCE_DE_SEL，Hand 關＝當 0x0E ⇒ T1）：L1-1 R0＝24 ⇒ R-4、L1-2 R0＝38 ⇒ B-8');
       ok(/^SW1·P1$/.test($('dm-ers0').textContent) && /^SW2·P1 未用$/.test($('dm-ers1').textContent) && /不是第 2 條 gate/.test($('dm-etr1').title),
         'v1.20.1 列標 SW 時槽；RD_MODE 0（1 個時槽）⇒ SW2 起標「未用」；列提示與圖例寫明 SW≠gate');
       fire($('dm-hand'), true);
       ok(S.cur.hand === 1 && S.cur.deEn === 1 && S.cur.deSel === 0x0E && !$('dm-e0-0').disabled && !$('dm-gate').disabled && $('dm-gridnote').classList.contains('hidden'), '勾 Hand Mode ⇒ FORCE_SEL_EN＋FORCE_DE_EN＝1、FORCE_DE_SEL＝0x0E，表格可改');
       fire($('dm-e0-0'), 'B4');
-      ok(S.cur.e0 === 59 && $('dm-e0-0').classList.contains('chg'), 'L1-1 R0 選 B4（T4）⇒ 0x3D4＝59（0x3B），格子標「已修改」');
-      fire($('dm-et0'), '1');
-      ok(S.cur.e0 === 59 && $('dm-e0-0').value === '__ns' && $('dm-e0-0').classList.contains('ns') && S.en01T[0] === 1, 'L1-1 改 T1 ⇒ 值不變（59 超出 T1 的 0~23）、顯示非標準；T 不寫入');
+      ok(S.cur.e0 === 23 && $('dm-e0-0').classList.contains('chg'), 'L1-1 R0 選 B4（T1）⇒ 0x3D4＝23（0x17），格子標「已修改」');
       fire($('dm-et0'), '4');
+      ok(S.cur.e0 === 23 && $('dm-e0-0').value === 'B16' && S.en01T[0] === 4, 'L1-1 手動改 T4 ⇒ 值不變（23），名稱改用 T4 換算＝B16；T 不寫入');
+      fire($('dm-et0'), '1');
+      { const s2 = DM.cloneState(S.cur); s2.rd = 1; ok(DM.en01RowT(s2, 0) === 1 && DM.en01RowT(s2, 1) === 2 && DM.en01RowT(s2, 7) === 2 && DM.en01RowT(Object.assign(s2, { deSel: 0x10 }), 1) === 5 && DM.en01RowT(Object.assign(s2, { deSel: 0x01, rd: 5 }), 4) === 4 && DM.en01RowT(Object.assign(s2, { deSel: 0x0E, rd: 0 }), 1) === 1,
+        'T 依 FORCE_DE_SEL（同 MNT deSelTs）：0x0E＋HSD ⇒ SW1＝T1、SW2＝T2（同事E FORCE 分頁範例）；0x10 ⇒ SW2＝T5；0x01＋MUX6 ⇒ SW5＝T4；Single 未用的 SW2＝起始 T1'); }
       fire($('dm-gate'), 'MUX6 (RD_MODE=5)');
       ok(S.cur.rd === 5 && S.cur.panel === 1 && !/未用/.test($('dm-ers5').textContent), 'Gate Type 選 MUX6 ⇒ RD_MODE 5，PANEL_MODE 不動；6 個時槽都在用（SW6 不標未用）');
       const sc = w.dmBuildScript().text, lines = sc.split('\n').filter(l => /^write -m/.test(l));
-      ok(lines.some(l => /^write -m 03D4 3B FF/.test(l)) && lines.some(l => /^write -m 041C 05 07/.test(l)) && !lines.some(l => /^write -m 11/.test(l)), '匯出 script：0x3D4←3B、0x41C←05（mask 07）、沒有 P3');
+      ok(lines.some(l => /^write -m 03D4 17 FF/.test(l)) && lines.some(l => /^write -m 041C 05 07/.test(l)) && !lines.some(l => /^write -m 11/.test(l)), '匯出 script：0x3D4←17、0x41C←05（mask 07）、沒有 P3');
       const sameOpts = Array.from($('dm-samev').options).map(o => o.value);
       fire($('dm-samev'), 'G3'); $('dm-same').click();
-      ok(sameOpts[0] === 'X' && S.cur.e0 === DM.en01Value(4, 'G3') && S.cur.e143 === DM.en01Value(4, 'G3'), 'All Same Pixel（X 先、再 R→G→B）選 G3 ⇒ 12 列全部＝G3');
+      ok(sameOpts[0] === 'X' && S.cur.e0 === DM.en01Value(S.en01T[0] != null ? S.en01T[0] : DM.en01RowT(S.cur, 0), 'G3') && S.cur.e143 === DM.en01Value(DM.en01RowT(S.cur, 11), 'G3'), 'All Same Pixel（X 先、再 R→G→B）選 G3 ⇒ 12 列全部＝G3');
     } else skip('F1567 實檔不在本機，頁面匯入段略過');
     fire($('dm-model'), 'E503');
     if (!$('dm-ask').classList.contains('hidden')) w.dmAskAnswer(true);   // 有未匯出的修改 ⇒ 換型號前先問（既有行為），答「是」
@@ -289,9 +300,9 @@ const regOf = (b, maps) => { const r = {}; maps.forEach(([f, t, l]) => { for (le
     ok(/EN01（RM81008，0x3E:0x207E = 10/.test($('dm-ic').textContent) && P.log.some(m => m.type === 'rawwrite' && m.slave === 0x7E && m.addr === 0xAB), 'Check 結果顯示 EN01＋207E 值；讀寫前下 7E:AB←CD');
     const n0 = P.log.filter(m => m.type === 'rawwrite' && m.slave === 0x3E).length;
     fire($('dm-e0-0'), 'R1');
-    await P.waitFor(() => (mem[(0x3E << 16) | 0x3D4] | 0) === DM.en01Value(4, 'R1'), '即時寫入 0x3D4');
+    await P.waitFor(() => (mem[(0x3E << 16) | 0x3D4] | 0) === DM.en01Value(DM.en01RowT(S.cur, 0), 'R1'), '即時寫入 0x3D4');
     const wr = P.log.filter(m => m.type === 'rawwrite' && m.slave === 0x3E).slice(n0);
-    ok(wr.length === 1 && wr[0].addr === 0x3D4 && wr[0].data[0] === DM.en01Value(4, 'R1') && !P.log.some(m => m.type === 'rawwrite' && m.slave === 0x3E && m.addr === 0x0059), '連線中選格 ⇒ 只寫 0x3E:0x3D4 一個 byte（不下 E503 的 3E:0059）');
+    ok(wr.length === 1 && wr[0].addr === 0x3D4 && wr[0].data[0] === DM.en01Value(DM.en01RowT(S.cur, 0), 'R1') && !P.log.some(m => m.type === 'rawwrite' && m.slave === 0x3E && m.addr === 0x0059), '連線中選格 ⇒ 只寫 0x3E:0x3D4 一個 byte（不下 E503 的 3E:0059）');
   }
 
   console.log('\n' + (fail ? '✗' : '✓') + ' check_datamap_en01 ' + pass + ' pass / ' + fail + ' fail' + (skips.length ? '（跳過 ' + skips.length + ' 項：本機缺原廠資料）' : ''));

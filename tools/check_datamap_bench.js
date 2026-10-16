@@ -41,7 +41,7 @@ const ok = (c, g, m) => { cnt[g] = (cnt[g] || 0) + 1; if (c) pass++; else { fail
   };
   const diff = (a, b) => { const A = JSON.stringify(a), Bs = JSON.stringify(b); if (A === Bs) return ''; for (let i = 0; i < Math.max(A.length, Bs.length); i++) if (A[i] !== Bs[i]) return '…' + A.slice(Math.max(0, i - 60), i + 40) + ' ≠ …' + Bs.slice(Math.max(0, i - 60), i + 40); return '?'; };
   const en = k => DM.MODELS[k].kind === 'en01';
-  const tabs = () => { const t = []; for (let r = 0; r < 24; r++) t.push(S.en01T[r] || DM.EN01_TDEF); return t; };
+  const tabs = () => { const t = []; for (let r = 0; r < 24; r++) t.push(S.en01T[r] != null ? S.en01T[r] : DM.en01RowT(S.cur, r)); return t; };
   const viewTxt = (k, s, r, c) => { const v = en(k) ? DM.en01CellView(s, r, c, tabs()[r]) : DM.cellView(k, s, r, c); return v.blank ? null : (v.std ? v.txt : '0x' + DM.hex(v.raw, 2)); };
   const allNames = (k, s) => { const o = []; const rows = en(k) ? DM.en01Rows(S.en01Seg) : [0, 1, 2, 3]; rows.forEach(r => { for (let c = 0; c < (en(k) ? 12 : 6); c++) o.push(viewTxt(k, s, r, c)); }); return o; };
   /* 和頁面 All Same Pixel 一樣：經 commit 的 firstEdit */

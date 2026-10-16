@@ -2,6 +2,37 @@
 
 ---
 
+## Data Mapping (datamap) v1.35.16 — 2026-10-16 ｜ PATCH ｜ EN01：候選名稱、每列 T、Pixel 範圍改用與 MNT 同一套 pool 演算法（每 T 12 subpixel）
+
+判定依據：修正 EN01 與原廠資料不一致的換算（只動 EN01 分支），MNT／NB／Dual／Tri 結果不變 → PATCH。版號接在 #0842d9e8（v1.35.15）之後。
+
+### 起因
+- Bruce 10/16 16:5x：「去搜尋一下 同事E 剛剛寄出來 EN01 的 Data Mapping 資料…比對目前 Data Mapping 裡面有關 EN01 的寫法是否都正確，有差異的請趕快修正。」
+- 17:1x：「peera 那邊表格是 6 個 subpixel 為一組…EN01 是 12 個 subpixel 為一組…原理是一樣的，只是一個是 6 的倍數，一個是 12 的倍數」；17:3x：「bit 1 代表用到 S1…原理應該是一樣的」。
+
+### 依據
+- 同事E 10/16 轉寄 同事D 4/8 指定 `E507_rt7_sram_w_hand(1T4P).xlsm` FORCE 分頁（code↔Rn 公式 INDIRECT(code+7, 欄)）＋同事H 3/17 EN01 表（FORCE_DE_SEL[7:0] 8'h01～8'h80、HSD 範例）；同事E 的 WPF RomCodeProcessUI v2.0.23 原始碼（DataMappingModule.cs／ICDefine.cs／DataMapping_新手指南 §2.5「T1～T10＝FORCE 分頁 S1～S10」）。
+- 原始資料：ClaudeShared/inbox-handoff/20261016-peere-en01/。
+
+### 定義對照與根因
+- 網頁 EN01 T n＝FORCE 分頁 S n 欄（逐格 1320/1320 相同）——原本就對。
+- 差異 1：每列 T 預設一律 T4（照 WPF TabNum 16），不看 FORCE_DE_SEL；FORCE 分頁範例是 FORCE_DE_SEL 8'h02 時 SW1 用 S1、SW2 用 S2。
+- 差異 2：Pixel 最小～最大與 FORCE_DE_SEL 說明借用 MNT 的 2 pixel／欄公式（0x0E 顯示 -6～4；輸入 1～8 會寫 0x08）。
+- 差異 3：表上空白格（code 超出該欄）網頁顯示「非標準」；Bruce 定義＝負 pixel 位置（同 MNT 每 T 往右 6 subpixel，EN01 每 T 12 subpixel）。
+
+### 修法（單一來源）
+- datamap-core.js：新增 `poolIdx(step, col, code)`（subpixel＝step(col−1)−step⌊code/step⌋＋code%step）與 `poolCov(pool, c, rel)`；`mntIdx`＝`poolIdx(6,…)`、MNT `pxCovIdx`＝`poolCov(MNT_POOL,…)`（數值不變，608／655,360／122,880 項比對 0 差）。
+- EN01：`en01Defs(T)`＝`linName(poolIdx(12, T+1, v))`，code 0～131 每個 T 都有名稱（空白格＝負 pixel，例 S1 的 code 24～35＝R-4～B-1），加 T0（8'h01 欄），T 範圍 T0～T12。
+- 每列預設 T＝`en01RowT`：FORCE_DE_SEL 最小設 1 的 bit（與 MNT 同一個 `deSelTs`；0x0E⇒T1）＋(SW−1)（RD_MODE 用到的時槽；同 MNT 每多一條 gate 往右一欄）；FORCE_DE_EN＝0／值 0 當 WPF 預設 0x0E；下拉仍可手動改（不寫入 TCON）。
+- Pixel 列：`pxGate` EN01＝'en01:<相位數>' ⇒ `poolCov(EN01_POOL,…)`；`pxForDeSel` 起始欄與 `en01BaseT` 同源。FORCE_DE_SEL 說明改「0x0E → SW1＝T1（S1）」。
+- Mirror 不改名稱（同 MNT）；FORCE_DATA_SFT_SEL 不動（原廠沒定義，問 RD 中）。
+
+### 驗證
+- 同事E FORCE 分頁 T0～T10 × code 0～131：正 pixel 792/792 相同、空白格 660 格全為負 pixel；同事H HSD 範例 48/48 格（SW1@S1、SW2@S2）相同。
+- check_datamap_en01 67/0（EN01 預期值依 Bruce 10/16 17:2x「EN01 的東西可以先改的就先改」更新）。其他回歸見 commit 訊息。
+
+---
+
 ## Data Mapping (datamap) v1.35.15 — 2026-10-16 ｜ PATCH ｜ NB e50x FORCE_DE_SEL「預設 14、可以改」（撤回唯讀）
 
 判定依據：Bruce 指正既有行為與需求不符（不是鎖住、只是預設），只放開 NB e50x 的 FORCE_DE_SEL／Pixel 列編輯，沿用 MNT／EN01 既有 UI 與換算；不改其他型號、Gate、預設值的結果 → PATCH。
