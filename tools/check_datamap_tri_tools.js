@@ -99,13 +99,24 @@ const onlyIds = (k, a, b, allow) => DM.fieldsOf(k).filter(f => (a[f.id] | 0) !==
   const idx = i => i >= 0 ? i + 1 : i;
   const sdCases = [];
   for (const k of MNT) for (const g of ['Single-Gate', 'Dual-Gate']) sdCases.push([k, DM.setGate(k, Object.assign(DM.emptyState(k), { hand: 1 }), g)]);
-  DM.EN01_GATES.forEach(G => sdCases.push(['EN01', DM.setGate('EN01', DM.setHand('EN01', DM.emptyState('EN01'), 1), G[0])]));
   for (const [k, s0] of sdCases) for (let c = 1; c <= DM.fieldById(k, 'deSel').bits; c++) {
     const s = Object.assign(DM.cloneState(s0), { deEn: 1, deSel: 1 << (c - 1) }), rel = DM.mntRel(DM.gateOf(k, s), 1), cv = DM.pxForDeSel(k, s); sdN++;
     if (!cv || cv.from !== idx(2 * (c + rel) - 10) || cv.to !== idx(2 * c - 1)) { sdBad++; console.log('    ' + k + ' ' + DM.gateOf(k, s) + ' c' + c + ' ' + JSON.stringify(cv)); }
     for (let lo = -8; lo <= 10; lo += 3) { const r = DM.deSelForPx(k, s, lo, lo + 4); const rr = DM.pxCovIdx(r.base, DM.gateOf(k, s)); if (r.from !== idx(rr[0]) || r.to !== idx(rr[1])) sdBad++; }
   }
-  ok(sdN > 60 && !sdBad, 'MNT Single／Dual、EN01 各 Gate 的 Pixel 範圍仍是 v1.33.0 公式 ' + sdN + ' 組（錯 ' + sdBad + '）');
+  ok(sdN >= 32 && !sdBad, 'MNT Single／Dual 的 Pixel 範圍仍是 v1.33.0 公式 ' + sdN + ' 組（錯 ' + sdBad + '）');
+  /* v1.35.16 起 EN01 改用 EN01 pool（每 T 12 subpixel＝4 pixel，code 0～131＝11 組；Bruce 10/16 17:1x「EN01 是 12 個 subpixel 為一組…原理是一樣的」，決策 A12）：
+     起始欄 c、RD_MODE 相位數 np（SW k＝起始＋k−1）⇒ 全部用到的列都選得到的 pixel 索引＝[4(c+np−2)−40, 4c−1]；另以 en01Defs 名稱交集獨立驗證 */
+  let enN = 0, enBad = 0;
+  DM.EN01_GATES.forEach(G => { const s0 = DM.setGate('EN01', DM.setHand('EN01', DM.emptyState('EN01'), 1), G[0]), np = DM.en01Phases(s0.rd) || 1;
+    for (let c = 1; c <= DM.fieldById('EN01', 'deSel').bits; c++) {
+      const s = Object.assign(DM.cloneState(s0), { deEn: 1, deSel: 1 << (c - 1) }), cv = DM.pxForDeSel('EN01', s); enN++;
+      let inter = null; for (let k = 0; k < np; k++) { const set = new Set(DM.en01Defs(DM.en01RowT(s, k)).filter(o => o.name !== 'X').map(o => DM.linPx(o.name))); inter = inter ? new Set([...inter].filter(x => set.has(x))) : set; }
+      const a = [...inter].sort((x, y) => x - y);
+      if (!cv || cv.from !== idx(4 * (c + np - 2) - 40) || cv.to !== idx(4 * c - 1) || cv.from !== a[0] || cv.to !== a[a.length - 1]) { enBad++; console.log('    EN01 ' + G[0] + ' c' + c + ' ' + JSON.stringify(cv)); }
+      for (let lo = -8; lo <= 10; lo += 3) { const r = DM.deSelForPx('EN01', s, lo, lo + 4); if (r.from !== idx(4 * (r.base + np - 2) - 40) || r.to !== idx(4 * r.base - 1)) enBad++; }
+    } });
+  ok(enN === 40 && !enBad, 'EN01 各 Gate 的 Pixel 範圍＝EN01 pool 公式（v1.35.16）且等於下拉名稱交集 ' + enN + ' 組（錯 ' + enBad + '）');
   ok(DM.triAllSame('EM02', DM.setGate('EM02', Object.assign(DM.emptyState('EM02'), { hand: 1 }), 'Dual-Gate'), 'X') === null && DM.triApplyNames('EM02', DM.emptyState('EM02'), new Array(36).fill('X')) === null, 'Single／Dual／Hand off 時 Tri 函式不動作');
 
   console.log('B. 頁面');
