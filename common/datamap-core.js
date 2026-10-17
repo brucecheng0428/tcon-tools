@@ -584,10 +584,28 @@
     var out = syncSecondSet(key, ns, policy || secondPolicy(key, ns));
     return { state: out, touched: xChanged(ns, out) };
   }
-  /* 長循環時第二組的下拉：0~29 ＋ X(31)。名稱表未確認（報告 §6-4），顯示「數字＋GN1 名稱」（0＝R3…17＝B-1），18~29 只有數字。 */
-  function secondOptions() {
+  /* 長循環時第二組的下拉：0~29 ＋ X(31)。
+     v1.35.23（Bruce 10/17「第二組下拉名稱固定取 GN1。GN1 到底是什麼意思？這是哪來的名稱？我這邊好像沒有命名過」；#c8911321 缺口 2）：
+     舊版固定用 Python UI 的 GN1 字典（＝Single-Gate 名稱表＝起始欄第 2 欄 code 0～17），18～29 只有數字、也不跟起始欄 ⇒ 改成和 ③ TFT 接線圖、Auto 接線同一個位置：
+     secondT＝起始欄（mntBaseT）＋該組相對欄（與 datamap-auto.js wiringFromState 同一規則：pix58＝＋2＋上/下 gate、row34＝＋上/下 gate、line58＝＋0、mux3（Tri 第 3 條 gate）＋2），
+     名稱＝pool（mntIdx，code 0～29 每欄都有名稱）。沒給 key／s（Benchmark 只取值）⇒ 只有數字。30 未定義（同事A 隱藏表有用到、意義待問），不列。 */
+  function secondT(key, s, row) {
+    if (!key || !s || MODELS[key].kind !== 'mnt') return null;
+    var R = secondSetRule(key, s), g = gateOf(key, s), b = mntBaseT(s, g === 'tri' || g === 'dual' || g === 'single' ? g : undefined).t, lo = row & 1;
+    if (R.meaning === 'pix58') return b + 2 + lo;
+    if (R.meaning === 'row34') return b + lo;
+    if (R.meaning === 'line58') return b;
+    if (R.meaning === 'mux3') return b + 2;
+    return null;
+  }
+  function secondName(key, s, row, code) {
+    code = code | 0; if (code === 31) return 'X';
+    var T = secondT(key, s, row); if (T === null || code < 0 || code > 29) return null;
+    return linName(mntIdx(T, code));
+  }
+  function secondOptions(key, s, row) {
     var out = [];
-    for (var v = 0; v <= 29; v++) out.push({ value: v, name: inv(GN1, v) || '' });
+    for (var v = 0; v <= 29; v++) out.push({ value: v, name: key ? (secondName(key, s, row, v) || '') : '' });
     out.push({ value: 31, name: 'X' });
     return out;
   }
@@ -678,7 +696,7 @@
      datamap.html 原本各自另寫一份（pvLin／pvName／pvRawIdx 與三處 R↔B regex），改成全部呼叫這裡，避免日後只改一邊。
      linIdx 是 linName 的反函數（R1＝0、G1＝1、B1＝2、R2＝3…；R-1＝−3、B-1＝−1）；codeIdx＝mntIdx 加上 code 範圍（0~29，其餘＝null）。 */
   function linIdx(name) { var m = /^([RGB])(-?\d+)$/.exec(name || ''); if (!m) return null; var p = +m[2]; return (p > 0 ? p - 1 : p) * 3 + 'RGB'.indexOf(m[1]); }
-  function codeIdx(T, code) { code = code | 0; return code > 29 ? null : mntIdx(T, code); }
+  function codeIdx(T, code) { code = code | 0; return code < 0 || code > 29 ? null : mntIdx(T, code); }   // v1.35.23：也擋 code<0（30＝未定義、31＝X 都回 null）
   function rbSwapName(n) { return String(n).replace(/^[RB]/, function (x) { return x === 'R' ? 'B' : 'R'; }); }
   /* v1.17.0 T 表（Bruce 10/7「81010 的 Kickoff…可以選 T1、T2、T3、T4，也有一個 register 來設定吧」）：
      RM81010_Kick_Off_Check_20210805.xlsx「Data hand mode」A1「FORCE_DE_SEL 182h[7:4]:」、D1:G1＝0001／0010／0100／1000（code 表 D～G 欄＝T1～T4），
@@ -930,6 +948,8 @@
     return s;
   }
   function normText(t) { return String(t == null ? '' : t).trim().toUpperCase(); }
+  /* v1.35.23（#c8911321 缺口 3）：Excel 匯出把非標準值寫成「0x1E」，匯入時接受「0xNN」（0～max，max＝該欄 X 值：MNT／NB 31、DAZ6111 15）原值寫回；超出或不是 0xNN ⇒ null（照舊當 X） */
+  function rawCodeText(t, max) { var m = /^0X([0-9A-F]{1,2})$/.exec(normText(t)); if (!m) return null; var v = parseInt(m[1], 16); return v <= (max === undefined ? 31 : max) ? v : null; }
   /* 在表格某格輸入文字（PY change_table_dm_rgb_item :12484-12565 ＋ set_rgb_table_to_dm_info）。
      回傳 { state, text } 或 null（這格不能改）。 */
   function editCell(key, s, row, col, text) {
@@ -949,7 +969,7 @@
   function applyNames(key, s, names) {
     if (MODELS[key].kind === 'en01') return null;
     var g = gateOf(key, s), se = semOf(key), ns = cloneState(s);
-    function look(d, n) { n = normText(n); return (n in d) ? d[n] : d.X; }
+    function look(d, n) { n = normText(n); if (n in d) return d[n]; var rv = rawCodeText(n, d.X); return rv !== null ? rv : d.X; }   // v1.35.23：匯出的非標準值「0x1E」匯入時原值保留（舊版默默變 X）
     if (MODELS[key].kind === 'mnt' && (g === 'single' || g === 'dual')) { for (var m = 0; m < 24; m++) ns['c' + m] = look(rowDict(key, Math.floor(m / 6), g, s), names[m]); }
     else if (se !== 'e50x') { var d0 = inputDict(key); for (var i = 0; i < 24; i++) ns['c' + i] = look(d0, names[i]); }
     else if (g === 'dual') { for (var j = 0; j < 24; j++) ns['c' + j] = look(rowDict(key, Math.floor(j / 6), g, s), names[j]); }   // v1.35.7：同一個 pool
@@ -1515,13 +1535,13 @@
   /* ── v1.34.0 Tri 下的整批功能（Bruce 10/15「all same pixel…benchmark 反推表…應該都要可以用才對」）：全部只在 triOn 時被呼叫，Single／Dual 不經過。
      36 個名稱＝TRI_ROWS 列序（Line 1-1、1-2、1-3、2-1、2-2、2-3）× Data 1~6。每列名稱表＝triCellOptions（與 triPick／下拉同一來源，T 以套用前的 state 計），
      不在該列表內 ⇒ X(31)；第二組 _1／_3 一律寫 0（與 triPick 相同）。All Same Pixel 下拉＝Line 1-1 那列的名稱（同 MNT Dual 用上 gate 那列：其他列沒有的名稱寫 X）。 */
-  function triNames(key, s) { var out = []; for (var r = 0; r < 6; r++) for (var c = 0; c < 6; c++) { var v = triCellView(key, s, r, c); out.push(v.std && v.inTable ? v.txt : 'X'); } return out; }
+  function triNames(key, s) { var out = []; for (var r = 0; r < 6; r++) for (var c = 0; c < 6; c++) { var v = triCellView(key, s, r, c); out.push(v.txt); } return out; }   // v1.35.23：非標準值寫「0x1E」（與 Single／Dual excelRows 同寫法；舊版寫 X，匯入後變 31）
   function triApplyNames(key, s, names) {
     if (!triOn(key, s) || !names || names.length !== 36) return null;
     var ns = cloneState(s);
     for (var r = 0; r < 6; r++) {
       var d = {}; triCellOptions(key, s, r).forEach(function (o) { d[o.name] = o.value; });
-      for (var c = 0; c < 6; c++) { var n = normText(names[r * 6 + c]); ns[triId(r, c)] = (n in d) ? d[n] : 31; }
+      for (var c = 0; c < 6; c++) { var n = normText(names[r * 6 + c]), rv = rawCodeText(n, 31); ns[triId(r, c)] = (n in d) ? d[n] : (rv !== null ? rv : 31); }
     }
     for (var q = 0; q < 6; q++) { ns['x' + (6 + q)] = 0; ns['x' + (18 + q)] = 0; }
     return ns;
@@ -1609,7 +1629,7 @@
   function rowsShown(key, s, opt) { return rowsFor(key, s, opt).filter(function (x) { return x.show; }).map(function (x) { return x.r; }); }
 
   var API = {
-    triNames: triNames, triApplyNames: triApplyNames, triAllSameOptions: triAllSameOptions, triAllSame: triAllSame,
+    triNames: triNames, triApplyNames: triApplyNames, secondT: secondT, secondName: secondName, rawCodeText: rawCodeText, triAllSameOptions: triAllSameOptions, triAllSame: triAllSame,
     triExcelRows: triExcelRows, triExcelToNames: triExcelToNames, triExcelName: triExcelName, triPxCov: triPxCov,
     TRI: TRI, TRI_ROWS: TRI_ROWS, triOn: triOn, gateItems: gateItems, triCellView: triCellView, triCellOptions: triCellOptions, triPick: triPick, triName: triName, triT: triT,
     MODELS: MODELS, MODEL_KEYS: MODEL_KEYS, MNT_KEYS: MNT_KEYS, PY_TO_KEY: PY_TO_KEY, PY_TABLES: PY_TABLES,
