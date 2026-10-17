@@ -2,6 +2,46 @@
 
 ---
 
+## Data Mapping (datamap) v1.35.23 — 2026-10-17 ｜ PATCH ｜ ⚠ 輸出變更 ｜ 「改值立即寫入」勾選框修好（#dm-live 重複 id）、EN01 表格點格子改成 R｜G｜B 面板、6 個 code 範圍缺口
+
+判定依據：§2 案例 2 修 bug（勾選框失效、第二組名稱／接線圖錯、Excel 匯出再匯入改值）＋案例 3 微調（EN01 選單改用 MNT／NB 同一個面板，控制項位置不變）→ PATCH（R1）；③ TFT 接線圖第二組（MNT Hand Dual HSD 8-pixel／4line4pixel）code 18～29 與非預設起始欄的名稱會變、Excel 匯入「0xNN」不再變 X、Tri 有 code 30 時改成只空那幾條 → 標 ⚠ 輸出變更。版號接在 v1.35.22（3fee5a3）之後。
+
+### 起因
+- Bruce 10/17 10:1x：「那 EN01 的 X 是不是設 255 會比較好？另外第二組下拉名稱固定取 GN1。GN1 到底是什麼意思？這是哪來的名稱？我這邊好像沒有命名過。另外，EN01 的 Data Mapping 裡面，這個表格我點了以後，它的排列並不是像其他題卡一樣是 RGB 並列，而且越右邊的畫面上在越上方。請把它做成相同的 UI 介面。」（派工 237043078094487552）
+- Dispatch 先前建議（Bruce 未反對）：快照重拍後一次修完 #c8911321「EN01_code範圍與網頁一致性查證_20261017」第 3、4 節的 6 個缺口；Dispatch 追加 D：#782bdc5d 快照查證發現 v1.35.18（7aa2fda）起 datamap.html 有兩個 id="dm-live"。
+
+### 定義對照
+- 「改值立即寫入」＝② 改值時，I2C 已連線且 Check T-CON 通過就立刻寫 TCON（:3062 `tconOk() && $('dm-live').checked`）。v1.35.18 把 ① 卡移進版面容器 `<div id="dm-live">` 後，`getElementById('dm-live')` 取到 div：勾選框的 disabled／checked 都沒人管，頁面保存與「清除」把 `checked=true` 設成 div 的屬性 ⇒ **實際效果＝連線後一律即時寫入、取消勾也照寫、未連線時勾選框也沒有停用**（本版 jsdom＋mock I2C 實測：3fee5a3 取消勾仍寫 3 筆；查證報告原推論「永遠不寫」方向相反，已更正）。
+- 「RGB 並列」＝MNT／NB 點格子出現的 R｜G｜B 面板（v1.30.0，Bruce 10/14「左邊是 R、中間是 G、右邊是 B；pixel 上下排列，最上面最靠右邊」）：每列同一個 pixel 的 R／G／B，pixel 大的在上，X 在最下面整列。EN01 原本是原生下拉：一欄 133 項，R-36…R8 → G… → B… → X。
+- GN1／GN2＝Python UI（RomCodeProcessUI.py:2831／2836）的內部字典名：GN1＝Single-Gate（與 Dual 上 gate）名稱表＝起始欄第 2 欄 code 0～17；GN2＝Dual 下 gate 名稱表＝第 3 欄 code 0～23。不是 Bruce 命名的；畫面上不再出現。
+- EN01 X＝255（0xFF）：v1.20.0 起就是（en01Defs 最後一項 `{ name: 'X', value: 0xFF }`，WPF ICDefine.cs GenDataMappingDefine），面板顯示「X」，寫入 FF。
+
+### 變更
+- D `datamap.html:463` 版面容器 id 改 `dm-live-wrap`（CSS 用 class `.dm-live`，選擇器不變；註解 :118／:462／:642／:4204 同步）。`#dm-live` 只剩勾選框 ⇒ :1918 live 狀態、:3033 disabled、:3099-3100 即時寫入、:4024 change 監聽、:4528／:4552／:4568 頁面保存與清除都回到勾選框（以上為本版行號；查證報告的 :1884／:2995／:3062／:3984／:4488 是 v1.35.22 行號）。
+- A `datamap.html:279-281`、`:1487-1488`、`:1530-1541`：EN01 表格（主表 `#dm-grid.en01` 與 Benchmark `#dm-bgrid`）點格子開同一個 `popOpen` 面板（選項＝該格可選名稱 code 0～131＋X，排列規則與 MNT 完全同一個函式）；面板可捲動時目前值捲到中間、面板不超出視窗底（MNT 30 項不捲，不受影響）；hover 說明搬到格子上（:1327，同 MNT）。T 欄唯讀不開面板。Tri 6 列表仍是原生下拉（不在本次範圍）。
+- B① `datamap.html:2149-2151`／`:2160` ③ TFT 第二組改用 `DM.secondName`（起始欄＋該組相對欄的 pool 名稱，與 Auto 接線 `wiringFromState` 同一規則）；舊版固定查 GN1／GN2，code 18～29 畫成 X、不跟 FORCE_DE_SEL。
+- B② `datamap-core.js:587-611` 新增 `secondT（:592）／secondName（:601）`，`secondOptions(key, s, row)`（:606）名稱＝實際接線位置的 pool 名稱（pix58＝起始欄＋2＋上/下 gate、row34＝起始欄＋上/下 gate、line58＝起始欄、mux3＝起始欄＋2）；`datamap.html:1769` 第二組下拉逐列取名稱。Benchmark 不帶型號 ⇒ 只顯示數字。
+- B③ `datamap-core.js:952` `rawCodeText`；`:972` applyNames、`:1544` triApplyNames 匯入接受自己匯出的「0xNN」（≤ 該欄 X 值）原值寫回；`:1538` triNames 非標準值也寫「0x1E」（舊版寫 X）。匯入時頁面跳「未定義 code」提示。PY 讀這份 Excel 仍會當 X（照舊）。
+- B④ `datamap-auto.js:318/325/353/363/370` `wiringFromState(…, opt)`：`opt.keepBad` 時未定義 code（例 30）那格當空、不參與 X 補位、其他照畫，回傳 `bad` 格數；沒給 opt 行為不變（Line OD 推算仍整張 ok:false）。`datamap.html:1735-1737` Tri 接線圖用 keepBad，`:2346` 提示「② 有 n 格的 code 未定義…那幾條 Data 線不畫」。
+- B⑤ `datamap.html:1652-1671` `undefCodes／warnUndef`：TCON Register 欄位輸入（:1677）、Excel 匯入（:3975／:3983）寫入未定義 code 時提示（不擋：MNT／NB e50x c／x 欄 30；EN01 e 欄 132～254）。`onCodeText`（:3559）超過 0xFF 擋下（此函式目前頁面沒有呼叫者，只是防呆）；欄位輸入超出 bit 數本來就擋（dm.regRange）。`datamap-core.js:699` codeIdx 也擋 code<0。
+- B⑥／C 文字（三語）：`dm.rowGn2`「可選 R5／R6（GN2）」→「下 gate：起始欄＋1」；`dm.nextTri` 改成「在下方 6 列表點格子選；每格 code 0～29（含負 pixel）、X＝31」；圖例「非標準值」後加範圍（MNT／NB：合法 code 0～29、X＝31；30 未定義｜EN01：合法 code 0～131、X＝255（0xFF）；132～254 未定義；DAZ6111／7353 用自己的表不寫）；首頁 `home.dmDesc` 三語補 EN01（common/i18n.js:127）。code 30 意義未確認（Woody 隱藏表 register force setting!DB46 等有用到，待問 Woody），先當未定義，不猜。
+- 測試用 hook `window.dmPvModel`（:2586）。
+
+### 全面審查
+- `$('dm-live')` 全部 8 處（:1918、:3033、:3099、:3100、:4024、:4528、:4552、:4568）與 tools 3 支測試都是要勾選框 ⇒ 改容器 id 一處即全部歸位；全頁（11 型號 × 各 Gate，含 JS 產生的元素）id 0 重複。
+- 第二組名稱來源：② 下拉（secondOptions）、③ TFT（xname）、Auto／Line OD（wiringFromState lin(4+gi)、lin(2+g2)、lin(2)、Tri lin(2+2)）、Tri 6 列表（triT＝起始欄＋2）⇒ 統一成同一個起始欄＋相對欄；矩陣比對 Auto 接線位置 0 差異。
+- GN1／GN2 剩下的用途：NB Python UI 相容（rowDict 回退、check_nbpool_compat）、inputDict／All Same 驗證（PY 規則）＝內部，畫面上不顯示。
+- 未定義 code 判斷：MNT／NB `mntInRange`、`codeIdx`、`mntName`、`triName`、`LOD.tName` 都是 0～29＋31；EN01 `en01Defs` 0～131＋0xFF ⇒ 與 undefCodes 一致。
+
+### 驗證（Mac mini 實跑，worktree tcon-tools-wt-en01ui；同時最多 2 個行程；依派工不跑 nbpx／bench）
+- 新 `tools/check_datamap_ids.js` **65 pass / 0 fail**：原始碼與 jsdom 全頁（11 型號 × 各 Gate）id 不重複、#dm-live＝INPUT checkbox、未連線 disabled；mock I2C（EM01 Check 通過）勾選 ⇒ 改 Mirror 即時寫入、取消勾 ⇒ 0 筆。同一份測試套 v1.35.22（3fee5a3）4/61：**取消勾仍寫 3 筆**、id 重複。
+- 新 `tools/check_datamap_en01pop.js` **110 pass / 0 fail**（預設：14 個格子案例，約 7 分鐘）；`DM_FULL=1` 全跑 30 個格子案例 0 失敗（該次收尾項目在 MUX6 下 jsdom 太慢未跑完，收尾改回 Single 後在預設模式通過）：EN01 5 個 Gate × FORCE_DE_SEL 0x0E／0x01／0x80 × 首末格：點格子出現 .dm-pop、每列＝同 pixel R｜G｜B、pixel 由大到小、X 最後整列、選項＝格子可選名稱（133 項＝code 0～131＋X、44 列 pixel）、點選 byte＝en01Value、點 X＝0xFF；T 欄不開、Esc 關、Hand 關不開、Benchmark 表同樣；MNT EM01／NB E503 面板規則不變。預設只有第一個 Gate 跑 3 個值（jsdom 每換一次 FORCE_DE_SEL 要重建 288 格選項，全跑約 40 分鐘）。
+- 新 `tools/check_datamap_gaps.js` **451177 pass / 0 fail**：G1 第二組名稱 294842（3 型號 × 6 種長循環 × FORCE_DE_SEL 1～63 × 4 列 × code 0～31）、G1w 與 Auto 接線位置 154224（8 種 code）0 差異、G2 ③ TFT 第二組 24 組（pix58／row34 × 4 種 FORCE_DE_SEL，code 18～29）名稱＝secondName、G3 Excel round-trip 513＋Tri 144（code 0／5／17／18／23／29／30／31）、G4 Tri code 30 1134、G5 未定義提示 13、G6 文字 11、G7 寫入 byte 272（MNT／NB 31→1F、30 非標準；EN01 0～255 逐值）。
+- `check_datamap.js` 282 pass / 4 fail：4 條是 v1.35.7（NB 改用 pool）以來沒更新的 GN1／GN2 預期（輸入用 GN1 驗證、Dual 選項＝GN1／GN2、All Same 選項），v1.35.22 同樣失敗，本版不動；本版更新 3 條：第二組選項（不帶型號只有數字＋pix58 名稱＝第 4 欄 pool）、Excel 非標準值改用 0x1E（0x1D＝29 已是合法 code）且匯入保留 30、0x20 ⇒ X。
+- `boe --qm`（全民 EM01 DisplayOK_07 code）109/0、`page --qm` 49/0、`tcon_gate` 77/1（唯一 fail「TCON Register 確認預設展開」＝v1.35.17 起預設收折、測試未更新，v1.35.22 同樣 77/1）、`tri` 138/0、`tri_tools` 446/0、`codefix` 270970/0、`lod` 161/0、`auto` 92/0、`en01` 75/0、`fold` 50/0、`tft_interact` 1192/0、`handentry` 125/0。
+- `wiringFromState` 不帶 opt：v1.35.22 與本版 10368 組（3 型號 × panel 0～3 × sub 0～7 × FORCE_DE_SEL 9 值 × FORCE_DE_EN × Mirror／CHRB，含 30／31）JSON 逐字相同（Line OD／快照 regs 不受影響）。
+- S/D 快照：基準在下一個 commit 重拍（Bruce 10/17 同意；派工 E 項），逐組差異歸因寫在下方「快照基準重拍」。
+
 ## Data Mapping (datamap) v1.35.22 — 2026-10-17 ｜ PATCH ｜ ⚠ 輸出變更 ｜ MNT Tri 下拉放寬到 code 0～29（含負 pixel），與 Single／Dual／Auto 同一政策
 
 判定依據：§2 案例 2 修正既有功能（Tri 表格與 Single／Dual／Auto 對同一個 code 的合法範圍判斷不一致），控制項不變 → PATCH（R1）；Tri 下拉多出 R-3～R-8 等選項、原本被當「非標準」的 code 現在顯示名稱（Excel 匯出／All Same／Benchmark 的 Tri 名稱跟著變）→ 標 ⚠ 輸出變更。版號接在 v1.35.21（c722898）之後。

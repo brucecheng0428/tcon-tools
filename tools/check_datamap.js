@@ -256,7 +256,10 @@ sec('③c MNT r2..b3 與 V512（v1.2.0）');
     ok(p8 && p8.state.x23 === 0 && p8.state.c23 === h8.c23 && DM.pickSecond(m, h8, 0, 0, 30) === null && DM.pickSecond(m, h8, 0, 0, 31).state.x0 === 31, m + ' 8-pixel：b3_3 選 0（有效值 R3，不是空）、30 拒絕、X＝31');
     const f8 = DM.firstEdit(m, h8, DM.pickCell(m, h8, 0, 0, 'R1').state);
     ok(!f8.touched && same(xs(f8.state), xs(h8)), m + ' 8-pixel：改第一組不動第二組（使用者自己填）');
-    ok(DM.secondOptions().length === 31 && DM.secondOptions()[0].value === 0 && DM.secondOptions()[0].name === 'R3' && DM.secondOptions()[30].value === 31, '第二組選項 0~29＋X(31)，0＝R3');
+    /* v1.35.23（Bruce 10/17「第二組下拉名稱固定取 GN1…GN1 到底是什麼意思」）：名稱不再固定取 GN1，改跟起始欄＋該組位置（DM.secondName，與 ③ 接線圖／Auto 同一來源；矩陣在 check_datamap_gaps G1） */
+    ok(DM.secondOptions().length === 31 && DM.secondOptions()[0].value === 0 && DM.secondOptions()[0].name === '' && DM.secondOptions()[30].value === 31, '第二組選項 0~29＋X(31)；不帶型號只有數字');
+    { const s8 = MS(m, { hand: 1, panel: 2, subPanel: 4, rd: 1, deEn: 1, deSel: 14 }), o8 = DM.secondOptions(m, s8, 0);
+      ok(o8.length === 31 && o8[0].name === DM.linName(DM.mntIdx(4, 0)) && o8[29].name === DM.linName(DM.mntIdx(4, 29)) && o8.every(o => o.value === 31 ? o.name === 'X' : !!o.name), '' + m + ' 第二組（pix58，起始欄 2）名稱＝第 4 欄 pool 名稱（0＝' + o8[0].name + '、29＝' + o8[29].name + '），code 18～29 也有名稱'); }
     /* LTPS MUX3：只開 _0／_2；填任何一格 ⇒ _1／_3 寫 0 */
     const mx = MS(m, { hand: 1, panel: 3, subPanel: 2, rd: 2 }), rm = DM.secondSetRule(m, mx);
     ok(rm.mode === 'mux3' && rm.cycle === 'long' && DM.secondEditable(m, mx, 0) && DM.secondEditable(m, mx, 2) && !DM.secondEditable(m, mx, 1) && !DM.secondEditable(m, mx, 3),
@@ -369,14 +372,16 @@ sec('⑤ I2C 假裝置');
   sec('⑥ xlsx 往返');
   {
     const K = 'E503', s = st(K, { hand: 1, panel: 2, rd: 1 }); for (let i = 0; i < 24; i++) s['c' + i] = [6, 7, 8, 9, 10, 11][i % 6] + (Math.floor(i / 6) & 1 ? 6 : 0);
-    s.c2 = 0x1D;
+    s.c2 = 0x1E;   // v1.35.23：0x1D（29）自 v1.35.7 NB 用 pool 起是合法 code（有名稱），改用 30（未定義）測非標準值
     const rows = DM.excelRows(K, s), u8 = XL.build([{ name: 'Data Mapping', rows }]);
     const back = await DM.readXlsxRows(u8, inflateRaw);
     ok(same(back[1].slice(0, 7), rows[1]) && back[0][1] === 'Data 1', 'Data Mapping Excel 寫出 → 讀回一致');
     const nm = DM.excelToNames(back);
-    ok(nm.ok && nm.names[2] === '0x1D', '非標準值以 0xNN 匯出（PY 讀到會當 X）');
+    ok(nm.ok && nm.names[2] === '0x1E', '非標準值以 0xNN 匯出（PY 讀到會當 X）');
     const ap = DM.applyNames(K, s, nm.names);
-    ok(ap.c0 === s.c0 && ap.c2 === 31, 'Import Excel：一般名稱還原；0xNN 不在表內 ⇒ X（同 PY set_rgb_table_to_dm_info）');
+    /* v1.35.23（#c8911321 缺口 3）：網頁匯入接受自己匯出的「0xNN」（≤31）原值寫回、頁面跳「未定義 code」提示（舊版同 PY 變 X＝31，匯出再匯入就默默改值）；PY 讀這份 Excel 仍會當 X */
+    ok(ap.c0 === s.c0 && ap.c2 === 30, 'Import Excel：一般名稱還原；0x1E 原值寫回 30（v1.35.23；PY 會當 X）');
+    ok(DM.applyNames(K, s, nm.names.map((n, i) => i === 2 ? '0x20' : n)).c2 === 31, 'Import Excel：0x20 超過 5 bit ⇒ X');
     const sr = DM.pyScriptRows(K, s), su8 = XL.build([{ name: 'Sheet1', rows: sr }]), sb = await DM.readXlsxRows(su8, inflateRaw);
     ok(sb[0][0] === 'TCON\n(內部型號)' && sb[1][4] === '0x322[0:0]', 'SCRIPT xlsx 讀回：表頭含換行、Offset 格式 0x322[0:0]');
     const DMX = path.join(process.env.HOME || '', 'TCON/TCON_UI/Raydium_RomCodeProcessUI/Raydium_RomCodeProcessUI_V5.0.4_Release/Data_Mapping');

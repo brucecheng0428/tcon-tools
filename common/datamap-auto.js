@@ -315,14 +315,14 @@
     return ns;
   }
   var SWAP6 = [2, 1, 0, 5, 4, 3];
-  function wiringFromState(model, s, swap, gate) {
+  function wiringFromState(model, s, swap, gate, opt) {   // v1.35.23 opt.keepBad：未定義 code（例 30）那格當空（不畫）、其他照畫，回傳 bad＝格數；沒給 opt 時行為不變（Line OD 等仍整張 ok:false）
     var g = gate || DM.gateOf(model, s), R = DM.secondSetRule(model, s), tn = function (T, v) { return v === 31 ? null : LOD.tName(T, v); };
     var c = function (slot, ch) { return s['c' + (slot * 6 + ch)] | 0; }, x = function (slot, ch) { return s['x' + (slot * 6 + ch)] | 0; };
     /* v1.17.0：Hand Mode 的 T 表跟 FORCE_DE_EN／FORCE_DE_SEL（DM.mntBaseT；Kick Off「Data hand mode」D1:G1，預設／多位元＝T2 ⇒ 位移 0，舊行為不變） */
     var dT = DM.mntBaseT ? DM.mntBaseT(s).t - 2 : 0;
     /* v1.28.1（Woody 10/14 14:44：LTPS DE＝T3＝第 3 欄，等同 de_sel 0x0C）：Tri 第 k 條 gate＝起始欄＋k（與 Dual 下 gate＝起始欄＋1 同一規則）。
        舊版把 Tri 寫死成 lin(3＋g3)（起始欄 2 再＋1），等於把 LTPS 的第 3 欄藏在這裡；起始欄改由 mntBaseT 給 3 後改回 lin(2＋g3)＋dT，原廠 RT7 Tri 樣式的 Line OD 結果不變。 */
-    var bad = false, lin = function (T, v) { if (v === 31) return null; var l = tn(T + dT, v); if (l === null) bad = true; return l; };
+    var bad = false, badN = 0, keep = !!(opt && opt.keepBad), lin = function (T, v) { if (v === 31) return null; var l = tn(T + dT, v); if (l === null) { bad = true; badN++; if (keep) return NaN; } return l; };
     var rows = [], P = 6, A, G;
     if (g === 'single') {
       G = 1; A = 2;
@@ -350,7 +350,7 @@
         rows.push(t3);
       }
     } else return { ok: false, why: 'gate' };
-    if (bad) return { ok: false, why: 'code' };
+    if (bad && !keep) return { ok: false, why: 'code' };
     /* X（31）補位：同一列其他 Data 線是等距（如 Tri 每條差 1 pixel）時，依同一間距補上。原廠 Tri+ZZ (18)~(20) 的 B-1 在 T5 表沒有 code，寫 31 */
     var filled = 0;
     rows.forEach(function (ln) { ln.forEach(function (r) {
@@ -360,13 +360,16 @@
       if (d !== Math.round(d) || !idx.every(function (i, k) { return !k || r[i] - r[idx[k - 1]] === d * (i - idx[k - 1]); })) return;
       r.forEach(function (v, i) { if (v === null) { r[i] = r[idx[0]] + d * (i - idx[0]); filled++; } });
     }); });
+    if (keep && badN) rows = rows.map(function (line) { return line.map(function (r) { return r.map(function (v) { return v !== v ? null : v; }); }); });   // NaN（未定義）不參與 X 補位（間距算出 NaN 就跳過），最後當空
     if (swap) rows = rows.map(function (line) { return line.map(function (r) { return r.map(function (v, i) { return r[6 * Math.floor(i / 6) + SWAP6[i % 6]]; }); }); });
     /* v1.17.0 CHRB＝1：送出的 R、B 資料對調（EM02A1_RegisterBank.model:18160；原廠 RT7 (25)→(26) 只差 chrb、Line OD 25 做 R↔B＝26，RApp_TX.h:559-560）⇒ Line OD 依 R↔B 後的接線算 */
     if (s.chrb | 0) rows = rows.map(function (line) { return line.map(function (r) { return r.map(function (v) { return v === null ? null : rbIdx(v); }); }); });
     /* 最小的 line 循環（原廠 1 line 的 Type 會把兩列寫成一樣） */
     var n = rows.length, key = function (ln) { return JSON.stringify(ln); };
     for (var Lm = 1; Lm <= n; Lm++) if (n % Lm === 0 && rows.every(function (ln, i) { return key(ln) === key(rows[i % Lm]); })) { rows = rows.slice(0, Lm); break; }
-    return { ok: true, filled: filled, t: { g: g, P: P, A: A, rows: rows, mir: !!s.mirror } };
+    var res = { ok: true, filled: filled, t: { g: g, P: P, A: A, rows: rows, mir: !!s.mirror } };
+    if (keep) res.bad = badN;   // v1.35.23：只有 keepBad 時多回 bad（沒給 opt 時回傳內容與舊版逐字相同）
+    return res;
   }
   function expectedLod(model, s) {
     if (!lodSupported(model)) return { ok: false, why: 'model' };
