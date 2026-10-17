@@ -42,6 +42,16 @@
 - `wiringFromState` 不帶 opt：v1.35.22 與本版 10368 組（3 型號 × panel 0～3 × sub 0～7 × FORCE_DE_SEL 9 值 × FORCE_DE_EN × Mirror／CHRB，含 30／31）JSON 逐字相同（Line OD／快照 regs 不受影響）。
 - S/D 快照：基準在下一個 commit 重拍（Bruce 10/17 同意；派工 E 項），逐組差異歸因寫在下方「快照基準重拍」。
 
+### 快照基準重拍（另一個 commit；Bruce 10/17 同意重拍；派工 237043078094487552 E 項）
+- 重拍前比對：v1.35.22（3fee5a3，#782bdc5d 查證時的 /tmp/dmsnap 暫存快照）對本版 `--write` 的新基準逐組逐欄比（cmp.js）：19440 相同／5168 不同，全部歸因到本版 A～D：
+  - 整頁 body 3376（＝全部整頁重畫組）：D 版面容器 id `dm-live`→`dm-live-wrap`、未連線時勾選框恢復 `disabled`（與 a7e110f 相同）；Dual 列尾「可選 R5／R6（GN2）」→「下 gate：起始欄＋1」；圖例加範圍。
+  - ② 表格 grid 832（NB e50x 5 型號＋MNT 3 型號 Dual 各 64／128、EN01 128）：Dual 列尾文字（C）；EN01 格子加 hover 說明（A，select 不吃滑鼠後 title 搬到 td）。
+  - 第二組 x 864（MNT 3 型號 × 長循環 sub4／sub5／sub6／sub7）：第二組下拉名稱改 secondName（B②；例 HSD 8-pixel 起始欄 2：舊「0 · R3」固定 GN1 → 第 4 欄 pool 名稱；Zigzag type7 code 18～29 舊版只有數字）。
+  - ③ TFT pv 96（MNT 3 型號 × HSD 8-pixel／4line4pixel，各 FORCE_DE_SEL／Mirror）：第二組接線改 secondName（B①；code 18～29 不再畫 X、跟起始欄）。
+  - 暫存器／script／CKS／表格名稱 regs：0 差異（wiringFromState 不帶 opt 逐字相同）。
+- 代表組 dump 逐行 diff（DAZ6111 P0 Single、E503 Dual、EN01 Single、EM01 HSD 8-pixel FORCE_DE_SEL 12、EM01 Zigzag type7）與上述一致，沒有其他差異。
+- `node tools/check_datamap_sd_snapshot.js . --write` 寫入 `tools/datamap_sd_snapshot.json`（11104 組）；之後不帶 --write 重跑：**24608 pass / 0 fail**（11104 組，746 s）。
+
 ## Data Mapping (datamap) v1.35.22 — 2026-10-17 ｜ PATCH ｜ ⚠ 輸出變更 ｜ MNT Tri 下拉放寬到 code 0～29（含負 pixel），與 Single／Dual／Auto 同一政策
 
 判定依據：§2 案例 2 修正既有功能（Tri 表格與 Single／Dual／Auto 對同一個 code 的合法範圍判斷不一致），控制項不變 → PATCH（R1）；Tri 下拉多出 R-3～R-8 等選項、原本被當「非標準」的 code 現在顯示名稱（Excel 匯出／All Same／Benchmark 的 Tri 名稱跟著變）→ 標 ⚠ 輸出變更。版號接在 v1.35.21（c722898）之後。
