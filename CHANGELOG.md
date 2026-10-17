@@ -2,6 +2,41 @@
 
 ---
 
+## Data Mapping (datamap) v1.35.22 — 2026-10-17 ｜ PATCH ｜ ⚠ 輸出變更 ｜ MNT Tri 下拉放寬到 code 0～29（含負 pixel），與 Single／Dual／Auto 同一政策
+
+判定依據：§2 案例 2 修正既有功能（Tri 表格與 Single／Dual／Auto 對同一個 code 的合法範圍判斷不一致），控制項不變 → PATCH（R1）；Tri 下拉多出 R-3～R-8 等選項、原本被當「非標準」的 code 現在顯示名稱（Excel 匯出／All Same／Benchmark 的 Tri 名稱跟著變）→ 標 ⚠ 輸出變更。版號接在 v1.35.21（c722898）之後。
+
+### 起因
+- Bruce 10/17：「放寬到 0 至 29，但是有一點是不是要修正？Tri Gate 其實也有可能用到負數，都是一樣的。另外，7353 不用管它，因為基本上根本就不會用到。」（派工 237015171729031168；背景 v1.35.21 #85c9e1ce 回報：Tri 下拉 triCodeOk 仍只列 ⌊code/6⌋≤欄）。Bruce 本句即同意 Tri 預期值更新（決策 C5）。
+
+### 定義對照
+- Bruce「放寬到 0 至 29」＝每一欄 force_sel code 0～29 都可選；「Tri Gate 也會用到負數，都一樣」＝Tri 與 MNT Single／Dual 同一規則（空白處＝負 pixel／AA 區外 dummy，決策 A5）。
+- 程式：Single／Dual ② 表格＝`mntInRange`（0～29＋X）；Auto 接線＝`LOD.tName`（v1.35.21 起 0～29）；Tri＝`triCodeOk`（舊：多一個 ⌊code/6⌋≤欄）← 唯一不一致處。
+
+### 變更
+- `common/datamap-core.js:1494` `triCodeOk` 改成直接呼叫 `mntInRange`（code 0～29＋X 31，每一欄都合法）。連帶（同一來源，不另改程式）：`triCellOptions`（:1503，下拉）、`triCellView.inTable`（:1498，是否標非標準）、`triNames`／`triApplyNames`／`triAllSame`（All Same、Excel、Benchmark）、`triPxCov`（:1561，Tri Pixel 範圍）。
+- 註解 :1475（名稱表規則）、:1492-1493、:1555-1556 更新；Tri Pixel 交集＝`poolCov(MNT_POOL, c, 2)`（與 Dual 的 rel 1 同一公式），測試逐欄比對。
+- 名稱換算 `triName`＝`linName(mntIdx(T, code))` 本來就涵蓋 0～29、Mirror 不平移（與 `mntName` 相同）；Auto 接線 `wiringFromState` Tri 分支＝`LOD.tName(起始欄＋g)`（v1.35.21 已 0～29）⇒ 不需改。
+- `tools/check_datamap_tri.js` 新增 A2：負 pixel 矩陣與案例；舊註解「選項只列 T 表有定義的 code」更正。
+
+### 全面審查（grep 全專案 `⌊code/6⌋`／`floor(code / 6)`／`6 * (T + 1)`／`mntInTable`／`triCodeOk`／`tName`）
+- `datamap-core.js:1494 triCodeOk` ← 本版統一。
+- `datamap-lod.js:238 tName` ← v1.35.21 已統一（0～29）。
+- `datamap-core.js:729 mntInTable`（code＜6×(T+1)）：只匯出、程式內沒有任何呼叫者（說明用「Excel 表上畫到哪裡」），不影響可選範圍，保留。
+- `datamap-core.js:728 mntInRange`、`:857 mntDict`（0～29）、`:699/:737 mntFitT／mntCands`、`:837 tUse`（mntInRange）、`datamap.html:1387` oor 判斷（mntInRange）、`datamap-auto.js:101/115/319` 原廠表／接線（LOD.tName）：都已是 0～29，無矛盾。
+- 其他 `floor(x/6)` 命中（core:211/214/433/446/451/833/953-956/1581、html:1302/2453、auto:363）是「第幾列／第幾組 6 條 Data 線」的索引，不是 code 範圍限制。
+- NB：不做手動 Tri（決策 A11），不受影響；EN01 不走 triCodeOk。
+
+### 沒改
+- DAZ7353 Check T-CON：Bruce 10/17「7353 不用管它，因為基本上根本就不會用到」→ 不處理。
+
+### 驗證（Mac mini 實跑，worktree tcon-tools-wt-tri029）
+- `tools/check_datamap_tri.js` **138 pass / 0 fail**。新增 A2：MNT 3 型號 × FORCE_DE_EN 0／1 × FORCE_DE_SEL（1～63）× 6 列＝1152 列組合，每列下拉＝code 0～29＋X、名稱＝linName(codeIdx(起始欄＋g, code))、選了讀回同名；34560 次 Auto 接線（wiringFromState）位置＝表格名稱位置（含負 pixel）；案例：(21) Tri+BOE 起始欄 3 Line 1-1 下拉 25→31 項（多 R-3～B-4），選 R-4＝code 24、接線在 R-4；FORCE_DE_SEL 0x01 第 1 欄 R1…B-7（含 R-8）；Tri Pixel 範圍 −4～2（改前 −2～2）；triPxCov(c)＝poolCov(MNT_POOL, c, 2)（c＝1～6）；同起始欄 Tri Line 1-1 名稱集合＝Dual Line 1-1。同一份測試套在 v1.35.21（c722898）會失敗（R-4 選不到，triPick 回 null）。
+- `check_datamap_tri_tools` 444 pass / 1 fail：唯一 fail「MNT Single／Dual、EN01 各 Gate 的 Pixel 範圍仍是 v1.33.0 公式（72 組，錯 320）」在 v1.35.21 一模一樣（444/1），320 筆全是 EN01（EN01 改 pool step 12 後此測試預期值沒跟上），不是本版造成，未改。
+- `boe --qm`（全民 EM01 DisplayOK_07 code）109/0、`lod` 161/0、`auto` 92/0、`codefix` 270970/0（＝v1.35.21 同數）、`page --qm` 49/0、`tft_interact` 1192/0。
+- `sd_snapshot`（不 --write）：14768 pass / 9840 fail，與 v1.35.21（c722898）同一基準逐行 diff 只差耗時 ⇒ Single／Dual 0 差異（快照不含 Tri；fail 數來自 v1.35.9 舊基準，等下一件重拍）。
+- 依派工不跑 nbpx／bench；同時最多 2 行程。
+
 ## Data Mapping (datamap) v1.35.21 — 2026-10-17 ｜ PATCH ｜ 網頁已知問題修正：MNT R-3～R-6 Auto 接線換算、NB 起始欄單一來源、Check T-CON DAZ613x
 
 判定依據：§2 案例 2 修正既有功能（同一份暫存器在不同換算得到不同結果），不新增使用者能做的事、控制項不動 → PATCH（R1）。版號接在 v1.35.20（4a2d064）之後。
