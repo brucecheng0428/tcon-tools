@@ -32,8 +32,8 @@ MNT.forEach(k => {
   });
   const boe = handTri(k, TRI_PRESETS[3].i);
   ok(view(k, boe).join('|') === 'R1 G1 B1 R2 G2 B2|R3 G3 B3 R4 G4 B4|R5 G5 B5 R6 G6 B6|R1 G1 B1 R2 G2 B2|R3 G3 B3 R4 G4 B4|R5 G5 B5 R6 G6 B6', k + ' (21) Tri+BOE 6 列名稱：' + view(k, boe).join('|'));
-  const lr = handTri(k, TRI_PRESETS[0].i);
-  ok(view(k, lr)[2] === 'B1 B2 B3 B4 B5 B6' && view(k, lr)[5] === 'X B1 B2 B3 B4 B5', k + ' (18) Tri+ZZ+LR Line 1-3／2-3：' + view(k, lr)[2] + '｜' + view(k, lr)[5]);
+  const lr = handTri(k, TRI_PRESETS[0].i);   // v1.35.24：LTPS MUX3 zigzag 的 31 依 Pool 是 subpixel（第 5 欄＝B-1），不再顯示 X（Bruce 10/17 20:0x；派工 237187824600842240）
+  ok(view(k, lr)[2] === 'B1 B2 B3 B4 B5 B6' && view(k, lr)[5] === 'B-1 B1 B2 B3 B4 B5', k + ' (18) Tri+ZZ+LR Line 1-3／2-3：' + view(k, lr)[2] + '｜' + view(k, lr)[5]);
   /* 每列每格每個選項：讀回相同、只改到那一格（＋第二組 _1／_3 清 0） */
   let n = 0, bad = 0;
   const s0 = boe;
@@ -67,10 +67,10 @@ console.log('A2. code 0～29（含負 pixel）');
       const s = Object.assign(DM.cloneState(base0), { deEn: en, deSel: en ? ds : base0.deSel });
       if (!DM.triOn(k, s)) { bad++; badMsg.push(k + ' en' + en + ' 0x' + ds.toString(16) + ' 不是 Tri'); return; }
       for (let r = 0; r < 6; r++) {
-        const T = DM.triT(s, r), opts = DM.triCellOptions(k, s, r);
-        const want = Array.from({ length: 30 }, (_, c) => DM.linName(DM.codeIdx(T, c))).concat('X');
+        const T = DM.triT(s, r), opts = DM.triCellOptions(k, s, r), zz = DM.ltpsZzKind(k, s, r >= 3);   // v1.35.24：(21) Tri+BOE＝sub 2（LTPS MUX3 zigzag 同一組暫存器）⇒ 30／31 是 Pool subpixel、沒有 X
+        const want = Array.from({ length: 30 }, (_, c) => DM.linName(DM.codeIdx(T, c))).concat(zz ? [DM.linName(DM.ltpsZzIdx(T, 30, zz)), DM.linName(DM.ltpsZzIdx(T, 31, zz))] : 'X');
         combos++;
-        if (opts.map(o => o.name).join(' ') !== want.join(' ') || opts.map(o => o.value).join(',') !== Array.from({ length: 30 }, (_, c) => c).concat(31).join(',')) { bad++; if (badMsg.length < 5) badMsg.push(k + ' en' + en + ' 0x' + ds.toString(16) + ' 列' + r + '：' + opts.map(o => o.name).join(' ')); continue; }
+        if (opts.map(o => o.name).join(' ') !== want.join(' ') || opts.map(o => o.value).join(',') !== Array.from({ length: 30 }, (_, c) => c).concat(zz ? [30, 31] : 31).join(',')) { bad++; if (badMsg.length < 5) badMsg.push(k + ' en' + en + ' 0x' + ds.toString(16) + ' 列' + r + '：' + opts.map(o => o.name).join(' ')); continue; }
         /* 每個 code 選到第 1 格 ⇒ 讀回同名、inTable、Auto 接線算得出來且位置＝名稱位置（負 pixel 也一樣） */
         for (let c = 0; c < 30; c++) {
           const st = DM.triPick(k, s, r, 0, want[c]).state, v = DM.triCellView(k, st, r, 0);
@@ -82,13 +82,13 @@ console.log('A2. code 0～29（含負 pixel）');
       }
     });
   });
-  ok(!bad && combos === 3 * 64 * 6, 'Tri 下拉 code 0～29＋X、名稱＝linName(codeIdx(起始欄＋g))、選了讀回同名：' + combos + ' 列組合（錯 ' + bad + '）' + (badMsg.length ? '｜' + badMsg.join('｜') : ''));
+  ok(!bad && combos === 3 * 64 * 6, 'Tri 下拉 code 0～29＋X（LTPS zigzag：＋30／31 subpixel）、名稱＝linName(codeIdx(起始欄＋g))、選了讀回同名：' + combos + ' 列組合（錯 ' + bad + '）' + (badMsg.length ? '｜' + badMsg.join('｜') : ''));
   ok(wired === combos * 30 && !wbad, 'Tri 每個 code（含負 pixel）Auto 接線算得出來、位置＝表格名稱位置：' + wired + ' 次（錯 ' + wbad + '）');
 }
 /* 負 pixel 具體案例：(21) Tri+BOE（起始欄 3）Line 1-1 改前只到 R-2～B-1，改後有 R-3～B-4；第 1 欄起（FORCE_DE_SEL 0x01）到 R-8 */
 MNT.forEach(k => {
   const s = handTri(k, TRI_PRESETS[3].i), n11 = DM.triCellOptions(k, s, 0).map(o => o.name);
-  ok(DM.triT(s, 0) === 3 && ['R-3', 'G-3', 'B-3', 'R-4', 'G-4', 'B-4'].every(n => n11.indexOf(n) >= 0) && n11.length === 31, k + ' (21) Line 1-1（第 3 欄）下拉 31 項含 R-3～B-4：' + n11.slice(18).join(' '));
+  ok(DM.triT(s, 0) === 3 && ['R-3', 'G-3', 'B-3', 'R-4', 'G-4', 'B-4'].every(n => n11.indexOf(n) >= 0) && n11.length === (DM.ltpsZzPool(k, s) ? 32 : 31), k + ' (21) Line 1-1（第 3 欄）下拉 32 項（v1.35.24：sub 2 的 30／31＝subpixel）含 R-3～B-4：' + n11.slice(18).join(' '));
   const st = DM.triPick(k, s, 0, 0, 'R-4').state, w = A.wiringFromState(k, st);
   ok(DM.triCellView(k, st, 0, 0).txt === 'R-4' && st.c0 === 24 && w.ok && w.t.rows[0][0][0] === DM.linIdx('R-4'), k + ' 選 Line 1-1 Data 1＝R-4 ⇒ code 24、讀回 R-4、Auto 接線在 R-4（' + (w.ok ? w.t.rows[0][0][0] : w.why) + '）');
   const s1 = Object.assign(DM.cloneState(s), { deEn: 1, deSel: 0x01 }), n1 = DM.triCellOptions(k, s1, 0).map(o => o.name);
@@ -100,7 +100,7 @@ for (let c = 1; c <= 6; c++) ok(JSON.stringify(DM.triPxCov(c)) === JSON.stringif
 /* 與 Single／Dual 同一政策：同起始欄時 Tri 第 1 條 gate 的名稱集合＝MNT Dual 上 gate 列下拉 */
 MNT.forEach(k => {
   const t = handTri(k, TRI_PRESETS[3].i), d = DM.setGate(k, DM.cloneState(t), 'Dual-Gate'); d.deEn = 1; d.deSel = 1 << (DM.triT(t, 0) - 1); const t2 = Object.assign(DM.cloneState(t), { deEn: 1, deSel: d.deSel });
-  const a = DM.triCellOptions(k, t2, 0).map(o => o.name).sort().join(' '), b = DM.cellOptions(k, d, 0, 0).map(o => o.name).sort().join(' ');
+  const a = DM.triCellOptions(k, t2, 0).filter(o => o.value < 30).map(o => o.name).sort().join(' '), b = DM.cellOptions(k, d, 0, 0).filter(o => o.value < 30).map(o => o.name).sort().join(' ');   // v1.35.24：比 code 0～29（Tri sub 2 的 30／31 是 LTPS zigzag Pool 專用）
   ok(a === b, k + ' Tri Line 1-1 下拉名稱集合＝Dual Line 1-1 下拉（同起始欄 ' + DM.triT(t2, 0) + '）' + (a === b ? '' : '｜Tri ' + a + '｜Dual ' + b));
 });
 console.log('B. 型號分流與退回開關');

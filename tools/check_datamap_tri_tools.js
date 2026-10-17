@@ -44,14 +44,16 @@ const onlyIds = (k, a, b, allow) => DM.fieldsOf(k).filter(f => (a[f.id] | 0) !==
     for (const { s, tag } of ST) {
       /* All Same Pixel */
       const opts = DM.triAllSameOptions(k, s);
-      if (opts[opts.length - 1] !== 'X' || opts.length < 2) { badSame++; console.log('    ' + tag + ' 選項 ' + opts.join(',')); }
+      const zz0 = DM.ltpsZzKind(k, s, false);   // v1.35.24：LTPS MUX3 zigzag（sub 2／6，含 (21) Tri+BOE）的 31 是 Pool subpixel ⇒ All Same 不列 X、表外名稱寫 31 顯示該 subpixel
+      if ((zz0 ? opts.indexOf('X') >= 0 : opts[opts.length - 1] !== 'X') || opts.length < 2) { badSame++; console.log('    ' + tag + ' 選項 ' + opts.join(',')); }
       for (const n of opts) {
         nSame++;
         const r = DM.triAllSame(k, s, n), st = r && r.state;
         let good = !!st && r.text === n && onlyIds(k, s, st, triIds().concat(ZERO)) && ZERO.every(id => (st[id] | 0) === 0);
         if (good) for (let row = 0; row < 6; row++) {
           const has = DM.triCellOptions(k, s, row).some(o => o.name === n);
-          for (let c = 0; c < 6; c++) { const v = DM.triCellView(k, st, row, c); if (v.txt !== (has ? n : 'X') || !v.inTable) good = false; }
+          const fb = DM.triName(DM.triT(s, row), 31, DM.ltpsZzKind(k, s, row >= 3));
+          for (let c = 0; c < 6; c++) { const v = DM.triCellView(k, st, row, c); if (v.txt !== (has ? n : fb) || !v.inTable) good = false; }
         }
         if (!good) { badSame++; if (badSame < 5) console.log('    ' + tag + ' All Same ' + n + ' ✗'); }
       }
@@ -134,9 +136,15 @@ const onlyIds = (k, a, b, allow) => DM.fieldsOf(k).filter(f => (a[f.id] | 0) !==
     w.dmState.cur = s; w.dmState.xTouched = false; w.dmRender();
     const tn = () => DM.triNames(k, w.dmState.cur).join(' ');
     /* All Same */
-    ok(!$('dm-same').disabled && !$('dm-samev').disabled && Array.from($('dm-samev').options).some(o => o.value === 'X'), k + ' All Same Pixel 可用');
-    fire('dm-samev', 'X'); $('dm-same').click();
-    ok(tn() === new Array(36).fill('X').join(' ') && d.querySelectorAll('#dm-trigrid select').length === 36 && Array.from(d.querySelectorAll('#dm-trigrid select')).every(e => e.value === 'X'), k + ' All Same X：36 格全 X（表格也顯示 X）');
+    const zzP = DM.ltpsZzPool(k, s);   // v1.35.24：(21) Tri+BOE＝sub 2 ⇒ 31 是 Pool subpixel，All Same 不列 X
+    ok(!$('dm-same').disabled && !$('dm-samev').disabled && Array.from($('dm-samev').options).some(o => o.value === 'X') === !zzP, k + ' All Same Pixel 可用（LTPS zigzag 不列 X）');
+    if (!zzP) {
+      fire('dm-samev', 'X'); $('dm-same').click();
+      ok(tn() === new Array(36).fill('X').join(' ') && d.querySelectorAll('#dm-trigrid select').length === 36 && Array.from(d.querySelectorAll('#dm-trigrid select')).every(e => e.value === 'X'), k + ' All Same X：36 格全 X（表格也顯示 X）');
+    } else {
+      const sx = DM.triAllSame(k, w.dmState.cur, 'X').state; w.dmState.cur = sx; w.dmRender();
+      ok(triIds().every(id => (sx[id] | 0) === 31) && Array.from(d.querySelectorAll('#dm-trigrid select')).every((e, i) => e.value === DM.triCellView(k, sx, Math.floor(i / 6), i % 6).txt && e.value !== 'X'), k + ' All Same X（寫 31）：36 格＝31，表格顯示 Pool subpixel（' + d.querySelector('#dm-trigrid select').value + '）');
+    }
     fire('dm-samev', 'R1'); $('dm-same').click();
     ok(Array.from(d.querySelectorAll('#dm-trigrid select')).every(e => e.value === 'R1') && w.dmState.xTouched, k + ' All Same R1：36 格 R1（含 Line x-3）');
     ok(w.dmBuildScript().text.indexOf('write -m ' + DM.hex(DM.fieldById(k, 'x0').parts[0][0], 4)) >= 0, k + ' All Same 後 script 含 Line 1-3（force_sel_r2_0）');

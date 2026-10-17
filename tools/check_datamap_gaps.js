@@ -32,10 +32,12 @@ for (const m of MNT) for (const [mean, pm, sub] of LONG) for (let ds = 1; ds < 6
     ok(T === want, 'G1', m + ' ' + mean + ' ds' + ds + ' row' + row + ' secondT ' + T + ' want ' + want);
     const opts = DM.secondOptions(m, s, row);
     for (let code = 0; code <= 31; code++) {
-      const nm = DM.secondName(m, s, row, code), exp = code === 31 ? 'X' : code === 30 ? null : DM.linName(DM.mntIdx(want, code));
+      /* v1.35.24：LTPS MUX3 zigzag（sub 2／6）的 30／31 是 Pool subpixel（DM.ltpsZzIdx；line 1＋Mirror＝G 版），其他模式 31＝X、30 未定義 */
+      const zz = mean === 'mux3' ? DM.ltpsZzKind(m, s, row === 2) : 0;
+      const nm = DM.secondName(m, s, row, code), exp = zz && code >= 30 ? DM.linName(DM.ltpsZzIdx(want, code, zz)) : code === 31 ? 'X' : code === 30 ? null : DM.linName(DM.mntIdx(want, code));
       ok(nm === exp, 'G1', m + ' ' + mean + ' ds' + ds + ' row' + row + ' code' + code + ' ' + nm + '≠' + exp);
       const o = opts.find(x => x.value === code);
-      ok(code === 30 ? !o : (o && o.name === exp), 'G1', 'secondOptions ' + m + ' ' + mean + ' row' + row + ' code' + code);
+      ok(code === 30 && !zz ? !o : (o && o.name === exp), 'G1', 'secondOptions ' + m + ' ' + mean + ' row' + row + ' code' + code);
     }
   }
   // 與 Auto 接線同一位置：主組 c 全填 A（合法）、第二組 x 全填 B，比對第二組 Data 線位置
