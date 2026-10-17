@@ -346,7 +346,9 @@
       G = 3; A = 6;
       for (var l3 = 0; l3 < 2; l3++) {
         var t3 = [];
-        for (var g3 = 0; g3 < 3; g3++) { var r4 = []; for (var h5 = 0; h5 < 6; h5++) r4.push(lin(2 + g3, g3 === 2 ? x(2 * l3, h5) : c(2 * l3 + (g3 === 1 ? 1 : 0), h5))); t3.push(r4); }
+        /* v1.35.24（派工 237187824600842240）：LTPS MUX3 zigzag 的 Pool 有 30／31（DM.ltpsZzIdx；line 1＋Mirror＝G 版），直接給位置、不當 X／未定義；其他模式不變 */
+        var zz3 = DM.ltpsZzKind ? DM.ltpsZzKind(model, s, l3 === 1) : 0;
+        for (var g3 = 0; g3 < 3; g3++) { var r4 = []; for (var h5 = 0; h5 < 6; h5++) { var v5 = g3 === 2 ? x(2 * l3, h5) : c(2 * l3 + (g3 === 1 ? 1 : 0), h5); r4.push(zz3 && (v5 === 30 || v5 === 31) ? DM.ltpsZzIdx(2 + g3 + dT, v5, zz3) : lin(2 + g3, v5)); } t3.push(r4); }
         rows.push(t3);
       }
     } else return { ok: false, why: 'gate' };

@@ -262,6 +262,9 @@
     list.push({ name: 'X', value: 0xFF });
     return (_en01Defs[t] = list);
   }
+  /* v1.35.24（Bruce 10/17 20:0x「31 跟 255，有可能也會對應到負的 subpixel…就要靠你網頁版的程式來判斷」）：EN01 X（255）照 Pool 公式（poolIdx，與負 pixel 延伸同一式）外推的位置；
+     原廠 Pool 只到 131，255 實際送什麼未確認 ⇒ 只當提示（推論）。回傳 { name, n }：n＝負第 n 個 subpixel（B-1＝1）；外推不是負數 ⇒ null */
+  function en01XApprox(t) { var k = poolIdx(EN01_POOL.step, en01T(t) + 1, 0xFF); return k < 0 ? { name: linName(k), n: -k } : null; }
   function en01Name(t, v) { var d = en01Defs(t); for (var i = 0; i < d.length; i++) if (d[i].value === v) return d[i].name; return null; }
   function en01Value(t, name) { var d = en01Defs(t); for (var i = 0; i < d.length; i++) if (d[i].name === name) return d[i].value; return null; }
   /* 'off'｜'single'｜'dual'｜'tri'｜'mux4'｜'mux6'｜'rdx'（RD_MODE 4／6／7＝model 寫 not support） */
@@ -599,14 +602,17 @@
     return null;
   }
   function secondName(key, s, row, code) {
-    code = code | 0; if (code === 31) return 'X';
+    code = code | 0;
+    var zz = ltpsZzPool(key, s) && secondSetRule(key, s).meaning === 'mux3' ? ltpsZzKind(key, s, row === 2) : 0;   // v1.35.24：mux3 第二組＝Tri 第 3 條 gate（_0＝line 0、_2＝line 1）
+    if (zz && (code === 30 || code === 31)) { var Tz = secondT(key, s, row); return Tz === null ? null : linName(ltpsZzIdx(Tz, code, zz)); }
+    if (code === 31) return 'X';
     var T = secondT(key, s, row); if (T === null || code < 0 || code > 29) return null;
     return linName(mntIdx(T, code));
   }
   function secondOptions(key, s, row) {
-    var out = [];
-    for (var v = 0; v <= 29; v++) out.push({ value: v, name: key ? (secondName(key, s, row, v) || '') : '' });
-    out.push({ value: 31, name: 'X' });
+    var out = [], zz = ltpsZzPool(key, s) && secondSetRule(key, s).meaning === 'mux3' ? ltpsZzKind(key, s, row === 2) : 0;
+    for (var v = 0; v <= (zz ? 31 : 29); v++) out.push({ value: v, name: key ? (secondName(key, s, row, v) || '') : '' });
+    if (!zz) out.push({ value: 31, name: 'X' });
     return out;
   }
   /* 第二組某格的實際意義代碼（頁面翻成文字）：line58 依列 ⇒ 'line5'~'line8'；其他長循環整組同一個意義；不能填 ⇒ 'unused' */
@@ -622,8 +628,8 @@
   }
   /* 填第二組某格（row＝type _0~_3、col＝r2 g2 b2 r3 g3 b3）。mux3 時 _1／_3 一律寫 0。 */
   function pickSecond(key, s, row, col, value) {
-    var v = +value;
-    if (!secondEditable(key, s, row) || !(v === 31 || (v >= 0 && v <= 29) && v === Math.floor(v))) return null;
+    var v = +value, zz30 = v === 30 && ltpsZzPool(key, s) && secondSetRule(key, s).meaning === 'mux3';   // v1.35.24：LTPS MUX3 zigzag 的 30 是 Pool 內的 subpixel
+    if (!secondEditable(key, s, row) || !(v === 31 || zz30 || (v >= 0 && v <= 29) && v === Math.floor(v))) return null;
     var ns = cloneState(s); ns['x' + (row * 6 + col)] = v;
     if (secondSetRule(key, s).mode === 'mux3') for (var c = 0; c < 6; c++) { ns['x' + (6 + c)] = 0; ns['x' + (18 + c)] = 0; }
     return { state: ns, text: String(v) };
@@ -689,6 +695,18 @@
   var MNT_POOL = { step: 6, n: 30 }, EN01_POOL = { step: 12, n: 132 };
   function poolIdx(step, col, code) { return step * (col - 1) - step * Math.floor(code / step) + code % step; }
   function mntIdx(T, code) { return poolIdx(MNT_POOL.step, T, code); }
+  /* v1.35.24（Bruce 10/17 20:0x「X 其實只是把它選到最後一個而已，並不是真的不送…31 跟 255，有可能也會對應到負的 subpixel…這個就要靠你網頁版的程式來判斷」；
+     派工 237187824600842240）：依模式判斷 code 30／31 是 subpixel 還是 X。寫入值不變（X 仍寫 31）。
+     出處：瑞鼎 Woody reply_110503_0924 EM01A1_rt7_register_force_mapping.xlsx LTPS!A185:S251（MUX3 zigzag type1）、LTPS!A322:S388（type2）：
+       Pool 第 216～217 列（type2 第 353～354 列）code 30＝B1、31＝B2，從第 6 欄（K 欄）起每往右一欄 +2 pixel（B3／B4、B5／B6…）；
+       「Only for line=1, mirror=1」那份（第 250～251 列、type2 第 387～388 列）30＝G1、31＝G2；其他 Pool（MUX3 normal、MUX2、BOE tri-gate、1D1G、Zigzag、HSD）都只到 29。
+     ⇒ 第 T 欄：30＝第 6(T−6)+2 顆（B）／+1 顆（G），31＝再 +3 顆（下一個 pixel 同色）。前 5 欄 Excel 是空白，依決策 A5（空白＝負 pixel）同公式延伸成 B-1、B-2…
+       （原廠 RT7 (18)～(20) Tri+ZZ 第 3 條 gate 第 5 欄寫 31，舊版靠「X 補位」推成 B-1；本公式直接得 B-1，兩者一致）。
+     模式＝MNT 且 PANEL_MODE＝3（LTPS）、SUB_PANEL_MODE＝2（MUX3 zigzag type1）或 6（MUX3 zigzag type2）（SUB_PANEL[3]）；
+     line1Mir＝Mirror＝1 且為 line 1（Tri 的 Line 2-1～2-3）。回傳 0＝不是這個模式（30 未定義、31＝X）、1＝B 版、2＝G 版。 */
+  function ltpsZzPool(key, s) { return !!(key && s && MODELS[key] && MODELS[key].kind === 'mnt' && (s.panel | 0) === 3 && ((s.subPanel | 0) === 2 || (s.subPanel | 0) === 6)); }
+  function ltpsZzKind(key, s, line1) { return ltpsZzPool(key, s) ? ((s.mirror | 0) && line1 ? 2 : 1) : 0; }
+  function ltpsZzIdx(T, code, kind) { code = code | 0; if (!kind || (code !== 30 && code !== 31)) return null; return 6 * (T - 6) + (kind === 2 ? 1 : 2) + (code === 31 ? 3 : 0); }
   function linPx(name) { var m = /^[RGB](-?\d+)$/.exec(name || ''); return m ? +m[1] : null; }
   /* 起始欄 c、各列額外右移 rel 欄時，全部列都選得到的 pixel 索引範圍（MNT 與 EN01 共用；P＝每欄 pixel 數、B＝code 組數） */
   function poolCov(pool, c, rel) { var P = pool.step / 3, B = pool.n / pool.step; return [P * (c + (rel | 0) - 1) - P * (B - 1), P * c - 1]; }
@@ -1512,16 +1530,19 @@
   /* v1.35.22（Bruce 10/17「放寬到 0 至 29…Tri Gate 其實也有可能用到負數，都是一樣的」；派工 237015171729031168）：拿掉 ⌊code/6⌋≤欄，
      改用 MNT 同一份 mntInRange（code 0～29＋X 31，每一欄都合法；空白處＝負 pixel／AA 區外 dummy，決策 A5；Woody EM01A1 1D1G!C26:C55、RApp_TX.cpp:9506-9511）。 */
   function triCodeOk(T, code) { return mntInRange(T, code); }
-  function triName(T, code) { code = code | 0; if (code === 31) return 'X'; if (code < 0 || code > 29) return null; return linName(mntIdx(T, code)); }
+  /* v1.35.24：zz＝ltpsZzKind（LTPS MUX3 zigzag 的 Pool 有 30／31 ⇒ 名稱＝subpixel，不當 X；其他模式 31＝X、30 未定義，與舊版相同） */
+  function triName(T, code, zz) { code = code | 0; if (zz && (code === 30 || code === 31)) return linName(ltpsZzIdx(T, code, zz)); if (code === 31) return 'X'; if (code < 0 || code > 29) return null; return linName(mntIdx(T, code)); }
+  function triZz(key, s, row) { return ltpsZzKind(key, s, row >= 3); }   // TRI_ROWS 3～5＝Line 2-x＝line 1
   function triCellView(key, s, row, col) {
-    var id = triId(row, col), raw = s[id] | 0, T = triT(s, row), nm = triName(T, raw);
-    return { id: id, raw: raw, t: T, txt: nm !== null ? nm : '0x' + hex(raw, 2), std: nm !== null, inTable: triCodeOk(T, raw), color: nm !== null ? colorOfName(nm) : 'ns',
-      field: fieldById(key, id).name, low: TRI_ROWS[row].g === 2 };
+    var id = triId(row, col), raw = s[id] | 0, T = triT(s, row), zz = triZz(key, s, row), nm = triName(T, raw, zz);
+    return { id: id, raw: raw, t: T, txt: nm !== null ? nm : '0x' + hex(raw, 2), std: nm !== null, inTable: zz && (raw === 30 || raw === 31) ? true : triCodeOk(T, raw), color: nm !== null ? colorOfName(nm) : 'ns',
+      field: fieldById(key, id).name, low: TRI_ROWS[row].g === 2, zz: zz && (raw === 30 || raw === 31) ? zz : 0 };
   }
   function triCellOptions(key, s, row) {
-    var T = triT(s, row), out = [];
+    var T = triT(s, row), zz = triZz(key, s, row), out = [];
     for (var c = 0; c < 30; c++) if (triCodeOk(T, c)) out.push({ name: triName(T, c), value: c });
-    out.push({ name: 'X', value: 31 });
+    if (zz) { out.push({ name: triName(T, 30, zz), value: 30 }); out.push({ name: triName(T, 31, zz), value: 31 }); }
+    else out.push({ name: 'X', value: 31 });
     return out;
   }
   function triPick(key, s, row, col, name) {
@@ -1649,7 +1670,7 @@
     buildScript: buildScript, applyScript: applyScript, pyScriptRows: pyScriptRows, applyPyScriptRows: applyPyScriptRows,
     excelName: excelName, excelRows: excelRows, excelToNames: excelToNames, readXlsxRows: readXlsxRows,
     writeRegs: writeRegs, readSpans: readSpans, readState: readState, modelByIcId: modelByIcId, hex: hex,
-    SELECT_KEYS: SELECT_KEYS, EN01_CH: EN01_CH, EN01_HD: EN01_HD, en01TRel: en01TRel, en01SName: en01SName, en01TLabel: en01TLabel, EN01_TABS: EN01_TABS, EN01_TDEF: EN01_TDEF, EN01_TMAX: EN01_TMAX, EN01_POOL: EN01_POOL, MNT_POOL: MNT_POOL,
+    SELECT_KEYS: SELECT_KEYS, EN01_CH: EN01_CH, EN01_HD: EN01_HD, en01TRel: en01TRel, en01SName: en01SName, en01TLabel: en01TLabel, EN01_TABS: EN01_TABS, EN01_TDEF: EN01_TDEF, EN01_TMAX: EN01_TMAX, EN01_POOL: EN01_POOL, MNT_POOL: MNT_POOL, ltpsZzPool: ltpsZzPool, ltpsZzKind: ltpsZzKind, ltpsZzIdx: ltpsZzIdx, en01XApprox: en01XApprox,
     poolIdx: poolIdx, poolCov: poolCov, linPx: linPx, en01BaseT: en01BaseT, en01RowT: en01RowT, EN01_GATES: EN01_GATES, EN01_PANEL: EN01_PANEL,
     en01Seg: en01Seg, en01Addr: en01Addr, en01RowLabel: en01RowLabel, en01Phases: en01Phases, en01Rows: en01Rows, en01Defs: en01Defs, en01Name: en01Name, en01Value: en01Value,
     en01Gate: en01Gate, en01CellView: en01CellView, en01Pick: en01Pick, en01SameOptions: en01SameOptions, en01AllSame: en01AllSame,

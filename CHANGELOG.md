@@ -2,6 +2,33 @@
 
 ---
 
+## Data Mapping (datamap) v1.35.24 — 2026-10-17 ｜ PATCH ｜ ⚠ 輸出變更 ｜ code 30／31 依模式判斷：LTPS MUX3 zigzag 畫成 Pool 的 subpixel，其他模式 X 註明「送 Pool 最後一格」；EN01 255 加負 subpixel 提示
+
+判定依據：§2 案例 2 修正（舊版把 LTPS MUX3 zigzag Pool 內合法的 30／31 當未定義／X）＋案例 11 文案 → PATCH（R1）。⚠ 輸出變更：MNT（EM01／EM02／E512）PANEL_MODE＝3 且 SUB_PANEL_MODE＝2／6 時，Tri 6 列表、第二組、③ TFT 接線圖與 Excel 匯出的 30／31 名稱改成 subpixel（例 RT7 (18) Line 2-3 Data 1：X → B-1）；寫入值、暫存器、script、Line OD 推算不變。其他模式只改圖例／提示文字。
+
+### 起因
+- Bruce 10/17 20:0x：「Data mapping 的表格送出 X，其實只是把它選到最後一個而已，並不是真的不送。可能 Tcon 還是會送，只是不知道送什麼東西…所以應該維持最大值也可以…如果不是 LTPS 模式，它應該還是可以當 X 來用吧？因為 X 通常是用來做 benchmark 的…跑到最左邊的負 pixel，對我的 benchmark 反而是比較方便的」「31 跟 255，有可能也會對應到負的 subpixel。這個我也不確定…這個就要靠你網頁版的程式來判斷。」
+- Dispatch 派工 237187824600842240（規則依 Bruce 原話）：寫入值不變；Pool 有定義 30／31 的模式畫成 subpixel，其他模式 31＝X（圖例註明）、30 未定義；EN01 255 能推就提示「≈ 負第 n 個 subpixel（推論）」。
+
+### 依據（確定）
+- 瑞鼎 Woody reply_110503_0924 `EM01A1_rt7_register_force_mapping.xlsx` LTPS 分頁：MUX3 zigzag type1 Pool 第 216～217 列（type2 第 353～354 列）code 30＝B1,B3,…,B17、31＝B2,…,B18（K～S＝第 6～14 欄）；「Only for line=1, mirror=1」第 250～251 列（type2 387～388）30＝G1…、31＝G2…；MUX3 normal、MUX2、BOE tri-gate 的 Pool 只到 29。
+- 同分頁 AB～AT 欄 Manual setting：MUX3 zigzag type1＝panel 3／sub 2、type2＝sub 6；BOE tri-gate 也是 sub 2（AK9）⇒ 暫存器分不出 zigzag type1 與 BOE，程式只能依 sub 判斷（BOE Pool 0～29 與 zigzag type1 逐格相同，只是沒列 30／31）。
+
+### 變更
+- `common/datamap-core.js:699-709` 新增 `ltpsZzPool／ltpsZzKind／ltpsZzIdx`：第 T 欄 30＝第 6(T−6)+2 顆（B；line 1＋Mirror＝+1，G）、31＝再 +3；前 5 欄照決策 A5 延伸成負 pixel（第 5 欄 31＝B-1）。
+- `:1534-1546` `triName(T, code, zz)`、`triZz`、`triCellView`（多回 `zz`）、`triCellOptions`（zigzag：code 0～31 都有名稱、不列 X；其他照舊 0～29＋X）。triPick／triApplyNames／triNames／All Same 走同一份選項。
+- `:604-616`、`:630-631` 第二組 `secondName／secondOptions／pickSecond`（mux3＝Tri 第 3 條 gate，TRI.on＝false 時才會用到）同規則。
+- `:262-267` `en01XApprox(t)`：EN01 255 照 Pool 公式（poolIdx）外推的負 subpixel（推論）。
+- `common/datamap-auto.js:349-351` `wiringFromState` Tri 分支：zigzag 的 30／31 直接給位置。原廠 RT7 (18)～(20) Tri+ZZ 第 3 條 gate 第 5 欄寫 31，舊版靠「X 補位」推成 B-1，新公式直接得 B-1 ⇒ 接線與 Line OD Type 18／19／20 不變，filled 由 1～2 變 0。
+- `datamap.html`：圖例 `dm.rngMnt`（加「X＝31（送 Pool 最後一格＝最負的 pixel，用於 benchmark）」）、新 `dm.rngMntZz`（zigzag 時：合法 code 0～31，30／31 是 Pool subpixel）、`dm.rngEn01`（X＝255 同註明）、③ 圖例 `dm.kyX`「X＝不畫線（TCON 仍會送…）」；:1591／:1659 依模式選文字；:1664 zigzag 時 30 不跳「未定義 code」；:1722 Tri 格子 hover 加「LTPS MUX3 zigzag Pool：code 31＝B-1」；:1328 EN01 X 格 hover 加「≈ R-79（負第 237 個 subpixel，依 Pool 公式外推，推論）」。
+- 已知影響：LTPS zigzag 的 Benchmark「全部 X」會寫 31，表格顯示成 subpixel（硬體依 Pool 也確實送那顆）。
+
+### 驗證（Mac mini 實跑；同時最多 2 行程；依派工不跑 nbpx／bench）
+- 新 `tools/check_datamap_x3031.js` **2878 pass / 0 fail**：A 3 型號 × sub 2／6 × Mirror 0／1 × 起始欄 1～6 × 6 列 × code 30／31 名稱＝Excel 公式、選項 0～31 無 X、選了讀回、Excel 名稱來回；B 其他 6 種模式 31＝X、30 未定義；C RT7 (18)～(20) filled＝0、Line OD 18／19／20；D EN01 T0～T10 外推；E 頁面 jsdom（圖例切換、hover、TFT 有 B-1、EN01 hover）。
+- 一次性等價比對（不進版控）：隨機 60000 組 MNT 狀態，非 zigzag 56179 組 wiringFromState／expectedLod／triCellView／triCellOptions／cellView／secondOptions／secondName 與 v1.35.23（9e694e1）逐字相同、0 差異。
+- 既有測試：`tri` 138/0、`tri_tools` 446/0、`gaps` 451177/0、`boe --qm`（/tmp/qm.bin 全民 EM01）109/0、`tft_interact` 1192/0。預期值更新（屬本件：sub 2／6 的 30／31 是 subpixel）：`tri` (18) Line 2-3「X B1…」→「B-1 B1…」、A2 矩陣與 (21) 下拉項數（31→32）、Tri／Dual 名稱集合只比 code 0～29；`tri_tools` All Same 選項在 zigzag 不列 X、表外名稱寫 31 顯示該 subpixel；`gaps` G1 mux3 sub 2 的 30／31 名稱（3024 項）。
+- S/D 快照（tools/datamap_sd_snapshot.json，對 9e694e1 基準）：改前比對 17856 pass／6752 fail＝整頁 3376 組＋③ TFT 卡（非接線圖部分）3376 組，全部是圖例文字（`dm.rngMnt`／`dm.rngEn01` 加 X 說明、`dm.kyX` 改「不畫線（TCON 仍會送…）」）。證明：同一版只把這 3 條文字換回舊字串再比 ⇒ 24584 pass／24 fail，剩 24 組＝Auto（Hand 關）panel 3 sub 2／6 × Mirror × CHRB 的圖例改成 `dm.rngMntZz`；暫存器／script／CKS／名稱／接線 0 差異。依 Bruce 同意重拍基準。
+
 ## Data Mapping (datamap) v1.35.23 — 2026-10-17 ｜ PATCH ｜ ⚠ 輸出變更 ｜ 「改值立即寫入」勾選框修好（#dm-live 重複 id）、EN01 表格點格子改成 R｜G｜B 面板、6 個 code 範圍缺口
 
 判定依據：§2 案例 2 修 bug（勾選框失效、第二組名稱／接線圖錯、Excel 匯出再匯入改值）＋案例 3 微調（EN01 選單改用 MNT／NB 同一個面板，控制項位置不變）→ PATCH（R1）；③ TFT 接線圖第二組（MNT Hand Dual HSD 8-pixel／4line4pixel）code 18～29 與非預設起始欄的名稱會變、Excel 匯入「0xNN」不再變 X、Tri 有 code 30 時改成只空那幾條 → 標 ⚠ 輸出變更。版號接在 v1.35.22（3fee5a3）之後。
