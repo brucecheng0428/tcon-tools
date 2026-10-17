@@ -1472,7 +1472,7 @@
      既有 Single／Dual 函式一行不改；只在 TRI.on 且 gateOf＝'tri' 時由頁面呼叫。TRI.on＝false ⇒ 行為與 v1.31.4 相同（退回開關）。
      MNT（EM01／EM02／E512）6 列（瑞鼎 EM01A1_rt7_register_force_mapping.xlsx LTPS 分頁 Z／AA／AB 欄：r0_0＝line0 時槽0、r0_1＝時槽1、r2_0＝時槽2，
        r0_2／r0_3／r2_2＝line1 三個時槽）：Line k-1＝主組 _(2k-2)、k-2＝主組 _(2k-1)、k-3＝第二組 r2..b3 _(2k-2)；第二組 _1／_3 固定寫 0（原廠 RT7 17~21）。
-       名稱表：第 g 條 gate（0~2）＝起始欄（mntBaseT）＋g（datamap-auto wiringFromState Tri 分支同一規則），code 只列該欄 code 表有定義的（LOD.tName：⌊code/6⌋≤欄）。
+       名稱表：第 g 條 gate（0~2）＝起始欄（mntBaseT）＋g（datamap-auto wiringFromState Tri 分支同一規則），code 0～29 每一欄都可選（v1.35.22，與 Single／Dual 的 mntInRange、Auto 的 LOD.tName 同一政策；Bruce 10/17「Tri Gate 其實也有可能用到負數，都是一樣的」）。
      NB（E503／E501A／E501B／DAZ6138／DAZ6139）：force_sel 只有一組 _0~_3 × R0..B1（RM8100x_for_FAE_20240925_20250311.model:8588-8790，24 格，0x323~0x331），
        沒有第二組 r2..b3、沒有第 3 條 gate 的暫存器；Python UI V5.0.4 Tri 時表格停用（PY:12513-12528、10613-10620）⇒ NB 不做手動 Tri（Bruce 10/15「如果真的 NB 的 Tcon
        沒辦法手動編輯 tri-gate，就不用」）：Hand Mode 的 Gate Type 不列 Tri；DAZ6111／DAZ7353 model PANEL 只有 0~2 也不列。EN01 不動。 */
@@ -1489,7 +1489,9 @@
   }
   function triId(row, col) { var R = TRI_ROWS[row]; return R.f + (R.slot * 6 + col); }
   function triT(s, row) { return mntBaseT(s, 'tri').t + TRI_ROWS[row].g; }
-  function triCodeOk(T, code) { code = code | 0; return code === 31 || (code >= 0 && code <= 29 && Math.floor(code / 6) <= T); }
+  /* v1.35.22（Bruce 10/17「放寬到 0 至 29…Tri Gate 其實也有可能用到負數，都是一樣的」；派工 237015171729031168）：拿掉 ⌊code/6⌋≤欄，
+     改用 MNT 同一份 mntInRange（code 0～29＋X 31，每一欄都合法；空白處＝負 pixel／AA 區外 dummy，決策 A5；同事A EM01A1 1D1G!C26:C55、RApp_TX.cpp:9506-9511）。 */
+  function triCodeOk(T, code) { return mntInRange(T, code); }
   function triName(T, code) { code = code | 0; if (code === 31) return 'X'; if (code < 0 || code > 29) return null; return linName(mntIdx(T, code)); }
   function triCellView(key, s, row, col) {
     var id = triId(row, col), raw = s[id] | 0, T = triT(s, row), nm = triName(T, raw);
@@ -1550,7 +1552,8 @@
     return { ok: true, names: names };
   }
   function triExcelName(key, s, glass, now) { return excelName(key, s, glass, now).replace('_GateType()_', '_GateType(TriGate)_'); }
-  /* Pixel 範圍（deSelForPx／pxForDeSel 的 Tri 分支）：起始欄 c 時 3 條 gate 各用第 c、c+1、c+2 欄，每欄可選 code＝triCodeOk ⇒ 每列可選 pixel 索引取交集 */
+  /* Pixel 範圍（deSelForPx／pxForDeSel 的 Tri 分支）：起始欄 c 時 3 條 gate 各用第 c、c+1、c+2 欄，每欄可選 code＝triCodeOk ⇒ 每列可選 pixel 索引取交集
+     v1.35.22：triCodeOk＝mntInRange 後，交集＝poolCov(MNT_POOL, c, 2)（與 Dual 的 poolCov(…, 1) 同一公式；tools/check_datamap_tri.js 逐欄比對兩者相同） */
   function triPxCov(c) {
     var lo = -Infinity, hi = Infinity;
     for (var g = 0; g < 3; g++) {

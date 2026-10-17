@@ -47,13 +47,62 @@ MNT.forEach(k => {
     if (v.txt !== o.name || res.state[id] !== o.value || ch.some(x => x !== id) || !z) bad++;
   });
   ok(n > 500 && !bad, k + '：' + n + ' 次選格全部讀回相同、只改該格、第二組 _1／_3＝0（錯 ' + bad + '）');
-  /* 選項只列該列 T 表有定義的 code（接線圖畫得出來） */
+  /* 每個選項選下去接線圖都畫得出來（v1.35.22 起選項＝code 0～29） */
   const s1 = handTri(k, TRI_PRESETS[3].i); let drawable = true;
   for (let r = 0; r < 6; r++) DM.triCellOptions(k, s1, r).forEach(o => { const st = DM.triPick(k, s1, r, 0, o.name).state; if (!A.wiringFromState(k, st).ok) drawable = false; });
   ok(drawable, k + '：任一選項選下去 TFT 接線都算得出來');
   ok(!DM.triPick(k, DM.setGate(k, Object.assign(DM.emptyState(k), { hand: 1 }), 'Dual-Gate'), 0, 0, 'R1'), k + '：Dual 時 triPick 不動作');
 });
 
+/* v1.35.22（Bruce 10/17「放寬到 0 至 29…Tri Gate 其實也有可能用到負數，都是一樣的」；派工 237015171729031168）：
+   Tri 下拉＝code 0～29＋X，與 Single／Dual（mntInRange）、Auto（LOD.tName）同一政策；名稱＝linName(codeIdx(起始欄＋g, code))；
+   Auto 接線每條 Data 線位置＝表格名稱位置；Pixel 範圍＝poolCov(MNT_POOL, c, 2)。矩陣：MNT 3 型號 × FORCE_DE_EN 0／1 × FORCE_DE_SEL（en0＝panel 等效、en1＝1～63）× 6 列 × 30 code。 */
+console.log('A2. code 0～29（含負 pixel）');
+{
+  let combos = 0, bad = 0, wired = 0, wbad = 0; const badMsg = [];
+  MNT.forEach(k => {
+    const base0 = handTri(k, TRI_PRESETS[3].i);
+    const sels = [[0, 0]].concat(Array.from({ length: 63 }, (_, i) => [1, i + 1]));
+    sels.forEach(([en, ds]) => {
+      const s = Object.assign(DM.cloneState(base0), { deEn: en, deSel: en ? ds : base0.deSel });
+      if (!DM.triOn(k, s)) { bad++; badMsg.push(k + ' en' + en + ' 0x' + ds.toString(16) + ' 不是 Tri'); return; }
+      for (let r = 0; r < 6; r++) {
+        const T = DM.triT(s, r), opts = DM.triCellOptions(k, s, r);
+        const want = Array.from({ length: 30 }, (_, c) => DM.linName(DM.codeIdx(T, c))).concat('X');
+        combos++;
+        if (opts.map(o => o.name).join(' ') !== want.join(' ') || opts.map(o => o.value).join(',') !== Array.from({ length: 30 }, (_, c) => c).concat(31).join(',')) { bad++; if (badMsg.length < 5) badMsg.push(k + ' en' + en + ' 0x' + ds.toString(16) + ' 列' + r + '：' + opts.map(o => o.name).join(' ')); continue; }
+        /* 每個 code 選到第 1 格 ⇒ 讀回同名、inTable、Auto 接線算得出來且位置＝名稱位置（負 pixel 也一樣） */
+        for (let c = 0; c < 30; c++) {
+          const st = DM.triPick(k, s, r, 0, want[c]).state, v = DM.triCellView(k, st, r, 0);
+          if (v.txt !== want[c] || !v.inTable || st[DM.TRI_ROWS[r].f + DM.TRI_ROWS[r].slot * 6] !== c) { bad++; continue; }
+          const w = A.wiringFromState(k, st); wired++;
+          const R = DM.TRI_ROWS[r], line = R.slot >> 1, g = R.g;
+          if (!w.ok || w.t.rows[line % w.t.rows.length][g][0] !== DM.linIdx(want[c])) { wbad++; if (badMsg.length < 8) badMsg.push(k + ' en' + en + ' 0x' + ds.toString(16) + ' 列' + r + ' ' + want[c] + ' 接線 ' + (w.ok ? w.t.rows[line % w.t.rows.length][g][0] : w.why) + ' vs ' + DM.linIdx(want[c])); }
+        }
+      }
+    });
+  });
+  ok(!bad && combos === 3 * 64 * 6, 'Tri 下拉 code 0～29＋X、名稱＝linName(codeIdx(起始欄＋g))、選了讀回同名：' + combos + ' 列組合（錯 ' + bad + '）' + (badMsg.length ? '｜' + badMsg.join('｜') : ''));
+  ok(wired === combos * 30 && !wbad, 'Tri 每個 code（含負 pixel）Auto 接線算得出來、位置＝表格名稱位置：' + wired + ' 次（錯 ' + wbad + '）');
+}
+/* 負 pixel 具體案例：(21) Tri+BOE（起始欄 3）Line 1-1 改前只到 R-2～B-1，改後有 R-3～B-4；第 1 欄起（FORCE_DE_SEL 0x01）到 R-8 */
+MNT.forEach(k => {
+  const s = handTri(k, TRI_PRESETS[3].i), n11 = DM.triCellOptions(k, s, 0).map(o => o.name);
+  ok(DM.triT(s, 0) === 3 && ['R-3', 'G-3', 'B-3', 'R-4', 'G-4', 'B-4'].every(n => n11.indexOf(n) >= 0) && n11.length === 31, k + ' (21) Line 1-1（第 3 欄）下拉 31 項含 R-3～B-4：' + n11.slice(18).join(' '));
+  const st = DM.triPick(k, s, 0, 0, 'R-4').state, w = A.wiringFromState(k, st);
+  ok(DM.triCellView(k, st, 0, 0).txt === 'R-4' && st.c0 === 24 && w.ok && w.t.rows[0][0][0] === DM.linIdx('R-4'), k + ' 選 Line 1-1 Data 1＝R-4 ⇒ code 24、讀回 R-4、Auto 接線在 R-4（' + (w.ok ? w.t.rows[0][0][0] : w.why) + '）');
+  const s1 = Object.assign(DM.cloneState(s), { deEn: 1, deSel: 0x01 }), n1 = DM.triCellOptions(k, s1, 0).map(o => o.name);
+  ok(DM.triT(s1, 0) === 1 && n1[29] === 'B-7' && n1[0] === 'R1' && n1.indexOf('R-8') >= 0, k + ' FORCE_DE_SEL 0x01 Line 1-1（第 1 欄）：R1…B-7（含 R-8）＋X（' + n1[0] + '…' + n1[29] + '）');
+  const p = DM.pxForDeSel(k, s1);
+  ok(p && p.from === -4 && p.to === 2, k + ' FORCE_DE_SEL 0x01 Tri Pixel 範圍 -4～2（改前 -2～2）：' + (p && p.from + '～' + p.to));
+});
+for (let c = 1; c <= 6; c++) ok(JSON.stringify(DM.triPxCov(c)) === JSON.stringify(DM.poolCov(DM.MNT_POOL, c, 2)), 'triPxCov(' + c + ')＝poolCov(MNT_POOL, ' + c + ', 2)＝' + JSON.stringify(DM.triPxCov(c)));
+/* 與 Single／Dual 同一政策：同起始欄時 Tri 第 1 條 gate 的名稱集合＝MNT Dual 上 gate 列下拉 */
+MNT.forEach(k => {
+  const t = handTri(k, TRI_PRESETS[3].i), d = DM.setGate(k, DM.cloneState(t), 'Dual-Gate'); d.deEn = 1; d.deSel = 1 << (DM.triT(t, 0) - 1); const t2 = Object.assign(DM.cloneState(t), { deEn: 1, deSel: d.deSel });
+  const a = DM.triCellOptions(k, t2, 0).map(o => o.name).sort().join(' '), b = DM.cellOptions(k, d, 0, 0).map(o => o.name).sort().join(' ');
+  ok(a === b, k + ' Tri Line 1-1 下拉名稱集合＝Dual Line 1-1 下拉（同起始欄 ' + DM.triT(t2, 0) + '）' + (a === b ? '' : '｜Tri ' + a + '｜Dual ' + b));
+});
 console.log('B. 型號分流與退回開關');
 NB.forEach(k => ok(DM.gateItems(k).join('|') === 'Single-Gate|Dual-Gate', k + ' Gate Type 不列 Tri：' + DM.gateItems(k).join('|')));
 MNT.forEach(k => ok(DM.gateItems(k).join('|') === 'Single-Gate|Dual-Gate|Tri-Gate', k + ' Gate Type 列 Tri'));
