@@ -256,7 +256,8 @@ const regOf = (b, maps) => { const r = {}; maps.forEach(([f, t, l]) => { for (le
       && Array.from(g.querySelectorAll('tbody th > span:first-child')).map(x => x.textContent).join() === 'Line 1（_0）,Line 2（_6）,Line 3（_12）,Line 4（_18）' && /未確認/.test($('dm-en01cap').textContent),
       '選 EN01（沒匯入，RD_MODE 0＝Single）⇒ v1.35.20 只顯示每條 line 的 SW1：4 列 × 12 欄，列名同 MNT Single「Line n（_r）」；註明 line 循環數／未用列填值未確認');
     ok(Array.from(g.querySelectorAll('span.dm-en01t')).every(x => x.textContent === 'T1（S1）' && x.dataset.t === '1' && x.title === '由 FORCE_DE_SEL 決定，不能單獨設定') && Array.from($('dm-gate').options).map(o => o.value).join('|') === DM.EN01_GATES.map(x => x[0]).join('|'), '每列 T 唯讀＝T1（S1）（沒匯入＝WPF Hand 預設 0x0E 的最小 bit；v1.35.19 相對 T＋同事E S 欄）、提示「由 FORCE_DE_SEL 決定，不能單獨設定」；Gate Type＝Single／Dual／Tri／MUX4／MUX6');
-    ok($('dm-pvbody').classList.contains('hidden') && /EN01 暫不支援預覽/.test($('dm-pvnote').textContent) && !$('dm-pvnote').classList.contains('hidden'), '③ 明寫 EN01 預覽／比較表暫不支援（不推接線）');
+    // v1.35.25（Bruce 10/18 21:1x，派工 237564393831280640）：EN01 有 TFT 接線圖了；Hand 關（Auto）原廠沒有對照表 ⇒ 不畫並寫原因（原本「EN01 暫不支援預覽」）
+    ok($('dm-pvbody').classList.contains('hidden') && /Hand Mode 關/.test($('dm-pvnote').textContent) && !$('dm-pvnote').classList.contains('hidden') && /Hand Mode 關/.test($('dm-tftnote').textContent), '③／TFT 卡：EN01 Hand 關 ⇒ 不畫、寫原因（Auto 原廠沒有對照表）');
     ok(!$('dm-gridnote').classList.contains('hidden') && /FORCE_SEL_EN 與 FORCE_DE_EN/.test($('dm-gridnote').textContent) && $('dm-e0-0').disabled && $('dm-gate').disabled, 'Hand 關：表格與 Gate Type 停用，提示兩個 bit 都要開');
     ['mirror', 'chrb', 'chwb', 'rvsL'].forEach(k => ok(!d.querySelector('.dm-fieldrow[data-need="' + k + '"]').classList.contains('hidden'), '② 顯示 ' + k + ' 列（EN01 model 有這個欄位）'));
     ok(d.querySelectorAll('#dm-code tr[data-f]').length === 299 && !!d.querySelector('#dm-code tr[data-f="e287"]'), 'TCON Register 確認：299 個欄位（11＋288）');

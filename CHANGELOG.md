@@ -2,6 +2,39 @@
 
 ---
 
+## Data Mapping (datamap) v1.35.25 — 2026-10-18 ｜ PATCH ｜ ⚠ 輸出變更（只有 EN01 ③ TFT 接線圖） ｜ EN01 TFT 接線圖：與 MNT／NB 同一套引擎，TCON Out／SD Out 改 12 循環
+
+判定依據：§2 案例 1 新增顯示（EN01 原本「暫不支援預覽」）→ PATCH（R1）；寫入值、script、Excel、② 表格、MNT／NB 畫面全部不變。⚠ 輸出變更：EN01 的 ③ TFT 卡與 ③ 排列組合（原本空白）現在有圖。
+
+### 起因
+- Bruce 10/18 21:1x：「另外 Data Mapping 的網頁，現在 EN01 都還沒有對應的 TFT 接線圖，請安排 task 來進行，但是要注意所有的細節喔，包含上面的 T-CON out、SD out，它可能已經變成是 12 循環了，要怎麼變更之類的，這些都要注意。不要我再提醒，我講一個做一個。」（派工 237564393831280640）
+
+### 依據
+- 每 T 12 個 Data：WPF `DataMappingModule.cs:308-323` TopHeaders V2＝R0～B3 12 個（V0／V1＝6 個，MNT 那一代）；E507 xlsm SETTING!W9＝4（「1T?Pixel」＝1T4P）、Q10 ch_num 960。⇒ 週期 12，TCON Out／SD Out＝D12(組)+k。（確定）
+- SW 時槽與循環：E507 xlsm 70 組範例、10287 格輸出，每格都只由一個 SW 的 code 查出，且所在欄＝起始欄 S＋(SW−1)＋SW數×循環（0 例外）⇒ SW k 用起始 T＋(k−1)、每個循環往右 12×SW 數個 subpixel。（確定，tools/datamap_en01_xlsm_examples.py）
+- RD_MODE：`RM81008.model:3525-3535`（1＝HSD or MUX2、2＝TRI-GATE or MUX3、3 MUX4、5 MUX6、其他 not support）、`:3680`「Each line may have 1/2/3 start point」。HSD／Tri＝每個 SW 一條 gate；MUX＝source demux 同一條 gate；xlsm MUX3／MUX6 範例每個 Data 的 SW1～SWk 接相鄰 subpixel（MUX3 normal type1 R0＝R1 G1 B1，最長 drain 0.5）。（RD_MODE 確定；MUX 腳位接相鄰 Data 線＝推論）
+- Mirror／CHRB／CHWB 照 MNT 同一規則（決策 A12）＝推論；Line 3、4 用 P3 段 FORCE_SEL _12～_23＝推論（待 同事D 草稿 v8 問題三）。
+
+### 變更（datamap.html）
+- `pvEn01Model`（:2158-2201）：EN01 的 ③ 模型（同 MNT 格式 P：NG／period／shift／rows），名稱＝② 表格同一個換算（DM.poolIdx step 12、DM.en01RowT）；X（0xFF）與 132～254 不畫線；Mirror 位置 −1−k、名稱＝Pool（同 pvMirror）；CHRB 走共用 pvChrb。`pvModel` 第一行 EN01 走這裡（:2204）。
+- `renderPreview`（:2354-2361）：拿掉「EN01 暫不支援預覽」分支；Line OD 測試列仍只給 MNT。
+- `renderPvTft0`：標號週期跟著模型（gLabF :2879：D12(組)+k）；MUX 時每條線標 SWk、腳位與 TCON Out 一組一個置中（:2983-2995），版面多 16px（:2911）；CH1 換邊 MUX 只反腳位（:2868）。
+- `pvLineSrc`（:2548-2551）／鎖定 CH1 換邊（:2580）：MUX 時輸出對調／SHL 作用在 SD 腳位，SW 順序不動。
+- `pvLabel`（:2626）：EN01 列名同 ② 表格（Line n／Line n-k；MUX 註 SW1～SWk），不標「第二組」。
+- 面板新設定「RD_MODE 1/2 面板」Gate（HSD／Tri-Gate）／Source MUX（MUX2／MUX3）（:605、:4203），只在 EN01 Dual／Tri 顯示，只影響 ③，鎖定後不能改，存頁面狀態（:4611、:4646），匯入 code 回預設 Gate。
+- ③ 旗標列（:2424）EN01 顯示 Mirror／CHRB／CHWB／T1（S n）／READ_RVS／每 T 12 個 Data；圖例加一行 EN01 推論／待 同事D（dm.en01PvLg）。
+- 鎖定：`glTOrigin` EN01 用起始欄 code 12 的位置當 T 表基準（:1845）；`glCompareStates` EN01 只回整體平移（:1854）。
+- TCON Out 點了跳到 ② 表格 Data k 欄：EN01 第 1 欄是 T，欄號 +2（:4166）。
+- 新字串 9 個（三語，:1008-1016）；`common/version.js` datamap v1.35.25。
+- 不變：Benchmark 自動反推仍不給 EN01（EN01 每格 133 個候選 × 最多 288 格，逐格下降搜尋量約 MNT 30 倍以上，另件處理）；EN01 Hand 關（Auto）原廠沒有對照表 ⇒ 不畫並寫原因；RD_MODE 4／6／7（model not support）不畫並寫原因。
+
+### 驗證
+（Mac mini 實跑，同時最多 2 行程；依派工 --scope ui，不跑同事C全量／矩陣、nbpx、bench）
+- 新 `tools/check_datamap_en01tft.js` **434755 pass / 0 fail**：A 模型矩陣 290304 格（7 種 Gate／面板 × FORCE_DE_SEL 12 種 × Mirror × CHRB × 2 code 樣式含 X／132～254／負 pixel × code header 全段／只有 P1）接線位置＝② 表格名稱位置；B 畫面（drain 名稱、格子名稱、SD／TCON 標號、對調／SHL／CH1 右、列名、Hand 關、RD_MODE 4、面板列只在 EN01 Dual／Tri、鎖定當下一致）；C E507 xlsm 70 組 6585 格比對 0 差異（fixture `tools/datamap_en01_xlsm_examples.json`，由 `datamap_en01_xlsm_examples.py` 從 xlsm 抽出；10287 格輸出每格只由一個 SW 查出、欄＝起始＋SW＋SW數×循環 0 例外）。（Linux 沙盒 jsdom 24 實跑；Mac jsdom 30 跑 A 段相同、B 段太慢中止）
+- S/D 快照：改前比對 24352 pass／256 fail，fail 全是 EN01（③ TFT 逐格 128＋整頁 128）；MNT／NB 0 差異。EN01 基準裡的 TFT 其實是 v1.35.24 EN01 分支沒清 #dm-pv-tft 留下的上一個型號舊圖（隱藏），現在換成 EN01 自己的圖 ⇒ `SNAP_ONLY=EN01 --write` 只重拍 EN01（512 組），重拍後 EN01 1024 pass／0 fail；MNT／NB 基準不動。
+- `check_datamap_tft_interact`（真 Chrome 滑鼠）：MNT／NB 1192 pass／0 fail（與 v1.35.24 相同）；新加 EN01 四種顯示（一般／並排／小窗／並排＋小窗）212 pass／0 fail（測試預期：EN01 SD 標號 D12(0)+1、Data1 在表格第 2 格）。
+- `check_datamap_boe --qm /tmp/qm.bin` 109 pass／0 fail；`check_datamap_en01` 75 pass／0 fail（第 259 行預期由「EN01 暫不支援預覽」改成「Hand 關 ⇒ 不畫、寫原因」）；`check_datamap_en01pop` 110 pass／0 fail。
+
 ## Data Mapping (datamap) v1.35.24 — 2026-10-17 ｜ PATCH ｜ ⚠ 輸出變更 ｜ code 30／31 依模式判斷：LTPS MUX3 zigzag 畫成 Pool 的 subpixel，其他模式 X 註明「送 Pool 最後一格」；EN01 255 加負 subpixel 提示
 
 判定依據：§2 案例 2 修正（舊版把 LTPS MUX3 zigzag Pool 內合法的 30／31 當未定義／X）＋案例 11 文案 → PATCH（R1）。⚠ 輸出變更：MNT（EM01／EM02／E512）PANEL_MODE＝3 且 SUB_PANEL_MODE＝2／6 時，Tri 6 列表、第二組、③ TFT 接線圖與 Excel 匯出的 30／31 名稱改成 subpixel（例 RT7 (18) Line 2-3 Data 1：X → B-1）；寫入值、暫存器、script、Line OD 推算不變。其他模式只改圖例／提示文字。

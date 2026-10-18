@@ -179,14 +179,14 @@ async function runMode(mode, model, hand) {
     await setVl(MM ? 'dm-mini-vl' : 'dm-pv-vl', 4); await sleep(400); if (MM) await waitSame();
     // 3) 連結：TCON Out／SD Out 標題、Data 1、D1
     const cases = [[`${ROOTSEL} [data-rowhead="tc"] text`, 'dm-gridbox', 'TCON Out 標題'], [`${ROOTSEL} text[data-dof="1"]`, 'dm-gridbox', 'Data 1'],
-                   [`${ROOTSEL} [data-rowhead="sd"] text`, 'dm-drv-sec', 'SD Out 標題'], [`${ROOTSEL} text[data-dlab="D6(0)+1"]`, 'dm-drv-sec', 'D1']];
+                   [`${ROOTSEL} [data-rowhead="sd"] text`, 'dm-drv-sec', 'SD Out 標題'], [`${ROOTSEL} text[data-dlab="${S_MODEL === 'EN01' ? 'D12(0)+1' : 'D6(0)+1'}"]`, 'dm-drv-sec', 'D1']];   // v1.35.25：EN01 週期 12（D12(組)+k）
     for (const [sel, want, name] of cases) {
       await ev('window.dmState.lastJump=null'); const c = await show(sel);
       const pc = await curAt(c.x, c.y);
       await mouse('mouseMoved', c.x, c.y, { buttons: 0 }); await mouse('mousePressed', c.x, c.y); await sleep(30); await mouse('mouseReleased', c.x, c.y); await sleep(300);
       const r = JSON.parse(await ev('JSON.stringify({sc:window.__sc,lj:window.dmState.lastJump||null})'));
       ok(r.sc[0] === want && /^pointer\|/.test(pc || ''), tag + '：真實滑鼠點 ' + name + ' ⇒ 捲到 ' + want + '（實際 ' + JSON.stringify(r.sc) + '，游標 ' + pc + '）');
-      if (name === 'Data 1') ok(r.lj && r.lj.kind === 'tc' && r.lj.col === 1, tag + '：Data 1 ⇒ 高亮表格第 1 欄（lastJump ' + JSON.stringify(r.lj) + '）');
+      if (name === 'Data 1') { const c1 = S_MODEL === 'EN01' ? 2 : 1; ok(r.lj && r.lj.kind === 'tc' && r.lj.col === c1, tag + '：Data 1 ⇒ 高亮表格 Data1 欄（第 ' + c1 + ' 格；EN01 第 1 格是 T）（lastJump ' + JSON.stringify(r.lj) + '）'); }
       await ev('scrollTo(0,0)'); await settle();
     }
     // 鍵盤 Enter 也能跳（與舊版同）
@@ -246,9 +246,10 @@ async function runMode(mode, model, hand) {
   } catch (e) { ok(false, tag + ' exception ' + (e.stack || e)); }
   S.close();
 }
-// 矩陣：EM01（Auto＋Hand）、E503（Hand）三種顯示方式全跑；其他 MNT／NB 型號跑一般＋小窗（Hand）。EN01 沒有 TFT 接線圖（③ 不支援），不列。
+// 矩陣：EM01（Auto＋Hand）、E503（Hand）三種顯示方式全跑；其他 MNT／NB 型號跑一般＋小窗（Hand）。
+// v1.35.25（Bruce 10/18 21:1x，派工 237564393831280640）：EN01 有 TFT 接線圖了（同一套引擎）⇒ 加 EN01（Hand）四種顯示方式全跑。
 const ONLY = process.argv[3] ? process.argv[3].split(',') : null;
-const PLAN = [['EM01', false, ['normal', 'side', 'mini', 'sidemini']], ['EM01', true, ['normal', 'side', 'mini', 'sidemini']], ['E503', true, ['normal', 'side', 'mini', 'sidemini']],
+const PLAN = [['EN01', true, ['normal', 'side', 'mini', 'sidemini']], ['EM01', false, ['normal', 'side', 'mini', 'sidemini']], ['EM01', true, ['normal', 'side', 'mini', 'sidemini']], ['E503', true, ['normal', 'side', 'mini', 'sidemini']],
   ['EM02', true, ['normal', 'mini']], ['E512', true, ['normal', 'mini']], ['E501A', true, ['normal', 'mini']], ['E501B', true, ['normal']], ['DAZ6138', true, ['normal', 'mini']], ['DAZ6139', true, ['normal']], ['DAZ6111', true, ['normal']], ['DAZ7353', true, ['normal']]];
 for (const [m, h, modes] of PLAN) { if (ONLY && !ONLY.includes(m)) continue; for (const md of modes) await runMode(md, m, h); }
 console.log((fail ? '✗ ' : '✓ ') + 'check_datamap_tft_interact ' + pass + ' pass / ' + fail + ' fail');
