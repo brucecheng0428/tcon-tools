@@ -15,7 +15,7 @@
 <link rel="stylesheet" href="common/common.css?v=20260903help">
 <link rel="stylesheet" href="common/done-step.css?v=20261001dst275">
 <!-- 🔴 version.js 必須最先載入（common/version.js 開頭那條規則）。 -->
-<script src="common/version.js?v=20261015dst2711"></script>
+<script src="common/version.js?v=20261019dst280"></script>
 <script src="common/i2c-bridge.js?v=20261012ib100"></script>
 <style>
   /* ═══ 本頁專屬樣式 ════════════════════════════════════════════════════════
@@ -276,6 +276,13 @@
   .dst-icname.dst-na { color: var(--text-sub); background: transparent; border-color: var(--border);
                        font-size: 15px; font-weight: 600; }
   .dst-hidden { display: none !important; }
+  /* v2.8.0（同事B 10/19 第四封）：目標 Gamma／白點卡 */
+  .dst-tgt-row { margin-top: 8px; }
+  .dst-tgt-row > label, .dst-tgt-row > span:first-child { font-size: 13px; color: var(--text-sub); }
+  #dst-tgt-gamma { width: 90px; padding: 5px 8px; font-size: 14px; }
+  .dst-tgt-in { display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; color: var(--text-sub); }
+  .dst-tgt-in input { width: 84px; padding: 4px 6px; font-size: 13px; }
+  .dst-tgt-in.bad input { border-color: #f87171; }
 
   /* ═══ v1.8.0：三步清單 ═══════════════════════════════════════════════════
      Bruce 2026-09-21：「使用者在進到自檢頁以後可以形成閉環，但同時又要能知道要
@@ -999,6 +1006,36 @@
     </div>
   </div>
 
+  <!-- ═══ v2.8.0（同事B 2026-10-19 第四封）：目標 Gamma 與白點 ════════════════════
+       同事B 原話：「T-CON自檢畫面量測量測完後，跳回DG頁面，他會自動跳出產生新RGB LUT的窗口，
+       但是應該要讓使用者先設定我的目標Gamma和色座標才對……是不是可以直接把Gamma/色座標的設定
+       放在這頁……DG分頁本來的目標GAMMA跟白點設定就跟使用者在TCON自檢畫面量測同步就好」。
+       · 只有一份設定：**DG 分頁的「目標」**（#dg-gamma／#dg-wpt-*）。本卡是它的遙控面板：
+         改哪一格就把那一格送給 DG（dg-target-set），DG 照「使用者在 DG 上改」同一條路套用，
+         再把整份（含 x／y ⇄ 色溫換算結果）回傳（dg-target）。換算只在 DG 做，不在本頁複製一份。
+       · 只在由 DG 開啟、而且收到 DG 的 dg-target 之後才顯示（單獨開本頁沒有 DG 可同步）。 -->
+  <div class="card dst-hidden" id="dst-tgt-card">
+    <div class="card-header dst-hd-act"><span class="icon">*</span><span data-i18n="dst.hdTgt">目標 Gamma 與白點</span></div>
+    <div class="card-body">
+      <div class="dst-note" data-i18n="dst.tgtNote">量測前先確認。與 DG 分頁的「目標」是同一份設定，改哪一邊都會同步。</div>
+      <div class="dst-row dst-tgt-row">
+        <label for="dst-tgt-gamma" data-i18n="dst.tgtGamma">目標 Gamma</label>
+        <input type="number" id="dst-tgt-gamma" class="dst-sel" min="1.00" max="4.00" step="0.01" inputmode="decimal">
+      </div>
+      <div class="dst-row dst-tgt-row">
+        <span data-i18n="dst.tgtWpt">白點</span>
+        <label><input type="radio" name="dst-tgt-wpt" id="dst-tgt-keep" value="keep"> <span data-i18n="dst.tgtKeep">沿用目前白點</span></label>
+        <label><input type="radio" name="dst-tgt-wpt" id="dst-tgt-new" value="custom"> <span data-i18n="dst.tgtNew">指定新白點</span></label>
+        <span class="dst-tgt-in" id="dst-tgt-in" style="display:none">
+          x <input type="text" id="dst-tgt-x" class="dst-sel" inputmode="decimal" autocomplete="off">
+          y <input type="text" id="dst-tgt-y" class="dst-sel" inputmode="decimal" autocomplete="off">
+          <input type="text" id="dst-tgt-cct" class="dst-sel" inputmode="decimal" autocomplete="off"> K
+        </span>
+      </div>
+      <div class="dst-note dst-hidden" id="dst-tgt-bad" style="color:#f87171" data-i18n="dst.tgtBad">新白點要填有效的 x、y（或 4000～25000K 的色溫）。</div>
+    </div>
+  </div>
+
   <!-- ═══ 🔴 1-b. v1.8.0：三步清單（閉環的核心）════════════════════════════
        Bruce 2026-09-21：「讓人一眼看到接上機台能做的就這三件」「使用者在進到自檢頁
        以後可以形成閉環，但同時又要能知道要回到 DG 檢查量測的 curve」。
@@ -1709,6 +1746,14 @@ if (typeof I18N === 'object' && I18N) {
   /* 🔴 v1.10.1：卡名改成正式的寫法（Bruce 2026-09-21 指名「接上機台能做的三件事」
      太口語，要類似「量測與調整 Gamma 所需步驟」）—— **採用他給的字**，不另造第三個。 */
   I18N['dst.hdSteps']  = { 'zh-TW': '量測與調整 Gamma 所需步驟', 'en': 'Steps for measuring and adjusting Gamma', 'zh-CN': '量测与调整 Gamma 所需步骤' };
+  /* v2.8.0（同事B 10/19 第四封）：目標 Gamma 與白點卡 */
+  I18N['dst.hdTgt']    = { 'zh-TW': '目標 Gamma 與白點', 'en': 'Target gamma and white point', 'zh-CN': '目标 Gamma 与白点' };
+  I18N['dst.tgtNote']  = { 'zh-TW': '量測前先確認。與 DG 分頁的「目標」是同一份設定，改哪一邊都會同步。', 'en': 'Check before measuring. This is the same setting as "Target" on the DG tab; a change on either side shows on both.', 'zh-CN': '量测前先确认。与 DG 分页的「目标」是同一份设定，改哪一边都会同步。' };
+  I18N['dst.tgtGamma'] = { 'zh-TW': '目標 Gamma', 'en': 'Target gamma', 'zh-CN': '目标 Gamma' };
+  I18N['dst.tgtWpt']   = { 'zh-TW': '白點', 'en': 'White point', 'zh-CN': '白点' };
+  I18N['dst.tgtKeep']  = { 'zh-TW': '沿用目前白點', 'en': 'Keep current white point', 'zh-CN': '沿用目前白点' };
+  I18N['dst.tgtNew']   = { 'zh-TW': '指定新白點', 'en': 'Set a new white point', 'zh-CN': '指定新白点' };
+  I18N['dst.tgtBad']   = { 'zh-TW': '新白點要填有效的 x、y（或 4000～25000K 的色溫）。', 'en': 'The new white point needs a valid x, y (or a colour temperature of 4000–25000 K).', 'zh-CN': '新白点要填有效的 x、y（或 4000～25000K 的色温）。' };
   I18N['dst.stepLut']  = { 'zh-TW': '① 讀回目前的 RGB LUT', 'en': '① Read back the current RGB LUT', 'zh-CN': '① 读回目前的 RGB LUT' };
   I18N['dst.stepGray'] = { 'zh-TW': '② 量白灰階', 'en': '② Measure the white gray scale', 'zh-CN': '② 量白灰阶' };
   /* v2.0.0：②③ 併成一列後的列名（dstRenderSteps 依工作填，所以 HTML 不掛 data-i18n） */
@@ -8737,6 +8782,55 @@ function dstCmpOnAdded(d) {
   dstCmpRender();
   try { $('dst-cmp-ok').focus(); } catch (e) {}
 }
+/* ═══ v2.8.0（同事B 10/19 第四封）：目標 Gamma 與白點，與 DG 同步 ═══════════════
+   DG 是唯一來源（見 #dst-tgt-card 上方註解）。本頁只做兩件事：
+     dstTgtApply(d) ＝ 把 DG 送來的整份畫上去（正在打字的那一格不蓋，避免游標跳走）
+     dstTgtSend(f)  ＝ 使用者改了哪一格，就把那一格送給 DG（DG 套用後會回傳整份） */
+var dstTgt = null;
+function dstTgtApply(d) {
+  if (!d || !$('dst-tgt-card')) return;
+  dstTgt = d;
+  $('dst-tgt-card').classList.remove('dst-hidden');
+  var act = document.activeElement;
+  function put(id, v) { var el = $(id); if (el && el !== act) el.value = (v == null) ? '' : String(v); }
+  var isNew = d.wpt === 'custom';
+  put('dst-tgt-gamma', d.gamma);
+  $('dst-tgt-keep').checked = !isNew;
+  $('dst-tgt-new').checked = isNew;
+  put('dst-tgt-x', d.x); put('dst-tgt-y', d.y); put('dst-tgt-cct', d.cct);
+  $('dst-tgt-in').style.display = isNew ? '' : 'none';
+  $('dst-tgt-in').classList.toggle('bad', isNew && !d.ok);
+  $('dst-tgt-bad').classList.toggle('dst-hidden', !(isNew && !d.ok));
+}
+function dstTgtSend(field) {
+  if (!dstDgAlive()) return false;
+  var m = { type: 'dg-target-set', field: field,
+            gamma: String($('dst-tgt-gamma').value), wpt: $('dst-tgt-new').checked ? 'custom' : 'keep',
+            x: String($('dst-tgt-x').value), y: String($('dst-tgt-y').value), cct: String($('dst-tgt-cct').value) };
+  try { window.opener.postMessage(m, DST_DG_ORIGIN); } catch (e) { return false; }
+  return true;
+}
+function dstTgtBind() {
+  if (!$('dst-tgt-card')) return;
+  $('dst-tgt-gamma').addEventListener('input', function () { dstTgtSend('gamma'); });
+  $('dst-tgt-keep').addEventListener('change', function () { dstTgtSend('wpt'); });
+  $('dst-tgt-new').addEventListener('change', function () { dstTgtSend('wpt'); });
+  ['x', 'y', 'cct'].forEach(function (k) {
+    var el = $('dst-tgt-' + k);
+    el.addEventListener('input', function () { dstTgtSend(k); });
+    // 離開那一格 ⇒ 用 DG 最後回傳的那份重畫一次（打字時刻意沒蓋掉的那一格）
+    el.addEventListener('blur', function () { setTimeout(function () { if (dstTgt) dstTgtApply(dstTgt); }, 0); });
+  });
+  $('dst-tgt-gamma').addEventListener('blur', function () { setTimeout(function () { if (dstTgt) dstTgtApply(dstTgt); }, 0); });
+  /* 由 DG 開啟時先要一份目前的值（DG 用網址指派第一個任務，不一定會有 hello 往返）。
+     DG 回 dg-target 之後卡片才出現；單獨開本頁 ⇒ 沒有 opener ⇒ 不送、卡片不出現。
+     🔴 實測（tests/dgself/target_sync.py 前身、冷啟動的 headless Chrome）偶爾第一則送出去 DG 沒收到 ⇒
+        還沒收到 dg-target 就在 0.5／1.5／3／6 秒各再要一次，收到就停；最多 5 次，不是輪詢。 */
+  [0, 500, 1500, 3000, 6000].forEach(function (ms) {
+    setTimeout(function () { if (!dstTgt) dstTgtSend('ask'); }, ms);
+  });
+}
+
 function dstCmpBind() {
   $('dst-cmp-ok').addEventListener('click', dstCmpOk);
   $('dst-cmp-cancel').addEventListener('click', dstCmpClose);
@@ -8763,6 +8857,7 @@ window.addEventListener('message', function (e) {
      擺在 `dg-measure-task` **前面**是因為它不是換任務：它不動 mode／step／dest，
      也不回 hello（DG 那一端等的是這一則自己的結果，不是版號）。 */
   if (d && d.type === 'dg-lut-write') { dstDgOnLutWrite(d); return; }
+  if (d && d.type === 'dg-target') { dstTgtApply(d); return; }   // v2.8.0：目標 Gamma／白點
   // v2.4.0：「加入光學資料比較」視窗的查詢／加入回覆
   if (d && d.type === 'dg-cmp-info') { dstCmpOnInfo(d); return; }
   if (d && d.type === 'dg-cmp-added') { dstCmpOnAdded(d); return; }
@@ -9176,6 +9271,7 @@ function dstBind() {
 
   /* 語言切換之後要把「用 JS 填的字」重新渲染一次（data-i18n 的部分 common.js 自己會做）。 */
   dstCmpBind();   // v2.4.0
+  dstTgtBind();   // v2.8.0
 
   window._onLangChange = function () {
     dstCmpRender();   // v2.4.0

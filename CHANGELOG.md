@@ -539,6 +539,28 @@
 - 測試：check_datamap_preview.js 改驗不再出現「實驗」；check_datamap_tcon_gate.js 字級斷言改 18／19／22＋24。
 - S/D 快照基準未改（tools/datamap_sd_snapshot.json 與 v1.35.9 相同）。TFT 圖幾何（欄距、標籤列高度）改變；以遮掉幾何座標／字級的比對抽樣確認計算與結構相同。
 - 回歸：boe --qm 全民 109/0；tft_interact 962/0；preview 49/0；tcon_gate 63/0；標籤重疊量測（headless Chrome，全型號×Gate×CH1 左右 46 組）0 重疊。
+## 自檢畫面量測 (dgself) v2.8.0 — 2026-10-19 ｜ MINOR ｜ 新增「目標 Gamma 與白點」卡，與 DG 分頁同步
+
+判定依據：docs/VERSIONING.md 判定表「多了新按鈕，舊的都在原位」→ MINOR；既有卡片、量測與回傳流程不變。
+
+### 起因
+- 同事B 10/19 13:57 來信「RE: Digital Gamma 迭代校正 issue」（第四封）：「當我在T-CON自檢畫面量測量測完後，跳回DG頁面，他會自動跳出產生新RGB LUT的窗口，但是應該要讓使用者先設定我的目標Gamma和色座標才對，這樣有可能會誤導讓使用者忘記調整光學設定……是不是可以直接把Gamma/色座標的設定放在這頁，這樣也比較直觀，不會被漏掉……DG分頁本來的目標GAMMA跟白點設定就跟使用者在TCON自檢畫面量測同步就好」。Bruce 10/19 14:0x「peerb已經回信，請再派工處理」（派工 237817020439605248）。
+
+### 變更（dg-selftest.html）
+- 「畫面測試」卡與「量測與調整 Gamma 所需步驟」卡之間新增 #dst-tgt-card「目標 Gamma 與白點」：目標 Gamma、白點（沿用目前白點／指定新白點 x、y、K），三語。
+- 只有一份設定：DG 分頁的 #dg-gamma／#dg-wpt-*。本頁改哪一格就送 `dg-target-set {field, …}` 給 DG；DG 回 `dg-target`（整份，含 x／y ⇄ 色溫換算結果），本頁畫上去（正在打字的那一格不蓋，離開時對齊）。換算不在本頁複製。
+- 由 DG 開啟時載入後送 `dg-target-set {field:'ask'}` 要一份目前值（DG 用網址指派第一個任務，不一定有 hello 往返）；收到 `dg-target` 才顯示卡片；冷啟動實測偶爾第一則 DG 沒收到 ⇒ 還沒收到就在 0.5／1.5／3／6 秒各再要一次（最多 5 次，收到就停）。單獨開本頁（沒有 opener）卡片不出現。
+
+## Digital Gamma (dg) v2.7.0 — 2026-10-19 ｜ MINOR ｜ 目標 Gamma／白點與 T-CON 自檢頁同步；「要不要調色溫」視窗列出本輪目標
+
+判定依據：docs/VERSIONING.md 判定表「多了能做的事，舊的一切照舊」→ MINOR；計算、輸出、既有按鈕不變。
+
+- 同上 同事B 第四封。
+- dg.html：收 `dg-target-set`（只收 DG_LIVE_PAGES.tcon 那個分頁）⇒ dgTargetSet() 把值放進同一格並發同一個 input／change 事件（與使用者在 DG 打字同一條路：換算、作廢結果、自動保存、重畫圖照舊）；#dg-gamma／#dg-wpt-* 任何改動、dgRefreshReady()（範例／匯入／還原等程式改值的匯流點）、自檢頁 hello ⇒ dgTargetPush() 送整份給自檢頁。
+- 「第 1 部分：這一輪要不要順便調色溫？」視窗最上面加一行 #dg-tone-tgt「本輪目標：Gamma …・白點 …」（dgToneTgtSync，開視窗／換層時更新），三語 dg.toneTgt。
+- common/version.js cache-buster：dg.html／dg-measure.html → 20261019dg270，dg-selftest.html → 20261019dst280（v2.6.1／v2.7.12 那次沒換）。
+- 測試：新增 tests/dgself/target_sync.py（真的兩個分頁、DG「T-CON 自檢畫面量測」工作模式鈕 window.open）：開啟對齊、自檢頁改 Gamma／白點／色溫／x、y ⇒ DG 跟著變且換算回傳、DG 改 ⇒ 自檢頁跟著變、無效色溫兩邊標錯、單獨開自檢頁不出現、視窗那一行（21/21）；tests/dgself/run.py 119 情境 1525/0。
+
 ## 自檢畫面量測 (dgself) v2.7.12 — 2026-10-19 ｜ PATCH ｜ 量測儀連線參數改成與電腦畫面量測相同
 
 判定依據：docs/VERSIONING.md R1，修正「同一台 CA-410 在電腦畫面量測連得上、自檢頁連不上」，採 PATCH。
