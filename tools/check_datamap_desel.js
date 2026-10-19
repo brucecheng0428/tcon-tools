@@ -72,12 +72,12 @@ ok(DM.deSelBase(14, 6) === 2 && DM.deSelBase(3, 6) === 1 && DM.deSelBase(5, 6) =
   ok(u.bits === 4 && u.base === 2 && u.used.join() === '2,3', 'E503 Dual 14：T2、T3（NB 名稱固定，只看 gate）');
 }
 
-console.log('── ① FORCE_DE_SEL 強制 0x0E：照瑞鼎 Python UI（PY:29267／29377 集合），MNT 不動');
+console.log('── ① FORCE_DE_SEL：DAZ6138／6139 照瑞鼎 Python UI 強制 0x0E；E501A／E501B／E503（v1.36.0）與 MNT 不動');
 for (const k of ['E503', 'E501A', 'E501B', 'DAZ6138', 'DAZ6139', 'EM01', 'EM02', 'E512']) {
   const s0 = Object.assign(DM.emptyState(k), { hand: 1, panel: 2, rd: 1, deEn: 1, deSel: 3 });
   const opts = DM.cellOptions(k, s0, 0, 0), nm = opts.length ? opts.find(o => o.name !== 'X' && o.name !== DM.cellView(k, s0, 0, 0).txt) || opts[0] : null;
   const r = nm ? DM.editCell(k, s0, 0, 0, nm.name) : null;
-  const want = ['E503', 'E501A', 'E501B', 'DAZ6138', 'DAZ6139'].includes(k) ? 0xE : 3;
+  const want = ['DAZ6138', 'DAZ6139'].includes(k) ? 0xE : 3;   // v1.36.0（Bruce 10/19 22:3x「我之前就說可以改，不用寫 0xE，但是預設的要 0xE」「501 跟 503 是同一個家族」）：E501A／E501B／E503 不再蓋回 0xE（同 MNT）；DAZ613x 維持
   ok(r && (r.state.deSel | 0) === want, k + ' 改一格（' + (nm && nm.name) + '）⇒ FORCE_DE_SEL＝0x' + ((r && r.state.deSel) | 0).toString(16) + '（應為 0x' + want.toString(16) + '）');
 }
 

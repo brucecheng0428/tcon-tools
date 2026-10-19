@@ -161,7 +161,7 @@ const regOf = (b, maps) => { const r = {}; maps.forEach(([f, t, l]) => { for (le
     const b = new Uint8Array(fs.readFileSync(f)), r = DM.parseCode(b, 'EN01', 'x.bin'), ref = regOf(b, refMaps(b));
     parsed[k] = { b, r, name: path.basename(f) };
     let same = r.ok; if (r.ok) DM.fieldsOf('EN01').forEach(fd => { const a = fd.parts[0][0]; const want = a in ref ? ref[a] : 0; const v = (want >> fd.parts[0][2]) & ((1 << (fd.parts[0][1] - fd.parts[0][2] + 1)) - 1); if ((r.state[fd.id] | 0) !== v) same = false; });
-    ok(same, path.basename(f) + '：解析成功（' + r.medium + '），299 個欄位＝獨立重算的 header 映射值');
+    ok(same, path.basename(f) + '：解析成功（' + r.medium + '），300 個欄位（v1.36.0 加 HSD_MAP_INV）＝獨立重算的 header 映射值');
   }
   if (parsed.f1567) { const r = parsed.f1567.r; ok(r.medium === 'eeprom' && r.seg.p2 && !r.seg.p3 && r.state.hand === 0 && r.state.panel === 1 && r.state.e0 === 24 && r.state.e12 === 38, 'F1567（4096 B，EEPROM 版面）：P2 有、P3 沒開；Hand 關、PANEL_MODE 1；L1-1 R0＝24、L1-2 R0＝38'); }
   if (parsed.flash) { const r = parsed.flash.r; ok(r.medium === 'flash' && r.seg.p2 && r.seg.p3 && r.state.hand === 1 && r.state.deEn === 0 && DM.gateOf('EN01', r.state) === 'off', 'FALSH.bin（FLASH 版面）：Bank0_5 0x7000、RT7_p2 0x8B00、RT7_p3 0x8D00；FORCE_SEL_EN 1／FORCE_DE_EN 0 ⇒ Hand 關'); }
@@ -262,7 +262,7 @@ const regOf = (b, maps) => { const r = {}; maps.forEach(([f, t, l]) => { for (le
     ok(!$('dm-pvbody').classList.contains('hidden') && /Auto：Normal/.test($('dm-pvnote').textContent) && /NORMAL!H47/.test($('dm-pvnote').textContent), '③：EN01 Hand 關（Auto）⇒ 依 NORMAL!H47 畫：' + $('dm-pvnote').textContent.slice(0, 60));
     ok($('dm-gridnote').classList.contains('hidden') && $('dm-e0-0').disabled && $('dm-e0-0').value === 'R1' && !$('dm-gate').disabled, 'Auto：表格唯讀顯示 Auto code（L1 Data1＝R1）、Gate Type 可改');
     ['mirror', 'chrb', 'chwb', 'rvsL'].forEach(k => ok(!d.querySelector('.dm-fieldrow[data-need="' + k + '"]').classList.contains('hidden'), '② 顯示 ' + k + ' 列（EN01 model 有這個欄位）'));
-    ok(d.querySelectorAll('#dm-code tr[data-f]').length === 299 && !!d.querySelector('#dm-code tr[data-f="e287"]'), 'TCON Register 確認：299 個欄位（11＋288）');
+    ok(d.querySelectorAll('#dm-code tr[data-f]').length === 300 && !!d.querySelector('#dm-code tr[data-f="e287"]'), 'TCON Register 確認：300 個欄位（12＋288；v1.36.0 加 HSD_MAP_INV）');
     if (parsed.f1567) {
       w.dmImportBytes(new Uint8Array(parsed.f1567.b), parsed.f1567.name);
       await P.waitFor(() => S.src.kind === 'file', '匯入 F1567');
