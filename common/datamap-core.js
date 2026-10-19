@@ -272,8 +272,49 @@
     if (!((s.hand | 0) && (s.deEn | 0))) return 'off';
     return ({ 0: 'single', 1: 'dual', 2: 'tri', 3: 'mux4', 5: 'mux6' })[s.rd | 0] || 'rdx';
   }
-  var EN01_GATES = [['Single-Gate', 0], ['Dual-Gate', 1], ['Tri-Gate', 2], ['MUX4 (RD_MODE=3)', 3], ['MUX6 (RD_MODE=5)', 5]];
-  function en01GateText(s) { var r = s.rd | 0; for (var i = 0; i < EN01_GATES.length; i++) if (EN01_GATES[i][1] === r) return EN01_GATES[i][0]; return 'RD_MODE=' + r; }
+  /* v1.35.28（Bruce 10/19 13:0x「mux2/mux3，不應該再將切換設定用到面板設定那一區吧，應該是要配合tcon設定，自動切換才對」；
+     13:2x「不能選single gate，要不然data是沒法分三段」；派工 237802378187255808）：面板是 Gate 還是 Source MUX 改由 TCON 暫存器自動判定，
+     不再有 ③「RD_MODE 1/2 面板」手動選項。依據（assistant_kb datamap/型號/EN01 §11）：
+       ・PANEL_MODE 0x390[1:0]：0 Normal／1 ZigZag／2 HSD／3 LTPS（RM81008.model:11051-11059）；
+       ・SUB_PANEL_MODE 0x390[6:4]，PANEL_MODE＝3 時 [0] 0＝MUX3／1＝MUX2、[1] 1＝Zigzag 或 Hand Mode with Dummy、[2] 0＝Type 1／1＝Type 2（model:11061-11079）；
+         瑞鼎 Raydium_TCON_DataMapping查詢_20260424.xlsx B15:D22 同一套編碼（LTPS Type1/2 × Normal/Z-Zag × MUX3/MUX2＝PANEL 3、SUB 0～7）；
+       ・RD_MODE 0x41C[2:0]＝一條 line 的 data 分幾段（model:3529-3533；原理 12.8.4）：0＝1 段、1＝2 段、2＝3 段、3＝MUX4、5＝MUX6。
+     ⇒ RD 1：PANEL≠3＝Dual(HSD)、PANEL 3＋SUB[0]＝1＝MUX2；RD 2：PANEL≠3＝Tri-Gate、PANEL 3＋SUB[0]＝0＝MUX3；RD 3／5＝MUX4／MUX6（只看 RD_MODE，
+       model 的 SUB 註解只列 MUX3／MUX2）。PANEL 3 配 RD 0（MUX 卻只分 1 段）或 SUB[0] 和 RD 段數不符＝矛盾 'bad'（③ 不畫、寫原因）。
+     MUX2／MUX3 的 TYPE 由 SUB[2] 決定；MUX4 原廠只有 TYPE 1；MUX6 沒有暫存器 ⇒ ③ 保留手動 TYPE（待 同事D）。 */
+  function en01Panel(s) {
+    var rd = s.rd | 0, pm = s.panel | 0, sb = s.subPanel | 0, ltps = pm === 3, m2 = (sb & 1) === 1;
+    var o = { kind: '', mux: 0, type: 0, typeReg: false, zz: ltps ? (sb >> 1) & 1 : 0, why: '' };
+    if (rd === 0) { if (ltps) { o.kind = 'bad'; o.why = 'single'; } else o.kind = 'single'; }
+    else if (rd === 1 || rd === 2) {
+      if (!ltps) o.kind = rd === 1 ? 'dual' : 'tri';
+      else if (m2 === (rd === 1)) { o.kind = rd === 1 ? 'mux2' : 'mux3'; o.mux = rd + 1; o.type = ((sb >> 2) & 1) + 1; o.typeReg = true; }
+      else { o.kind = 'bad'; o.why = rd === 1 ? 'sub3' : 'sub2'; }
+    } else if (rd === 3) { o.kind = 'mux4'; o.mux = 4; o.type = 1; }
+    else if (rd === 5) { o.kind = 'mux6'; o.mux = 6; }
+    else o.kind = 'rdx';
+    return o;
+  }
+  /* [選單文字, RD_MODE, MUX（2／3＝要寫 PANEL_MODE＝3＋SUB[0]）]；沒有「Single＋MUX」這種組合（MUX 至少分 2 段） */
+  var EN01_GATES = [['Single-Gate', 0], ['Dual-Gate', 1], ['Tri-Gate', 2], ['MUX2 (RD_MODE=1)', 1, 2], ['MUX3 (RD_MODE=2)', 2, 3], ['MUX4 (RD_MODE=3)', 3], ['MUX6 (RD_MODE=5)', 5]];
+  var EN01_GKIND = { single: 0, dual: 1, tri: 2, mux2: 3, mux3: 4, mux4: 5, mux6: 6 };
+  function en01GateText(s) {
+    var k = en01Panel(s).kind, i = EN01_GKIND[k];
+    return i === undefined ? 'RD_MODE=' + (s.rd | 0) + (k === 'bad' ? ' + PANEL_MODE=3' : '') : EN01_GATES[i][0];
+  }
+  /* 選 Gate Type：Single／Dual／Tri／MUX4／MUX6 照舊只寫 RD_MODE（WPF DMM:436-449）；MUX2／MUX3 另寫 PANEL_MODE＝3 與 SUB[0]（保留 SUB[1]／[2]）；
+     原本是 LTPS（PANEL 3）改回 Single／Dual／Tri 時 PANEL_MODE 一定要離開 3（否則仍判成 MUX）：Dual⇒2（HSD）、Single／Tri⇒0（Normal），SUB 歸 0 */
+  function en01SetGate(s, item) {
+    for (var q = 0; q < EN01_GATES.length; q++) if (EN01_GATES[q][0] === item) {
+      var G = EN01_GATES[q], es = cloneState(s); es.rd = G[1];
+      if (G[2]) { es.panel = 3; es.subPanel = ((es.subPanel | 0) & 6) | (G[2] === 2 ? 1 : 0); }
+      else if (G[1] <= 2 && (es.panel | 0) === 3) { es.panel = G[1] === 1 ? 2 : 0; es.subPanel = 0; }
+      return es;
+    }
+    return null;
+  }
+  /* MUX2／MUX3 的 TYPE＝SUB_PANEL_MODE[2]（0＝TYPE 1、1＝TYPE 2） */
+  function en01SetMuxType(s, ty) { var es = cloneState(s); es.subPanel = ((es.subPanel | 0) & 3) | (ty === 2 ? 4 : 0); return es; }
   /* 一格：{ raw, std, txt, color, editable, id, addr, name }。Hand 關時照樣顯示值（WPF 整張表停用但看得到），不能改 */
   function en01CellView(s, row, col, t) {
     var id = 'e' + (row * 12 + col), raw = s[id] | 0, name = en01Name(t, raw);
@@ -1048,10 +1089,7 @@
   }
   /* Gate Type 下拉（PY get_object_to_dm_info :29849） */
   function setGate(key, s, item) {
-    if (MODELS[key].kind === 'en01') {   // DMM:436-449：只寫 RD_MODE
-      for (var q = 0; q < EN01_GATES.length; q++) if (EN01_GATES[q][0] === item) { var es = cloneState(s); es.rd = EN01_GATES[q][1]; return es; }
-      return null;
-    }
+    if (MODELS[key].kind === 'en01') return en01SetGate(s, item);   // DMM:436-449 只寫 RD_MODE；v1.35.28 MUX2／MUX3 另寫 PANEL_MODE／SUB_PANEL_MODE（en01SetGate）
     var gi = GATE_ITEMS.indexOf(item); if (gi <= 0) return null;
     var ns = cloneState(s);
     ns.panel = gi;
@@ -1673,7 +1711,7 @@
     SELECT_KEYS: SELECT_KEYS, EN01_CH: EN01_CH, EN01_HD: EN01_HD, en01TRel: en01TRel, en01SName: en01SName, en01TLabel: en01TLabel, EN01_TABS: EN01_TABS, EN01_TDEF: EN01_TDEF, EN01_TMAX: EN01_TMAX, EN01_POOL: EN01_POOL, MNT_POOL: MNT_POOL, ltpsZzPool: ltpsZzPool, ltpsZzKind: ltpsZzKind, ltpsZzIdx: ltpsZzIdx, en01XApprox: en01XApprox,
     poolIdx: poolIdx, poolCov: poolCov, linPx: linPx, en01BaseT: en01BaseT, en01RowT: en01RowT, EN01_GATES: EN01_GATES, EN01_PANEL: EN01_PANEL,
     en01Seg: en01Seg, en01Addr: en01Addr, en01RowLabel: en01RowLabel, en01Phases: en01Phases, en01Rows: en01Rows, en01Defs: en01Defs, en01Name: en01Name, en01Value: en01Value,
-    en01Gate: en01Gate, en01CellView: en01CellView, en01Pick: en01Pick, en01SameOptions: en01SameOptions, en01AllSame: en01AllSame,
+    en01Gate: en01Gate, en01Panel: en01Panel, en01SetMuxType: en01SetMuxType, en01CellView: en01CellView, en01Pick: en01Pick, en01SameOptions: en01SameOptions, en01AllSame: en01AllSame,
     en01Ids: en01Ids, en01ExportRegs: en01ExportRegs, en01ExcelName: en01ExcelName, en01ExcelRows: en01ExcelRows, en01ExcelApply: en01ExcelApply,
     en01Maps: en01Maps, parseEn01: parseEn01, rowsFor: rowsFor, rowsShown: rowsShown, en01RowName: en01RowName
   };

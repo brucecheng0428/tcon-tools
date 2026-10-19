@@ -49,16 +49,18 @@ const TYS = M => M ? (MUXP[M][2] ? [1, 2] : [1]) : [1];
     () => rnd(132),                                                                       // 合法 0～131（含負 pixel）
     () => { const x = rnd(10); return x === 0 ? 0xFF : (x === 1 ? 132 + rnd(123) : rnd(132)); }   // 夾 X（255）與 132～254
   ];
-  const setState = (rd, de, mi, cb, pat) => { const s = DM.emptyState('EN01'); s.hand = 1; s.deEn = 1; s.deSel = de; s.rd = rd; s.mirror = mi; s.chrb = cb; s.rvsL = mi ? 0xFF : 0; for (let i = 0; i < 288; i++) s['e' + i] = PATS[pat](); return s; };
+  /* v1.35.28：MUX2／MUX3 改由暫存器判定（PANEL_MODE＝3＋SUB_PANEL_MODE[0]；TYPE＝SUB[2]），不再用 ③ 手動面板選項 */
+  const panApply = (s, rd, pan, ty) => { if (pan === 'mux' && (rd === 1 || rd === 2)) { s.panel = 3; s.subPanel = (rd === 1 ? 1 : 0) | (ty === 2 ? 4 : 0); } return s; };
+  const setState = (rd, de, mi, cb, pat, pan, ty) => { const s = DM.emptyState('EN01'); s.hand = 1; s.deEn = 1; s.deSel = de; s.rd = rd; s.mirror = mi; s.chrb = cb; s.rvsL = mi ? 0xFF : 0; for (let i = 0; i < 288; i++) s['e' + i] = PATS[pat](); return panApply(s, rd, pan, ty); };
   const rb = n => DM.rbSwapName(n);
   /* ── A：模型矩陣 ── */
   let nA = 0;
   for (const [rd, pan] of (QUICK ? [] : GATES)) for (const ty of TYS((rd === 3 || rd === 5 || pan === 'mux') ? DM.en01Phases(rd) : 0)) {
-    w.dmPvMux(pan); w.dmPvMuxType(ty);
+    w.dmPvMuxType(ty);
     for (const seg of [null, { p2: true, p3: false }]) {
       w.dmState.en01Seg = seg;
       for (const de of DES) for (const mi of [0, 1]) for (const cb of [0, 1]) for (let pat = 0; pat < 2; pat++) {
-        const s = setState(rd, de, mi, cb, pat); w.dmState.cur = s;
+        const s = setState(rd, de, mi, cb, pat, pan, ty); w.dmState.cur = s;
         const P = w.dmPvModel(), np = DM.en01Phases(rd), M = (rd === 3 || rd === 5 || pan === 'mux') && np > 1 ? np : 0, NG = M ? 1 : np, n = 12 * (M || 1), sh = n * NG;
         const id = 'rd' + rd + pan + (M ? '|TYPE' + ty : '') + '|de' + de.toString(16) + '|m' + mi + '|c' + cb + '|p' + pat + '|seg' + (seg ? 'P1' : 'all');
         ok(P.ok && P.en01 && P.NG === NG && P.period === n && P.shift === sh && (P.mux | 0) === M && (!M || P.muxType === ty), id + ' 模型參數 NG/period/shift/mux/TYPE');
@@ -85,8 +87,8 @@ const TYS = M => M ? (MUXP[M][2] ? [1, 2] : [1]) : [1];
   console.log('A 模型矩陣：' + nA + ' 格檢查');
   /* ── B：畫面 ── */
   const svgCheck = (rd, pan, de, mi, cb, drv, ty = 1) => {
-    w.dmPvMux(pan); w.dmPvMuxType(ty); fire('dm-pv-swap', !!drv.swap); fire('dm-pv-drv', drv.rev ? 'r' : 'f'); fire('dm-pv-first', drv.first ? 'r' : 'l');
-    const s = setState(rd, de, mi, cb, 1); w.dmState.cur = s; w.dmPvRender();
+    w.dmPvMuxType(ty); fire('dm-pv-swap', !!drv.swap); fire('dm-pv-drv', drv.rev ? 'r' : 'f'); fire('dm-pv-first', drv.first ? 'r' : 'l');
+    const s = setState(rd, de, mi, cb, 1, pan, ty); w.dmState.cur = s; w.dmPvRender();
     const P = w.dmPvModel(), svg = $('dm-pv-tft'), n = P.period, M = P.mux | 0, NG = P.NG, nD = +svg.getAttribute('data-nd'), id = 'SVG rd' + rd + pan + (P.mux ? ' TYPE' + ty : '') + ' de' + de.toString(16) + ' m' + mi + ' c' + cb + ' ' + JSON.stringify(drv);
     ok(+svg.getAttribute('data-plines') === n && +svg.getAttribute('data-ng') === NG, id + ' data-plines/ng');
     ok($('dm-tftbody').className.indexOf('hidden') < 0 && $('dm-tftnote').className.indexOf('hidden') >= 0, id + ' TFT 卡應顯示圖');
@@ -154,23 +156,19 @@ const TYS = M => M ? (MUXP[M][2] ? [1, 2] : [1]) : [1];
   for (const [rd, pan] of GATES) for (const ty of TYSof(rd, pan)) for (const mi of (QUICK ? [0] : [0, 1])) for (const cb of (QUICK ? [0] : [0, 1])) svgCheck(rd, pan, 0x02, mi, cb, {}, ty);
   for (const [rd, pan] of GATES) for (const ty of TYSof(rd, pan)) for (const drv of (QUICK ? [{ first: 1 }] : [{ swap: 1 }, { rev: 1 }, { first: 1 }, { swap: 1, rev: 1 }])) svgCheck(rd, pan, 0x0E, 0, 0, drv, ty);
   w.dmPvMuxType(1);
-  fire('dm-pv-swap', false); fire('dm-pv-drv', 'f'); fire('dm-pv-first', 'l'); w.dmPvMux('gate');
+  fire('dm-pv-swap', false); fire('dm-pv-drv', 'f'); fire('dm-pv-first', 'l');
   // Hand 關／RD_MODE 不支援：不畫、TFT 卡寫原因
   { const s = setState(1, 0x02, 0, 0, 0); s.hand = 0; w.dmState.cur = s; w.dmRender(); ok($('dm-tftbody').className.indexOf('hidden') >= 0 && /Hand Mode 關/.test($('dm-tftnote').textContent), 'Hand 關說明：' + $('dm-tftnote').textContent); }
   { const s = setState(4, 0x02, 0, 0, 0); w.dmState.cur = s; w.dmRender(); ok($('dm-tftbody').className.indexOf('hidden') >= 0 && /RD_MODE＝4/.test($('dm-tftnote').textContent), 'RD_MODE 4 說明：' + $('dm-tftnote').textContent); }
-  // RD_MODE 1/2 面板列只在 EN01 Dual／Tri 建立（其他時候不在 DOM ⇒ MNT／NB 頁面與 v1.35.24 相同）；選 Source MUX 後模型變 MUX
-  for (const rd of [0, 1, 2, 3, 5]) { const s = setState(rd, 0x02, 0, 0, 0); w.dmState.cur = s; w.dmPvRender(); ok(!!$('dm-pv-muxrow') === (rd === 1 || rd === 2), 'RD_MODE ' + rd + ' 面板列存在'); }
-  { const s = setState(2, 0x02, 0, 0, 0); w.dmState.cur = s; w.dmPvRender(); fire('dm-pv-mux', 'mux'); ok(w.dmPvModel().mux === 3 && $('dm-pv-mux').value === 'mux', '面板選 Source MUX ⇒ MUX3'); fire('dm-pv-mux', 'gate'); ok(!w.dmPvModel().mux, '面板選 Gate ⇒ Tri 3 條 gate'); }
-  { fire('dm-model', 'EM02'); w.dmRender(); ok(!$('dm-pv-muxrow'), 'EM02 沒有 RD_MODE 1/2 面板列'); fire('dm-model', 'EN01'); }
   // 鎖定＋只送 R1：EN01 也能鎖定、收到資料與鎖定一致（a/a）
-  { w.dmPvMux('gate'); const s = setState(1, 0x02, 0, 0, 0); w.dmState.cur = s; w.dmRender(); $('dm-pv-lock').click(); const st = $('dm-pv-lockst').getAttribute('data-ok'); const [a, b] = (st || '0/0').split('/').map(Number); ok(b > 0 && a === b, 'EN01 鎖定當下一致 ' + st); $('dm-pv-lock').click(); }
+  { const s = setState(1, 0x02, 0, 0, 0); w.dmState.cur = s; w.dmRender(); $('dm-pv-lock').click(); const st = $('dm-pv-lockst').getAttribute('data-ok'); const [a, b] = (st || '0/0').split('/').map(Number); ok(b > 0 && a === b, 'EN01 鎖定當下一致 ' + st); $('dm-pv-lock').click(); }
   /* ── C：E507 xlsm 範例 ── */
   const EX = JSON.parse(fs.readFileSync(FIX, 'utf8'));
   const RD = { 1: 0, 2: 1, 3: 2, 4: 3, 6: 5 }, rows = [];
   let nC = 0, dC = 0;
   for (const e of EX) {
-    const mux = /^MUX[23]$/.test(e.sheet) ? 'mux' : 'gate'; w.dmPvMux(mux); w.dmPvMuxType(1);
-    const s = DM.emptyState('EN01'); s.hand = 1; s.deEn = 1; s.rd = RD[e.m]; s.deSel = 1 << e.sFirst; s.mirror = e.mirror ? 1 : 0; s.rvsL = e.mirror ? 0xFF : 0;
+    const mux = /^MUX[23]$/.test(e.sheet) ? 'mux' : 'gate'; w.dmPvMuxType(1);
+    const s = DM.emptyState('EN01'); s.hand = 1; s.deEn = 1; s.rd = RD[e.m]; s.deSel = 1 << e.sFirst; s.mirror = e.mirror ? 1 : 0; s.rvsL = e.mirror ? 0xFF : 0; panApply(s, s.rd, mux, 1);
     for (let L = 0; L < 4; L++) for (let j = 0; j < e.m; j++) for (let c = 0; c < 12; c++) s['e' + ((L * 6 + j) * 12 + c)] = e.codes[c][j];
     w.dmState.cur = s; w.dmState.en01Seg = null;
     const P = w.dmPvModel(), M = P.mux | 0, n = P.period; let nn = 0, dd = 0; const diffs = [];
@@ -199,8 +197,8 @@ const TYS = M => M ? (MUXP[M][2] ? [1, 2] : [1]) : [1];
     const tyFit = [1, 2].filter(ty => MUXP[M][ty] && cells.every(x => lin(x.name) === enc(M, ty, x.ch, x.j, x.b)));
     if (!tyFit.length) { dRows.push({ ex: e.sheet + '!' + e.row0, type: null, why: '非 NORMAL TYPE 1／2 範例（Zigzag 或 pixel 錯位），不列入' }); continue; }
     const ty = tyFit[0];
-    w.dmPvMux(/^MUX[23]$/.test(e.sheet) ? 'mux' : 'gate'); w.dmPvMuxType(ty);
-    const s = DM.emptyState('EN01'); s.hand = 1; s.deEn = 1; s.rd = RD[e.m]; s.deSel = 1 << e.sFirst; s.mirror = 0; s.rvsL = 0;
+    w.dmPvMuxType(ty);
+    const s = DM.emptyState('EN01'); s.hand = 1; s.deEn = 1; s.rd = RD[e.m]; s.deSel = 1 << e.sFirst; s.mirror = 0; s.rvsL = 0; panApply(s, s.rd, /^MUX[23]$/.test(e.sheet) ? 'mux' : 'gate', ty);
     for (let L = 0; L < 4; L++) for (let j = 0; j < e.m; j++) for (let c = 0; c < 12; c++) s['e' + ((L * 6 + j) * 12 + c)] = e.codes[c][j];
     w.dmState.cur = s; w.dmState.en01Seg = null; w.dmPvRender();
     const P = w.dmPvModel(), n = P.period, svg = $('dm-pv-tft'), nD = +svg.getAttribute('data-nd'), row = P.rows.filter(r => r.k === 0)[0];
@@ -226,22 +224,74 @@ const TYS = M => M ? (MUXP[M][2] ? [1, 2] : [1]) : [1];
   w.dmPvMuxType(1);
   fs.writeFileSync(path.join(process.env.EN01TFT_OUT || '/tmp', 'en01tft_xlsm_type.json'), JSON.stringify({ model: nDm, modelDiff: dDm, svg: nDs, svgDiff: dDs, rows: dRows }, null, 1));
   console.log('D xlsm NORMAL TYPE 範例：' + dRows.filter(r => r.type).length + ' 組、模型 ' + nDm + ' 格差 ' + dDm + '、SVG 主循環 ' + nDs + ' 格差 ' + dDs + '；不列入 ' + dRows.filter(r => !r.type).map(r => r.ex).join('、'));
-  /* ── E：MUX TYPE 切換列 ── */
+  /* ── E：MUX TYPE 列（v1.35.28：MUX2／3＝SUB_PANEL_MODE[2] 自動、MUX4 只有 TYPE 1、MUX6 手動待 同事D） ── */
   {
-    const st = rd => { const s = setState(rd, 0x02, 0, 0, 0); w.dmState.cur = s; w.dmPvRender(); };
-    w.dmPvMux('gate'); w.dmPvMuxType(1);
-    for (const rd of [0, 1, 2]) { st(rd); ok(!$('dm-pv-muxtyrow'), 'E RD_MODE ' + rd + ' Gate 面板沒有 MUX TYPE 列'); }
-    for (const rd of [3, 5]) { st(rd); ok(!!$('dm-pv-muxtyrow'), 'E RD_MODE ' + rd + ' 有 MUX TYPE 列'); }
-    st(3); ok($('dm-pv-muxty').querySelector('option[value="2"]').disabled, 'E MUX4 的 TYPE 2 停用');
-    st(5); const P1 = JSON.stringify(w.dmPvModel().rows[0].names.slice(0, 72).map(c => c.t));
+    const st = (rd, pan, ty) => { const s = setState(rd, 0x02, 0, 0, 0, pan, ty); w.dmState.cur = s; w.dmPvRender(); return s; };
+    w.dmPvMuxType(1);
+    for (const rd of [0, 1, 2]) { st(rd, 'gate'); ok(!$('dm-pv-muxtyrow'), 'E RD_MODE ' + rd + ' Gate 面板沒有 MUX TYPE 列'); }
+    st(3); ok(!!$('dm-pv-muxtyrow') && $('dm-pv-muxty').classList.contains('hidden') && /TYPE 1/.test($('dm-pv-muxtysrc').textContent), 'E MUX4 只顯示 TYPE 1（無選單）');
+    st(5); const P1 = JSON.stringify(w.dmPvModel().rows[0].names.slice(0, 72).map(c => c.t)); ok(!$('dm-pv-muxty').classList.contains('hidden'), 'E MUX6 有手動 TYPE 選單');
     fire('dm-pv-muxty', '2'); const P2 = w.dmPvModel(); ok(P2.muxType === 2 && JSON.stringify(P2.rows[0].names.slice(0, 72).map(c => c.t)) !== P1, 'E MUX6 切 TYPE 2 ⇒ 走線改變');
     ok($('dm-pv-tft').querySelector('text[data-mxlg]').textContent === 'MUX6 TYPE 2', 'E 圖上標 TYPE 2');
     fire('dm-pv-muxty', '1'); ok(w.dmPvModel().muxType === 1, 'E 切回 TYPE 1');
-    // Bruce 10/19「EN01 的 MUX 接線圖，有包含 mux2、mux3…嗎？」：RD_MODE 1/2 Gate 面板時圖例提示去哪切 MUX2／MUX3；列名寫出 MUX2／MUX3
-    for (const rd of [1, 2]) { w.dmPvMux('gate'); st(rd); const h = $('dm-pv-keylg').querySelector('[data-key="dm.pvMuxHint"]'); ok(h && h.textContent.indexOf(rd === 1 ? 'MUX2' : 'MUX3') >= 0, 'E RD_MODE ' + rd + ' Gate 面板：圖例提示 ' + (h && h.textContent)); ok(/MUX2／MUX3/.test($('dm-pv-muxrow').textContent), 'E RD_MODE 1/2 面板列名含 MUX2／MUX3'); }
-    st(3); ok(!$('dm-pv-keylg').querySelector('[data-key="dm.pvMuxHint"]'), 'E MUX4 沒有 MUX2／MUX3 提示');
-    st(2); fire('dm-pv-mux', 'mux'); ok(!!$('dm-pv-muxtyrow'), 'E RD_MODE 2 選 Source MUX ⇒ 有 MUX TYPE 列'); ok(!$('dm-pv-keylg').querySelector('[data-key="dm.pvMuxHint"]'), 'E 選 Source MUX 後不再提示'); fire('dm-pv-mux', 'gate'); ok(!$('dm-pv-muxtyrow'), 'E 切回 Gate ⇒ 沒有 MUX TYPE 列');
-    fire('dm-model', 'EM02'); w.dmRender(); ok(!$('dm-pv-muxtyrow'), 'E EM02 沒有 MUX TYPE 列'); fire('dm-model', 'EN01');
+    for (const rd of [1, 2]) for (const ty of [1, 2]) {
+      st(rd, 'mux', ty); const P = w.dmPvModel();
+      ok(P.mux === rd + 1 && P.muxType === ty && P.muxTyReg, 'E MUX' + (rd + 1) + ' TYPE 依 SUB[2]：' + P.muxType);
+      ok($('dm-pv-muxty').classList.contains('hidden') && $('dm-pv-muxtysrc').textContent.indexOf('SUB_PANEL_MODE[2]＝' + (ty - 1)) >= 0, 'E MUX' + (rd + 1) + ' ③ 只顯示 TYPE 來源（不可手動）');
+      ok(!!$('dm-pv-keylg').querySelector('[data-key="dm.pvMuxLg"]') && /SUB_PANEL_MODE\[2\]/.test($('dm-pv-keylg').textContent), 'E MUX' + (rd + 1) + ' 圖例寫 TYPE 來源');
+    }
+    ok(!d.getElementById('dm-pv-mux') && !d.getElementById('dm-pv-muxrow'), 'E 舊「RD_MODE 1/2 面板」手動選項已移除');
+    fire('dm-model', 'EM02'); w.dmRender(); ok(!$('dm-pv-muxtyrow') && !$('dm-en01judge') && !$('dm-en01tyrow'), 'E EM02 沒有 MUX TYPE 列／判定列'); fire('dm-model', 'EN01');
+  }
+  /* ── F：Gate／MUX 自動判定（Bruce 10/19 13:0x「配合tcon設定，自動切換」、13:2x「不能選single gate」） ── */
+  {
+    // F1 判定矩陣：PANEL 0～3 × SUB 0～7 × RD 0～7 ＝ 256 組，對照 RM81008.model 註解推的預期
+    const exp = (pm, sb, rd) => {
+      if (rd === 3) return 'mux4'; if (rd === 5) return 'mux6'; if (rd > 2) return 'rdx';
+      if (pm !== 3) return ['single', 'dual', 'tri'][rd];
+      if (rd === 0) return 'bad'; const m2 = (sb & 1) === 1; return rd === 1 ? (m2 ? 'mux2' : 'bad') : (m2 ? 'bad' : 'mux3');
+    };
+    let nF = 0;
+    for (let pm = 0; pm < 4; pm++) for (let sb = 0; sb < 8; sb++) for (let rd = 0; rd < 8; rd++) {
+      const s = DM.emptyState('EN01'); s.hand = 1; s.deEn = 1; s.deSel = 2; s.panel = pm; s.subPanel = sb; s.rd = rd; nF++;
+      const J = DM.en01Panel(s), e = exp(pm, sb, rd);
+      ok(J.kind === e, 'F1 PANEL' + pm + ' SUB' + sb + ' RD' + rd + ' 判定 ' + J.kind + ' ≠ ' + e);
+      if (e === 'mux2' || e === 'mux3') ok(J.type === ((sb >> 2) & 1) + 1 && J.zz === ((sb >> 1) & 1), 'F1 TYPE/zz PANEL3 SUB' + sb);
+      if (rd <= 2 || rd === 3 || rd === 5) { w.dmState.cur = s; w.dmPvRender(); const P = w.dmPvModel();
+        if (e === 'bad') ok(!P.ok && /設定矛盾/.test(P.noPicWhy || ''), 'F1 矛盾不畫 PANEL' + pm + ' SUB' + sb + ' RD' + rd);
+        else ok(P.ok && (P.mux | 0) === ({ mux2: 2, mux3: 3, mux4: 4, mux6: 6 }[e] || 0), 'F1 ③ 模型 PANEL' + pm + ' SUB' + sb + ' RD' + rd + ' mux=' + P.mux); }
+    }
+    // F2 Gate Type 選單：列出 MUX2／MUX3，沒有 Single＋MUX；選了寫對暫存器、判定一行正確、round-trip
+    w.dmState.en01Seg = { p2: false, p3: false };   // 只畫 P1（6 列）：jsdom 整頁 render 288 格下拉太慢，這段只驗選單／判定
+    const st0 = DM.emptyState('EN01'); st0.hand = 1; st0.deEn = 1; st0.deSel = 0x0E; w.dmState.cur = st0; w.dmRender();
+    const opts = [...$('dm-gate').options].filter(o => !o.disabled).map(o => o.value);
+    ok(JSON.stringify(opts) === JSON.stringify(['Single-Gate', 'Dual-Gate', 'Tri-Gate', 'MUX2 (RD_MODE=1)', 'MUX3 (RD_MODE=2)', 'MUX4 (RD_MODE=3)', 'MUX6 (RD_MODE=5)']), 'F2 Gate 選單 ' + opts.join('|'));
+    const WANT = { 'Single-Gate': [0, 'single'], 'Dual-Gate': [1, 'dual'], 'Tri-Gate': [2, 'tri'], 'MUX2 (RD_MODE=1)': [1, 'mux2'], 'MUX3 (RD_MODE=2)': [2, 'mux3'], 'MUX4 (RD_MODE=3)': [3, 'mux4'], 'MUX6 (RD_MODE=5)': [5, 'mux6'] };
+    const SEQ = [...opts, 'Tri-Gate', 'MUX2 (RD_MODE=1)', 'Single-Gate', 'MUX3 (RD_MODE=2)', 'Dual-Gate', 'MUX6 (RD_MODE=5)', 'MUX3 (RD_MODE=2)', 'MUX2 (RD_MODE=1)', 'Tri-Gate'];   // 每種都進出過 MUX2／MUX3（整頁 render 慢，不跑 7×7）
+    let a = 'Single-Gate';
+    for (const b of SEQ) {
+      fire('dm-gate', b);
+      const c = w.dmState.cur, J = DM.en01Panel(c);
+      ok(c.rd === WANT[b][0] && J.kind === WANT[b][1] && $('dm-gate').value === b, 'F2 ' + a + ' → ' + b + '：RD ' + c.rd + ' 判定 ' + J.kind + ' 選單 ' + $('dm-gate').value);
+      ok($('dm-en01judge') && $('dm-en01judge').getAttribute('data-kind') === WANT[b][1] && $('dm-en01judge').textContent.indexOf('目前判定') >= 0, 'F2 判定列 ' + ($('dm-en01judge') && $('dm-en01judge').textContent));
+      ok(!!$('dm-en01tyrow') === (b.indexOf('MUX2') === 0 || b.indexOf('MUX3') === 0), 'F2 ' + b + ' MUX TYPE 列（②-1）');
+      if (/^(Single|Dual|Tri)/.test(b)) ok((c.panel | 0) !== 3, 'F2 ' + b + ' PANEL_MODE 已離開 3');
+      a = b;
+    }
+    // F3 ②-1 MUX TYPE 寫 SUB_PANEL_MODE[2]，③ 跟著換
+    fire('dm-gate', 'MUX3 (RD_MODE=2)'); fire('dm-en01ty', '2');
+    ok(((w.dmState.cur.subPanel >> 2) & 1) === 1 && (w.dmState.cur.subPanel & 1) === 0 && w.dmPvModel().muxType === 2, 'F3 TYPE 2 ⇒ SUB 0x' + w.dmState.cur.subPanel.toString(16));
+    fire('dm-gate', 'MUX2 (RD_MODE=1)'); ok((w.dmState.cur.subPanel & 5) === 5 && w.dmPvModel().muxType === 2, 'F3 換 MUX2 保留 TYPE 2（SUB ' + w.dmState.cur.subPanel + '）');
+    fire('dm-en01ty', '1'); ok((w.dmState.cur.subPanel & 4) === 0 && w.dmPvModel().muxType === 1, 'F3 TYPE 1');
+    // F4 Hand 關：Gate 停用並提示「先勾 Hand Mode」
+    { const s = DM.cloneState(w.dmState.cur); s.hand = 0; s.deEn = 0; w.dmState.cur = s; w.dmRender(); ok($('dm-gate').disabled && /^先勾 Hand Mode/.test($('dm-en01judge').textContent), 'F4 Hand 關提示：' + $('dm-en01judge').textContent); }
+    // F5 匯入矛盾值（PANEL 3＋RD 0＝Single＋MUX）：選單顯示矛盾、③ 不畫寫原因
+    { const s = DM.emptyState('EN01'); s.hand = 1; s.deEn = 1; s.deSel = 2; s.panel = 3; s.rd = 0; w.dmState.cur = s; w.dmRender();
+      ok($('dm-en01judge').getAttribute('data-kind') === 'bad' && /設定矛盾/.test($('dm-en01judge').textContent) && /RD_MODE＝0/.test($('dm-en01judge').textContent), 'F5 判定列：' + $('dm-en01judge').textContent);
+      ok($('dm-tftbody').className.indexOf('hidden') >= 0 && /設定矛盾/.test($('dm-tftnote').textContent), 'F5 ③ 不畫：' + $('dm-tftnote').textContent);
+      ok($('dm-gate').value === 'RD_MODE=0 + PANEL_MODE=3', 'F5 選單顯示 ' + $('dm-gate').value); }
+    w.dmState.en01Seg = null;
+    console.log('F 判定矩陣：' + nF + ' 組；Gate 選單切換 ' + SEQ.length + ' 次');
   }
   console.log((fail ? '✗' : '✓') + ' check_datamap_en01tft：' + pass + ' pass / ' + fail + ' fail');
   fails.forEach(f => console.log('  ✗ ' + f));

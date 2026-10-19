@@ -2,6 +2,29 @@
 
 ---
 
+## Data Mapping (datamap) v1.35.28 — 2026-10-19 ｜ PATCH ｜ EN01 Gate／MUX 依 TCON 暫存器自動判定，拿掉 ③「RD_MODE 1/2 面板」手動選項
+
+判定依據：§2 案例 2 修正錯誤設計 → PATCH（R1）：v1.35.25～26 的 ③「RD_MODE 1/2 面板」手動切 MUX 與 TCON 設定脫鉤，Bruce 10/19 13:0x 明說不應在面板區切換、要依 TCON 設定自動判定，屬「修正為原本就該有的行為」；看 MUX2／MUX3 接線的能力仍在（入口改在 ②-1 Gate Type，是 Bruce 指定位置），不是移除功能。⚠ 輸出變更：EN01 RD_MODE 1／2 的 ③ 由暫存器決定畫 Gate 或 MUX（PANEL_MODE＝3 的 code 匯入後直接畫 MUX；舊存檔的手動面板選擇不再生效）；EN01 選 MUX2／MUX3 會寫 PANEL_MODE／SUB_PANEL_MODE。MNT／NB 輸出 0 差異；EN01 Single／Dual／Tri／MUX4／MUX6 的寫入值不變。
+
+### 起因
+- Bruce 10/19 13:00：「你這個截圖裡面，我根本無法用網頁測試呀，有很多設定網頁沒有吧?」
+- Bruce 10/19 13:0x（最優先）：「mux2/mux3，不應該再將切換設定用到面板設定那一區吧，應該是要配合tcon設定，自動切換才對」
+- Bruce 10/19 13:2x：「所以我印象中是不能選single gate，要不然data是沒法分三段」（派工 237802378187255808）
+
+### 依據（assistant_kb datamap/型號/EN01 §11）
+- RM81008.model:11051-11079：PANEL_MODE 0x390[1:0]＝3（LTPS）時 SUB_PANEL_MODE 0x390[6:4] [0] 0＝MUX3／1＝MUX2、[1] Zigzag／Dummy、[2] Type 1／2；瑞鼎 Raydium_TCON_DataMapping查詢_20260424.xlsx B15:D22 同一套編碼。
+- RM81008.model:3529-3533 RD_MODE＝data 一條 line 分幾段；原理 12.8.4：MUX 不能配 1 段（Single）。
+
+### 變更
+- datamap-core.js：新增 en01Panel（判定 single／dual／tri／mux2／mux3／mux4／mux6／bad／rdx）、en01SetGate、en01SetMuxType。EN01 Gate Type 選單多列 MUX2 (RD_MODE=1)、MUX3 (RD_MODE=2)：選 MUX2／MUX3 寫 RD_MODE＋PANEL_MODE＝3＋SUB[0]（保留 SUB[1]／[2]）；從 LTPS 選回 Single／Dual／Tri 時 PANEL_MODE 改 0／2／0、SUB 歸 0；其餘選項照舊只寫 RD_MODE。選單沒有 Single＋MUX；匯入矛盾值（PANEL 3＋RD 0、SUB[0] 與 RD 段數不符）時選單顯示 RD_MODE=n + PANEL_MODE=3、③ 不畫並寫原因。
+- datamap.html ②-1：Gate Type 旁一行「目前判定：MUX3（依 PANEL_MODE＝3・SUB_PANEL_MODE[0]＝0・RD_MODE＝2）」；Hand 關時前面加「先勾 Hand Mode」；MUX2／MUX3 多一列 MUX TYPE（寫 SUB_PANEL_MODE[2]）。只在 EN01 建立，MNT／NB DOM 不變。
+- datamap.html ③：移除 pvMuxPanel 與「RD_MODE 1/2 面板」列（舊存檔的 pv.mux 忽略）；MUX TYPE 列 MUX2／3 只顯示「TYPE n（依 SUB_PANEL_MODE[2]＝b）」、MUX4「TYPE 1（原廠只有 TYPE 1）」、MUX6 保留手動選（待 同事D）；圖例寫 TYPE 來源；SUB[1]＝1 時加一句照 Normal 走線。
+- MNT／NB：沒有手動 MUX 選項（MNT MUX 畫法與 Gate／rd_mode 連動屬「全型號 MUX 三層接線圖」那件），本件不改。列名（Line 1-SW1）亦屬該件，本件不改。
+
+### 驗證
+- tools/check_datamap_en01tft.js：改用暫存器表達 MUX2／MUX3；新增 E（TYPE 來源）、F（PANEL 0～3 × SUB 0～7 × RD 0～7＝256 組判定＋③ 模型、Gate 選單切換、②-1 TYPE 寫 SUB[2]、Hand 關提示、矛盾值不畫）。
+- 回歸見完成回報（sd_snapshot、tft_interact、boe --qm、en01tft）。
+
 ## Data Mapping (datamap) v1.35.27 — 2026-10-19 ｜ PATCH ｜ 只改 ③ TFT 接線圖標號文字 ｜ CH1 在左時 SD Out／TCON Out 第一個循環直接標 D1、D2…
 
 判定依據：§2 案例 2 顯示文字調整 → PATCH；接線、寫入值、script、Excel、② 表格不變。
