@@ -2,6 +2,40 @@
 
 ---
 
+## Pattern Generator (pattern) v3.8.7 — 2026-10-19 ｜ PATCH ｜ 全螢幕畫布改用瀏覽器實測的實體像素框（device-pixel-content-box）；警示改成依實測結果；修「用整個螢幕 1:1 檢視」在小數 CSS 寬時重新取樣
+
+判定依據：docs/VERSIONING.md 修正錯誤（顯示失真、誤報）、輸出內容不變 ⇒ PATCH（底版 v3.8.6 ebc5a3d）。
+
+### 起因
+- Bruce 10/19 18:1x「3.8.6還是會受到文字大小影響 你有辦法驗證嗎？」；18:2x「不過還是要反過來注意喔。如果調整字體大小會影響到匯入圖檔以後的 sub-pixel 顯示，那一樣還是要警示喔。」Dispatch 轉：警示判準改成「依實際結果」，能補償成真正 1:1 不警示，無法保證 1:1 一律警示（寧可多警示）。派工 237888696530620416。
+
+### 驗證方法（可重現）
+- Mac mini，Chrome 155，獨立暫存 profile；A 組 `--force-device-scale-factor` 1／1.25／1.5／1.75／1.13／1.37（真的 DSF 管線）；B 組 CDP `Emulation.setDeviceMetricsOverride` 模擬 Windows 幾何（1920×1080 實體 ÷ DSF 的 CSS 螢幕，含 1.10／1.13／1.37 文字大小檔）。
+- 匯入 1920×1080 sub-pixel 測試圖（上半單像素 R/G/B 對角交錯、下半 1px 黑白棋盤、1px 白框）→ 按全螢幕 → `Page.captureScreenshot`（fromSurface、captureBeyondViewport false）→ 與預期面板影像逐像素、逐 R/G/B 比對（差異像素數、非 0/255 的內插值、±2px 偏移搜尋）。
+
+### 根因
+1. 「⛶ 用整個螢幕 1:1 檢視」（pgFsPrevRender）CSS 先 `Math.round(r.width)` 取整、backing 卻用未取整的 `r.width×dPR`：CSS 寬是小數（dPR 1.13 → 1920.35 CSS px、1.37、Windows 175% → 1097.14）時兩者差 1px ⇒ 整張重新取樣。實測 v3.8.6：dPR 1.13 差 1,043,398 像素、1.37 差 1,034,074 像素（v3.8.6 只修了主全螢幕 pgRenderFill，這條沒修）。
+2. 警示用推算（outerWidth÷innerWidth、screen×dPR 是否整數）而不是看結果：主全螢幕在 dPR 1.13／1.37 實測 0 差異（已 1:1）仍警示；Windows 幾何下 outerWidth 與 innerWidth 單位不同（外框沒乘文字大小）會被當成瀏覽器縮放 125%／150%／175% 而警示。
+3. pgTargetSize／pgUpdateFsInfo 用 `Math.round(CSS)×dPR`，與畫布 backing（未取整）不是同一個來源，小數 CSS 寬時差 1px。
+
+### 變更
+- pattern.html：新增 pgCanvasDevSize／pgFillDevSize／pgDpcbWatch（ResizeObserver `device-pixel-content-box`），兩張全螢幕畫布 CSS 一律 100%，backing＝瀏覽器實測實體框（與 CSS×dPR 差 >2px 或量不到才退回舊算法）。pgRenderFill、pgTargetSize、pgUpdateFsInfo、pgFsPrevRender、放大鏡座標（改用 backing÷CSS 框）全部走同一來源。
+- 警示（pgZwSync）：全螢幕畫布顯示中且量得到 ⇒ 依實測（backing＝實體框、貼在原點、沒有雙指縮放）決定，對不上就警示（新文案 pat.zwMsgDev）；主頁且量得到 ⇒ dPR 非整數不先警示，瀏覽器縮放、雙指縮放照舊警示；量不到（不支援 device-pixel-content-box，例如 Safari）⇒ 完全沿用 v3.8.6 判準。進場實測回來前 1.5 秒內不改狀態（避免閃一下）。window.pgFsPxState() 供測試讀取。
+- 全螢幕資訊列與螢幕資訊卡：dPR 非整數但已實測對齊時改顯示實測結果（pat.fsInfoOkDev／fsInfoWarnDev／dprNonIntDev），不再一律寫「非 1:1」。
+- common/zoomprobe.js：outerWidth > screen.width×1.02 時不採信比值（視窗不可能比螢幕寬，代表兩者單位不同，不是頁面縮放）。dg-measure.html 共用，只會少誤報、真的縮放不受影響。
+- common/i18n.js 新增 4 個 key；common/version.js pattern v3.8.7；pattern.html 的 `?v=` 改 20261019pat387。
+
+### 驗證結果（詳見派工回報的臨時互動區頁面）
+- A 組（真 DSF）主全螢幕 6 組＋1:1 檢視 6 組：改後 12/12 截圖逐像素 0 差異、0 內插值、無警示（一致）。改前：1:1 檢視 dPR 1.13／1.37 非 1:1（1,043,398／1,034,074 差異像素）；主全螢幕 1.13／1.37 已 1:1 卻警示。
+- 反向（故意破壞）：backing 少 1px、畫布 transform scale(0.999) ⇒ 兩條路徑 4/4 非 1:1 且都警示（一致）。雙指縮放（CDP setPageScaleFactor）在桌面 Chrome 未生效，該判準沿用舊版、未實測。
+- B 組（模擬 Windows 幾何，含文字大小 110%／113%／137%）：改前改後畫面都 1:1；改後主頁不再把外框誤判成瀏覽器縮放；全螢幕因模擬器量不到實體框而多警示（安全方向，不代表實機）。
+- 回歸（--scope ui）：check_datamap_boe --qm（全民 B19 DisplayOK_12）、check_datamap_sd_snapshot、check_i18n_descriptor_leak、check_datamap、check_cache_buster，結果見派工回報。
+
+### 模擬與 Windows 實機可能的差異
+- macOS 的 `--force-device-scale-factor` 不會把 screen 除以 DSF（screen 仍 1920×1080 CSS、實體面變成 1920×DSF），所以 A 組驗的是「真 DSF 下畫布是否逐點對到實體面」，不是 Windows 的螢幕幾何。
+- B 組（DevTools 裝置模擬）有 Windows 幾何，但模擬的 DSF 不會反映在 ResizeObserver 的 device-pixel-content-box（回報的是 CSS 尺寸），也不會改 outerWidth；因此 B 組只當畫面比對參考，警示欄位不代表實機。
+- Windows 實際的 TextScaleFactor 是否乘進 dPR、outerWidth 用哪個係數，未在 Windows 實機驗證；本版不依賴這些推算，改看實測框。
+
 ## Pattern Generator (pattern) v3.8.6 — 2026-10-19 ｜ PATCH ｜ 全螢幕依 dPR 補償成實體像素 1:1；Windows 文字放大／顯示器非整數縮放不再警示（取代 v3.8.5 的勾選）
 
 判定依據：docs/VERSIONING.md 修正誤報、不改輸出內容 ⇒ PATCH（底版 v3.8.5）。

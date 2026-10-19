@@ -183,7 +183,7 @@
   #pg-fs:fullscreen { width: 100%; height: 100%; background: #000; }
   #pg-fs:-webkit-full-screen { width: 100%; height: 100%; background: #000; }
   #pg-fs-canvas {
-    position: absolute; left: 0; top: 0; display: block;
+    position: absolute; left: 0; top: 0; display: block; width: 100%; height: 100%;
     image-rendering: pixelated; image-rendering: crisp-edges;
   }
   /* 邊緣感應區：完全透明、不繪任何像素，只負責接滑鼠／觸控 */
@@ -477,7 +477,7 @@
   #pg-fsprev { position: fixed; inset: 0; z-index: 10001; background: #000; display: none; overflow: hidden; }
   #pg-fsprev.on { display: block; }
   #pg-fsprev:fullscreen, #pg-fsprev:-webkit-full-screen { width: 100%; height: 100%; }
-  #pg-fsprev-canvas { position: absolute; left: 0; top: 0; display: block;
+  #pg-fsprev-canvas { position: absolute; left: 0; top: 0; display: block; width: 100%; height: 100%;
     image-rendering: pixelated; image-rendering: crisp-edges; }
   #pg-fsprev .pg-breathe, #pg-fsprev .pg-equal { z-index: 5; }
   #pg-fsprev-bar {
@@ -1221,10 +1221,10 @@
 </div>
 
 <!-- 共用 JS（i18n 必須先於 common.js 載入） -->
-<script src="common/version.js?v=20261019pat386"></script>
-<script src="common/i18n.js?v=20261019pat386"></script>
+<script src="common/version.js?v=20261019pat387"></script>
+<script src="common/i18n.js?v=20261019pat387"></script>
 <!-- v3.8.2：縮放判準的單一來源（原本內嵌在本頁，dg-measure.html 也要用同一份） -->
-<script src="common/zoomprobe.js?v=20261019pat386"></script>
+<script src="common/zoomprobe.js?v=20261019pat387"></script>
 <script src="common/common.js?v=20260523"></script>
 <script src="common/subpix-colors.js?v=20261019pat386"></script>
 <script>
@@ -1282,6 +1282,10 @@
     if (isInt) {
       note.className = 'pg-note ok';
       note.innerHTML = t('pat.dprIntOk', { d: pgFmtNum(dpr) });
+    } else if (PG_DPCB_OK) {
+      // v3.8.7：全螢幕畫布依實測實體框對齊；進全螢幕後由實測決定要不要警示
+      note.className = 'pg-note ok';
+      note.innerHTML = t('pat.dprNonIntDev', { d: pgFmtNum(dpr) });
     } else {
       note.className = 'pg-note err';
       note.innerHTML = t('pat.dprNonInt', { d: pgFmtNum(dpr) });
@@ -1358,7 +1362,9 @@
     var setT = function(id, txt){  var e = document.getElementById(id); if (e) e.textContent = txt; };
     setT('pg-zw-title', t('pat.zwTitle'));
     var msg;
-    if (p.zoomBad)      msg = t('pat.zwMsgZoom', { z: pgZwPct(p.zoom) });
+    if (p.devBad && p.dev && p.dev.dpcb)
+                        msg = t('pat.zwMsgDev', { w: p.dev.backing[0], h: p.dev.backing[1], dw: p.dev.dpcb[0], dh: p.dev.dpcb[1] });
+    else if (p.zoomBad) msg = t('pat.zwMsgZoom', { z: pgZwPct(p.zoom) });
     else if (p.osBad)   msg = t('pat.zwMsgOs',   { d: pgFmtNum(p.base) });
     else                msg = t('pat.zwMsgPinch',{ v: pgFmtNum(p.vv) });
     setH('pg-zw-msg', msg + ' ' + t('pat.zwWhy'));
@@ -1391,8 +1397,28 @@
   }
   function pgZwSync(){
     var p = pgZoomProbe();
-    var comp = pgZwCompensated(p);
-    var bad = (p.zoomBad || p.osBad || p.pinchBad) && !comp;
+    // v3.8.7：判準改成「依實際結果」（Bruce 10/19 18:2x）。
+    //  ・全螢幕畫布顯示中且瀏覽器量得到實體框：backing ＝ 實體框且貼在原點（實測 1:1）而且沒有雙指縮放 ⇒ 不警示；
+    //    任一不符 ⇒ 警示（p.devBad）。剛進場、實測還沒回來的那一瞬間（pending）沿用上一個狀態，不閃。
+    //  ・主頁（還沒進全螢幕）且量得到：dPR 非整數（顯示器縮放或 Windows 文字大小）不先警示 ——
+    //    進全螢幕後由實測決定；瀏覽器縮放、雙指縮放照舊警示（寧可多警示）。
+    //  ・量不到（不支援 device-pixel-content-box）：完全沿用 v3.8.6 判準。
+    var px = pgFsPxState();
+    if (px.active && px.supported && px.pending && pgZwLastSig !== null) return;
+    var comp, bad;
+    p.devBad = false;
+    if (px.active && px.supported) {
+      p.devBad = !px.match;
+      p.dev = px;
+      comp = !p.devBad && !p.pinchBad;
+      bad = !comp;
+    } else if (px.supported) {
+      comp = !p.zoomBad && !p.pinchBad;
+      bad = (p.zoomBad || p.pinchBad);
+    } else {
+      comp = pgZwCompensated(p);
+      bad = (p.zoomBad || p.osBad || p.pinchBad) && !comp;
+    }
     // 簽章：狀態換到「另一個」不是 100% 的值時，關掉過的浮動視窗要重新彈出來
     var sig = bad ? (p.zoom.toFixed(4) + '/' + Math.round(p.base * 1000) + '/' + p.vv.toFixed(3)) : '';
 
@@ -1405,7 +1431,7 @@
     var bv = document.getElementById('pg-basedpr');
     if (bv) {
       bv.textContent = pgFmtNum(Math.round(p.base * 10000) / 10000);
-      bv.className = 'pg-info-val' + (p.osBad && !comp ? ' warn' : ' ok');
+      bv.className = 'pg-info-val' + ((p.osBad && !comp) || p.devBad ? ' warn' : ' ok');
     }
     // 🔴 v3.8.0 修正「推算裝置像素」——兩個獨立的錯，一起修：
     //
@@ -2073,6 +2099,66 @@
     var h = Math.round(r.height) || ov.clientHeight || window.innerHeight;
     return { w: w, h: h };
   }
+  /* v3.8.7（Bruce 10/19 18:2x「如果調整字體大小會影響到匯入圖檔以後的 sub-pixel 顯示，那一樣還是要警示」；
+     Dispatch 轉：警示判準改成「依實際結果」）：全螢幕畫布的實體尺寸改由瀏覽器實測的
+     device-pixel-content-box 決定（ResizeObserver），不再自己用 CSS 寬×dPR 推算。
+     - 畫布 CSS 一律 width/height 100%（＝全螢幕元素），瀏覽器把這個框貼齊到幾個實體像素就回報幾個，
+       backing 設成同一個數 ⇒ 不論 dPR 是 1.25、1.75 還是 Windows 文字大小的 1.13、1.37，都不會重新取樣。
+     - 實測 2026-10-19（Mac mini，Chrome 155 --force-device-scale-factor）：v3.8.6 的「用整個螢幕 1:1 檢視」
+       在 dPR 1.13／1.37 時 CSS 先取整，backing 與實體框差 1 px ⇒ 約 104 萬像素錯位；主全螢幕同條件 0 差異。
+     - 量不到（瀏覽器不支援 device-pixel-content-box，例如 Safari）就退回 CSS×dPR，警示照舊用舊判準。
+     🔴 同源：pgRenderFill／pgTargetSize／pgUpdateFsInfo／pgFsPrevRender／放大鏡座標全部經 pgCanvasDevSize。 */
+  var PG_DPCB_OK = (function(){
+    try { return !!(window.ResizeObserver && window.ResizeObserverEntry &&
+                    ('devicePixelContentBoxSize' in window.ResizeObserverEntry.prototype)); } catch (e) { return false; }
+  })();
+  var pgDpcb = {};          // canvas id → { w, h }：瀏覽器實測該畫布內容框佔的實體像素
+  var pgDpcbRenderAt = 0;   // 最近一次依 CSS 推算（尚未實測）而重繪的時間，用來避免進場那一瞬間閃警示
+  function pgDpcbWatch(id, rerender){
+    if (!PG_DPCB_OK) return;
+    var el = document.getElementById(id);
+    if (!el) return;
+    try {
+      new ResizeObserver(function(es){
+        var e = es[es.length - 1];
+        var s = e && e.devicePixelContentBoxSize && e.devicePixelContentBoxSize[0];
+        if (!s) return;
+        var w = Math.round(s.inlineSize), h = Math.round(s.blockSize);
+        pgDpcb[id] = { w: w, h: h };
+        if (w > 0 && h > 0 && (el.width !== w || el.height !== h)) rerender();
+        pgZwSync();
+      }).observe(el, { box: 'device-pixel-content-box' });
+    } catch (err) {}
+  }
+  // 畫布的實體尺寸：有實測值且與 CSS×dPR 相差 ≤ 2 px（同一個版面）就用實測值；否則用 CSS×dPR（舊行為）
+  function pgCanvasDevSize(id, cssW, cssH){
+    var dpr = window.devicePixelRatio || 1, m = pgDpcb[id];
+    var fw = Math.round(cssW * dpr), fh = Math.round(cssH * dpr);
+    if (m && m.w > 0 && m.h > 0 && Math.abs(m.w - fw) <= 2 && Math.abs(m.h - fh) <= 2) return { W: m.w, H: m.h, via: 'dpcb' };
+    if (PG_DPCB_OK) pgDpcbRenderAt = Date.now();
+    return { W: fw, H: fh, via: 'css' };
+  }
+  function pgFillDevSize(){
+    var ov = document.getElementById('pg-fs');
+    var r = ov.getBoundingClientRect(), sz = pgFillCssSize();
+    return pgCanvasDevSize('pg-fs-canvas', r.width || sz.w, r.height || sz.h);
+  }
+  // 目前顯示中的全螢幕畫布是否「實測」1:1（backing ＝ 實體框，且貼在原點）
+  function pgFsPxState(){
+    var id = null;
+    if (pgFsPrevOn) id = 'pg-fsprev-canvas';
+    else { var ov = document.getElementById('pg-fs'); if (ov && ov.classList.contains('on')) id = 'pg-fs-canvas'; }
+    if (!id) return { active: false, supported: PG_DPCB_OK };
+    var cv = document.getElementById(id), m = pgDpcb[id], r = cv.getBoundingClientRect();
+    // 畫出來的框（含任何 CSS transform）× dPR 也要等於實體框（±1 px），transform 縮放不會改 device-pixel-content-box
+    var dpr = window.devicePixelRatio || 1;
+    var match = !!(PG_DPCB_OK && m && m.w === cv.width && m.h === cv.height &&
+                   Math.abs(r.left) < 0.01 && Math.abs(r.top) < 0.01 &&
+                   Math.abs(r.width * dpr - m.w) <= 1 && Math.abs(r.height * dpr - m.h) <= 1);
+    return { active: true, id: id, supported: PG_DPCB_OK, dpcb: m ? [m.w, m.h] : null,
+             backing: [cv.width, cv.height], match: match,
+             pending: !match && PG_DPCB_OK && (Date.now() - pgDpcbRenderAt) < 1500 };
+  }
   function pgRenderFill(){
     var ov = document.getElementById('pg-fs');
     if (!ov || !ov.classList.contains('on')) return;
@@ -2083,12 +2169,10 @@
     // 不內插），Windows 文字放大被 Chromium 乘進 dPR（screen_win.cc）時一樣逐點對到面板。
     // 這版只補一個邊角：實體尺寸由「未取整的」CSS 寬×dPR 取整得到，CSS 尺寸再用 W÷dPR 回推
     // （可為小數），避免 dPR 1.75 等係數下 CSS 先取整造成 backing 與畫面差零點幾像素而重新取樣。
-    var ovr = ov.getBoundingClientRect();
-    var sz = pgFillCssSize();
-    var W = Math.round((ovr.width  || sz.w) * dpr), H = Math.round((ovr.height || sz.h) * dpr);
+    // v3.8.7：實體尺寸改由 pgFillDevSize()（實測 device-pixel-content-box）決定；CSS 固定 100%。
+    var ds = pgFillDevSize(), W = ds.W, H = ds.H;
     if (W < 1 || H < 1) return;
-    cv.style.width  = (W / dpr) + 'px';
-    cv.style.height = (H / dpr) + 'px';
+    cv.style.width = '100%'; cv.style.height = '100%';
     cv.width = W; cv.height = H;
     var ctx = cv.getContext('2d', { alpha: false });
     ctx.imageSmoothingEnabled = false;
@@ -2276,12 +2360,15 @@
     var el = document.getElementById('pg-fs-info');
     if (!el) return;
     var dpr = window.devicePixelRatio || 1;
-    var sz = pgFillCssSize();
-    var W = Math.round(sz.w * dpr), H = Math.round(sz.h * dpr);
+    var ds = pgFillDevSize(), W = ds.W, H = ds.H;
     var SW = Math.round((screen.width || 0) * dpr), SH = Math.round((screen.height || 0) * dpr);
     var isInt = Math.abs(dpr - Math.round(dpr)) < 1e-6;
-    var html = t('pat.fsInfo', { w: W, h: H, d: pgFmtNum(dpr) }) +
-      '<br>' + (isInt ? t('pat.fsInfoOk') : t('pat.fsInfoWarn'));
+    // v3.8.7：有實測就依實測講；量不到才退回「dPR 是否整數」
+    var px = pgFsPxState(), okTxt;
+    if (px.supported && px.match)       okTxt = t('pat.fsInfoOkDev', { w: W, h: H });
+    else if (px.supported && px.dpcb)   okTxt = t('pat.fsInfoWarnDev', { w: W, h: H, dw: px.dpcb[0], dh: px.dpcb[1] });
+    else                                okTxt = isInt ? t('pat.fsInfoOk') : t('pat.fsInfoWarn');
+    var html = t('pat.fsInfo', { w: W, h: H, d: pgFmtNum(dpr) }) + '<br>' + okTxt;
     // 繪圖區是否真的等於整個螢幕（被瀏覽器工具列／系統列吃掉會在這裡看出來）
     html += '<br>' + t('pat.fsInfoScreen', { w: SW, h: SH });
     if (W === SW && H === SH) {
@@ -3012,8 +3099,8 @@
   var pgSizeOverride = null;
   function pgTargetSize(){
     if (pgSizeOverride) return pgSizeOverride;
-    var sz = pgFillCssSize(), dpr = window.devicePixelRatio || 1;
-    return { W: Math.max(1, Math.round(sz.w * dpr)), H: Math.max(1, Math.round(sz.h * dpr)) };
+    var ds = pgFillDevSize();   // v3.8.7：與全螢幕畫布同一個來源（實測實體框）
+    return { W: Math.max(1, ds.W), H: Math.max(1, ds.H) };
   }
   // 畫「邏輯尺寸 W×H 的畫面」中，起點 (ox,oy)、大小 sw×sh 的那一塊。
   // 用同一支 pgDrawPattern：向量繪圖靠 translate，逐像素繪圖靠 ctx.__pgOff*。
@@ -4016,10 +4103,12 @@
     if (!host || !pgFsPrevOn) return;
     var cv = document.getElementById('pg-fsprev-canvas');
     var r = host.getBoundingClientRect();
-    var dpr = window.devicePixelRatio || 1;
-    var vw = Math.round(r.width * dpr), vh = Math.round(r.height * dpr);
+    // v3.8.7：舊版 CSS 先取整（Math.round(r.width) px）而 backing 用未取整×dPR，CSS 寬是小數時
+    // （Windows 文字大小 113%、顯示器 175% 等）兩者差 1 px ⇒ 整張被重新取樣（實測約 104 萬像素錯位）。
+    // 改成 CSS 100%＋backing＝實測實體框（與主全螢幕同一支 pgCanvasDevSize）。
+    var ds = pgCanvasDevSize('pg-fsprev-canvas', r.width, r.height), vw = ds.W, vh = ds.H;
     if (vw < 1 || vh < 1) return;
-    cv.style.width = Math.round(r.width) + 'px'; cv.style.height = Math.round(r.height) + 'px';
+    cv.style.width = '100%'; cv.style.height = '100%';
     cv.width = vw; cv.height = vh;
     var src = pgPrevExportCanvas(), sz = { W: src.width, H: src.height };
     var ctx = cv.getContext('2d', { alpha: false });
@@ -4199,7 +4288,8 @@
         src:  function(){ return (pgMode === 'image' && pgImport.canvas && !pgColSwapOn())
                                  ? pgImport.canvas : document.getElementById('pg-fs-canvas'); },
         map:  function(cx, cy, r, el){
-                var d = window.devicePixelRatio || 1;
+                // v3.8.7：用畫布自己的比例（backing ÷ CSS 框）換算，與實測實體框一致
+                var d = (el && r.width > 0) ? el.width / r.width : (window.devicePixelRatio || 1);
                 var x = Math.floor((cx - r.left) * d), y = Math.floor((cy - r.top) * d);
                 if (pgMode === 'image' && pgImport.canvas && !pgColSwapOn()) {
                   var W = el.width, H = el.height, iw = pgImport.canvas.width, ih = pgImport.canvas.height;
@@ -4213,7 +4303,7 @@
       { key: 'fsprev', el: document.getElementById('pg-fsprev-canvas'),
         live: function(){ return pgFsPrevOn; },
         src:  function(){ return pgPrevExportCanvas(); },                      // 輸出解析度的真實像素
-        map:  function(cx, cy, r){ var d = window.devicePixelRatio || 1;
+        map:  function(cx, cy, r, el){ var d = (el && r.width > 0) ? el.width / r.width : (window.devicePixelRatio || 1);
                 return { x: Math.floor((cx - r.left) * d) + pgFsPan.x, y: Math.floor((cy - r.top) * d) + pgFsPan.y }; } },
 
       { key: 'prev',   el: document.getElementById('pg-prev-canvas'),
@@ -5865,6 +5955,9 @@
     if (window.ResizeObserver) {
       try { new ResizeObserver(function(){ pgRenderFill(); }).observe(ov0); } catch (e) {}
     }
+    // v3.8.7：實測兩張全螢幕畫布的實體框（不一致就重繪，並更新警示）
+    pgDpcbWatch('pg-fs-canvas', pgRenderFill);
+    pgDpcbWatch('pg-fsprev-canvas', pgFsPrevRender);
 
     window.addEventListener('resize', function(){
       pgRefreshScreenInfo();
@@ -6008,6 +6101,7 @@
   window.pgMagSample     = pgMagSample;
   window.pgImportState   = pgImport;
   window.pgImportApply   = pgImportApply;
+  window.pgFsPxState     = pgFsPxState;     // v3.8.7：測試用（全螢幕畫布是否實測 1:1）
   window.pgImportClear   = pgImportClear;
   window.pgDecodeBMP24   = pgDecodeBMP24;
   window.pgDrawImport    = pgDrawImport;

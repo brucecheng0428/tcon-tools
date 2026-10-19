@@ -76,6 +76,11 @@
     // （dPR 會跟著變）照樣警示。不看預設字級／rem（字級與像素對應無關）。
     var zoomRejected = false;
     if (zoom !== 1 && !isOsScale(dpr / zoom)) { zoom = 1; zoomRejected = true; }
+    // v3.8.7：outerWidth 比整個螢幕（同為 CSS 像素）還寬 ⇒ outerWidth 和 innerWidth 不是同一種單位
+    // （例如 Windows 文字大小只乘進網頁的縮放、沒乘進視窗外框；或 DevTools 裝置模擬），不是頁面縮放。
+    // 真的瀏覽器縮放時視窗一定放得進螢幕（outerWidth ≤ screen.width），所以這條不會吃掉真的縮放。
+    var sw = (w.screen && w.screen.width) || 0;
+    if (zoom !== 1 && sw > 0 && ow > sw * 1.02) { zoom = 1; zoomRejected = true; }
     var base = dpr / zoom;
     var vv = (w.visualViewport && w.visualViewport.scale) || 1;
     return {
