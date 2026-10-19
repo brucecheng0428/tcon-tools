@@ -3688,8 +3688,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20261015wfg4560"></script>
-<script src="common/i18n.js?v=20261014wfg4550"></script>
+<script src="common/version.js?v=20261019wfg4570"></script>
+<script src="common/i18n.js?v=20261019wfg4570"></script>
 <script src="common/syscrc.js?v=20261014wfg4550"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -44409,7 +44409,11 @@ var WFG_TCON_CODECS = {
        詳見 `WFG_NB_MODELS.en01` 的註解。 */
   en01: {
     label: 'EN01', tconClass: 'NB', uiDclkRatio: 1, gpoBits: WFG_GPO_BITS_EN01, comboSrc: WFG_COMBO_SRC_EN01,
-    importExts: ['.bin', '.hex'], exportFormat: 'xlsx', exportBinary: true, mediumBySize: true,
+    /* 🔴 v4.57.0：EN01 **不設** `mediumBySize`。它的 Flash code 實際只有 40960／40961 bytes
+       （振嘉 2026-10-19 回報、SA 同事K 的 RM81008_TM_54G_* 兩份、WPF repo Doc/EN01/FALSH.bin），
+       落在通則「8192＜n＜131072 不合法」的中間 ⇒ 讀檔前閘門會直接擋掉。EN01 的載體改由
+       `wfgEn01DetectHeader()` 依內容（Dynamic Header 位置與 checksum）判定，見該函式說明。 */
+    importExts: ['.bin', '.hex'], exportFormat: 'xlsx', exportBinary: true,
     /* ══ 🔴 v4.22.0：`hasSecondStSpLine` —— 唯一還沒補上的第二組設定 ═══════════════
        v4.22.0 補完了第二組**延遲**（`r_dly_2` / `f_dly_2`，六顆都做）。查證的時候
        同時發現：**只有 EN01 另外還有第二組 ST/SP LINE**，而 wfg 沒有對應欄位。
@@ -47126,7 +47130,8 @@ function wfgCodeDecodeIntelHex(buf) {
               `WFG_CODE_FLASH_MIN`  = 131072（Flash **下限**，刻意沒有上限）
               `WFG_NB_MODELS.e503.sizes` = [4096, 8192]（v4.44.2 起，見 `WFG_CODE_EEPROM_SIZES`）、
               `e501a/e501b.sizes` = [131072]、
-              `en01.sizes` = null（不固定，實測見過 6354 / 4096）
+              `en01.sizes` = null（不固定，實測見過 EEPROM 6354 / 4096、Flash 40960 / 40961；
+                                  v4.57.0 起 EN01 不走本門檻，載體由 `wfgEn01DetectHeader()` 依內容判定）
          ② 實測見過的最大合法映像：hex 語料 191 份解出來最大 **131072**；
             `.bin` 語料實際見過 **262144**（RM80203 那批）。⇒ 取 **262144** 為基準。
          ③ 餘裕 **×16 ⇒ 4 MiB（4194304）**。16 倍＝涵蓋 512 KB／1 MB／2 MB／4 MB
@@ -47911,9 +47916,9 @@ window.wfgNbDecodeChunk = wfgNbDecodeChunk;
    `RM81008_F1567_FRC7_..._2026025.bin` 4096 bytes）：**20/20 個 checksum 全對**，
    Demo 檔的各 item 首尾相接、最後一筆 end ＝ 0x18D2 ＝ 檔案大小，一個 byte 不差。
 
-   ⚠ FLASH 格式（header 在 0x000、item 16 bytes、`From = ST_ADDR × 0x100`、
-     `Len = RD_LEN − 1`）**手邊沒有實檔可驗**，所以這裡只實作 EEPROM 那條路；
-     碰到 Flash 大小的 EN01 檔一律拒絕，不猜。 */
+   ✅ v4.57.0：FLASH 格式已補上（`wfgEn01ParseHeaderFlash()`，就在本函式下方），
+     依據 同事E 的 WPF RomCodeProcessUI 原始碼與 3 份真實 Flash 檔驗證；
+     「該用哪一種格式」統一由 `wfgEn01DetectHeader()` 決定。 */
 var WFG_EN01_HDR_OFF = 0x100;     // fileOff：Header 表起點（EEPROM 格式）
 var WFG_EN01_HDR_ITEM = 8;        // 每筆 8 bytes
 var WFG_EN01_HDR_MAX = 20;        // 含 Header0 共 20 筆
@@ -47943,6 +47948,96 @@ function wfgEn01ParseHeader(buf) {
   return { items: items, bad: bad, pwd: (buf[base] << 16) | (buf[base + 1] << 8) | buf[base + 2] };
 }
 window.wfgEn01ParseHeader = wfgEn01ParseHeader;
+
+/* ══ 🔴 v4.57.0：EN01（RM81008）FLASH 版 Dynamic Header ═══════════════════════════
+   起因：振嘉 2026-10-19 mail「網頁版本tool開啟flash bin檔出現無法解析提示」——
+   `RM81008_TM_54G_LOBF_0616_V11_MCU0526_AUTOEQ_1_LOBFON_peerj_1.bin`（40960 bytes）
+   被通則「EEPROM ≤ 8192／Flash ≥ 131072，中間不合法」擋掉。
+   Bruce 2026-10-19：「EN01 的 code 又分 Flash 跟 EEPROM，有點像是 monitor 那種概念。
+   EEPROM 的只有 4096 跟 8192 這兩種，其他的可能要考慮到 Flash。同事E 做的 UI 在 GitHub
+   上面，它是可以認振嘉要求的 code。不該網頁無法辨認」。
+   ── 格式出處（同事E 的 WPF RomCodeProcessUI，GitHub RadSme3Team，HEAD acdb7f9 v2.0.23.0）──
+   `DLL_Raydium_CommonLibrary/Raydium.Core/Models/DynamicHeader/EN01/`
+     EN01HeaderDefine.cs：FLASH 的 HeaderStartAddr ＝ 0、HeaderLength 0x1000、
+                          ItemLength 16、MaxCount 22（:43-79、:202-204）；
+                          ComputeRegisterMappings（:292-317）＝ Enable 且非 MCU／EDID、
+                          且 MAP_ST_ADDR 不是 ASCII_CODE／PWR_FLU／ADIF 的才映射暫存器。
+     EN01HeaderDefineFLASH.cs（每筆 16 bytes）：
+       ST_ADDR     ＝ b0<<8 | b1          檔案位置 ＝ ST_ADDR × 0x100（:809）
+       RD_LEN      ＝ b2<<16 | b3<<8 | b4  Enable ＝ RD_LEN ＞ 1（:796）
+       MAP_ST_ADDR ＝ b5<<8 | b6          暫存器起點；身分靠它反查（:227-249）
+       b8[1] MCU_CODE、b8[0] EDID；b9[7] CHECKSUM_EN
+       映射長度（ChecksumDataLength，:814-830）＝ RD_LEN − 1 ＋（CHECKSUM_EN ? 0 : 2）
+       b14/b15（For_checksum_use）＝ 前 14 bytes 相加 − 1，低位元組在 b14
+   ── 實檔驗證（2026-10-19，不進版控）─────────────────────────────────────────
+   RM81008_TM_54G_20260623.bin、…_LOBFOFF_peerj_1_EDID_2.bin（40960 B）、
+   WPF repo `Doc/EN01/FALSH.bin`（40961 B）：每份 20 筆非空 item 的 b14/b15 **20/20 相符**，
+   17 個暫存器 Bank 尾端的 bank checksum（同一公式）**17/17 相符**；EDID 在 0x1000
+   （EDID item 的 ST_ADDR 0x10），Bank0_5 在 0x7000 映射到暫存器 0x000～0x5BB。
+   ⇒ 回傳結構與 EEPROM 版相同（items[] 的 from／len／to），`wfgNbRegToFile()` 不用改。 */
+var WFG_EN01_FLASH_ITEM = 16;     // 每筆 16 bytes
+var WFG_EN01_FLASH_MAX = 22;      // 共 22 筆，header 區在檔案 0x000～0xFFF
+/* MAP_ST_ADDR → 暫存器 Bank（EN01HeaderDefineFLASH.cs:227-249 去掉 PWR_FLU 0x1A00／ASCII 0x2000／ADIF 0x2100） */
+var WFG_EN01_FLASH_MAP = [0x0000, 0x0600, 0x0700, 0x0800, 0x0900, 0x0A00, 0x0B00, 0x0C00,
+                          0x0D00, 0x0E00, 0x0F00, 0x1000, 0x1100, 0x1200, 0x1300, 0x1400, 0x1800];
+function wfgEn01ParseHeaderFlash(buf) {
+  if (!buf || buf.length < 0x1000) return null;
+  var items = [], bad = 0, good = 0, edidOff = -1, seen = {}, basic = false;
+  for (var i = 0; i < WFG_EN01_FLASH_MAX; i++) {
+    var o = i * WFG_EN01_FLASH_ITEM, k, nz = false, s = 0;
+    for (k = 0; k < WFG_EN01_FLASH_ITEM; k++) if (buf[o + k]) { nz = true; break; }
+    if (!nz) continue;                                   // 全 0 ＝ 沒用到的格子
+    for (k = 0; k < 14; k++) s += buf[o + k];
+    if (((s - 1) & 0xFFFF) !== (buf[o + 14] | (buf[o + 15] << 8))) { bad++; continue; }
+    good++;
+    var st = ((buf[o] << 8) | buf[o + 1]) * 0x100;
+    var rd = (buf[o + 2] << 16) | (buf[o + 3] << 8) | buf[o + 4];
+    var mp = (buf[o + 5] << 8) | buf[o + 6];
+    if (rd <= 1) continue;                               // Enable ＝ RD_LEN ＞ 1
+    if (buf[o + 8] & 0x01) { if (edidOff < 0) edidOff = st; continue; }   // EDID（不映射暫存器）
+    if (buf[o + 8] & 0x02) continue;                     // MCU（不映射暫存器）
+    if (WFG_EN01_FLASH_MAP.indexOf(mp) < 0) continue;    // PWR_FLU／ASCII／ADIF／未知
+    var len = rd - 1 + ((buf[o + 9] & 0x80) ? 0 : 2);
+    if (st + len > buf.length) { bad++; continue; }      // 指到檔案外 ⇒ 不採信
+    if (seen[mp]) continue;                              // 同一 Bank 重複：先到先用（WPF :1019-1027 不覆寫）
+    seen[mp] = 1;
+    items.push({ from: st, len: len, to: mp });
+    if (mp === 0x0000) basic = true;
+  }
+  /* 沒有 Bank0_5（TCON Basic，GPO／RD_MODE 都在裡面）或壞的比好的多 ⇒ 不是 Flash 版 EN01。 */
+  if (!items.length || !basic || bad > good) return null;
+  return { items: items, bad: bad, medium: 'flash', hdrOff: 0, edidOff: edidOff };
+}
+window.wfgEn01ParseHeaderFlash = wfgEn01ParseHeaderFlash;
+
+/* ══ 🔴 v4.57.0：EN01 載體判定（EEPROM／Flash）—— 單一入口 ═══════════════════════
+   規則（Bruce 2026-10-19）：EEPROM 只有 4096／8192 兩種大小；其他大小要考慮 Flash。
+   做法（與 同事E 的 WPF 一樣**看內容**，大小只決定先試哪一種）：
+     ① 大小 ＝ 4096／8192 → 先試 EEPROM（header 在 0x100），不成立再試 Flash（header 在 0x000）
+     ② 其他大小          → 先試 Flash，不成立再試 EEPROM
+   兩種 header 都有逐筆 checksum，互相誤認的機率極低（EEPROM 檔 0x000 是 EDID 的
+   00 FF FF FF FF FF FF 00，當成 Flash item 驗 b14/b15 不會過）。
+   ② 的 EEPROM 退路是為了**不退步**：RD 給的 `EN01_EEPROM_Demo_20251020.bin` 是 6354 bytes
+   （非標準大小的 EEPROM 匯出檔），v4.56.0 以前可以匯入，這版照樣可以，並在匯入說明標示
+   「非 4096／8192 的 EEPROM」。
+   回傳 header 物件（多了 medium／hdrOff／edidOff／stdSize），兩種都不成立回 null。 */
+function wfgEn01DetectHeader(buf) {
+  var n = buf ? buf.length : 0;
+  var std = WFG_CODE_EEPROM_SIZES.indexOf(n) >= 0;
+  function ee(b) {
+    var h = wfgEn01ParseHeader(b);
+    if (!h) return null;
+    h.medium = 'eeprom'; h.hdrOff = WFG_EN01_HDR_OFF; h.edidOff = 0;
+    return h;
+  }
+  var order = std ? [ee, wfgEn01ParseHeaderFlash] : [wfgEn01ParseHeaderFlash, ee];
+  for (var i = 0; i < order.length; i++) {
+    var h = order[i](buf);
+    if (h) { h.stdSize = (h.medium === 'flash') || std; return h; }
+  }
+  return null;
+}
+window.wfgEn01DetectHeader = wfgEn01DetectHeader;
 
 /* ══ 🔴 v4.26.0：E501A／E501B 的共用欄位 ═══════════════════════════════════════════
    RM81010 與 RM81011 在 wfg 用得到的每一個 register 上都相同（`.model` 逐項比對＋
@@ -48900,8 +48995,17 @@ window.wfgBuildXlsx = wfgBuildXlsx;
 function wfgNbParse(rawBuf, fname, key) {
   var m = WFG_NB_MODELS[key];
   if (!m) return { ok: false, reason: 'unknown NB model: ' + key };
-  var img = wfgCodeLoadImage(rawBuf, fname);        // 共用層：hex 解碼 ＋ EEPROM/Flash 門檻
-  if (!img.ok) return img;
+  var img;
+  if (m.map.kind === 'header') {
+    /* v4.57.0：EN01 的載體由 header 內容判定（`wfgEn01DetectHeader()`），不套
+       「EEPROM ≤ 8192／Flash ≥ 131072」通則 —— 它的 Flash code 只有 40 KB 左右。 */
+    img = wfgCodeToImage(rawBuf, fname);
+    if (!img.ok) return img;
+    img.contentLen = img.bytes.length;
+  } else {
+    img = wfgCodeLoadImage(rawBuf, fname);          // 共用層：hex 解碼 ＋ EEPROM/Flash 門檻
+    if (!img.ok) return img;
+  }
   var buf = img.bytes;
   /* 大小門檻：有明列 `sizes` 的型號一律嚴格比對 —— E501 拿到 4096 的檔、
      E503 拿到 128 KB 的檔，都代表選錯型號，這時往下解只會得到垃圾。 */
@@ -48911,14 +49015,18 @@ function wfgNbParse(rawBuf, fname, key) {
                .replace('{s}', m.sizes.join(' / ')) };
   }
   var ctx = {};
+  var edidOff = m.edidOff;
   if (m.map.kind === 'header') {
-    ctx.header = wfgEn01ParseHeader(buf);
-    if (!ctx.header) return { ok: false, reason: t('wfg.codeErrNbHeader').replace('{m}', m.label) };
+    ctx.header = wfgEn01DetectHeader(buf);
+    if (!ctx.header) return { ok: false, reason: t('wfg.codeErrNbHeader')
+                                .replace(/\{m\}/g, m.label).replace('{n}', String(img.contentLen)) };
+    img.medium = ctx.header.medium;                 // EEPROM／Flash 依 header 內容
+    edidOff = ctx.header.edidOff;                   // EEPROM 0x000；Flash 依 EDID item（實檔 0x1000）
   }
-  var frame = wfgNbEdidFrame(buf, m.edidOff);
+  var frame = wfgNbEdidFrame(buf, edidOff);
   if (!frame) return { ok: false, reason: t('wfg.codeErrNbEdid')
                          .replace('{m}', m.label)
-                         .replace('{o}', wfgCodeOffLabel(m.edidOff)) };
+                         .replace('{o}', edidOff < 0 ? '(header 沒有 EDID 區段)' : wfgCodeOffLabel(edidOff)) };
   var sig = [], miss = [], comboMiss = [];
   for (var i = 0; i < m.sigCount; i++) {
     var reg = m.sigBase(i);
@@ -48958,8 +49066,9 @@ function wfgNbParse(rawBuf, fname, key) {
   cks = cks >>> 0;
   var det = m.label + ' / ' + (m.map.kind === 'fixed'
               ? ('reg+0x' + m.map.delta.toString(16).toUpperCase() + ' → ' + wfgCodeOffLabel(m.sigBase(0) + m.map.delta))
-              : ('header ' + wfgCodeOffLabel(WFG_EN01_HDR_OFF) + ' / ' + ctx.header.items.length + ' banks'));
+              : ('header ' + wfgCodeOffLabel(ctx.header.hdrOff) + ' / ' + ctx.header.items.length + ' banks'));
   det += ' / ' + img.medium.toUpperCase() + ' ' + img.contentLen + 'B (' + img.srcFormat + ')';
+  if (ctx.header && !ctx.header.stdSize) det += ' ' + t('wfg.codeEn01OddEeprom');
   det += ' / EDID ' + frame.hactive + 'x' + frame.vactive +
          ' hblk ' + frame.hblank + ' vblk ' + frame.vblank;
   det += ' / CKS 0x' + wfgEm02Hex(cks, 6);

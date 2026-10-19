@@ -33,6 +33,40 @@
 - check_datamap_sd_snapshot：24096 pass／512 fail，不同的只有 Auto（Hand 關）panel 3（LTPS MUX）的 256 組（EM01／EM02／E512／E503／E501A／E501B／DAZ6138／DAZ6139 各 32 組，③ 與整頁）；暫存器／script／CKS／② 表格／第二組 0 差異；Single／Dual／HSD／Zigzag／1D1G、EN01、DAZ6111／DAZ7353 0 差異 ⇒ 重拍基準。工具加 SNAP_LIST（輸出全部不同的組合 id）。
 - check_datamap_boe --qm（全民 B19 DisplayOK_12）109/0；check_datamap_tft_interact 1404/0；check_datamap_tri 138/0（Gate 選單期望值加 MUX2／MUX3）；check_datamap_en01tft 668182/0；check_datamap_en01 75/0（MUX6 列名期望值改 Line n-SWk）。nbpx／bench 未跑（派工限制）。
 
+## 面板訊號模擬與取樣 (wfg) v4.57.0 — 2026-10-19 ｜ MINOR ｜ EN01 匯入支援 Flash 版 code（依 Dynamic Header 內容判定 EEPROM／Flash）
+
+判定依據：§2 → MINOR（R2 新增能力、舊行為不變）：EN01 原本只解 EEPROM 版（header 在 0x100），Flash 版一律拒絕；本版多認得 Flash 版（header 在 0x000）。EEPROM 版（4096／8192 與 RD Demo 的 6354）解析結果與 v4.56.0 相同；EM01／EM02／E512／E501A／E501B／E503 的判定、閘門與輸出 0 差異。
+
+### 起因
+- 振嘉 2026-10-19 14:42 mail「網頁版本tool開啟flash bin檔出現無法解析提示」：EN01 載入 SA 同事K 的 Flash code `RM81008_TM_54G_LOBF_0616_V11_MCU0526_AUTOEQ_1_LOBFON_peerj_1.bin` 跳「code 只有兩種合法大小：EEPROM 版 ≤ 8192 bytes，Flash 版 ≥ 131072 bytes。這個檔案的實際內容是 40960 bytes，落在兩者中間」。
+- Bruce 2026-10-19 14:5x：「EN01 的 code 又分 Flash 跟 EEPROM，有點像是 monitor 那種概念。EEPROM 的只有 4096 跟 8192 這兩種，其他的可能要考慮到 Flash。同事E 做的 UI 在 GitHub 上面，它是可以認振嘉要求的code。不該網頁無法辨認」（派工 237829398514380800）。
+
+### 根因（兩層）
+1. 通則 `wfgCodeClassifyMedium()`（v4.11.0，Bruce 2026-08-23「8K 到 128KB 中間是沒有過渡大小的」）是依 MNT／E501 的經驗定的；EN01 的 Flash code 實際只到 0xA000（40960／40961 bytes），被讀檔前閘門（`mediumBySize`）與 `wfgCodeLoadImage()` 擋在「中間不合法」。
+2. 即使放行，`wfgNbParse()` 對 EN01 只呼叫 EEPROM 版的 `wfgEn01ParseHeader()`（header 在 0x100）—— v4.14.0 註解寫明「FLASH 格式手邊沒有實檔可驗，碰到一律拒絕」，Flash 解析從沒實作；EDID 位置也寫死 0x000（Flash 版在 0x1000）。
+
+### 依據（同事E 的 WPF RomCodeProcessUI，GitHub RadSme3Team/WPF_RomCodeProcessUI @acdb7f9 v2.0.23.0）
+- WPF 不靠檔案大小分載體：使用者選 Storage Medium，載入時只看開頭是不是 EDID 給提示（RomCodeInfo.cs:1153-1173）；暫存器對應由 Dynamic Header 決定。
+- `EN01HeaderDefine.cs`：FLASH header 在 0x000、0x1000 長、每筆 16 bytes × 22 筆（:43-79、:202-204）；ComputeRegisterMappings（:292-317）只映射 Enable、非 MCU／EDID、非 ASCII／PWR_FLU／ADIF 的 Bank。
+- `EN01HeaderDefineFLASH.cs`：ST_ADDR＝b0<<8|b1（檔案位置 ×0x100）、RD_LEN＝b2<<16|b3<<8|b4（＞1 才啟用）、MAP_ST_ADDR＝b5<<8|b6、b8[1] MCU、b8[0] EDID、b9[7] CHECKSUM_EN；映射長度＝RD_LEN−1＋(CHECKSUM_EN?0:2)（:796、:809-830）；b14/b15＝前 14 bytes 和 −1（低位元組在前）。
+- 實檔驗證（本機、不進版控）：`RM81008_TM_54G_20260623.bin`、`…_LOBFOFF_peerj_1_EDID_2.bin`（振嘉那份的同系列，皆 40960 B）、WPF repo `Doc/EN01/FALSH.bin`（40961 B）：item checksum 20/20、Bank checksum 17/17 全對；EDID 在 0x1000、Bank0_5 在 0x7000 → 暫存器 0x000～0x5BB。
+
+### 變更（wfg.html／common/i18n.js）
+- 新增 `wfgEn01ParseHeaderFlash()`（Flash 版 header，逐筆驗 checksum、只收暫存器 Bank、必須有 Bank0_5）與 `wfgEn01DetectHeader()`（單一入口）：大小＝4096／8192 先試 EEPROM，其他大小先試 Flash，不成立再試另一種；兩種 header 都有 checksum，不會互相誤認。回傳結構與 EEPROM 版相同，`wfgNbRegToFile()` 不用改。
+- `wfgNbParse()`：EN01 不走「≤8192／≥131072」通則（其他型號照舊）；載體與 EDID 位置跟著 header（Flash 依 EDID item）；匯入說明的 header 偏移照實際格式。
+- EN01 codec 拿掉 `mediumBySize`（讀檔前閘門不再擋 40 KB 的 Flash 檔）；EM01／E501A／E501B／E503 不變。
+- 非 4096／8192 的 EEPROM 檔（RD 的 `EN01_EEPROM_Demo_20251020.bin` 6354 B）照舊可匯入，說明加一句「非 4096／8192 的 EEPROM 檔」。
+- 錯誤訊息 `wfg.codeErrNbHeader` 改寫成兩種格式都試過、列出檔案大小（三語）；新增 `wfg.codeEn01OddEeprom`（三語）。
+
+### 驗證
+- 新增 `tools/check_wfg_en01_flash.mjs`（headless Chrome、呼叫產品函式）：合成語料 EEPROM 4096／8192 × bin／hex、6354；Flash 40960／40961／65536／131072／262144 × bin／hex；round-trip（同組暫存器裝進 EEPROM 4096／8192 與 Flash 40960 解出 18 條訊號相同）× 3 組；反例 13 種全部拒絕；讀檔前閘門 EN01 放行、EM01／E503／E501A／E501B 照舊；真檔 6 份全部匯入且與 datamap `en01Maps`（獨立實作）映射逐筆相同；畫面流程照使用者操作匯入 Flash 檔出現匯入完成框、無 alert ⇒ 63／0。同一支指向 v4.56.0 頁面：Flash 30 項失敗、畫面流程跳出與振嘉截圖相同的「無法解析…40960 bytes」alert（重現原錯）。
+- 回歸：`tools/check_nb_code_import.js`、`tools/check_em01_code_import.js` 全部通過。
+
+### 未做／待確認
+- 補驗（同日 15:03 振嘉補寄原檔 `RM81008_TM_54G_LOBF_0616_V11_MCU0526_AUTOEQ_1_LOBFON_peerj_1.bin`，40960 B）：item checksum 20/20、Bank checksum 17/17；v4.56.0 畫面流程重現同一個 alert，v4.57.0 匯入成功（Flash、1920x1200、18 條）；`check_wfg_en01_flash.mjs` 真檔 7 份 66/0，U 段改用這份。
+- datamap `common/datamap-core.js` 的 EN01 Flash 判定已是內容判定（本件不改）；其註解說 FLASH 的 For_checksum_use 用 FALSH.bin 驗算對不上，實測公式＝(前 14 bytes 和 −1)、低位元組在 b14 時 20/20 相符 —— 留給 datamap 那邊下次改版時更正註解（「全型號 MUX 三層接線圖」正在改同檔，避免衝突）。
+
+
 ## Data Mapping (datamap) v1.35.28 — 2026-10-19 ｜ PATCH ｜ EN01 Gate／MUX 依 TCON 暫存器自動判定，拿掉 ③「RD_MODE 1/2 面板」手動選項
 
 判定依據：§2 案例 2 修正錯誤設計 → PATCH（R1）：v1.35.25～26 的 ③「RD_MODE 1/2 面板」手動切 MUX 與 TCON 設定脫鉤，Bruce 10/19 13:0x 明說不應在面板區切換、要依 TCON 設定自動判定，屬「修正為原本就該有的行為」；看 MUX2／MUX3 接線的能力仍在（入口改在 ②-1 Gate Type，是 Bruce 指定位置），不是移除功能。⚠ 輸出變更：EN01 RD_MODE 1／2 的 ③ 由暫存器決定畫 Gate 或 MUX（PANEL_MODE＝3 的 code 匯入後直接畫 MUX；舊存檔的手動面板選擇不再生效）；EN01 選 MUX2／MUX3 會寫 PANEL_MODE／SUB_PANEL_MODE。MNT／NB 輸出 0 差異；EN01 Single／Dual／Tri／MUX4／MUX6 的寫入值不變。
