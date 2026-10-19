@@ -158,7 +158,8 @@ const TYS = M => M ? (MUXP[M][2] ? [1, 2] : [1]) : [1];
   w.dmPvMuxType(1);
   fire('dm-pv-swap', false); fire('dm-pv-drv', 'f'); fire('dm-pv-first', 'l');
   // Hand 關／RD_MODE 不支援：不畫、TFT 卡寫原因
-  { const s = setState(1, 0x02, 0, 0, 0); s.hand = 0; w.dmState.cur = s; w.dmRender(); ok($('dm-tftbody').className.indexOf('hidden') >= 0 && /Hand Mode 關/.test($('dm-tftnote').textContent), 'Hand 關說明：' + $('dm-tftnote').textContent); }
+  /* v1.35.30：Hand 關＝Auto，依 E507 原廠範例畫；PANEL 0＋RD_MODE 1 沒有範例 ⇒ 不畫、寫「此組合原廠無資料（待 RD）」（有範例的組合見 check_datamap_autounify.js） */
+  { const s = setState(1, 0x02, 0, 0, 0); s.hand = 0; w.dmState.cur = s; w.dmRender(); ok($('dm-tftbody').className.indexOf('hidden') >= 0 && /待 RD/.test($('dm-tftnote').textContent), 'Hand 關（Auto 無範例）說明：' + $('dm-tftnote').textContent); }
   { const s = setState(4, 0x02, 0, 0, 0); w.dmState.cur = s; w.dmRender(); ok($('dm-tftbody').className.indexOf('hidden') >= 0 && /RD_MODE＝4/.test($('dm-tftnote').textContent), 'RD_MODE 4 說明：' + $('dm-tftnote').textContent); }
   // 鎖定＋只送 R1：EN01 也能鎖定、收到資料與鎖定一致（a/a）
   { const s = setState(1, 0x02, 0, 0, 0); w.dmState.cur = s; w.dmRender(); $('dm-pv-lock').click(); const st = $('dm-pv-lockst').getAttribute('data-ok'); const [a, b] = (st || '0/0').split('/').map(Number); ok(b > 0 && a === b, 'EN01 鎖定當下一致 ' + st); $('dm-pv-lock').click(); }
@@ -284,7 +285,8 @@ const TYS = M => M ? (MUXP[M][2] ? [1, 2] : [1]) : [1];
     fire('dm-gate', 'MUX2 (RD_MODE=1)'); ok((w.dmState.cur.subPanel & 5) === 5 && w.dmPvModel().muxType === 2, 'F3 換 MUX2 保留 TYPE 2（SUB ' + w.dmState.cur.subPanel + '）');
     fire('dm-en01ty', '1'); ok((w.dmState.cur.subPanel & 4) === 0 && w.dmPvModel().muxType === 1, 'F3 TYPE 1');
     // F4 Hand 關：Gate 停用並提示「先勾 Hand Mode」
-    { const s = DM.cloneState(w.dmState.cur); s.hand = 0; s.deEn = 0; w.dmState.cur = s; w.dmRender(); ok($('dm-gate').disabled && /^先勾 Hand Mode/.test($('dm-en01judge').textContent), 'F4 Hand 關提示：' + $('dm-en01judge').textContent); }
+    // v1.35.30：Hand 關＝Auto，Gate Type 可改（連動 panel／sub／rd），判定列開頭「Auto・」
+    { const s = DM.cloneState(w.dmState.cur); s.hand = 0; s.deEn = 0; w.dmState.cur = s; w.dmRender(); ok(!$('dm-gate').disabled && /^Auto・/.test($('dm-en01judge').textContent), 'F4 Hand 關（Auto）提示：' + $('dm-en01judge').textContent); }
     // F5 匯入矛盾值（PANEL 3＋RD 0＝Single＋MUX）：選單顯示矛盾、③ 不畫寫原因
     { const s = DM.emptyState('EN01'); s.hand = 1; s.deEn = 1; s.deSel = 2; s.panel = 3; s.rd = 0; w.dmState.cur = s; w.dmRender();
       ok($('dm-en01judge').getAttribute('data-kind') === 'bad' && /設定矛盾/.test($('dm-en01judge').textContent) && /RD_MODE＝0/.test($('dm-en01judge').textContent), 'F5 判定列：' + $('dm-en01judge').textContent);

@@ -355,6 +355,147 @@
   }
   /* MUX2／MUX3 的 TYPE＝SUB_PANEL_MODE[2]（0＝TYPE 1、1＝TYPE 2） */
   function en01SetMuxType(s, ty) { var es = cloneState(s); es.subPanel = ((es.subPanel | 0) & 3) | (ty === 2 ? 4 : 0); return es; }
+  /* ── v1.35.30 EN01 Auto（FORCE_SEL_EN＝0）預設排列（Bruce 10/19 12:5x「en01應該也有對應的auto mode吧，怎麼現在看來只能用hand mode才能看到跟mux有關的接線圖?」、
+     15:0x「為何…en01 auto mode，仍然無法像是其他tcon可以選擇不同預設的data mapping?」；派工 237801892587515904）：
+     ・EN01 的 PANEL_MODE／SUB_PANEL_MODE 編碼和 NB RM8100x 相同（RM81008.model:11051-11079：ZigZag Type 1～8、HSD Type 1／Type 4／Type 3-5／Type 4+zigzag(BOE)、
+       LTPS [0] MUX3／MUX2、[1] Zigzag、[2] Type 1／2），Auto 時晶片依這兩顆（＋RD_MODE 段數）自動排列；原廠沒有 Auto 對照表。
+     ・同事D 指定的 E507_rt7_sram_w_hand(1T4P).xlsm 各分頁（NORMAL／ZIGZAG／HSD TYPE 1／4／3-5／4+ZIGZAG／MUX2／MUX3／MUX4／MUX6 的 NORMAL／ZIGZAG TYPE 1／2）
+       是「用 Hand 模式填 code 重現該面板排列」的原廠範例 ⇒ 網頁把它當成該 PANEL／SUB 的 Auto 預設排列（推論：xlsm 是 Hand 填法，晶片 Auto 實際輸出未經 RD 確認）。
+       只取 mirror＝0 的範例（Auto 不套 Mirror，同 MNT／NB Auto）；有 line 0／line 1 兩組的照用，Line 3、4 重複 Line 1、2（推論）。
+     ・ZigZag Type 1～8 只有 data_sft 0／1 兩組範例（ZIGZAG!H48／H64）；每條 line 用哪組＝xlsm image5 data_sft 表 z0～z7（01010101、10101010、00110011、
+       11001100、01100110、10011001、00001111、11110000；與瑞鼎查詢 Excel Z-Zag Type 1～8＝LR、RL、LLRR、RRLL、LRRL、RLLR、LLLLRRRR、RRRRLLLL 一致，0＝L、1＝R）。
+     ・推不出的組合（例 Tri-Gate、PANEL 0／1 配 RD_MODE 1、HSD 配 RD_MODE 0、MUX6 ZIGZAG TYPE 2、HSD sub 4～7）回 null，畫面寫「此組合原廠無資料（待 RD）」。
+     資料由 E507 xlsm 逐格抽出（tools/datamap_en01_auto_examples.json，產生程式 tools/datamap_en01_auto_build.py）；codes＝12 個 Data × SW 數，sF＝起始 S 欄（FORCE_DE_SEL＝1<<sF）。 */
+  var EN01_AUTO_EX = {
+    normal: { m: 1, sF: 0, ref: ["NORMAL!H47"], L: [[0,1,2,3,4,5,6,7,8,9,10,11]] },
+    zz_sft0: { m: 1, sF: 1, ref: ["ZIGZAG!H48"], L: [[12,13,14,15,16,17,18,19,20,21,22,23]] },
+    zz_sft1: { m: 1, sF: 1, ref: ["ZIGZAG!H64"], L: [[35,12,13,14,15,16,17,18,19,20,21,22]] },
+    hsd1: { m: 2, sF: 1, ref: ["HSD!H148"], L: [[[12,25],[14,27],[16,29],[18,31],[20,33],[22,35],[0,13],[2,15],[4,17],[6,19],[8,21],[10,23]]] },
+    hsd4: { m: 2, sF: 1, ref: ["HSD!H213"], L: [[[12,25],[15,26],[17,28],[18,31],[21,32],[23,34],[0,13],[3,14],[5,16],[6,19],[9,20],[11,22]]] },
+    hsd35: { m: 2, sF: 1, ref: ["HSD!H280", "HSD!H296"], L: [[[34,45],[35,24],[13,26],[16,27],[17,30],[19,32],[22,33],[23,12],[1,14],[4,15],[5,18],[7,20]], [[35,24],[13,26],[16,27],[17,30],[19,32],[22,33],[23,12],[1,14],[4,15],[5,18],[7,20],[10,21]]] },
+    hsd4zz: { m: 2, sF: 1, ref: ["HSD!H348", "HSD!H365"], L: [[[12,25],[15,26],[17,28],[18,31],[21,32],[23,34],[0,13],[3,14],[5,16],[6,19],[9,20],[11,22]], [[35,46],[12,25],[15,26],[17,28],[18,31],[21,32],[23,34],[0,13],[3,14],[5,16],[6,19],[9,20]]] },
+    mux2_n1: { m: 2, sF: 2, ref: ["MUX2!H97"], L: [[[24,37],[26,39],[28,41],[30,43],[32,45],[34,47],[12,25],[14,27],[16,29],[18,31],[20,33],[22,35]]] },
+    mux2_n2: { m: 2, sF: 2, ref: ["MUX2!H128"], L: [[[24,38],[25,39],[28,42],[29,43],[32,46],[33,47],[12,26],[13,27],[16,30],[17,31],[20,34],[21,35]]] },
+    mux2_z1: { m: 2, sF: 2, ref: ["MUX2!H162", "MUX2!H178"], L: [[[24,37],[26,39],[28,41],[30,43],[32,45],[34,47],[12,25],[14,27],[16,29],[18,31],[20,33],[22,35]], [[47,36],[25,38],[27,40],[29,42],[31,44],[33,46],[35,24],[13,26],[15,28],[17,30],[19,32],[21,34]]] },
+    mux2_z2: { m: 2, sF: 2, ref: ["MUX2!H227", "MUX2!H243"], L: [[[24,38],[25,39],[28,42],[29,43],[32,46],[33,47],[12,26],[13,27],[16,30],[17,31],[20,34],[21,35]], [[47,37],[24,38],[27,41],[28,42],[31,45],[32,46],[35,25],[12,26],[15,29],[16,30],[19,33],[20,34]]] },
+    mux3_n1: { m: 3, sF: 2, ref: ["MUX3!H97"], L: [[[24,37,50],[27,40,53],[30,43,56],[33,46,59],[12,25,38],[15,28,41],[18,31,44],[21,34,47],[0,13,26],[3,16,29],[6,19,32],[9,22,35]]] },
+    mux3_n2: { m: 3, sF: 2, ref: ["MUX3!H128"], L: [[[24,40,50],[27,37,53],[30,46,56],[33,43,59],[12,28,38],[15,25,41],[18,34,44],[21,31,47],[0,16,26],[3,13,29],[6,22,32],[9,19,35]]] },
+    mux3_z1: { m: 3, sF: 2, ref: ["MUX3!H160", "MUX3!H176"], L: [[[24,37,50],[27,40,53],[30,43,56],[33,46,59],[12,25,38],[15,28,41],[18,31,44],[21,34,47],[0,13,26],[3,16,29],[6,19,32],[9,22,35]], [[47,36,49],[26,39,52],[29,42,55],[32,45,58],[35,24,37],[14,27,40],[17,30,43],[20,33,46],[23,12,25],[2,15,28],[5,18,31],[8,21,34]]] },
+    mux3_z2: { m: 3, sF: 2, ref: ["MUX3!H225", "MUX3!H241"], L: [[[24,40,50],[27,37,53],[30,46,56],[33,43,59],[12,28,38],[15,25,41],[18,34,44],[21,31,47],[0,16,26],[3,13,29],[6,22,32],[9,19,35]], [[47,39,49],[26,36,52],[29,45,55],[32,42,58],[35,27,37],[14,24,40],[17,33,43],[20,30,46],[23,15,25],[2,12,28],[5,21,31],[8,18,34]]] },
+    mux4_n1: { m: 4, sF: 3, ref: ["MUX4!G107"], L: [[[36,50,64,78],[37,51,65,79],[44,58,48,62],[45,59,49,63],[28,42,56,70],[29,43,57,71],[12,26,40,54],[13,27,41,55],[20,34,24,38],[21,35,25,39],[4,18,32,46],[5,19,33,47]]] },
+    mux4_z1: { m: 4, sF: 3, ref: ["MUX4!G139", "MUX4!G155"], L: [[[59,49,63,77],[36,50,64,78],[43,57,71,61],[44,58,48,62],[27,41,55,69],[28,42,56,70],[35,25,39,53],[12,26,40,54],[19,33,47,37],[20,34,24,38],[3,17,31,45],[4,18,32,46]], [[36,50,64,78],[37,51,65,79],[44,58,48,62],[45,59,49,63],[28,42,56,70],[29,43,57,71],[12,26,40,54],[13,27,41,55],[20,34,24,38],[21,35,25,39],[4,18,32,46],[5,19,33,47]]] },
+    mux6_n1: { m: 6, sF: 5, ref: ["MUX6!H143"], L: [[[60,73,86,99,112,125],[69,82,95,102,115,128],[48,61,74,87,100,113],[57,70,83,90,103,116],[36,49,62,75,88,101],[45,58,71,78,91,104],[24,37,50,63,76,89],[33,46,59,66,79,92],[12,25,38,51,64,77],[21,34,47,54,67,80],[0,13,26,39,52,65],[9,22,35,42,55,68]]] },
+    mux6_n2: { m: 6, sF: 5, ref: ["MUX6!H183"], L: [[[60,82,86,102,112,128],[69,73,95,99,115,125],[48,70,74,90,100,116],[57,61,83,87,103,113],[36,58,62,78,88,104],[45,49,71,75,91,101],[24,46,50,66,76,92],[33,37,59,63,79,89],[12,34,38,54,64,80],[21,25,47,51,67,77],[0,22,26,42,52,68],[9,13,35,39,55,65]]] },
+    mux6_z1: { m: 6, sF: 5, ref: ["MUX6!H215", "MUX6!H231"], L: [[[60,73,86,99,112,125],[69,82,95,102,115,128],[48,61,74,87,100,113],[57,70,83,90,103,116],[36,49,62,75,88,101],[45,58,71,78,91,104],[24,37,50,63,76,89],[33,46,59,66,79,92],[12,25,38,51,64,77],[21,34,47,54,67,80],[0,13,26,39,52,65],[9,22,35,42,55,68]], [[61,74,87,100,113,126],[70,83,72,103,116,129],[49,62,75,88,101,114],[58,71,60,91,104,117],[37,50,63,76,89,102],[46,59,48,79,92,105],[25,38,51,64,77,90],[34,47,36,67,80,93],[13,26,39,52,65,78],[22,35,24,55,68,81],[1,14,27,40,53,66],[10,23,12,43,56,69]]] }
+  };
+  var EN01_ZZ_SFT = ['01010101', '10101010', '00110011', '11001100', '01100110', '10011001', '00001111', '11110000'];
+  var EN01_SUB_NAMES = [
+    ['Normal'],
+    ['ZigZag Type 1', 'ZigZag Type 2', 'ZigZag Type 3', 'ZigZag Type 4', 'ZigZag Type 5', 'ZigZag Type 6', 'ZigZag Type 7', 'ZigZag Type 8'],
+    ['HSD Type 1', 'HSD Type 4', 'HSD Type 3-5', 'HSD Type 4 + zigzag(BOE)'],
+    ['MUX3 normal type1', 'MUX2 normal type1', 'MUX3 zigzag type1', 'MUX2 zigzag type1', 'MUX3 normal type2', 'MUX2 normal type2', 'MUX3 zigzag type2', 'MUX2 zigzag type2']
+  ];
+  /* 回傳 { key, name, refs, m, sF, lines:[4 條 line 的 12×m code], note } 或 { none: 原因 }；mux6Ty＝MUX6 的 TYPE（③ 手動，沒有暫存器） */
+  function en01AutoOf(s, mux6Ty) {
+    s = s || {}; var pm = s.panel | 0, sb = s.subPanel | 0, PJ = en01Panel(s), k = '', lines = null, nm = '', note = '';
+    var zz3 = pm === 3 && ((sb >> 1) & 1);
+    if (PJ.kind === 'bad' || PJ.kind === 'rdx') return { none: PJ.kind };
+    if (PJ.kind === 'single') {
+      if (pm === 0) { k = 'normal'; nm = 'Normal'; }
+      else if (pm === 1) {
+        var pat = EN01_ZZ_SFT[sb & 7];
+        nm = 'ZigZag Type ' + ((sb & 7) + 1) + '（data_sft ' + pat + '）';
+        lines = [0, 1, 2, 3].map(function (L) { return EN01_AUTO_EX[pat.charAt(L) === '1' ? 'zz_sft1' : 'zz_sft0'].L[0]; });
+        var E0 = EN01_AUTO_EX.zz_sft0;
+        if ((sb & 7) >= 6) note = 'period8';
+        return { key: 'zz' + (sb & 7), name: nm, refs: ['ZIGZAG!H48（data_sft 0）', 'ZIGZAG!H64（data_sft 1）', 'ZIGZAG image5 z' + (sb & 7)], m: 1, sF: E0.sF, lines: lines, note: note };
+      }
+    } else if (PJ.kind === 'dual') {
+      if (pm === 2) { k = ['hsd1', 'hsd4', 'hsd35', 'hsd4zz'][sb] || ''; nm = EN01_SUB_NAMES[2][sb] || ''; }
+    } else if (PJ.mux === 2 || PJ.mux === 3) {
+      k = 'mux' + PJ.mux + '_' + (PJ.zz ? 'z' : 'n') + PJ.type; nm = EN01_SUB_NAMES[3][sb & 7];
+    } else if (PJ.mux === 4) {
+      k = 'mux4_' + (zz3 ? 'z' : 'n') + '1'; nm = 'MUX4 ' + (zz3 ? 'zigzag' : 'normal') + ' type1';
+    } else if (PJ.mux === 6) {
+      var t6 = mux6Ty === 2 ? 2 : 1; k = 'mux6_' + (zz3 ? 'z' : 'n') + t6; nm = 'MUX6 ' + (zz3 ? 'zigzag' : 'normal') + ' type' + t6;
+    }
+    var E = k && EN01_AUTO_EX[k];
+    if (!E) return { none: 'nodata' };
+    return { key: k, name: nm, refs: E.ref, m: E.m, sF: E.sF, lines: [0, 1, 2, 3].map(function (L) { return E.L[L % E.L.length]; }), note: E.L.length > 1 ? 'line01' : '' };
+  }
+  /* Auto 推得的虛擬 state（只給 ② 顯示與 ③ 畫圖用，不寫入）：FORCE_SEL 依範例填、FORCE_DE_SEL＝1<<sF、Mirror／CHRB 清 0（Auto 不套） */
+  function en01AutoState(s, mux6Ty) {
+    var A = en01AutoOf(s, mux6Ty); if (!A || A.none) return null;
+    var v = cloneState(s); v.deEn = 1; v.deSel = 1 << A.sF; v.mirror = 0; v.chrb = 0;
+    for (var L = 0; L < 4; L++) for (var j = 0; j < 6; j++) for (var c = 0; c < 12; c++) {
+      var row = A.lines[L][c], val = A.m === 1 ? row : (j < A.m ? row[j] : row[0]);
+      v['e' + ((L * 6 + j) * 12 + c)] = typeof val === 'number' ? val : (Array.isArray(val) ? val[0] : 0);
+    }
+    v.autoOf = A;
+    return v;
+  }
+  /* ── v1.35.30 全型號 Auto 介面統一（Bruce 10/19 16:1x「E503的auto mode做法為何不能像是EM01這種，可以選擇1D1G/ZZag/HSD/LTPS(就是mux)…
+     甚至看能否也開放single gate那一項可以更改，再連動到對應的panel mode的那些選項，盡量讓每一顆tcon的設定模式相同」）：
+     Auto（Hand 關）時每顆 TCON 都是「Panel_mode＋sub_panel_mode」兩個下拉（EM01 原廠 UI 範本），Gate Type 也能改並與 panel／sub／rd 雙向連動。
+     各型號 sub 清單與 rd 寫法以該型號原廠為準：MNT＝DM.SUB_PANEL＋原廠 MNT Tool rd（LTPS 一律 2）；NB＝datamap-auto.js 的 Auto 清單（PY／model；MUX2 rd 1）；
+     EN01＝RM81008.model 註解（同 NB 編碼）＋RD_MODE 段數（MUX2 1、MUX3 2、MUX4 3、MUX6 5）。 */
+  function autoPanelNames(key) {
+    var M = MODELS[key]; if (!M) return [];
+    if (M.kind === 'nb' && M.sem !== 'e50x') return ['1D1G', 'Zigzag', 'HSD'];   // DAZ6111／DAZ7353：PANEL 只有 0～2
+    return ['1D1G', 'Zigzag', 'HSD', 'LTPS (MUX)'];
+  }
+  /* Auto 的 Gate Type 項目：MNT／NB 不列 Tri-Gate（BOE tri-gate 和 MUX3 zigzag type1 同一組暫存器，只在 Hand 由使用者指定）；NB e50x／DAZ613x 多 MUX2／MUX3（LTPS）；EN01 同 Hand */
+  function autoGateItems(key) {
+    var M = MODELS[key]; if (!M) return [];
+    if (M.kind === 'en01') return EN01_GATES.map(function (x) { return x[0]; });
+    var L = ['Single-Gate', 'Dual-Gate'];
+    if (M.kind === 'mnt' || M.sem === 'e50x') L = L.concat(['MUX2', 'MUX3']);
+    return L;
+  }
+  function autoGateText(key, s) {
+    var M = MODELS[key]; if (!M) return '';
+    if (M.kind === 'en01') return en01GateText(s);
+    var p = s.panel | 0;
+    if (p === 3 && (M.kind === 'mnt' || M.sem === 'e50x')) return (s.subPanel | 0) & 1 ? 'MUX2' : 'MUX3';
+    return p === 2 ? 'Dual-Gate' : (p <= 1 ? 'Single-Gate' : 'PANEL_MODE=' + p);
+  }
+  /* rd_mode（Auto）依 panel／sub：MNT＝原廠 MNT Tool [0,0,1,2]（LTPS 不分 MUX2／3 都 2，型號/MNT §10.6）；NB／EN01＝MUX2 1、MUX3 2（model 註解）；EN01 MUX4／MUX6 保留 RD 3／5 */
+  function autoRd(key, s) {
+    var M = MODELS[key], p = s.panel | 0, sb = s.subPanel | 0;
+    if (M.kind === 'en01' && p === 3 && ((s.rd | 0) === 3 || (s.rd | 0) === 5)) return s.rd | 0;
+    if (M.kind === 'mnt') return [0, 0, 1, 2][p] | 0;
+    return p === 3 ? ((sb & 1) ? 1 : 2) : (p === 2 ? 1 : 0);
+  }
+  /* 改 Panel_mode（Auto）：sub 回第一項（原廠 EM01 UI），rd 依 autoRd */
+  function autoSetPanel(key, s, pm) {
+    var ns = cloneState(s); ns.panel = pm | 0; ns.subPanel = 0;
+    if (MODELS[key].kind === 'en01' && pm === 3 && ((s.rd | 0) === 3 || (s.rd | 0) === 5)) { /* MUX4／MUX6 保留 */ } else if (fieldById(key, 'rd')) ns.rd = autoRd(key, ns);
+    if (MODELS[key].kind === 'mnt') ns.triGate = 0;
+    return MODELS[key].kind === 'nb' ? pyNormalize(key, ns) : ns;
+  }
+  function autoSetSub(key, s, sb) {
+    var ns = cloneState(s); ns.subPanel = sb | 0;
+    if (fieldById(key, 'rd') && !(MODELS[key].kind === 'en01' && ((s.rd | 0) === 3 || (s.rd | 0) === 5))) ns.rd = autoRd(key, ns);
+    return MODELS[key].kind === 'nb' ? pyNormalize(key, ns) : ns;
+  }
+  /* 改 Gate Type（Auto）：Single＝panel 0／1 保留（否則 0）、rd 0；Dual＝panel 2（原本 HSD 保留 sub）、rd 1；MUX2／MUX3＝panel 3、SUB[0]（原本 LTPS 保留 [1]／[2]）、rd 依 autoRd；
+     EN01 另有 Tri-Gate（RD 2、PANEL≠3）、MUX4／MUX6（RD 3／5、PANEL 3）。回傳新 state 或 null（不支援） */
+  function autoSetGate(key, s, item) {
+    var M = MODELS[key]; if (!M) return null;
+    var ns = cloneState(s), p = s.panel | 0, sb = s.subPanel | 0;
+    if (M.kind === 'en01') {
+      if (item === 'MUX4 (RD_MODE=3)' || item === 'MUX6 (RD_MODE=5)') { ns.panel = 3; if (p !== 3) ns.subPanel = 0; ns.rd = item.charAt(3) === '4' ? 3 : 5; return ns; }
+      if (item === 'Tri-Gate') { if (p > 1) { ns.panel = 0; ns.subPanel = 0; } ns.rd = 2; return ns; }   // Tri-Gate（gate 分 3 段）：PANEL 不是 LTPS／HSD ⇒ 0（Normal）
+    }
+    if (item === 'Single-Gate') { if (p > 1) { ns.panel = 0; ns.subPanel = 0; } }
+    else if (item === 'Dual-Gate') { ns.panel = 2; if (p !== 2) ns.subPanel = 0; }
+    else if (/^MUX[23]/.test(item)) { ns.panel = 3; ns.subPanel = (p === 3 ? sb & 6 : 0) | (item.charAt(3) === '2' ? 1 : 0); }
+    else return null;
+    if (M.kind === 'en01') { ns.rd = item === 'Single-Gate' ? 0 : (item === 'Dual-Gate' ? 1 : (item.charAt(3) === '2' ? 1 : 2)); return ns; }
+    if (fieldById(key, 'rd')) ns.rd = autoRd(key, ns); else delete ns.rd;
+    if (M.kind === 'mnt') ns.triGate = 0;
+    return M.kind === 'nb' ? pyNormalize(key, ns) : ns;
+  }
   /* 一格：{ raw, std, txt, color, editable, id, addr, name }。Hand 關時照樣顯示值（WPF 整張表停用但看得到），不能改 */
   function en01CellView(s, row, col, t) {
     var id = 'e' + (row * 12 + col), raw = s[id] | 0, name = en01Name(t, raw);
@@ -1785,6 +1926,8 @@
     en01Gate: en01Gate, en01Panel: en01Panel, en01SetMuxType: en01SetMuxType, en01CellView: en01CellView, en01Pick: en01Pick, en01SameOptions: en01SameOptions, en01AllSame: en01AllSame,
     en01Ids: en01Ids, en01ExportRegs: en01ExportRegs, en01ExcelName: en01ExcelName, en01ExcelRows: en01ExcelRows, en01ExcelApply: en01ExcelApply,
     en01Maps: en01Maps, parseEn01: parseEn01, rowsFor: rowsFor, rowsShown: rowsShown, en01RowName: en01RowName,
+    EN01_AUTO_EX: EN01_AUTO_EX, EN01_ZZ_SFT: EN01_ZZ_SFT, EN01_SUB_NAMES: EN01_SUB_NAMES, en01AutoOf: en01AutoOf, en01AutoState: en01AutoState, en01GateText: en01GateText,
+    autoPanelNames: autoPanelNames, autoGateItems: autoGateItems, autoGateText: autoGateText, autoRd: autoRd, autoSetPanel: autoSetPanel, autoSetSub: autoSetSub, autoSetGate: autoSetGate,
     muxPanel: muxPanel, triSig: triSig, lineName: lineName, lineAlias: lineAlias, sameLine: sameLine, triLabel: triLabel, MNT_GATES: MNT_GATES, mntSetGate: mntSetGate
   };
   if (typeof module === 'object' && module.exports) module.exports = API;
