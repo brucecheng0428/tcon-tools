@@ -2,6 +2,16 @@
 
 ---
 
+## Pattern Generator (pattern) v3.8.5 — 2026-10-19 ｜ PATCH ｜ 縮放警示加「我只放大了 Windows 文字大小」確認勾選
+
+判定依據：docs/VERSIONING.md 修正誤報、不改輸出 ⇒ PATCH（底版 v3.8.4）。
+- 起因：Bruce 10/19 18:0x「文字放大，現在 3.8.4 還是會跳警示喔」。
+- 查證：Chromium ui/display/win/screen_win.cc 在 include_accessibility 時回傳 device_scale_factor × UwpTextScaleFactor（uwp_text_scale_factor.cc 讀 UISettings.TextScaleFactor）⇒ Windows 文字大小會乘進 devicePixelRatio，screen.width 也一起除掉，網頁看到的和「顯示器縮放 125%」完全相同，無法自動分辨。
+- 變更（pattern.html）：只有「dPR 非整數」這一種警示時，警示視窗多一個勾選「我只放大了 Windows 文字大小（顯示器與瀏覽器縮放都是 100%），不要再警示」；勾了就把當下 dPR 記在 localStorage（pg.zw.textOnlyDpr），呼吸燈／橫幅／視窗都不再出現；dPR 一變就失效重新警示；螢幕資訊卡「扣除縮放後的 dPR」旁有「取消」連結。瀏覽器縮放、雙指縮放不提供勾選。
+- 套圖結果：全螢幕畫布＝CSS 尺寸 × dPR 的裝置像素（pgRenderFill），文字放大時 screen.width 也除以同一係數，乘回去就是實體像素 ⇒ 像素對應不受影響。
+- 取捨：勾選全靠使用者判斷；真的把顯示器設 125% 又勾了，也不會再警示（直到 dPR 改變或按取消）。
+- 測試：Bruce 指示不測，交由其他人實機測。
+
 ## Pattern Generator (pattern) v3.8.4 — 2026-10-19 ｜ PATCH ｜ 瀏覽器／顯示縮放 100%、只有 Windows「文字大小」放大時不再亮橘色呼吸燈
 
 判定依據：docs/VERSIONING.md 修正誤報、不改輸出 ⇒ PATCH（底版 v3.8.3）。畫面輸出、匯出、放大鏡全部不動；只改「要不要警示」的判準。
