@@ -2,6 +2,19 @@
 
 ---
 
+## Data Mapping (datamap) v1.36.1 — 2026-10-20 ｜ PATCH ｜ ③ TFT 接線圖 MUX 區：方格旁不再寫 SW 編號、左側 SW1～SWk 標籤放大
+判定依據：docs/VERSIONING.md——只改繪圖呈現（字級、間距、拿掉重複的小字），暫存器、匯出、表格 0 差異 ⇒ PATCH。
+
+### 起因
+- Bruce 10/19 23:4x～23:5x（看 v1.35.32 MUX 接線圖）：「我怎麼覺得 MUX 的畫法，為什麼要把 SW1、SW2、SW3 這些塞在那個小方格裡面，這樣不是反而看不清楚嗎？我反而覺得 SW1 到 SW3 的這些文字可以放在原本的最左邊」→ Dispatch 問 A 撤回／B 只拿掉方格裡的 SW 字、左邊標籤保留 → Bruce：「B」「SW的字太小了，要大一些才看的清楚」（聊天室派工 238004804924235776，取代 237963637733052416）。
+
+### 變更（datamap.html pvTft MUX 區；全型號同一段：MNT／NB LTPS MUX2／3、EN01 MUX2／3／4／6 TYPE1／2、Mirror 左右）
+- demux TFT 方格旁的 SWk 小字拿掉（顏色＋接到哪條 SW 匯流排＋左側標籤已表達）；Data 名稱也不加回：腳位名稱已在上方 SD Out 一組寫一次，每條線重寫會擠。方格 hover（title）保留完整資訊「Dn 的 demux TFT：SWk 時段開，把 SD 腳位…接到這條 Data 線」。
+  保留空的 text 錨點（data-dlab＝腳位·SW、data-sw，class dm-sdo）供既有測試與 sd_snapshot 邏輯位置對應；不可聚焦（拿掉 tabindex／role，加 aria-hidden）。
+- 左側 SW1～SWk 標籤 font-size 9 → 14（仍加粗）；SW 匯流排間距 9 → 16px（新常數 SWP），MUX 區高度 SWH＝50＋16×(k−1) 跟著加高；標籤右緣 x≈29，SW 匯流排起點 LX−18（≥ 74），左側不重疊。
+- 不動：三叉才畫點、垂直線保留、跨線弧形（v1.35.32 pvNet 規則，間距改後由 pvNet 重新計算）。
+- common/version.js datamap v1.36.1；datamap.html／index.html version.js `?v=20261020dm1361`（datamap-core.js 未改，維持 dm1360）。
+
 ## Data Mapping (datamap) v1.36.0 — 2026-10-20 ｜ MINOR ｜ ⚠ 輸出變更 ｜ 盤點未做項補完：EN01 Auto ZigZag Type 7／8 列 8 條、EN01 HSD_MAP_INV、Flash checksum 註解、Mirror 跨循環圖例（方向自推定案）、E501A／E501B／E503 FORCE_DE_SEL 可改（預設 0xE）
 
 判定依據：docs/VERSIONING.md R3 與判定表第 1 列「多了能做的事」——新增 EN01 HSD_MAP_INV 欄位與勾選框（使用者多一件能做的事）、ZigZag Type 7／8 多列 Line 5～8 ⇒ MINOR；既有操作與入口都不變。⚠ 輸出變更（R1）：E501A／E501B／E503 Hand 下 FORCE_DE_SEL 不是 0xE 時，改表格不再寫回 0xE（Bruce 10/19 要求），名稱依該值；EN01 匯出多 0x391[4]；EN01 Mirror 圖例文字改（底版 v1.35.32 7e89f3f）。
