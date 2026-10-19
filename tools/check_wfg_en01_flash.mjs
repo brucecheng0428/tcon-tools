@@ -233,7 +233,7 @@ if (CODES) {
   }
 
   console.log('\n── U 畫面流程（照使用者操作）──');
-  const target = realFiles.find(f => /LOBF/i.test(f)) || realFiles.find(f => /54G/.test(f)) || realFiles[0];
+  const target = realFiles.find(f => /LOBFON/i.test(f)) || realFiles.find(f => /LOBF/i.test(f)) || realFiles.find(f => /54G/.test(f)) || realFiles[0];
   await evIn(`(()=>{ const sel=document.getElementById('wfg-ui-tcon'); sel.value='en01'; wfgCodeOnTconChange('en01'); return wfgTconKey(); })()`);
   await sleep(1000);
   dialogs.length = 0;            // 切型號本身會跳「欄位超出位元寬」的既有提示，與匯入無關

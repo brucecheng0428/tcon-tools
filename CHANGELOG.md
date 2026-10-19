@@ -32,7 +32,7 @@
 - 回歸：`tools/check_nb_code_import.js`、`tools/check_em01_code_import.js` 全部通過。
 
 ### 未做／待確認
-- 振嘉信中那一份 `…_LOBFON_peerj_1.bin` 本體還沒拿到（Bruce 已請他寄），目前用同系列 `…_LOBFOFF_peerj_1_EDID_2.bin` 與 `RM81008_TM_54G_20260623.bin` 驗；收到後再跑一次。
+- 補驗（同日 15:03 振嘉補寄原檔 `RM81008_TM_54G_LOBF_0616_V11_MCU0526_AUTOEQ_1_LOBFON_peerj_1.bin`，40960 B）：item checksum 20/20、Bank checksum 17/17；v4.56.0 畫面流程重現同一個 alert，v4.57.0 匯入成功（Flash、1920x1200、18 條）；`check_wfg_en01_flash.mjs` 真檔 7 份 66/0，U 段改用這份。
 - datamap `common/datamap-core.js` 的 EN01 Flash 判定已是內容判定（本件不改）；其註解說 FLASH 的 For_checksum_use 用 FALSH.bin 驗算對不上，實測公式＝(前 14 bytes 和 −1)、低位元組在 b14 時 20/20 相符 —— 留給 datamap 那邊下次改版時更正註解（「全型號 MUX 三層接線圖」正在改同檔，避免衝突）。
 
 
