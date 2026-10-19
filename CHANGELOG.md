@@ -2,6 +2,14 @@
 
 ---
 
+## Pattern Generator (pattern) v3.8.6 — 2026-10-19 ｜ PATCH ｜ 全螢幕依 dPR 補償成實體像素 1:1；Windows 文字放大／顯示器非整數縮放不再警示（取代 v3.8.5 的勾選）
+
+判定依據：docs/VERSIONING.md 修正誤報、不改輸出內容 ⇒ PATCH（底版 v3.8.5）。
+- 起因：Bruce 10/19 18:1x「匯入檔案以後，我再用全螢幕。這個版面就不應該去影響到，讓文字大小影響到吧？」；Dispatch 轉達改方向：讓全螢幕本身不受文字大小影響，而不是只關警示。
+- 查核：pgRenderFill 原本就以裝置像素繪製（canvas.width＝CSS 寬×dPR、imageSmoothing 關、image-rendering: pixelated、pgDrawImport 以 sw＝dw 1:1 貼圖），所以匯入的 1920 圖在 dPR 1.25 時已逐點對到面板。
+- 變更：①pgRenderFill 改用未取整的 overlay 寬高×dPR 取整得實體尺寸，CSS 尺寸用 W÷dPR 回推（可為小數），補 dPR 1.75 等係數下 CSS 先取整造成的零點幾像素重新取樣。②pgZwCompensated：只有 dPR 非整數、沒有瀏覽器縮放與雙指縮放、且 screen 寬高×dPR 幾乎是整數（＝實體解析度）時不警示；對不上才警示。瀏覽器縮放、雙指縮放照舊警示。③移除 v3.8.5 的「我只放大了文字」勾選（被本版取代；舊 localStorage 鍵 pg.zw.textOnlyDpr 不再讀取）。
+- 測試：Bruce 指示不測，交由其他人實機測。
+
 ## Pattern Generator (pattern) v3.8.5 — 2026-10-19 ｜ PATCH ｜ 縮放警示加「我只放大了 Windows 文字大小」確認勾選
 
 判定依據：docs/VERSIONING.md 修正誤報、不改輸出 ⇒ PATCH（底版 v3.8.4）。
