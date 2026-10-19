@@ -201,9 +201,10 @@
   var EN01_REG = {
     hand: [0x393, 7, 7, 'FORCE_SEL_EN'], deEn: [0x392, 7, 7, 'FORCE_DE_EN'], deSel: [0x394, 7, 0, 'FORCE_DE_SEL'],
     panel: [0x390, 1, 0, 'PANEL_MODE'], subPanel: [0x390, 6, 4, 'SUB_PANEL_MODE'], ltpsZz: [0x390, 3, 2, 'LTPS_ZIGZAG_MODE'],
-    rd: [0x41C, 2, 0, 'RD_MODE'], mirror: [0x392, 6, 6, 'MIRROR'], chrb: [0x392, 4, 4, 'CHRB'], chwb: [0x392, 5, 5, 'CHWB'], rvsL: [0x3A5, 7, 0, 'READ_RVS']
+    rd: [0x41C, 2, 0, 'RD_MODE'], mirror: [0x392, 6, 6, 'MIRROR'], chrb: [0x392, 4, 4, 'CHRB'], chwb: [0x392, 5, 5, 'CHWB'], rvsL: [0x3A5, 7, 0, 'READ_RVS'],
+    hsdInv: [0x391, 4, 4, 'HSD_MAP_INV']   // v1.35.33（派工 237945451570647040；Bruce 10/19 22:3x「Data mapping 的盤點，我們可以自己做、還沒做的，現在就進行。」）：RM81008.model:12233-12238；HSD 兩個 SW 的 sub-pixel 對調（E507 HSD!H213 vs H229）
   };
-  var EN01_REG_IDS = ['hand', 'deEn', 'deSel', 'panel', 'subPanel', 'ltpsZz', 'rd', 'mirror', 'chrb', 'chwb', 'rvsL'];
+  var EN01_REG_IDS = ['hand', 'deEn', 'deSel', 'panel', 'subPanel', 'ltpsZz', 'rd', 'mirror', 'chrb', 'chwb', 'rvsL', 'hsdInv'];
   var EN01_PANEL = ['Normal', 'ZigZag (ZINV)', 'HSD', 'LTPS'];   // MODEL:11056-11059
   function en01Seg(row) { return row >= 12 ? 'p3' : ((row % 6) >= 3 ? 'p2' : 'p1'); }
   function en01Addr(row, col) {
@@ -372,6 +373,8 @@
     zz_sft1: { m: 1, sF: 1, ref: ["ZIGZAG!H64"], L: [[35,12,13,14,15,16,17,18,19,20,21,22]] },
     hsd1: { m: 2, sF: 1, ref: ["HSD!H148"], L: [[[12,25],[14,27],[16,29],[18,31],[20,33],[22,35],[0,13],[2,15],[4,17],[6,19],[8,21],[10,23]]] },
     hsd4: { m: 2, sF: 1, ref: ["HSD!H213"], L: [[[12,25],[15,26],[17,28],[18,31],[21,32],[23,34],[0,13],[3,14],[5,16],[6,19],[9,20],[11,22]]] },
+    /* v1.35.33（派工 237945451570647040；Bruce 10/19 22:3x「Data mapping 的盤點，我們可以自己做、還沒做的，現在就進行。」）：HSD TYPE 4＋HSD_MAP_INV＝1＝E507 HSD!H229（J228 標 HSD_MAP_INV＝1）；逐格＝H213 每個 Data 的 SW1、SW2 對調（12/25→13/24…） */
+    hsd4inv: { m: 2, sF: 1, ref: ["HSD!H229"], L: [[[13,24],[14,27],[16,29],[19,30],[20,33],[22,35],[1,12],[2,15],[4,17],[7,18],[8,21],[10,23]]] },
     hsd35: { m: 2, sF: 1, ref: ["HSD!H280", "HSD!H296"], L: [[[34,45],[35,24],[13,26],[16,27],[17,30],[19,32],[22,33],[23,12],[1,14],[4,15],[5,18],[7,20]], [[35,24],[13,26],[16,27],[17,30],[19,32],[22,33],[23,12],[1,14],[4,15],[5,18],[7,20],[10,21]]] },
     hsd4zz: { m: 2, sF: 1, ref: ["HSD!H348", "HSD!H365"], L: [[[12,25],[15,26],[17,28],[18,31],[21,32],[23,34],[0,13],[3,14],[5,16],[6,19],[9,20],[11,22]], [[35,46],[12,25],[15,26],[17,28],[18,31],[21,32],[23,34],[0,13],[3,14],[5,16],[6,19],[9,20]]] },
     mux2_n1: { m: 2, sF: 2, ref: ["MUX2!H97"], L: [[[24,37],[26,39],[28,41],[30,43],[32,45],[34,47],[12,25],[14,27],[16,29],[18,31],[20,33],[22,35]]] },
@@ -405,13 +408,19 @@
       else if (pm === 1) {
         var pat = EN01_ZZ_SFT[sb & 7];
         nm = 'ZigZag Type ' + ((sb & 7) + 1) + '（data_sft ' + pat + '）';
-        lines = [0, 1, 2, 3].map(function (L) { return EN01_AUTO_EX[pat.charAt(L) === '1' ? 'zz_sft1' : 'zz_sft0'].L[0]; });
+        /* v1.35.33（派工 237945451570647040；Bruce 10/19 22:3x「Data mapping 的盤點，我們可以自己做、還沒做的，現在就進行。」）：Type 7／8（00001111／11110000）每 8 條 line 一循環 ⇒ 列 8 條（Line 5～8 只在 Auto 顯示；Hand 的 FORCE_SEL 只有 4 條 line） */
+        var nL = (sb & 7) >= 6 ? 8 : 4;
+        lines = []; for (var zL = 0; zL < nL; zL++) lines.push(EN01_AUTO_EX[pat.charAt(zL) === '1' ? 'zz_sft1' : 'zz_sft0'].L[0]);
         var E0 = EN01_AUTO_EX.zz_sft0;
-        if ((sb & 7) >= 6) note = 'period8';
+        if (nL === 8) note = 'period8';
         return { key: 'zz' + (sb & 7), name: nm, refs: ['ZIGZAG!H48（data_sft 0）', 'ZIGZAG!H64（data_sft 1）', 'ZIGZAG image5 z' + (sb & 7)], m: 1, sF: E0.sF, lines: lines, note: note };
       }
     } else if (PJ.kind === 'dual') {
-      if (pm === 2) { k = ['hsd1', 'hsd4', 'hsd35', 'hsd4zz'][sb] || ''; nm = EN01_SUB_NAMES[2][sb] || ''; }
+      if (pm === 2) {
+        k = ['hsd1', 'hsd4', 'hsd35', 'hsd4zz'][sb] || ''; nm = EN01_SUB_NAMES[2][sb] || '';
+        /* v1.35.33（派工 237945451570647040；Bruce 10/19 22:3x「Data mapping 的盤點，我們可以自己做、還沒做的，現在就進行。」）：HSD_MAP_INV＝1 只有 TYPE 4 有原廠範例（H229）⇒ 用它；其他 HSD 子類型＋INV＝1 沒有範例 ⇒ 待 RD（TYPE 1 的 H164 內容是 SW 對調但標 INV＝0，標示矛盾不採用） */
+        if (s.hsdInv | 0) { if (sb === 1) { k = 'hsd4inv'; nm += '・HSD_MAP_INV＝1'; } else return { none: 'nodata', inv: 1 }; }
+      }
     } else if (PJ.mux === 2 || PJ.mux === 3) {
       k = 'mux' + PJ.mux + '_' + (PJ.zz ? 'z' : 'n') + PJ.type; nm = EN01_SUB_NAMES[3][sb & 7];
     } else if (PJ.mux === 4) {
@@ -427,7 +436,7 @@
   function en01AutoState(s, mux6Ty) {
     var A = en01AutoOf(s, mux6Ty); if (!A || A.none) return null;
     var v = cloneState(s); v.deEn = 1; v.deSel = 1 << A.sF; v.mirror = 0; v.chrb = 0;
-    for (var L = 0; L < 4; L++) for (var j = 0; j < 6; j++) for (var c = 0; c < 12; c++) {
+    for (var L = 0; L < A.lines.length; L++) for (var j = 0; j < 6; j++) for (var c = 0; c < 12; c++) {   // v1.35.33：ZigZag Type 7／8 有 8 條（e 288～575 只給顯示用，不寫入）
       var row = A.lines[L][c], val = A.m === 1 ? row : (j < A.m ? row[j] : row[0]);
       v['e' + ((L * 6 + j) * 12 + c)] = typeof val === 'number' ? val : (Array.isArray(val) ? val[0] : 0);
     }
@@ -569,7 +578,8 @@
      FLASH：header 在 0x000，22 筆 × 16 B：ST_ADDR＝b0<<8|b1（×0x100）、RD_LEN＝b2<<16|b3<<8|b4、MAP_ST_ADDR＝b5<<8|b6、
        b8[1] MCU_CODE、b8[0] EDID、b9[7] CHECKSUM_EN；Enable＝RD_LEN＞1；映射長度＝RD_LEN−1（CHECKSUM_EN＝1）／RD_LEN＋1（＝0）
        （EN01HeaderDefineFLASH.cs:19-34、796、809-830）；只收 MAP_ST_ADDR 表內的暫存器 Bank（:228-249，排除 PWR_FLU／ASCII／ADIF、EDID、MCU）。
-       FLASH 的 For_checksum_use 用本機 Doc/EN01/FALSH.bin 驗算對不上 ⇒ 不用它；改要求 Bank0_5（MAP 0x0000）長度涵蓋到 RD_MODE 0x41C、
+       FLASH 每筆 header 也有 checksum（b14/b15＝前 14 B 和 −1、低位元組在 b14；EN01HeaderDefineFLASH.cs；2026-10-19 3 份 Flash 實檔 item 20/20、Bank 17/17 全對，
+       v1.35.33 更正舊註解「FALSH.bin 驗算對不上」——當時是位元組順序／−1 沒算對；assistant_kb datamap/型號/EN01 §12）；這裡仍不靠它判定，改要求 Bank0_5（MAP 0x0000）長度涵蓋到 RD_MODE 0x41C、
        至少 3 個不同 Bank、起點在檔案內且不重複（避免把別顆 code 的 EDID 誤認成 header）。 */
   var EN01_FLASH_MAP = [0x0000, 0x0600, 0x0700, 0x0800, 0x0900, 0x0A00, 0x0B00, 0x0C00, 0x0D00, 0x0E00, 0x0F00, 0x1000, 0x1100, 0x1200, 0x1300, 0x1400, 0x1800];
   function en01Maps(b) {
@@ -1136,7 +1146,11 @@
      名稱要和寫出去的值一致；Python UI 開 Hand 寫 0xE：PY:29274-29280；FORCE_DE_EN 不開時 FORCE_DE_SEL 預設 2＝第 2 欄：PY:1793）。判斷＝v1.35.20 rowDict（名稱不變）；
      舊版 Pixel 範圍／tWin 看暫存器值（FORCE_DE_EN＝0 還套 同事A 的 MNT panel 等效值）、頁面 nbDeSelNow 只看 deRev，三邊對不上。預設 14（Single -6～4／Dual -4～4）與可改（v1.35.15）不變。 */
   function nbE50x(key) { return !!MODELS[key] && MODELS[key].kind === 'nb' && semOf(key) === 'e50x'; }
-  function nbSel(key, s) { var v = s ? (s.deSel | 0) & 0xF : 0; return (s && s.deRev && (s.deEn | 0) && v) ? v : 0xE; }
+  /* v1.35.33（Bruce 10/19 22:4x「E503 我就可以回答你，實際上它的結果是跟 MNT 的提案是一樣的」、22:3x「我之前就說可以改，不用寫 0xE，但是預設的要 0xE」「501 跟 503 是同一個家族」）：
+     RM8100x 家族（E501A／E501B／E503）code 18～29（R-3～R-6）正式支援、FORCE_DE_SEL 同 MNT 可改 ⇒ FORCE_DE_EN＝1 且值≠0 就照值（不再需要 deRev）；預設仍 0xE。
+     DAZ6138／DAZ6139 不在 Bruce 這句範圍 ⇒ 維持 v1.35.15 規則（deRev）。 */
+  function nbRm8100x(key) { return key === 'E501A' || key === 'E501B' || key === 'E503'; }
+  function nbSel(key, s) { var v = s ? (s.deSel | 0) & 0xF : 0; return (s && (s.deRev || nbRm8100x(key)) && (s.deEn | 0) && v) ? v : 0xE; }
   function poolKind(key) { return MODELS[key].kind === 'mnt' || semOf(key) === 'e50x'; }
   function rowDict(key, row, gate, s) {
     var se = semOf(key);
@@ -1186,7 +1200,8 @@
        B 檔 PY:29377 同集合 → PY:29390。呼叫點：改表格 PY:28881／28894（dm_update_all_from_dmrgb_table_change）、改 Gate PY:29917。
        ⇒ 網頁型號 E501A（RM81010）、E501B（RM81011）、E503（RM81000~04）、DAZ6138、DAZ6139（＝sem 'e50x' 的 NB）強制；DAZ6111／DAZ7353 與所有 MNT（PY 沒有）不動。
        （v1.25.1 曾改成只套 E503，依本則更正撤回。） */
-    if (m.sem === "e50x") { s.deEn = s.hand ? 1 : 0; if (!(s.deRev && s.deEn)) s.deSel = 0xE; }   // v1.35.9（Bruce 10/15「預設值維持 0xE，只有按下自動反推、而且需要改的時候才去動它；其他情況包括 Hand 開著一律照舊寫 0xE」）：只有反推選出的值（state.deRev）保留
+    if (m.sem === "e50x" && nbRm8100x(key)) { s.deEn = s.hand ? 1 : 0; if (!((s.deSel | 0) & 0xF)) s.deSel = 0xE; }   // v1.35.33（Bruce 10/19 22:3x「我之前就說可以改，不用寫 0xE，但是預設的要 0xE」）：E501A／E501B／E503 不再蓋回 0xE，只有 0（沒設）才補預設 0xE
+    else if (m.sem === "e50x") { s.deEn = s.hand ? 1 : 0; if (!(s.deRev && s.deEn)) s.deSel = 0xE; }   // v1.35.9（Bruce 10/15「預設值維持 0xE，只有按下自動反推、而且需要改的時候才去動它；其他情況包括 Hand 開著一律照舊寫 0xE」）：只有反推選出的值（state.deRev）保留
     else {
       s.lineEn = s.hand ? 1 : 0;
       if (s.lineEn) {
@@ -1915,7 +1930,7 @@
     emptyState: emptyState, cloneState: cloneState, decode: decode, encode: encode, encodeFields: encodeFields,
     changedIds: changedIds, diffRegs: diffRegs, regsOf: regsOf, maskedMerge: maskedMerge,
     gateOf: gateOf, gateText: gateText, cellView: cellView, codeName: codeName, editCell: editCell, applyNames: applyNames, allSame: allSame,
-    nbSel: nbSel, nbE50x: nbE50x, mntName: mntName, mntIdx: mntIdx, linName: linName, linIdx: linIdx, codeIdx: codeIdx, rbSwapName: rbSwapName, mntBaseT: mntBaseT, mntTOf: mntTOf, mntInRange: mntInRange, mntInTable: mntInTable, mntRel: mntRel, mntCands: mntCands, mntMirT: mntMirT, deSelTs: deSelTs, deSelText: deSelText, deSelForPx: deSelForPx, pxForDeSel: pxForDeSel, pxCovIdx: pxCovIdx, DE_COMMON: DE_COMMON, deSelBase: deSelBase, tWin: tWin, deAutoBase: deAutoBase, deAutoSel: deAutoSel, DE_AUTO_SEL: DE_AUTO_SEL, tUse: tUse,
+    nbSel: nbSel, nbE50x: nbE50x, nbRm8100x: nbRm8100x, mntName: mntName, mntIdx: mntIdx, linName: linName, linIdx: linIdx, codeIdx: codeIdx, rbSwapName: rbSwapName, mntBaseT: mntBaseT, mntTOf: mntTOf, mntInRange: mntInRange, mntInTable: mntInTable, mntRel: mntRel, mntCands: mntCands, mntMirT: mntMirT, deSelTs: deSelTs, deSelText: deSelText, deSelForPx: deSelForPx, pxForDeSel: pxForDeSel, pxCovIdx: pxCovIdx, DE_COMMON: DE_COMMON, deSelBase: deSelBase, tWin: tWin, deAutoBase: deAutoBase, deAutoSel: deAutoSel, DE_AUTO_SEL: DE_AUTO_SEL, tUse: tUse,
     setGate: setGate, setHand: setHand, pyNormalize: pyNormalize, pyNames: pyNames, cks: cks, preLabels: preLabels,
     inputDict: inputDict, colorOfName: colorOfName, codeAddrs: codeAddrs, byteOf: byteOf, regNote: regNote, fieldsAt: fieldsAt,
     applyPreset: applyPreset, matchPreset: matchPreset, PRESET_SECOND: PRESET_SECOND, presetHasSecond: presetHasSecond,
