@@ -2,6 +2,28 @@
 
 ---
 
+## Data Mapping (datamap) v1.36.0 — 2026-10-20 ｜ MINOR ｜ ⚠ 輸出變更 ｜ 盤點未做項補完：EN01 Auto ZigZag Type 7／8 列 8 條、EN01 HSD_MAP_INV、Flash checksum 註解、Mirror 跨循環圖例（方向自推定案）、E501A／E501B／E503 FORCE_DE_SEL 可改（預設 0xE）
+
+判定依據：docs/VERSIONING.md R3 與判定表第 1 列「多了能做的事」——新增 EN01 HSD_MAP_INV 欄位與勾選框（使用者多一件能做的事）、ZigZag Type 7／8 多列 Line 5～8 ⇒ MINOR；既有操作與入口都不變。⚠ 輸出變更（R1）：E501A／E501B／E503 Hand 下 FORCE_DE_SEL 不是 0xE 時，改表格不再寫回 0xE（Bruce 10/19 要求），名稱依該值；EN01 匯出多 0x391[4]；EN01 Mirror 圖例文字改（底版 v1.35.32 7e89f3f）。
+
+### 起因
+- Bruce 10/19 22:2x「我現在要確認 Data Map 的網頁目前進度到底如何，有沒有什麼之前要求過、還沒做的事情？」→ 盤點列出我方可做未做 4 項；22:3x「Data mapping 的盤點，我們可以自己做、還沒做的，現在就進行。」（聊天室派工 237945451570647040）。
+- Dispatch 追加第 5 項：Bruce 10/19 22:4x「E503 我就可以回答你，實際上它的結果是跟 MNT 的提案是一樣的」；22:3x「我之前就說可以改，不用寫 0xE，但是預設的要 0xE。」「501 跟 503 是同一個家族」。
+
+### 改動
+1. **EN01 Auto ZigZag Type 7／8**（data_sft 00001111／11110000）每 8 條 line 一循環：③ 畫 Line 1～8；② 多 Line 5～8（標「（Auto）」、唯讀；Hand 的 FORCE_SEL 只有 4 條 line）。Type 1～6 不變（datamap-core.js en01AutoOf／en01AutoState；datamap.html pvEn01Lines、renderGridEn01）。
+2. **EN01 HSD_MAP_INV（0x391[4]，RM81008.model:12233-12238）**：新欄位 hsdInv（Register 卡、匯入、匯出遮罩寫入）＋② 勾選框。Auto＋HSD Type 4＋INV＝1 ⇒ 照 E507 xlsm HSD!H229（＝H213 每個 Data 的 SW1↔SW2）；其他 HSD 子類型＋INV＝1 ⇒「此組合原廠無資料（待 RD）」；INV＝0、非 HSD、Hand 不受影響（Hand 表格就是送出的 FORCE_SEL）。tools/datamap_en01_auto_build.py 加 hsd4inv，datamap_en01_auto_examples.json 重產（其他 20 組逐格不變）。
+3. datamap-core.js en01Maps 註解「FLASH For_checksum_use 驗算對不上」更正（只改註解）。
+4. **Mirror 跨循環**：③ 圖例拿掉「方向待 RD 確認」，改寫成「網頁以畫面位置標示（往右每循環名稱往回一組）；原廠 Excel 以 SRAM 往回讀的讀取順序編號（每循環 +1 組），兩者是同一件事」。依據：Mirror＝整行反轉（決策 A3）＋同事A 10/19 Excel register force setting mirror 列只做區塊內反轉（1D1G 0,1,2,3,4,5 → 3,4,5,0,1,2）⇒ 區塊順序必須反向（READ_RVS／RVS_ADDR）⇒ 網頁現行 −SW 正確。程式不改。
+5. **E501A／E501B／E503（RM8100x 家族）**：nbSel＝FORCE_DE_EN＝1 且值≠0 就照值；pyNormalize 不再蓋回 0xE（只有 0 才補預設 0xE）。預設值仍 0xE。DAZ6138／6139 維持 v1.35.15 規則（不在 Bruce 這句範圍）。code 18～29（R-3～R-6）本來就開放，Bruce 確認後正式支援。
+- common/version.js datamap v1.36.0；datamap.html version.js／datamap-core.js `?v=20261019dm1360`；index.html version.js `?v=20261019dm1360`（check_cache_buster 要求）。
+
+### 驗證（--scope ui；合併 main 7e89f3f＝v1.35.32 後重跑）
+- 新增 tools/check_datamap_inv4.js：98/0（ZigZag 8 Type 5760 格＝xlsm 0 差異、Type 7／8 ③ 8 條 ② 8 列；HSD Type 4＋INV＝H229 576 格 0 差異、H229＝H213 SW 對調 12/12、其他 HSD＋INV 待 RD 3 組、INV 欄位 0x391 bit4 讀寫；E503／E501A／E501B 各自：預設 0x0E、0x0F 不被蓋回、手改 15 改表格後仍 15、code 18～29 12/12；DAZ6138／6139 仍 0xE）。
+- check_datamap_lkrev_alltcon：與 v1.35.31 輸出逐字相同（既有 DAZ6111／DAZ7353 Normal 2 項與本件無關）；E503／E501A／E501B 各自 HSD Type 4+Z-Zag(BOE) CH1 左→右反推 0 錯（0x0E→0x0F）。
+- check_datamap_sd_snapshot（基準 v1.35.30）：19824 pass／4784 fail＝v1.35.32 既有 256（MUX TFT 標頭屬性）＋本件 4528，集合逐一相同、無交集。本件 4528 全部可歸類：(a) 整頁 3376：每型號多一列隱藏的 HSD_MAP_INV 欄位、EN01 Register 卡 300 欄；(b) 暫存器 1088：只有 E501A／E501B／E503 Hand＋FORCE_DE_SEL 0x0C（不再蓋回 0xE，Bruce 要求）各 192 與 EN01 多 0x391 的 512；(c) ③ 64：只有 EN01 Mirror＝1 的圖例文字。另做「中和版」（拿掉上面三處、其他改動保留）跑全量：非 EN01 0 差異，EN01 只差 Register 卡多 HSD_MAP_INV 一列。
+- check_datamap_boe --qm（全民 B19 DisplayOK_12）109/0；autounify 947/0；en01 75/0（欄位數 299→300）；en01tft 668182/0；muxall 2944/0；muxdot 236865/0；desel 133/0（E501A／B／E503 改一格不再寫回 0xE）；trimirror 與 v1.35.32 輸出逐字相同；tft_interact 1404/0。
+
 ## Data Mapping (datamap) v1.35.32 — 2026-10-19 ｜ PATCH ｜ ③ TFT 接線圖 MUX 區接點只畫在三叉、跨線改弧形（與 TFT 區同一套函式）；只改繪圖
 
 判定依據：docs/VERSIONING.md 修正錯誤（接線圖顯示錯誤：轉折畫點、三叉沒點、跨線無弧形、兩線重疊）、暫存器／script／表格輸出不變 ⇒ PATCH（底版 v1.35.31 264a74b）。
