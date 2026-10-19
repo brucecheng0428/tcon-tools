@@ -122,7 +122,9 @@ DM.TRI.on = true;
   const lines = () => Array.from(d.querySelectorAll('#dm-tftbody svg text')).map(t => t.textContent).filter(t => /^Line \d-\d$/.test(t));
   for (const k of MNT) {
     fire('dm-model', k);
-    ok(gates() === 'Single-Gate|Dual-Gate|Tri-Gate|MUX2|MUX3', k + ' Gate Type：' + gates());
+    /* v1.35.30：換型號後是 Auto（Hand 關）⇒ Gate 項目＝DM.autoGateItems（Single／Dual／MUX2／MUX3）；Hand 開＝Single／Dual／Tri-Gate／MUX2／MUX3（不變） */
+    ok(gates() === DM.autoGateItems(k).join('|') && gates() === 'Single-Gate|Dual-Gate|MUX2|MUX3', k + ' Auto Gate Type：' + gates());
+    { const sh = DM.emptyState(k); sh.hand = 1; w.dmState.cur = sh; w.dmRender(); ok(gates() === 'Single-Gate|Dual-Gate|Tri-Gate|MUX2|MUX3', k + ' Hand Gate Type：' + gates()); }
     for (const mi of [0, 1]) for (const cb of [0, 1]) {
       const s = handTri(k, TRI_PRESETS[3].i); s.mirror = mi; s.chrb = cb;
       w.dmState.cur = s; w.dmRender();
@@ -142,7 +144,8 @@ DM.TRI.on = true;
   }
   for (const k of NB) {
     fire('dm-model', k);
-    ok(gates() === 'Single-Gate|Dual-Gate', k + ' Gate Type：' + gates());
+    ok(gates() === DM.autoGateItems(k).join('|'), k + ' Auto Gate Type：' + gates());   // v1.35.30：e50x／DAZ613x 多 MUX2／MUX3（LTPS）
+    { const sh = DM.emptyState(k); sh.hand = 1; w.dmState.cur = sh; w.dmRender(); ok(gates() === 'Single-Gate|Dual-Gate', k + ' Hand Gate Type：' + gates()); }
     const s = Object.assign(DM.emptyState(k), { hand: 1, panel: 3 }); if (DM.fieldById(k, 'rd')) s.rd = 2;
     w.dmState.cur = s; w.dmRender();
     ok(hid('dm-tribox') && !hid('dm-gridbox') && /Tri-Gate\(停用\)/.test(gates()) && $('dm-gate').value === 'Tri-Gate', k + ' 讀到 Tri：Gate Type 顯示 Tri（停用選項）、不顯示 6 列表：' + gates());

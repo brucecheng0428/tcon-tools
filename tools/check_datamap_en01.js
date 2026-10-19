@@ -255,10 +255,12 @@ const regOf = (b, maps) => { const r = {}; maps.forEach(([f, t, l]) => { for (le
     ok(S.model === 'EN01' && g.classList.contains('en01') && g.querySelectorAll('tbody tr').length === 4 && g.querySelectorAll('select.dm-cell').length === 48 && g.querySelectorAll('select.dm-en01t').length === 0 && g.querySelectorAll('span.dm-en01t').length === 4 && Array.from(g.querySelectorAll('thead th')).map(x => x.textContent).slice(2).join() === 'Data1,Data2,Data3,Data4,Data5,Data6,Data7,Data8,Data9,Data10,Data11,Data12'
       && Array.from(g.querySelectorAll('tbody th > span:first-child')).map(x => x.textContent).join() === 'Line 1（_0）,Line 2（_6）,Line 3（_12）,Line 4（_18）' && /未確認/.test($('dm-en01cap').textContent),
       '選 EN01（沒匯入，RD_MODE 0＝Single）⇒ v1.35.20 只顯示每條 line 的 SW1：4 列 × 12 欄，列名同 MNT Single「Line n（_r）」；註明 line 循環數／未用列填值未確認');
-    ok(Array.from(g.querySelectorAll('span.dm-en01t')).every(x => x.textContent === 'T1（S1）' && x.dataset.t === '1' && x.title === '由 FORCE_DE_SEL 決定，不能單獨設定') && Array.from($('dm-gate').options).map(o => o.value).join('|') === DM.EN01_GATES.map(x => x[0]).join('|'), '每列 T 唯讀＝T1（S1）（沒匯入＝WPF Hand 預設 0x0E 的最小 bit；v1.35.19 相對 T＋同事E S 欄）、提示「由 FORCE_DE_SEL 決定，不能單獨設定」；Gate Type＝Single／Dual／Tri／MUX4／MUX6');
+    /* v1.35.30：沒匯入＝Hand 關（Auto PANEL 0＝Normal）⇒ ② 顯示 Auto 推得的 code，T 照原廠範例 NORMAL!H47（FORCE_DE_SEL＝0x01 ⇒ T1，欄 I 沒有 S 名） */
+    ok(Array.from(g.querySelectorAll('span.dm-en01t')).every(x => x.textContent === 'T1' && x.dataset.t === '0' && x.title === '由 FORCE_DE_SEL 決定，不能單獨設定') && Array.from($('dm-gate').options).map(o => o.value).join('|') === DM.EN01_GATES.map(x => x[0]).join('|'), '每列 T 唯讀＝T1（S1）（沒匯入＝WPF Hand 預設 0x0E 的最小 bit；v1.35.19 相對 T＋同事E S 欄）、提示「由 FORCE_DE_SEL 決定，不能單獨設定」；Gate Type＝Single／Dual／Tri／MUX4／MUX6');
     // v1.35.25（Bruce 10/18 21:1x，派工 237564393831280640）：EN01 有 TFT 接線圖了；Hand 關（Auto）原廠沒有對照表 ⇒ 不畫並寫原因（原本「EN01 暫不支援預覽」）
-    ok($('dm-pvbody').classList.contains('hidden') && /Hand Mode 關/.test($('dm-pvnote').textContent) && !$('dm-pvnote').classList.contains('hidden') && /Hand Mode 關/.test($('dm-tftnote').textContent), '③／TFT 卡：EN01 Hand 關 ⇒ 不畫、寫原因（Auto 原廠沒有對照表）');
-    ok(!$('dm-gridnote').classList.contains('hidden') && /FORCE_SEL_EN 與 FORCE_DE_EN/.test($('dm-gridnote').textContent) && $('dm-e0-0').disabled && $('dm-gate').disabled, 'Hand 關：表格與 Gate Type 停用，提示兩個 bit 都要開');
+    // v1.35.30（Bruce 10/19 12:5x／15:0x／16:1x，派工 237801892587515904）：Hand 關＝Auto ⇒ 依 E507 原廠範例畫（PANEL 0＋RD 0＝NORMAL!H47）；② 表格顯示 Auto 推得的 code（唯讀）；Gate Type 在 Auto 也能改
+    ok(!$('dm-pvbody').classList.contains('hidden') && /Auto：Normal/.test($('dm-pvnote').textContent) && /NORMAL!H47/.test($('dm-pvnote').textContent), '③：EN01 Hand 關（Auto）⇒ 依 NORMAL!H47 畫：' + $('dm-pvnote').textContent.slice(0, 60));
+    ok($('dm-gridnote').classList.contains('hidden') && $('dm-e0-0').disabled && $('dm-e0-0').value === 'R1' && !$('dm-gate').disabled, 'Auto：表格唯讀顯示 Auto code（L1 Data1＝R1）、Gate Type 可改');
     ['mirror', 'chrb', 'chwb', 'rvsL'].forEach(k => ok(!d.querySelector('.dm-fieldrow[data-need="' + k + '"]').classList.contains('hidden'), '② 顯示 ' + k + ' 列（EN01 model 有這個欄位）'));
     ok(d.querySelectorAll('#dm-code tr[data-f]').length === 299 && !!d.querySelector('#dm-code tr[data-f="e287"]'), 'TCON Register 確認：299 個欄位（11＋288）');
     if (parsed.f1567) {
@@ -266,7 +268,10 @@ const regOf = (b, maps) => { const r = {}; maps.forEach(([f, t, l]) => { for (le
       await P.waitFor(() => S.src.kind === 'file', '匯入 F1567');
       ok(S.model === 'EN01' && JSON.stringify(S.en01Seg) === '{"p2":true,"p3":false}' && S.cur.rd === 0 && g.querySelectorAll('tbody tr').length === 2 && !$('dm-e12-0') && !$('dm-e1-0') && !!$('dm-e6-0'), '匯入 F1567（檔名 RM81008）：P3 沒載入、RD_MODE 0 ⇒ v1.35.20 只顯示 Line 1、Line 2 的 SW1（_0、_6）');
       ok(!d.querySelector('#dm-code tr[data-f="e144"]') && !!d.querySelector('#dm-code tr[data-f="e143"]') && !$('dm-hand').checked, 'Register 表不列 P3；Hand 關（原檔 FORCE_SEL_EN＝0）');
-      ok($('dm-e0-0').value === 'R-4' && S.cur.e12 === 38 && DM.en01Name(DM.en01RowT(S.cur, 1), 38) === 'B-8' && $('dm-et0').textContent === 'T1（S1）', '格子名稱（T 依 FORCE_DE_SEL，Hand 關＝當 0x0E ⇒ T1）：L1-1 R0＝24 ⇒ R-4；隱藏的 L1-2 R0 仍＝38（B-8，保留原值）');
+      /* v1.35.30：原檔 Hand 關（Auto）⇒ ② 顯示 Auto 推得的 code（唯讀，同 MNT Auto 不顯示檔案的 force_sel）；檔案值仍在 state（寫入不變） */
+      { const AU = DM.en01AutoState(S.cur, 1), want = AU ? DM.en01Name(DM.en01RowT(AU, 0), AU.e0) : null;
+        ok(S.cur.e0 === 24 && S.cur.e12 === 38 && DM.en01Name(DM.en01RowT(S.cur, 1), 38) === 'B-8' && (AU ? $('dm-e0-0').value === want && $('dm-e0-0').disabled : $('dm-e0-0').value === 'R-4'),
+          '格子：檔案值保留（L1-1 R0＝24、隱藏 L1-2 R0＝38）；Auto 表格顯示 ' + (AU ? AU.autoOf.refs.join('、') + ' 的 ' + want : '檔案值 R-4') + '（實際 ' + $('dm-e0-0').value + '）'); }
       ok($('dm-ers0').textContent === 'P1' && $('dm-erl0').textContent === 'Line 1（_0）' && $('dm-erl6').textContent === 'Line 2（_6）' && /FORCE_SEL_\*_0：line 1 的第 1 個時槽/.test($('dm-etr0').title) && !$('dm-etr1'),
         'v1.35.20 列名同 MNT（Line n（_r）），列尾＝段 P1，提示寫暫存器列與時槽；RD_MODE 0 用不到的 SW2 列不顯示（取代「未用」）');
       fire($('dm-hand'), true);
@@ -309,7 +314,7 @@ const regOf = (b, maps) => { const r = {}; maps.forEach(([f, t, l]) => { for (le
     } else skip('F1567 實檔不在本機，頁面匯入段略過');
     fire($('dm-model'), 'E503');
     if (!$('dm-ask').classList.contains('hidden')) w.dmAskAnswer(true);   // 有未匯出的修改 ⇒ 換型號前先問（既有行為），答「是」
-    ok(!g.classList.contains('en01') && g.querySelectorAll('select.dm-cell').length === 24 && Array.from($('dm-gate').options).length === 2 && !$('dm-pvnote').textContent.includes('EN01'), '換回 E503 ⇒ 4×6 表格、Gate 2 項（v1.32.0：NB 不列 Tri）、③ 不再顯示 EN01 註記');
+    ok(!g.classList.contains('en01') && g.querySelectorAll('select.dm-cell').length === 24 && Array.from($('dm-gate').options).map(o => o.value).join('|') === (S.cur.hand ? 'Single-Gate|Dual-Gate' : DM.autoGateItems('E503').join('|')) && !$('dm-pvnote').textContent.includes('EN01'), '換回 E503 ⇒ 4×6 表格、Gate 項目（Hand：Single／Dual，v1.32.0 NB 不列 Tri；v1.35.30 Auto：Single／Dual／MUX2／MUX3）、③ 不再顯示 EN01 註記');
   }
   {
     for (const k of Object.keys(mem)) delete mem[k];

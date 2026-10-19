@@ -2,6 +2,41 @@
 
 ---
 
+## Data Mapping (datamap) v1.35.30 — 2026-10-19 ｜ PATCH ｜ 全型號 Auto 設定方式統一（Panel_mode＋sub_panel_mode 兩個下拉、Gate Type 在 Auto 也能改並雙向連動）；EN01 Auto 依 E507 原廠範例畫 TFT 接線圖（含 MUX 三層）
+
+判定依據：派工指定版號 v1.35.30（底版 v1.35.29 fdbbb31）。Hand 模式的表格、暫存器、寫入值、script 不變；Auto 只改介面與 ③／② 的顯示（EN01 Auto 原本不畫）。
+
+### 起因
+- Bruce 10/19 12:5x：「另外，en01應該也有對應的auto mode吧，怎麼現在看來只能用hand mode才能看到跟mux有關的接線圖?」
+- Bruce 10/19 15:0x：「另外，為何data mapping v1.35.28，我用en01 auto mode，仍然無法像是其他tcon可以選擇不同預設的data mapping?」
+- Bruce 10/19 16:1x：「另外，data mapping網頁，像是E503的auto mode做法為何不能像是EM01這種，可以選擇1D1G/ZZag/HSD/LTPS(就是mux)，這樣做法不是比較方便，甚至看能否也開放single gate那一項可以更改，再連動到對應的panel mode的那些選項，盡量讓每一顆tcon的設定模式相同，使用者會比較好上手」（派工 237801892587515904）
+
+### 依據
+- RM81008.model:11051-11079：EN01 PANEL_MODE／SUB_PANEL_MODE 編碼＝NB RM8100x（ZigZag Type 1～8；HSD Type 1／Type 4／Type 3-5／Type 4+zigzag(BOE)；LTPS [0] MUX3／MUX2、[1] Zigzag、[2] Type 1／2）。
+- 同事D 指定的 E507_rt7_sram_w_hand(1T4P).xlsm：NORMAL!H47、ZIGZAG!H48／H64（data_sft 0／1）＋image5 data_sft 表 z0～z7、HSD!H148（TYPE 1）／H213（TYPE 4）／H280+H296（TYPE 3-5）／H348+H365（TYPE 4+ZIGZAG）、MUX2／MUX3 NORMAL／ZIGZAG TYPE 1／2（H97／H128／H162+H178／H227+H243；MUX3 H160+H176／H225+H241）、MUX4!G107／G139+G155、MUX6!H143／H183／H215+H231（全部 mirror＝0）。
+- ZigZag z0～z7＝01010101、10101010、00110011、11001100、01100110、10011001、00001111、11110000，與瑞鼎 Raydium_TCON_DataMapping查詢_20260424.xlsx Z-Zag Type 1～8（LR、RL、LLRR、RRLL、LRRL、RLLR、LLLLRRRR、RRRRLLLL）一致。
+- 原廠 EM01 Tool：換 Panel_mode ⇒ sub 回第一項、rd_mode 依 Panel_mode（RApp_TX.cpp:8916-8984）；MNT LTPS rd 一律 2（型號/MNT §10.6）；NB／EN01 MUX2＝RD 1、MUX3＝RD 2（model 註解）。
+
+### 變更
+- datamap-core.js：
+  - 新增 EN01_AUTO_EX（20 組 E507 範例 code，tools/datamap_en01_auto_examples.json 同源）、EN01_ZZ_SFT、EN01_SUB_NAMES、en01AutoOf／en01AutoState（Auto 推得的虛擬 state，只給 ②／③ 顯示，不寫入）。
+  - 新增 autoPanelNames、autoGateItems、autoGateText、autoRd、autoSetPanel、autoSetSub、autoSetGate（全型號 Auto 的 Panel／sub／Gate 連動）。
+- datamap.html：
+  - ②-1：Hand 關時 MNT（EM01／EM02／E512）、NB（E503／E501A／E501B／DAZ6138／6139／DAZ6111／DAZ7353）、EN01 一律顯示「Panel_mode＋sub_panel_mode」兩個下拉（EM01 範本；LTPS 標成「LTPS (MUX)」）；sub 清單依各型號原廠（MNT＝SUB_PANEL；NB＝原本的 Auto 清單、套用時 rd 照 PY／model；EN01＝RM81008.model 註解）。EM02／E512 另保留原廠 RT7 Type 清單；NB Hand 開時保留原本的 Auto 清單。
+  - Gate Type：Auto 也能改；Auto 項目＝Single／Dual／MUX2／MUX3（MNT、NB e50x／DAZ613x；DAZ6111／7353 只有 Single／Dual），EN01＝Single／Dual／Tri／MUX2／MUX3／MUX4／MUX6；改 Gate ⇒ 寫 panel／sub／rd 並同步 Panel_mode 下拉，改 Panel_mode ⇒ Gate 顯示跟著變。Hand 開時項目與 v1.35.29 相同。
+  - EN01 Auto：③ 依 PANEL／SUB／RD（MUX6 TYPE 用 ③ 手動）取 E507 範例，用同一套 TFT 繪圖（含 MUX 三層）畫，標題「Auto · <名稱>」、說明寫出處與「推論、待 RD」；② 表格顯示 Auto 推得的 code（唯讀，hover 寫出處，寫入值不變）；推不出的組合（Tri-Gate、Normal＋RD 1、HSD＋RD 0、HSD sub 4～7、MUX6 ZIGZAG TYPE 2…）③ 寫「此組合原廠無資料（待 RD）」。EN01 MUX TYPE 列 Auto 也能改（SUB_PANEL_MODE[2]）。
+- version.js、datamap-core.js 快取參數 dm13530。
+
+### 驗證
+- 新增 tools/check_datamap_autounify.js：A EN01 Auto 26 組（Normal、ZigZag 1～8、HSD 4 種、LTPS 8 種、MUX4 2、MUX6 3）× 4 條 line 逐格＝E507 xlsm；B 待 RD 組合 5 種＋② Auto 表格；C 11 型號 × 每個 Panel_mode × 每個 sub 切換的寫入值與 Gate 顯示；D Auto Gate 連動與 Hand 項目不變。
+- check_datamap_autounify 947/0（A 15156 格 0 差異）。
+- check_datamap_sd_snapshot 對 v1.35.29 基準：21104 pass／3504 fail，**暫存器／script／CKS／② 表格／第二組／③ 接線逐格 0 差異**；不同的只有整頁 body 與 TFT 卡外框：
+  - Auto（Hand 關）1088 組（MNT／NB 10 型號）：②-1 改兩個下拉、Gate Type 不再停用、NB 不再顯示單一清單（預期）。
+  - Hand 開 2288 組：只有隱藏的 Auto 列（#dm-em01box）裡選項文字「LTPS」→「LTPS (MUX)」／rd 顯示「—」（頁面載入時 Auto 先畫過一次留下的隱藏內容，Hand 畫面看不到）；EN01 另有隱藏的 Auto 出處文字。
+  - EN01 Hand 128 組 ③ 卡外框：#dm-pvbody／#dm-tftbody 的 class="" 變成沒有 class 屬性（舊版載入時 Auto 不畫、先隱藏再顯示留下的空屬性），接線圖本體 0 差異。
+  - 逐類確認後以 v1.35.30 重拍基準（SNAP_BASE「datamap v1.35.30 (Auto 統一)」）。
+- check_datamap_boe --qm（全民 B19 DisplayOK_12）109/0；check_datamap_tft_interact 1404/0；check_datamap_tri 148/0（Auto Gate 期望值改 autoGateItems、另驗 Hand 不變）；check_datamap_en01tft 668182/0（Hand 關說明改「待 RD」、F4 改 Auto 可選）；check_datamap_en01 75/0（Hand 關改成 Auto 依 NORMAL!H47 畫、② 顯示 Auto code）；check_datamap_muxall 2510/0。nbpx／bench 未跑（派工限制）；同時最多 2 行程。
+
 ## Data Mapping (datamap) v1.35.29 — 2026-10-19 ｜ PATCH ｜ 全型號 MUX 三層接線圖：MNT（EM01／EM02／E512）與 NB（E503／E501A／E501B／DAZ6138／6139）LTPS MUX2／MUX3 改成和 EN01 同一套三層畫法；MNT Gate Type 與 panel／sub／rd_mode 連動；MUX 列名 Line n-SWk
 
 判定依據：§2 案例 2 修正錯誤設計 → PATCH（R1）：LTPS 面板是 Source MUX（gate 不分段，原理 12.8），v1.35.28 以前 MNT／NB 把它畫成每 line 2／3 條 gate（Line 1-1/1-2/1-3），屬畫錯；Bruce 10/19 12:5x 指出其他 TCON 沒跟著 EN01 改。非 MUX（Single／Dual／HSD／Zigzag／1D1G／Tri-gate）畫面、寫入值不變。
