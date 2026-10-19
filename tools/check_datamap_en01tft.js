@@ -114,7 +114,7 @@ const TYS = M => M ? (MUXP[M][2] ? [1, 2] : [1]) : [1];
         });
       }
     }
-    // SD Out 標號：D12(組)+k（MUX：腳位·SWk）
+    // SD Out 標號：CH1 在左第一循環 D1～D12、之後 D12(組)+k；CH1 在右 D12(n)+k（MUX：腳位·SWk）
     const dl = [...svg.querySelectorAll('text[data-dlab]')].map(t => t.getAttribute('data-dlab'));
     ok(dl.length === nD, id + ' SD 標號數 ' + dl.length + ' ≠ ' + nD);
     const NGR = nD / n;
@@ -122,6 +122,7 @@ const TYS = M => M ? (MUXP[M][2] ? [1, 2] : [1]) : [1];
     const wantL = dl.map((t, p) => {
       const b = Math.floor(p / n), q = p % n, dq = M ? dec(M, ty, q) : null, ch = M ? dq.c : q;
       const grp = drv.first ? (NGR - 1 - b ? 'n−' + (NGR - 1 - b) : 'n') : String(b);
+      if (!drv.first && !b) return 'D' + (ch + 1) + (M ? '·SW' + (dq.j + 1) : '');   // v1.35.27：CH1 在左第一循環直接 D1～D12
       return 'D12(' + grp + ')+' + (ch + 1) + (M ? '·SW' + (dq.j + 1) : '');
     });
     const A1 = drv.first ? dl.slice().sort() : dl, B1 = drv.first ? wantL.slice().sort() : wantL;
@@ -214,7 +215,7 @@ const TYS = M => M ? (MUXP[M][2] ? [1, 2] : [1]) : [1];
       if (!good) { dd++; if (ex3.length < 3) ex3.push('pin' + (x.ch + 1) + ' SW' + (x.j + 1) + ' 循環' + x.b + ' xlsm ' + x.name + ' ≠ 網頁 D' + (p + 1) + ' ' + (cell && cell.name) + '@' + (cell && cell.t)); }
       if (p < nD && p < n) {   // 主循環（亮）再比 SVG：drain、SD 標號、demux TFT
         ns++;
-        const sdOk = dl[p] === 'D12(0)+' + (x.ch + 1) + '·SW' + (x.j + 1), tfOk = tft[p + 1] === 'SW' + (x.j + 1) + ':pin' + (x.ch + 1), drOk = drains[p + 1] === x.name;
+        const sdOk = dl[p] === 'D' + (x.ch + 1) + '·SW' + (x.j + 1), tfOk = tft[p + 1] === 'SW' + (x.j + 1) + ':pin' + (x.ch + 1), drOk = drains[p + 1] === x.name;
         if (!(sdOk && tfOk && drOk)) { ds++; if (ex3.length < 6) ex3.push('SVG D' + (p + 1) + ' drain ' + drains[p + 1] + ' SD ' + dl[p] + ' TFT ' + tft[p + 1] + ' ≠ ' + x.name + ' pin' + (x.ch + 1) + ' SW' + (x.j + 1)); }
       }
     });

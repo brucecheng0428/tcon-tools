@@ -179,7 +179,7 @@ async function runMode(mode, model, hand) {
     await setVl(MM ? 'dm-mini-vl' : 'dm-pv-vl', 4); await sleep(400); if (MM) await waitSame();
     // 3) 連結：TCON Out／SD Out 標題、Data 1、D1
     const cases = [[`${ROOTSEL} [data-rowhead="tc"] text`, 'dm-gridbox', 'TCON Out 標題'], [`${ROOTSEL} text[data-dof="1"]`, 'dm-gridbox', 'Data 1'],
-                   [`${ROOTSEL} [data-rowhead="sd"] text`, 'dm-drv-sec', 'SD Out 標題'], [`${ROOTSEL} text[data-dlab="${S_MODEL === 'EN01' ? 'D12(0)+1' : 'D6(0)+1'}"]`, 'dm-drv-sec', 'D1']];   // v1.35.25：EN01 週期 12（D12(組)+k）
+                   [`${ROOTSEL} [data-rowhead="sd"] text`, 'dm-drv-sec', 'SD Out 標題'], [`${ROOTSEL} text[data-dlab="D1"]`, 'dm-drv-sec', 'D1']];   // v1.35.25：EN01 週期 12（D12(組)+k）
     for (const [sel, want, name] of cases) {
       await ev('window.dmState.lastJump=null'); const c = await show(sel);
       const pc = await curAt(c.x, c.y);

@@ -2,6 +2,23 @@
 
 ---
 
+## Data Mapping (datamap) v1.35.27 — 2026-10-19 ｜ PATCH ｜ 只改 ③ TFT 接線圖標號文字 ｜ CH1 在左時 SD Out／TCON Out 第一個循環直接標 D1、D2…
+
+判定依據：§2 案例 2 顯示文字調整 → PATCH；接線、寫入值、script、Excel、② 表格不變。
+
+### 起因
+- Bruce 10/19 11:2x：「只要第一ch是在左邊的，也就是 SD Out 或者是 TCON Out 的第一ch在左邊，那就不要用什麼『6 (0)+2』、『12(0) + 1』這種寫法，直接用 1、2、3 開頭。到下一個 6 倍或 12 倍的循環，再改用這種通用的公式寫法。至於是 6 倍循環還是 12 倍循環，就看現在選到的是什麼樣的 TCON，有沒有支援 12 倍循環。但如果ch1是在接線圖的最右邊(不會顯示在接線圖上)，就可以沿用目前的公式寫法」（派工 237777242004402176）。
+
+### 變更（datamap.html）
+- renderPvTft0 的 gLabF（SD Out、TCON Out、MUX 腳位、demux TFT 說明、匯流排屬性的唯一標號來源）：CH1 在左且第一個循環（b＝0）回傳 D1…D週期（MNT／NB 1～6、EN01 1～12；MUX＝腳位 D1～D12，SW 另標 ·SWj）；第二個循環起維持 D週期(b)+k；CH1 在右維持 D週期(n)+k／D週期(n−d)+k。
+- gLabH：第一循環標號沒有公式 ⇒ 不加下標，直接寫 D1。
+- 格子 hover（tagOf）原本用另一個函式 dLab（D1…D12／Dn+k，實體線序），改用 gLab ⇒ 和 SD Out 標號同一來源；dLab 移除。
+- 圖例 dm.en01PvLg 三語：「D12(組)+k」改成「CH1 在左：第一循環 D1～D12，之後 D12(組)+k；CH1 在右：D12(n)+k」。
+- 版面：欄距仍取兩種 CH1 位置標號長度的最大值（v1.35.13），切換 CH1 時版面不動。
+
+### 驗證
+- 見派工完成回報（check_datamap_en01tft、sd_snapshot、tft_interact、boe --qm）。測試期望值同步改：kickoff／jump_realmouse／tft_interact 的 D6(0)+1、D12(0)+1 → D1；en01tft SD 標號期望值加第一循環 D1～D12。
+
 ## Data Mapping (datamap) v1.35.26 — 2026-10-19 ｜ PATCH ｜ ⚠ 輸出變更（只有 EN01 MUX 的 ③ 與 MNT Tri＋Mirror 的 ③） ｜ EN01 MUX 原廠 TYPE 走線＋三層畫法；Tri Mirror 跨循環與 Single／Dual 統一
 
 判定依據：§2 案例 2 修正錯誤的顯示（v1.35.25 MUX 走線假設「每個 SD 腳位接相鄰 k 條」與原廠圖不符；Tri Mirror 與其他模式座標不一致）＋新增只影響 ③ 的面板設定 → PATCH（R3）；寫入值、script、Excel、② 表格不變；MNT／NB Single／Dual 輸出 0 差異。⚠ 輸出變更：EN01 MUX（MUX4／MUX6、RD_MODE 1/2 選 Source MUX）的 ③ 走線與畫法；MNT Hand Tri＋Mirror 的 ③ 名稱與位置。

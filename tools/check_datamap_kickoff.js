@@ -171,7 +171,7 @@ console.log('── code 表（D2:R31）＝網頁 T 表解碼');
       fire($('dm-pv-swap'), false);
       okRef(tc() === tc0 && sd() === sd0, '取消對調 ⇒ TCON Out 回原樣'); }
     fire($('dm-pv-first'), 'l');
-    okRef(dlPos() !== posR && T.getAttribute('data-dir') === 'lr' && !d.querySelector('#dm-pv-tft [data-flip]') && QA('text[data-dlab="D6(0)+1"]').length === 1, 'v1.17.2 切換 CH1 位置：Data 線位置與標號改變（D1…D6 從左排）');
+    okRef(dlPos() !== posR && T.getAttribute('data-dir') === 'lr' && !d.querySelector('#dm-pv-tft [data-flip]') && QA('text[data-dlab="D1"]').length === 1, 'v1.17.2 切換 CH1 位置：Data 線位置與標號改變（D1…D6 從左排）');
     fire($('dm-pv-drv'), 'f'); fire($('dm-pv-first'), 'r'); fire($('dm-pv-stripe'), 'bgr');
     /* v1.18.17：排序不再看目前選的子像素排列（同分固定 RGB 先）⇒ 選 BGR 時建議仍是第 1 名 CH1 最右＋正向＋RGB；鏡像 lfbn 也全對、排第 2 */
     /* v1.23.2：「資料正確」＝格子收到的資料＝固定子像素軸名稱 ⇒ 鏡像組合 CH1 最左＋正向＋BGR 左右反，資料不對 */
