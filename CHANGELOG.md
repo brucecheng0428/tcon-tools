@@ -2,6 +2,33 @@
 
 ---
 
+## Data Mapping (datamap) v1.35.32 — 2026-10-19 ｜ PATCH ｜ ③ TFT 接線圖 MUX 區接點只畫在三叉、跨線改弧形（與 TFT 區同一套函式）；只改繪圖
+
+判定依據：docs/VERSIONING.md 修正錯誤（接線圖顯示錯誤：轉折畫點、三叉沒點、跨線無弧形、兩線重疊）、暫存器／script／表格輸出不變 ⇒ PATCH（底版 v1.35.31 264a74b）。
+
+### 起因
+- Bruce 10/19 22:3x（聊天室派工 237944910970998784）：「另外我看 Mux在 TFT 接線圖上面的畫法，你畫點的地方很怪。通常畫點代表這個地方有三個方向的岔路才會畫。像下面接 TFT 那邊畫點的地方就很正確，每一個點都有三叉路。可是上面 Mux那邊的點，有些只是一個轉折就畫點，反而三叉路的地方沒有畫點。另外，在 Mux那邊的畫法，應該也要保留垂直線。要跨過水平線的地方要用弧形，就跟下面 TFT 的做法是一樣的，這樣子整體才會一致。」
+
+### 根因（全面審查 renderPvTft0 的畫點／跨線）
+- MUX 區（v1.35.26 起）每條 Data 線在腳位匯流排上固定畫點（`data-mxtap`），不管是匯流排中間（三叉）還是兩端（L 轉折）；腳位垂直線接到匯流排的三叉反而沒畫點。
+- MUX 區的 Data 線（腳位匯流排→demux TFT、TFT→Data 線）、SW 引線穿過 SW1～SWk 匯流排與另一排腳位匯流排時是直接十字交叉，沒有弧形；TFT 區（Data 線跨 gate、drain 跨線）一直有弧形——兩區各寫一套。
+- MUX3 TYPE 2（MUX6 TYPE 2 同）奇數腳位的垂直線 x＝半邊中心，正好和偶數腳位末端那條 Data 線同一條直線，兩條不同的線疊在一起（看起來像接通）。
+- TFT 區 gate 點／source 點、Data 線弧形、drain 跳線本身正確（抽成共用後輸出逐字相同）。
+
+### 修改（只改 datamap.html 繪圖）
+- 新增共用函式（單一來源）：`pvSegH／pvSegV`（線段）、`pvCross`（水平與垂直兩邊都從中間穿過＝不相連交叉）、`pvJoinDeg`（某點相連方向數：端點 1、穿過 2）、`pvDotOk`（≥3 才畫點）、`pvArcV`（垂直線保留、跨水平線畫半圓）、`pvHopH`（水平線跨垂直線）、`pvNet`（一組線段 ⇒ 每條垂直段要跨的水平線＋要畫點的位置）。
+- TFT 區改用共用函式：Data 線 `pvArcV`、drain 跨線 `pvCross`＋`pvHopH`、Tri 外側 drain `pvArcV`、gate／source 點經 `pvJoinDeg`／`pvDotOk`（輸出字串與 v1.35.31 相同）。
+- MUX 區：先列出全部線段（腳位垂直線、腳位匯流排、每條 Data 線上下兩段、SW 引線、SW 匯流排）交給 `pvNet`；只在三叉以上畫點（腳位匯流排中間的 Data 線、腳位垂直線接點、SW 引線接 SW 匯流排），轉折不畫；所有不相連交叉由垂直線畫弧形（半徑 3.5）；腳位垂直線若和別的腳位的 Data 線同一直線，標號＋垂直線移半格。
+- common/version.js datamap v1.35.32；datamap.html version.js 快取參數 dm13532。
+- 新增 tools/check_datamap_muxdot.js：直接解析 SVG（line／path M V H A）逐點檢查 A 每個點方向數 ≥3、B 每個 ≥3 的點都有點、C 不相連交叉都有弧形、D 不同線不重疊。
+
+### 驗證
+- check_datamap_muxdot（340 組：MNT 3＋NB 5 型號 Auto LTPS sub 0～7 × Mirror × CH1 左右、EN01 Auto MUX2／3（normal／zigzag × TYPE 1／2）／MUX4／MUX6（TYPE 1／2）× Mirror × CH1 左右、各型號 Single／Dual）：236865 pass／0 fail（點 117792＝三叉以上 117792、直接十字交叉 0、重疊 0、MUX 區弧形 46464）；同一支對 v1.35.31：231189 pass／58188 fail（直接十字交叉 46464、重疊 480、點 122880 但三叉以上只有 118272）。
+- check_datamap_sd_snapshot：24352 pass／256 fail，256 組全部是 LTPS（panel 3）MUX 組合的「③ TFT 圖標頭」（MUX 區元件屬性：點、弧形），暫存器／script／CKS／② 表格／第二組／③ 接線逐格 0 差異。
+- check_datamap_boe --qm：100 pass／0 fail（v1.35.31 同一支也是 100）；check_datamap_muxall：2944 pass／0 fail；check_datamap_en01tft：668182 pass／0 fail；check_datamap_tft_interact：1396 pass／8 fail，8 項都是 DAZ6111 Hand 邊緣游標／拖動改大小，單獨重跑 DAZ6111 新版 41／0、v1.35.31 41／0（偶發，與本次無關）。
+- 142 組 MUX 改前改後截圖＋放大標註：臨時互動區（派工 237944910970998784）。
+
+
 ## Pattern Generator (pattern) v3.8.7 — 2026-10-19 ｜ PATCH ｜ 全螢幕畫布改用瀏覽器實測的實體像素框（device-pixel-content-box）；警示改成依實測結果；修「用整個螢幕 1:1 檢視」在小數 CSS 寬時重新取樣
 
 判定依據：docs/VERSIONING.md 修正錯誤（顯示失真、誤報）、輸出內容不變 ⇒ PATCH（底版 v3.8.6 ebc5a3d）。

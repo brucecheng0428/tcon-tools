@@ -690,7 +690,7 @@
   <div class="dm-minibody dm-pvdrag" id="dm-mini-body"><div class="dm-mininote hidden" id="dm-mini-note"></div><div class="dm-tftmini" id="dm-mini-svg"></div></div>
 </div>
 
-<script src="common/version.js?v=20261019dm13531"></script>
+<script src="common/version.js?v=20261019dm13532"></script>
 <script src="common/i18n.js?v=20261017dm13523"></script>
 <script>
 (function () {
@@ -2537,6 +2537,42 @@
     var s = '<' + tag; for (var k in a) if (a[k] !== undefined) s += ' ' + k + '="' + a[k] + '"';   // v1.18.7：undefined 的屬性不輸出
     return s + (txt != null ? '>' + (txt && txt.raw !== undefined ? txt.raw : esc(String(txt))) + '</' + tag + '>' : '/>');   // v1.35.5：{ raw } ＝已組好的安全標記（下標 tspan）
   }
+  /* v1.35.32（Bruce 10/19 22:3x「通常畫點代表這個地方有三個方向的岔路才會畫…上面 Mux 那邊的點，有些只是一個轉折就畫點，反而三叉路的地方沒有畫點。另外，在 Mux 那邊的畫法，應該也要保留垂直線。
+     要跨過水平線的地方要用弧形，就跟下面 TFT 的做法是一樣的」，派工 237944910970998784）：③ 接線圖「接點／跨線」單一來源，TFT 區與 MUX 區共用：
+     ・接點：某一點相連的方向數（線段端點在這裡＝1、線段從這裡穿過＝2）≥ 3（T 型三叉、十字相連）才畫實心點；轉折（L＝2）、端點（1）不畫（pvJoinDeg／pvDotOk）。
+     ・跨線：水平段與垂直段「兩邊都從中間穿過」＝不相連的交叉（pvCross）；垂直線保留、在水平線處畫半圓跨過（pvArcV，Data 線跨 gate 線同一個）；TFT drain 的水平段跨垂直線用 pvHopH。
+     ・pvNet：給一組接線段 ⇒ 每條垂直段要跨的水平線＋要畫點的位置（MUX 區用；TFT 區的 gate／source 點也用 pvJoinDeg 判斷）。 */
+  var PV_EPS = 0.5;
+  function pvSegH(x1, x2, y, id) { return { h: 1, y: y, x1: Math.min(x1, x2), x2: Math.max(x1, x2), id: id }; }
+  function pvSegV(x, y1, y2, id) { return { h: 0, x: x, y1: Math.min(y1, y2), y2: Math.max(y1, y2), id: id }; }
+  function pvCross(h, v, mx, my) { return v.x > h.x1 + mx && v.x < h.x2 - mx && h.y > v.y1 + my && h.y < v.y2 - my; }
+  function pvJoinDeg(x, y, segs) {
+    var n = 0, E = PV_EPS;
+    segs.forEach(function (s) {
+      if (s.h) { if (Math.abs(s.y - y) > E || x < s.x1 - E || x > s.x2 + E) return; n += (Math.abs(x - s.x1) <= E || Math.abs(x - s.x2) <= E) ? 1 : 2; }
+      else { if (Math.abs(s.x - x) > E || y < s.y1 - E || y > s.y2 + E) return; n += (Math.abs(y - s.y1) <= E || Math.abs(y - s.y2) <= E) ? 1 : 2; }
+    });
+    return n;
+  }
+  function pvDotOk(deg) { return deg >= 3; }
+  function pvArcV(x, y1, y2, ys, R, pre) {   // 由 y1 往下到 y2（y1＜y2）；pre＝前面已畫的一段（例 SW 引線的水平短線），省略時從 (x, y1) 起
+    var d = pre || 'M' + x + ' ' + y1;
+    ys.slice().sort(function (a, b) { return a - b; }).forEach(function (y) { d += ' V' + (y - R) + ' A' + R + ' ' + R + ' 0 0 1 ' + x + ' ' + (y + R); });
+    return d + ' V' + y2;
+  }
+  function pvHopH(xs, y, dir, R) { var d = ''; xs.forEach(function (x) { d += ' H' + (x - dir * R) + ' A' + R + ' ' + R + ' 0 0 ' + (dir > 0 ? 1 : 0) + ' ' + (x + dir * R) + ' ' + y; }); return d; }
+  function pvNet(segs, R) {
+    var hs = segs.filter(function (s) { return s.h; }), seen = {}, dots = [];
+    segs.forEach(function (s) { if (!s.h) s.ys = hs.filter(function (h) { return pvCross(h, s, R, R); }).map(function (h) { return h.y; }); });
+    segs.forEach(function (s) {
+      (s.h ? [[s.x1, s.y], [s.x2, s.y]] : [[s.x, s.y1], [s.x, s.y2]]).forEach(function (pt) {
+        var key = Math.round(pt[0] * 2) + ',' + Math.round(pt[1] * 2); if (seen[key]) return; seen[key] = 1;
+        var g = pvJoinDeg(pt[0], pt[1], segs); if (pvDotOk(g)) dots.push({ x: pt[0], y: pt[1], deg: g, key: key });
+      });
+    });
+    return dots;
+  }
+  function pvPtKey(x, y) { return Math.round(x * 2) + ',' + Math.round(y * 2); }
   function pvFill(name) { var k = colorKeyOf(name); return CELL_RGB[k] || CELL_RGB.x; }
   var PV_DOT = '#e2e8f0', PV_WIRE = '#94a3b8', PV_BAD = '#f97316';
   var PV_LBL = { r: '#fca5a5', g: '#86efac', b: '#93c5fd' };
@@ -3182,34 +3218,59 @@
       if (lb.sub) o += svgEl('text', { x: 4, y: gl.y + 16, fill: '#64748b', 'font-size': 9.5, 'data-gsub': 1 }, lb.sub);
       o += svgEl('line', { x1: LX - 18, y1: gl.y, x2: W - 2, y2: gl.y, stroke: PV_WIRE, 'stroke-width': 2, 'data-gate': lb.main.slice(5), 'data-g': lb.sub.split(' ')[0] });
     });
+    /* v1.35.32 MUX 區線段（單一來源 pvNet）：腳位垂直線、腳位匯流排、每條 Data 線（腳位匯流排→demux TFT、TFT→Data 線）、SW 引線、SW1～SWk 匯流排。
+       先全部列出，再由 pvNet 統一決定：垂直段跨過哪些水平線（畫弧形）、哪些點相連方向 ≥ 3（畫點）。 */
+    var MXN = null;
+    if (MX) {
+      var yL0 = top - 26 - SWH, mseg = [];
+      MXN = { R: 3.5, yT: yL0 + 27, line: [], pin: {}, dot: {} };
+      for (var mq = 0; mq < nD; mq++) {
+        var mdq = pvMuxDec(P, mq), mx0 = gapX(G[mq]), myPb = yL0 + 5 + 8 * (mdq.ci % 2), mySw = yL0 + 40 + 9 * mdq.j;
+        var ML0 = { yPb: myPb, ySw: mySw, top: pvSegV(mx0, myPb, MXN.yT - 6, 'dl' + mq), bot: pvSegV(mx0, MXN.yT + 6, top - 26, 'dl' + mq), swh: pvSegH(mx0 - 5, mx0 - 10, MXN.yT, 'sw' + mq), swv: pvSegV(mx0 - 10, MXN.yT, mySw, 'sw' + mq) };
+        MXN.line[mq] = ML0; mseg.push(ML0.top, ML0.bot, ML0.swh, ML0.swv);
+      }
+      for (var mq2 = 0; mq2 < nD; mq2++) {
+        var md2 = pvMuxDec(P, mq2); if (md2.j) continue;
+        var mhs = md2.b * n + 2 * MX * Math.floor(md2.ci / 2) + (md2.ci % 2) * MX, mgx = 0, mb0 = Infinity, mb1 = -Infinity, mstep = Infinity, myP = MXN.line[mq2].yPb, mown = {};
+        for (var mg = 0; mg < MX; mg++) { mgx += gapX(G[mhs + mg]); var mlq = pvMuxEnc(P, md2.c, mg), mlx = gapX(G[mlq]); mown[mlq] = 1; mb0 = Math.min(mb0, mlx); mb1 = Math.max(mb1, mlx); if (mg) mstep = Math.min(mstep, Math.abs(gapX(G[mhs + mg]) - gapX(G[mhs + mg - 1]))); }
+        mgx /= MX; if (!isFinite(mstep)) mstep = PIT;
+        /* 腳位垂直線 x：原本置中（mgx）；若和別的腳位的 Data 線在同一條直線上重疊（那條線的接點在本匯流排上方），往旁邊移半格 */
+        var mclash = function (x) { return MXN.line.some(function (L, q) { return !mown[q] && Math.abs(L.top.x - x) <= PV_EPS && L.yPb < myP - PV_EPS; }); };
+        var mpx = [mgx, mgx + mstep / 2, mgx - mstep / 2].filter(function (x) { return !mclash(x); })[0]; if (mpx === undefined) mpx = mgx;
+        var MPn = { x: mpx, v: pvSegV(mpx, yL0 - 2, myP, 'pin' + md2.c), bus: pvSegH(Math.min(mb0, mpx), Math.max(mb1, mpx), myP, 'pin' + md2.c) };
+        MXN.pin[md2.c] = MPn; mseg.push(MPn.v, MPn.bus);
+      }
+      for (var msj = 0; msj < MX; msj++) mseg.push(pvSegH(LX - 18, W - 2, yL0 + 40 + 9 * msj, 'swbus' + msj));
+      pvNet(mseg, MXN.R).forEach(function (dt) { MXN.dot[dt.key] = dt; });
+      MXN.segs = mseg;
+    }
     /* 3) Data 線 D1~D(2×週期)；對調時標「送 Dn」；重複組調暗 */
     for (var p = 0; p < nD; p++) {
-      var sq = pvLineSrc(P, lkP(p), swap, pvDrvRev), rep = FL ? p < nD - n : p >= n, dx = gapX(G[p]), path = 'M' + dx + ' ' + (top - 26), s = '';
+      var sq = pvLineSrc(P, lkP(p), swap, pvDrvRev), rep = FL ? p < nD - n : p >= n, dx = gapX(G[p]), s = '';
       var sw = (sq % n) !== (lkP(p) % n);   // 對調／SHL 讓這條線收到別筆資料
-      gys.forEach(function (gl) { path += ' V' + (gl.y - R) + ' A' + R + ' ' + R + ' 0 0 1 ' + dx + ' ' + (gl.y + R); });
-      path += ' V' + (H - 2);
+      var path = pvArcV(dx, top - 26, H - 2, gys.map(function (gl) { return gl.y; }), R);   // v1.35.32：Data 線跨 gate 線＝共用 pvArcV（MUX 區同一個）
       Vs.push({ x: dx, y1: top - 26, y2: H - 2, id: 'dl' + p });
       s += svgEl('path', { d: path, fill: 'none', stroke: '#7dd3fc', 'stroke-width': 2, 'data-dl': p + 1, 'data-x': Math.round(dx), 'data-gap': G[p], 'data-src': sq + 1, 'data-rep': rep ? 1 : 0 });
       var kq = dofOf(p), tco = '';
       if (MX) {
         /* v1.35.25 EN01 MUX：每條 Data 線標 SWk（小字，data-dlab＝腳位＋SW）；腳位（D12(組)+k）與 TCON Out 一組只寫一次，置中在這 MX 條線上方 */
-        /* v1.35.26 三層：這條 Data 線屬於實體腳位 dqp.c 的 SW dqp.j；腳位匯流排（偶／奇）→ 點接 → demux TFT → Data 線；TFT gate 點接到 SWk 匯流排 */
-        var dqp = pvMuxDec(P, p), swc = PV_SW_COL[dqp.j % PV_SW_COL.length], yL = top - 26 - SWH, yPb = yL + 5 + 8 * (dqp.ci % 2), yT = yL + 27, ySw = yL + 40 + 9 * dqp.j;
-        s += svgEl('circle', { cx: dx, cy: yPb, r: 2.4, fill: '#7dd3fc', 'data-mxtap': p + 1 });
-        s += svgEl('line', { x1: dx, y1: yPb, x2: dx, y2: yT - 6, stroke: '#7dd3fc', 'stroke-width': 1.5 });
+        /* v1.35.26 三層：這條 Data 線屬於實體腳位 dqp.c 的 SW dqp.j；腳位匯流排（偶／奇）→ 接點 → demux TFT → Data 線；TFT gate 接到 SWk 匯流排 */
+        /* v1.35.32：線段、弧形、接點全部由上面 pvNet 先算好（MXN），這裡只照著畫：垂直線保留、跨水平線畫弧形；只有三叉以上才畫點 */
+        var dqp = pvMuxDec(P, p), swc = PV_SW_COL[dqp.j % PV_SW_COL.length], ML = MXN.line[p], yPb = ML.yPb, yT = MXN.yT, ySw = ML.ySw;
+        if (MXN.dot[pvPtKey(dx, yPb)]) s += svgEl('circle', { cx: dx, cy: yPb, r: 2.4, fill: '#7dd3fc', 'data-mxtap': p + 1, 'data-deg': MXN.dot[pvPtKey(dx, yPb)].deg });
+        s += svgEl('path', { d: pvArcV(dx, yPb, yT - 6, ML.top.ys, MXN.R), fill: 'none', stroke: '#7dd3fc', 'stroke-width': 1.5, 'data-mxv': p + 1 });
         s += svgEl('rect', { x: dx - 5, y: yT - 6, width: 10, height: 12, rx: 2, fill: swc, 'fill-opacity': 0.35, stroke: swc, 'stroke-width': 1.5, 'data-mxtft': (p + 1) + ':SW' + (dqp.j + 1) + ':pin' + (dqp.c + 1) }, { raw: '<title>' + esc(tt('dm.pvMuxTftT', { d: p + 1, k: dqp.j + 1, c: gLab(lkP(p)) })) + '</title>' });
-        s += svgEl('path', { d: 'M' + (dx - 5) + ' ' + yT + ' H' + (dx - 10) + ' V' + ySw, fill: 'none', stroke: swc, 'stroke-width': 1.2 });
-        s += svgEl('circle', { cx: dx - 10, cy: ySw, r: 2.2, fill: swc });
-        s += svgEl('line', { x1: dx, y1: yT + 6, x2: dx, y2: top - 26, stroke: '#7dd3fc', 'stroke-width': 2 });
+        s += svgEl('path', { d: pvArcV(dx - 10, yT, ySw, ML.swv.ys, MXN.R, 'M' + (dx - 5) + ' ' + yT + ' H' + (dx - 10)), fill: 'none', stroke: swc, 'stroke-width': 1.2, 'data-mxg': p + 1 });
+        if (MXN.dot[pvPtKey(dx - 10, ySw)]) s += svgEl('circle', { cx: dx - 10, cy: ySw, r: 2.2, fill: swc, 'data-mxswdot': p + 1, 'data-deg': MXN.dot[pvPtKey(dx - 10, ySw)].deg });
+        s += svgEl('path', { d: pvArcV(dx, yT + 6, top - 26, ML.bot.ys, MXN.R), fill: 'none', stroke: '#7dd3fc', 'stroke-width': 2, 'data-mxv': p + 1 });
         s += svgEl('text', { x: dx + 7, y: yT + 3, 'text-anchor': 'start', fill: swc, 'font-size': SWFS, 'font-weight': 700, 'data-dlab': gLab(lkP(p)) + '·' + swOf(lkP(p)), 'data-sw': dqp.j + 1, 'class': 'dm-sdo', 'data-jump': 'sd', tabindex: 0, role: 'link' }, swOf(lkP(p)));
         if (dqp.j === 0) {
           /* 腳位標號放在「這個腳位那一半」（兩兩一組 2k 條：偶數腳位左半、奇數右半）的中間，交錯型兩個標號也不重疊；匯流排橫跨它接的 k 條線 */
-          var hs = dqp.b * n + 2 * MX * Math.floor(dqp.ci / 2) + (dqp.ci % 2) * MX, gxs = 0, bx0 = Infinity, bx1 = -Infinity;
-          for (var gq = 0; gq < MX; gq++) { gxs += gapX(G[hs + gq]); var lx = gapX(G[pvMuxEnc(P, dqp.c, gq)]); bx0 = Math.min(bx0, lx); bx1 = Math.max(bx1, lx); }
-          var gcx = gxs / MX, swg = pvMuxDec(P, sq % n).ci !== pvMuxDec(P, lkP(p) % n).ci;
-          bx0 = Math.min(bx0, gcx); bx1 = Math.max(bx1, gcx);
-          s += svgEl('line', { x1: bx0, y1: yPb, x2: bx1, y2: yPb, stroke: '#7dd3fc', 'stroke-width': 1.5, 'data-mxbus': gLab(lkP(p)) });
-          s += svgEl('line', { x1: gcx, y1: yL - 2, x2: gcx, y2: yPb, stroke: '#7dd3fc', 'stroke-width': 1.5 });
+          /* v1.35.32：腳位垂直線（標號往下接匯流排）若會和別的腳位的 Data 線疊在同一條直線上（MUX3 TYPE 2 奇數腳位），標號＋垂直線往旁邊移半格（MXN.pin[c].x） */
+          var MP = MXN.pin[dqp.c], gcx = MP.x, swg = pvMuxDec(P, sq % n).ci !== pvMuxDec(P, lkP(p) % n).ci;
+          s += svgEl('line', { x1: MP.bus.x1, y1: yPb, x2: MP.bus.x2, y2: yPb, stroke: '#7dd3fc', 'stroke-width': 1.5, 'data-mxbus': gLab(lkP(p)) });
+          s += svgEl('path', { d: pvArcV(gcx, MP.v.y1, yPb, MP.v.ys, MXN.R), fill: 'none', stroke: '#7dd3fc', 'stroke-width': 1.5, 'data-mxpin': dqp.c + 1 });
+          if (MXN.dot[pvPtKey(gcx, yPb)] && Math.abs(gcx - dx) > PV_EPS && !MXN.line.some(function (L, q) { return q !== p && Math.abs(gapX(G[q]) - gcx) <= PV_EPS && Math.abs(L.yPb - yPb) <= PV_EPS; })) s += svgEl('circle', { cx: gcx, cy: yPb, r: 2.4, fill: '#7dd3fc', 'data-mxpindot': dqp.c + 1, 'data-deg': MXN.dot[pvPtKey(gcx, yPb)].deg });
           s += svgEl('text', { x: gcx, y: top - LB_SD, 'text-anchor': 'middle', fill: '#7dd3fc', 'font-size': HFS, 'font-weight': 700, 'data-sdgrp': gLab(lkP(p)), 'class': 'dm-sdo', 'data-jump': 'sd', tabindex: 0, role: 'link' }, gLabH(lkP(p)));
           tco = svgEl('text', { x: gcx, y: top - LB_TC, 'text-anchor': 'middle', fill: swg ? '#e9d5ff' : '#c084fc', 'font-size': HFS, 'data-dof': kq, 'class': 'dm-tco' + (swg ? ' sw' : ''), opacity: rep ? 0.6 : 1, 'data-jump': 'tc', tabindex: 0, role: 'link' }, gLabH(sq));
         }
@@ -3290,10 +3351,13 @@
         var sg = w.up ? 1 : -1, gy = gateY(g, w), tx = w.tx, plate = gy + sg * 8, chan = gy + sg * 12, src = gy + sg * 17, s = '', ud = pvUd(NG, w.gi);
         var col = w.off ? '#475569' : (w.bad || w.out ? PV_BAD : (PV_LBL[colorKeyOf(w.name)] || PV_DOT));
         s += svgEl('line', { x1: tx, y1: gy, x2: tx, y2: plate, stroke: PV_WIRE, 'stroke-width': 1.5 });
+        /* v1.35.32：gate 點／source 點也走共用規則 pvJoinDeg（gate 線從中間穿過＋TFT 引線＝3；Data 線穿過＋source 線＝3 ⇒ 三叉才畫點） */
+        if (pvDotOk(pvJoinDeg(tx, gy, [pvSegH(LX - 18, W - 2, gy), pvSegV(tx, gy, plate)])))
         s += svgEl('circle', { cx: tx, cy: gy, r: 3.2, fill: PV_DOT, 'data-dot': 'gate', 'data-tft': (w.k + 1) + ':D' + (w.p + 1) + ':' + ud, 'data-gy': gy, 'data-side': w.right ? 'R' : 'L' });
         s += svgEl('line', { x1: tx - 7, y1: plate, x2: tx + 7, y2: plate, stroke: w.off ? '#64748b' : '#e2e8f0', 'stroke-width': 2 });
         s += svgEl('line', { x1: tx - 7, y1: chan, x2: tx + 7, y2: chan, stroke: w.off ? '#64748b' : '#e2e8f0', 'stroke-width': 2 });
         s += svgEl('path', { d: 'M' + w.sx + ' ' + chan + ' V' + src + ' H' + w.dl, fill: 'none', stroke: PV_WIRE, 'stroke-width': 1.5 });
+        if (pvDotOk(pvJoinDeg(w.dl, src, [pvSegV(w.dl, top - 26, H - 2), pvSegV(w.sx, chan, src), pvSegH(w.sx, w.dl, src)])))
         s += svgEl('circle', { cx: w.dl, cy: src, r: 3.2, fill: PV_DOT, 'data-dot': 'source' });
         /* v1.6.0：TFT 旁只留 X（不接線）與 !名稱（畫面外）；同一條 Gate 上和別的標籤重疊就不畫 */
         var lt = w.off ? w.name : (w.out ? '!' + w.name : ''), lw = lt.length * 6 + 2, lx0 = w.right ? tx + 9 : tx - 9 - lw, L2 = labs[gy] = labs[gy] || [];
@@ -3310,15 +3374,15 @@
       });
     });
     Hs.forEach(function (w) {
-      var dir = w.x1 >= w.dx ? 1 : -1, xs = [];
+      var dir = w.x1 >= w.dx ? 1 : -1, xs = [], wh = pvSegH(w.dx, w.x1, w.ty);
       Vs.forEach(function (v) {
         if (v.id === w) return;
-        if ((v.x - w.dx) * dir > HOP + 1 && (w.x1 - v.x) * dir > HOP + 1 && v.y1 < w.ty - 1 && v.y2 > w.ty + 1) xs.push(v.x);
+        if (pvCross(wh, v, HOP + 1, 1)) xs.push(v.x);   // v1.35.32：不相連的交叉判斷＝共用 pvCross
       });
       xs.sort(function (a, b) { return (a - b) * dir; });
-      /* Tri 外側 gate（Line k-1）的 drain 往下穿過內側 gate（Line k-2）：跨線處半圓跳線 */
-      var pth = 'M' + w.dx + ' ' + w.chan + (w.cross !== null ? ' V' + (w.cross - HOP) + ' A' + HOP + ' ' + HOP + ' 0 0 1 ' + w.dx + ' ' + (w.cross + HOP) : '') + ' V' + w.ty;
-      xs.forEach(function (x) { pth += ' H' + (x - dir * HOP) + ' A' + HOP + ' ' + HOP + ' 0 0 ' + (dir > 0 ? 1 : 0) + ' ' + (x + dir * HOP) + ' ' + w.ty; });
+      /* Tri 外側 gate（Line k-1）的 drain 往下穿過內側 gate（Line k-2）：跨線處半圓跳線（垂直跨水平＝共用 pvArcV） */
+      var pth = w.cross !== null ? pvArcV(w.dx, w.chan, w.ty, [w.cross], HOP) : 'M' + w.dx + ' ' + w.chan + ' V' + w.ty;
+      pth += pvHopH(xs, w.ty, dir, HOP);
       pth += ' H' + w.x1 + (w.out ? '' : ' V' + w.by);
       var len = w.out ? '' : Math.abs(w.t + 0.5 - G[w.p]);
       var e = svgEl('path', { d: pth, fill: 'none', stroke: w.col, 'stroke-width': 1.7, 'data-w': (w.k + 1) + ':D' + (w.p + 1) + ':' + pvUd(NG, w.gi) + ':' + w.name, 'data-hops': xs.length + (w.cross !== null ? 1 : 0), 'data-off': w.out ? 1 : 0, 'data-len': len });
