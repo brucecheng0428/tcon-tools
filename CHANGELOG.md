@@ -76,6 +76,29 @@
 - node 矩陣 70 組（dsf 1/1.25/1.5/1.75/2 × 瀏覽器縮放 50～200% 11 檔＝55 組；dPR 不變但 outerWidth 被撐大 10 組；顯示器非整數＋撐大 4 組；outerWidth=0 1 組）：新版 70/0；舊版 62/8（失敗的 8 組正是「dPR 不變、只有外框撐大」）。
 - 未驗：未在 Bruce 的 Windows 筆電實機開文字放大實測（遠端 Chrome 當時無法開網頁）；若 Chrome 把文字放大做成整頁縮放（dPR 也跟著變），本版仍會警示，需看螢幕資訊卡讀數再判斷。
 
+## Data Mapping (datamap) v1.35.31 — 2026-10-19 ｜ PATCH ｜ MNT（EM01／EM02／E512）LTPS MUX2 的 rd_mode 改寫 1（與 HSD、E503 同值）
+
+判定依據：docs/VERSIONING.md 修正錯誤（寫入值錯）、不加功能 ⇒ PATCH（底版 v1.35.30 23f310c／main 61e09ca）。只改 MNT MUX2 的 reg_rd_mode 寫入值；MUX3／Tri-Gate／HSD／1D1G／Zigzag、NB、EN01 寫入值不變；表格、接線圖不變（MNT 的 gate 判斷不看 rd）。
+
+### 起因
+- Bruce 10/19 19:4x：「MNT 的 Data Mapping 基本上跟 E503 那一套是一樣的，不會差太多。你看一下 E503 那邊mux 2的rd mode是設多少？rd mode基本上是用來分段data 用的，mux 2不是跟hsd(dual gate)行為上一樣嗎？所以理論上rd mode應該設定也是，請確認是否這樣」（派工 237903570581180416）
+
+### 依據
+- E503：RM8100x_for_FAE model:4061-4070 RD_MODE「1: HSD or MUX2 panel (1 line in 2 half line out)／2: TRI-GATE or MUX3 or MUXN-1 panel (1 line in 3 * 1/3 line out)」；RM81010_Kick_Off_Check_20210805.xlsx RD Check list 第 125 列「1: 1line 2 read (mux2 HSD) 2: 1 line 3 read(mux3 , tri_gate)」；網頁 NB Auto 本來就寫 1。
+- MNT：EM02A1_RegisterBank.model:19498-19504、EM01 Golden rt8_tcon_1 第 4～7 列：reg_rd_mode「0: 1D1G / 1: HSD (dual-gate) / 2: LTPS (tri-gate)」，同 byte 的 tcon_mode[3:0]／rd_non_stop[4]／mgoa_rotate[5] 與 E503 0x350 相同（同一個 rt8 IP）；同事A EM01A1 LTPS 分頁 MUX2 每條 line 2 格（同事A 10/19 Mail 111137 問題一「對」）。
+- 原廠 EM01 Tool 寫 2 的原因：RApp_TX.cpp:8911-8994 rd 只依 Panel_mode（LTPS＝2），換 sub_panel 不重算；RT7 清單 RApp_TX.h (17)～(21) 只有 MUX3。⚠ 讀回檢查 RApp_TX.cpp:9457-9496 只比 panel 與 rd，LTPS＋rd 1 會跳「rt7 Panel mode/rt8 rd mode not match」（Tool 規則，非暫存器定義；已擬信請 同事A 確認，未寄）。
+
+### 變更
+- common/datamap-core.js：autoRd 改成 MNT／NB 同一條規則（rd＝分段數−1：1D1G／Zigzag 0、HSD 1、MUX2 1、MUX3 2；MNT Tri-Gate（BOE）2；EN01 MUX4／6 照舊）；mntSetGate MUX2 寫 rd 1；註解更新。
+- common/datamap-auto.js：xlsxWire 的暫存 state rd 改呼叫 DM.autoRd（單一來源；MNT 接線不看 rd，結果不變）。
+- common/version.js datamap v1.35.31；datamap.html version.js／datamap-core.js／datamap-auto.js 快取參數 20261019dm13531。
+- tools/check_datamap_muxall.js：D 的 MUX2 期望 rd 1；新增 F「rd 規則矩陣」（MNT 3＋NB 5 型號 × panel 0～3 × sub 0～7（MNT LTPS 另含 Tri-Gate）＋NB Auto 清單＋MNT＝NB 同 sub＋MNT MUX2＝HSD＋Auto Gate 連動）。
+
+### 驗證
+- check_datamap_muxall 2944/0（D 的 MUX2 rd 期望改 1；新增 F rd 規則矩陣；同一支測試跑在改前 main 61e09ca ⇒ 43 fail，證明測得到）。
+- check_datamap_sd_snapshot 對 v1.35.30 基準：24608 pass／0 fail（11104 組；快照直接設定 rd，不經 Gate／Auto 連動，所以 MNT MUX2 新寫入值不在這支範圍，由 muxall D／F 驗；其他寫入值、表格、接線、script 0 差異）。
+- check_datamap_boe --qm（全民 B19 DisplayOK_12）109/0；check_datamap_tft_interact 1404/0；check_datamap_autounify 947/0；check_datamap_tri 148/0。
+
 ## Data Mapping (datamap) v1.35.30 — 2026-10-19 ｜ PATCH ｜ 全型號 Auto 設定方式統一（Panel_mode＋sub_panel_mode 兩個下拉、Gate Type 在 Auto 也能改並雙向連動）；EN01 Auto 依 E507 原廠範例畫 TFT 接線圖（含 MUX 三層）
 
 判定依據：派工指定版號 v1.35.30（底版 v1.35.29 fdbbb31）。Hand 模式的表格、暫存器、寫入值、script 不變；Auto 只改介面與 ③／② 的顯示（EN01 Auto 原本不畫）。

@@ -459,11 +459,17 @@
     if (p === 3 && (M.kind === 'mnt' || M.sem === 'e50x')) return (s.subPanel | 0) & 1 ? 'MUX2' : 'MUX3';
     return p === 2 ? 'Dual-Gate' : (p <= 1 ? 'Single-Gate' : 'PANEL_MODE=' + p);
   }
-  /* rd_mode（Auto）依 panel／sub：MNT＝原廠 MNT Tool [0,0,1,2]（LTPS 不分 MUX2／3 都 2，型號/MNT §10.6）；NB／EN01＝MUX2 1、MUX3 2（model 註解）；EN01 MUX4／MUX6 保留 RD 3／5 */
+  /* rd_mode（Auto）依 panel／sub：rd＝一條 line 的 data 分幾段－1，MNT／NB／EN01 同一條規則——1D1G／Zigzag 0、HSD 1、LTPS MUX2 1、MUX3 2；EN01 MUX4／MUX6 保留 RD 3／5。
+     v1.35.31（Bruce 10/19 19:4x「mux 2不是跟hsd(dual gate)行為上一樣嗎？所以理論上rd mode應該設定也是」；派工 237903570581180416）：
+     MNT MUX2 由 2 改 1。依據：NB 同一顆 rt8（0x350／0x420／0x1B0[7:6]，同 byte 也是 tcon_mode[3:0]／rd_non_stop／mgoa_rotate，與 MNT 0x0504 位元配置相同）
+     RM8100x_for_FAE model:4061-4070「1: HSD or MUX2 panel (1 line in 2 half line out)」、RM81010 Kick Off「1: 1line 2 read (mux2 HSD) 2: 1 line 3 read(mux3, tri_gate)」；
+     EM02 model:19498-19504「1: HSD (dual-gate) 2: LTPS (tri-gate)」＝分 2／3 段；同事A EM01A1 LTPS 分頁 MUX2 每條 line 2 格（同事A 10/19 回信問題一「對」）。
+     原廠 MNT Tool 寫 2 是因為它只依 panel_mode 決定 rd（EM01 RApp_TX.cpp:8911-8994，換 sub 不重算；RT7 清單 RApp_TX.h:552-556 只有 MUX3），不是硬體要求；
+     ⚠ 原廠 MNT Tool 讀回 panel 3＋rd 1 會跳「rt7 Panel mode/rt8 rd mode not match」（RApp_TX.cpp:9457-9496，只比 panel 與 rd）。（型號/MNT §10.10） */
   function autoRd(key, s) {
     var M = MODELS[key], p = s.panel | 0, sb = s.subPanel | 0;
     if (M.kind === 'en01' && p === 3 && ((s.rd | 0) === 3 || (s.rd | 0) === 5)) return s.rd | 0;
-    if (M.kind === 'mnt') return [0, 0, 1, 2][p] | 0;
+    if (M.kind === 'mnt' && p === 3 && s.triGate) return 2;   // BOE tri-gate（gate 分 3 段）
     return p === 3 ? ((sb & 1) ? 1 : 2) : (p === 2 ? 1 : 0);
   }
   /* 改 Panel_mode（Auto）：sub 回第一項（原廠 EM01 UI），rd 依 autoRd */
@@ -1274,13 +1280,12 @@
   /* v1.35.29（Bruce 10/19 13:4x「依你的建議吧，是不是應該一起連動會比較好？」；Dispatch 定案 (1)；派工 237801403670081536）：
      MNT Gate Type 選單＝Single／Dual／Tri（BOE tri-gate）／MUX2／MUX3，選了就一併寫 reg_panel_mode、reg_sub_panel_mode、reg_rd_mode（rt8 0x0504[7:6]，三型號同位址：
      EM02A1_RegisterBank.model:19498-19504、E512_ModelFile_20250902152136.model:17851-17857、EM01 RApp_TX.cpp:8994 BK_TX_RT8_1＋0x04 mask 0xC0（RApp_Common.h:62 BK_RT8_TCON_1＝0x0500））。
-     rd_mode 值照原廠 MNT Tool（EM01 RApp_TX.cpp:8925-8976、EM02 :8738-8784、E512 :8508-8555）：1D1G／Zigzag＝0、HSD＝1、LTPS＝2——LTPS 不分 MUX2／MUX3 都寫 2，
-     EM02 model 註解同（「0: 1D1G / 1: HSD (dual-gate) / 2: LTPS (tri-gate)」）。⚠ 與 Dispatch 定案「MUX2→1」不同：MNT 原廠工具與 model 都是 2，
-     NB 的 RM8100x model 才寫「1 HSD／MUX2」（NB 的 LTPS 清單照它寫 1）；MNT MUX2 實際要 1 還是 2 待 同事A（不寄信，列入待問）。
+     rd_mode＝data 一條 line 分幾段－1（與 autoRd 同一條規則）：1D1G／Zigzag＝0、HSD＝1、MUX2＝1、MUX3／Tri-Gate＝2。
+     v1.35.31 起 MUX2 寫 1（v1.35.29／30 照原廠 MNT Tool 寫 2；依據與原廠 Tool 讀回會跳 not match 的提醒見 autoRd 上方、型號/MNT §10.10）。
        Single：panel 保留 0／1（1D1G／Zigzag；原本是 HSD／LTPS 才改 0、sub 歸 0），rd 0（v1.35.28 以前一律寫 panel＝1＝Zigzag，MNT 已知問題 3）
        Dual：panel 2（原本不是 HSD 才 sub 歸 0），rd 1
        Tri-Gate：panel 3（sub 保留；BOE tri-gate 的 同事A 表是 sub 2），rd 2，triGate＝1
-       MUX2／MUX3：panel 3、SUB[0]＝1／0（保留 SUB[1] Zigzag、[2] TYPE；原本不是 LTPS 則歸 0），rd 2，triGate＝0 */
+       MUX2／MUX3：panel 3、SUB[0]＝1／0（保留 SUB[1] Zigzag、[2] TYPE；原本不是 LTPS 則歸 0），rd 1／2（v1.35.31），triGate＝0 */
   var MNT_GATES = ['Single-Gate', 'Dual-Gate', 'Tri-Gate', 'MUX2', 'MUX3'];
   function mntSetGate(key, s, item) {
     var gi = MNT_GATES.indexOf(item); if (gi < 0) return null;
@@ -1288,7 +1293,7 @@
     if (gi === 0) { if (p > 1) { ns.panel = 0; ns.subPanel = 0; } ns.rd = 0; ns.triGate = 0; }
     else if (gi === 1) { ns.panel = 2; if (p !== 2) ns.subPanel = 0; ns.rd = 1; ns.triGate = 0; }
     else if (gi === 2) { ns.panel = 3; ns.rd = 2; ns.triGate = 1; }
-    else { ns.panel = 3; ns.subPanel = (p === 3 ? sb & 6 : 0) | (gi === 3 ? 1 : 0); ns.rd = 2; ns.triGate = 0; }
+    else { ns.panel = 3; ns.subPanel = (p === 3 ? sb & 6 : 0) | (gi === 3 ? 1 : 0); ns.rd = gi === 3 ? 1 : 2; ns.triGate = 0; }
     if (!fieldById(key, 'rd')) delete ns.rd;
     return pyNormalize(key, ns);
   }

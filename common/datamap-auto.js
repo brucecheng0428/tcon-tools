@@ -446,7 +446,7 @@
     if (fam(model) !== 'mnt') return { why: 'model' };
     var r = xlsxRow(s);
     if (!r) return { why: tt0('xlNone', s) };
-    var st = DM.emptyState(model); st.hand = 1; st.panel = r.panel; st.subPanel = s.subPanel | 0; st.rd = [0, 0, 1, 2][r.panel]; st.deEn = 0; st.deSel = 0; st.mirror = 0; st.chrb = 0;
+    var st = DM.emptyState(model); st.hand = 1; st.panel = r.panel; st.subPanel = s.subPanel | 0; st.rd = DM.autoRd(model, st); st.deEn = 0; st.deSel = 0; st.mirror = 0; st.chrb = 0;
     for (var i = 0; i < 24; i++) { st['c' + i] = r.c[i]; if (r.x) st['x' + i] = r.x[i]; }
     var w = wiringFromState(model, st, false, r.gate || undefined);
     if (!w.ok) return { why: 'Excel ' + r.sheet + ' 分頁「' + r.name + '」換算失敗（' + w.why + '）' };

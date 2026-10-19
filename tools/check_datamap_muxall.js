@@ -11,8 +11,10 @@
       Zigzag 第 2 條 line 全部接左邊相鄰 subpixel。
    C  情境矩陣：EM01／EM02／E512 × Auto／Hand × LTPS sub 0～7（含 Bruce 15:0x 截圖：EM01 Auto MUX3 normal type1）＋ Hand Tri-Gate（BOE）＋ NB E503／E501A／E501B／DAZ6138 Auto LTPS
       ⇒ Gate Type 文字、③ 模型（mux、gate 數＝1、TYPE）、② 列名、SVG 三層（SW 匯流排、demux TFT）。
-   D  Gate 選單連動：MNT Single／Dual／Tri／MUX2／MUX3 寫入的 panel／sub／rd（rd 照原廠 MNT Tool：LTPS＝2）。
+   D  Gate 選單連動：MNT Single／Dual／Tri／MUX2／MUX3 寫入的 panel／sub／rd（v1.35.31：rd＝data 分段數－1，MUX2＝1、MUX3／Tri＝2）。
    E  列名：Excel 匯出新列名、匯入新舊列名都認；EN01 MUX＝Line n-SWk、Dual／Tri＝Line n-k。
+   F  v1.35.31 rd 規則矩陣（派工 237903570581180416）：MNT 3＋NB 5 型號 × panel 0～3 × sub 0～7 × Auto／Gate 選單 ⇒ rd＝分段數－1，
+      MUX2＝HSD＝1、MUX3／Tri-Gate＝2；MNT 與 NB（E503 Auto 清單）同一組 panel／sub 的 rd 相同；Excel 接線用的 rd 也同。
    用法：node tools/check_datamap_muxall.js [repo] [--xlsx 同事A.xlsx]
    ═══════════════════════════════════════════════════════════════════════════ */
 'use strict';
@@ -169,7 +171,7 @@ try { EX = JSON.parse(cp.execFileSync('python3', ['-c', PY, XLSX], { encoding: '
 
   /* ── D：Gate 選單連動 ── */
   for (const k of ['EM01', 'EM02', 'E512']) {
-    const exp = { 'Single-Gate': [0, 0, 0], 'Dual-Gate': [2, 0, 1], 'Tri-Gate': [3, null, 2], 'MUX2': [3, 1, 2], 'MUX3': [3, 0, 2] };
+    const exp = { 'Single-Gate': [0, 0, 0], 'Dual-Gate': [2, 0, 1], 'Tri-Gate': [3, null, 2], 'MUX2': [3, 1, 1], 'MUX3': [3, 0, 2] };
     for (const from of [0, 1, 2, 3]) for (const g of DM.gateItems(k)) {
       const s0 = DM.emptyState(k); s0.hand = 1; s0.panel = from; s0.subPanel = from === 1 ? 5 : (from === 3 ? 6 : 0);
       const ns = DM.setGate(k, s0, g), e = exp[g];
@@ -192,6 +194,22 @@ try { EX = JSON.parse(cp.execFileSync('python3', ['-c', PY, XLSX], { encoding: '
     ok(lb(en('MUX2 (RD_MODE=1)')) === 'Line 1-SW1,Line 1-SW2,Line 2-SW1' && lb(en('MUX4 (RD_MODE=3)')).startsWith('Line 1-SW1') && lb(en('Dual-Gate')) === 'Line 1-1,Line 1-2,Line 2-1' && lb(en('Single-Gate')).startsWith('Line 1,'), 'E EN01 列名：' + [lb(en('MUX2 (RD_MODE=1)')), lb(en('Dual-Gate')), lb(en('Single-Gate'))].join(' | '));
     ['MUX2 (RD_MODE=1)', 'MUX3 (RD_MODE=2)', 'MUX4 (RD_MODE=3)', 'MUX6 (RD_MODE=5)', 'Single-Gate', 'Dual-Gate', 'Tri-Gate'].forEach(g => tab('E', ['EN01 ' + g, lb(en(g))]));
     [['EM02 MUX2', m2], ['EM02 MUX3', m3], ['EM02 Dual', du], ['EM02 Tri-Gate', tr]].forEach(([n, st]) => tab('E', [n, DM.rowsFor('EM02', st).map(x => x.label.replace(/（.*$/, '')).join(',')]));
+  }
+  /* ── F：rd 規則矩陣（v1.35.31） ── */
+  { const seg = (p, sb, tri) => p <= 1 ? 1 : (p === 2 ? 2 : (tri ? 3 : ((sb & 1) ? 2 : 3)));
+    const MNT = ['EM01', 'EM02', 'E512'], NB = ['E503', 'E501A', 'E501B', 'DAZ6138', 'DAZ6139'].filter(k => DM.MODELS[k] && DM.fieldById(k, 'rd'));
+    let nF = 0;
+    for (const k of MNT.concat(NB)) for (let p = 0; p <= 3; p++) for (let sb = 0; sb < 8; sb++) for (const tri of DM.MODELS[k].kind === 'mnt' && p === 3 ? [0, 1] : [0]) {
+      const s = DM.emptyState(k); s.panel = p; s.subPanel = sb; s.triGate = tri; nF++;
+      ok(DM.autoRd(k, s) === seg(p, sb, tri) - 1, 'F autoRd ' + k + ' p' + p + ' sub' + sb + ' tri' + tri + ' = ' + DM.autoRd(k, s));
+    }
+    for (const k of NB) for (const e of A.list(k)) if (e.set.rd !== undefined) { const s = DM.emptyState(k); s.panel = e.set.panel; s.subPanel = e.set.subPanel; ok(DM.autoRd(k, s) === e.set.rd, 'F NB 清單 ' + k + ' ' + e.name + ' rd ' + e.set.rd + ' vs autoRd ' + DM.autoRd(k, s)); nF++; }
+    for (let sb = 0; sb < 8; sb++) { const a = DM.emptyState('EM01'), b = DM.emptyState('E503'); a.panel = b.panel = 3; a.subPanel = b.subPanel = sb; ok(DM.autoRd('EM01', a) === DM.autoRd('E503', b), 'F MNT＝NB LTPS sub' + sb); nF++; }
+    for (const k of MNT) { const h = DM.setGate(k, Object.assign(DM.emptyState(k), { hand: 1, panel: 2 }), 'Dual-Gate'), m = DM.setGate(k, Object.assign(DM.emptyState(k), { hand: 1, panel: 3 }), 'MUX2');
+      ok(h.rd === 1 && m.rd === 1 && h.rd === m.rd, 'F ' + k + ' MUX2 rd＝HSD rd：' + m.rd + '／' + h.rd); nF++;
+      for (let from = 0; from <= 3; from++) for (const g of DM.autoGateItems(k)) { const s0 = DM.emptyState(k); s0.hand = 0; s0.panel = from; const ns = DM.autoSetGate(k, s0, g);
+        if (ns) { ok(ns.rd === DM.autoRd(k, ns) && ns.rd === seg(ns.panel, ns.subPanel, ns.triGate) - 1, 'F Auto Gate ' + k + ' ' + g + ' from ' + from + ' rd ' + ns.rd); nF++; } } }
+    tab('F', ['rd 規則矩陣', nF + ' 項']);
   }
   function render() { w.dmRender(); }
   ok(!jerr.length, 'jsdomError：' + jerr.slice(0, 3).join(' | '));
