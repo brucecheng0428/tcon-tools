@@ -257,6 +257,11 @@ var I18N = {
     'en': '<b>devicePixelRatio = {d} (integer)</b><br>In full-screen tiling each pattern pixel maps to one physical pixel with no resampling.',
     'zh-CN': '<b>devicePixelRatio = {d}（整数）</b><br>全画面平铺时每个 pattern 像素可对应 1 个物理像素，不会被重新采样。'
   },
+  'pat.dprNonIntDev': {
+    'zh-TW': '<b>devicePixelRatio = {d}（非整數：顯示器縮放或 Windows 文字大小）</b><br>全螢幕畫布會依瀏覽器實測的實體像素框對齊，1 pattern 像素 = 1 實體像素；進全螢幕後實測對不上才會警示。',
+    'en': '<b>devicePixelRatio = {d} (non-integer: display scaling or Windows text size)</b><br>The full-screen canvas is aligned to the device-pixel box measured by the browser, so 1 pattern pixel = 1 physical pixel; a warning appears only if the measurement does not match in full-screen.',
+    'zh-CN': '<b>devicePixelRatio = {d}（非整数：显示器缩放或 Windows 文字大小）</b><br>全屏画布会依浏览器实测的物理像素框对齐，1 pattern 像素 = 1 物理像素；进全屏后实测对不上才会警示。'
+  },
   'pat.dprNonInt': {
     'zh-TW': '<b>⚠ devicePixelRatio = {d}（非整數）</b><br>畫面會被瀏覽器／系統重新取樣，<b>無法保證 1:1 實體像素對應</b>，sub-pixel pattern 會被糊掉。請把系統顯示縮放與瀏覽器縮放都設回 100%（瀏覽器按 Ctrl/⌘ + 0），讓此值變成整數（1、2 或 3）。',
     'en': '<b>⚠ devicePixelRatio = {d} (non-integer)</b><br>The output will be resampled by the browser/OS, so <b>1:1 physical-pixel mapping cannot be guaranteed</b> and the sub-pixel pattern will be blurred. Set both OS display scaling and browser zoom back to 100% (press Ctrl/⌘ + 0) so this value becomes an integer (1, 2 or 3).',
@@ -315,6 +320,11 @@ var I18N = {
     'zh-TW': '偵測到<b>系統顯示縮放</b>：1 個 CSS 像素對應 <b>{d}</b> 個實體像素，不是整數。',
     'en': 'Detected <b>OS display scaling</b>: one CSS pixel maps to <b>{d}</b> physical pixels, which is not an integer.',
     'zh-CN': '侦测到<b>系统显示缩放</b>：1 个 CSS 像素对应 <b>{d}</b> 个物理像素，不是整数。'
+  },
+  'pat.zwMsgDev': {
+    'zh-TW': '全螢幕畫布 <b>{w} × {h}</b> 與瀏覽器實測的實體像素框 <b>{dw} × {dh}</b> 不符，畫面會被重新取樣，<b>不是 1:1</b>。',
+    'en': 'The full-screen canvas <b>{w} × {h}</b> does not match the device-pixel box measured by the browser (<b>{dw} × {dh}</b>): the output is resampled and is <b>not 1:1</b>.',
+    'zh-CN': '全屏画布 <b>{w} × {h}</b> 与浏览器实测的物理像素框 <b>{dw} × {dh}</b> 不符，画面会被重新采样，<b>不是 1:1</b>。'
   },
   'pat.zwMsgPinch': {
     'zh-TW': '偵測到<b>頁面被雙指縮放（pinch zoom）{v} 倍</b>。',
@@ -425,6 +435,8 @@ var I18N = {
   'pat.fsInfoScreen':   { 'zh-TW': '螢幕解析度：<b>{w} × {h}</b> 實體像素', 'en': 'Screen resolution: <b>{w} × {h}</b> physical px', 'zh-CN': '屏幕分辨率：<b>{w} × {h}</b> 物理像素' },
   'pat.fsInfoFull':     { 'zh-TW': '✔ 繪圖區 = 整個螢幕，已是完整 1:1 滿版。', 'en': '✔ Drawing area = whole screen: true 1:1 full-screen.', 'zh-CN': '✔ 绘图区 = 整个屏幕，已是完整 1:1 满版。' },
   'pat.fsInfoShort':    { 'zh-TW': '⚠ 繪圖區比螢幕小 {dx} × {dy} px（被瀏覽器工具列／系統列佔用），這部分網頁拿不到。', 'en': '⚠ Drawing area is {dx} × {dy} px smaller than the screen (taken by browser/system bars); a web page cannot reclaim it.', 'zh-CN': '⚠ 绘图区比屏幕小 {dx} × {dy} px（被浏览器工具栏／系统栏占用），这部分网页拿不到。' },
+  'pat.fsInfoOkDev':    { 'zh-TW': '✔ 畫布 {w} × {h} ＝ 瀏覽器實測的實體像素框，1 pattern 像素 = 1 實體像素。', 'en': '✔ Canvas {w} × {h} = the device-pixel box measured by the browser: 1 pattern pixel = 1 physical pixel.', 'zh-CN': '✔ 画布 {w} × {h} ＝ 浏览器实测的物理像素框，1 pattern 像素 = 1 物理像素。' },
+  'pat.fsInfoWarnDev':  { 'zh-TW': '⚠ 畫布 {w} × {h} 與瀏覽器實測的實體像素框 {dw} × {dh} 不符，畫面會被重新取樣，非 1:1。', 'en': '⚠ Canvas {w} × {h} does not match the measured device-pixel box {dw} × {dh}: the output is resampled and is not 1:1.', 'zh-CN': '⚠ 画布 {w} × {h} 与浏览器实测的物理像素框 {dw} × {dh} 不符，画面会被重新采样，非 1:1。' },
   'pat.fsInfoWarn':     { 'zh-TW': '⚠ dPR 非整數，畫面會被重新取樣，非 1:1。', 'en': '⚠ dPR is not an integer: the output is resampled and is not 1:1.', 'zh-CN': '⚠ dPR 非整数，画面会被重新采样，非 1:1。' },
 
   /* ─── 測試畫面選單（選單項目一律英文原文，不進 i18n） ─── */
