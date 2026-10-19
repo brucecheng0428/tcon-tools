@@ -491,6 +491,36 @@
 - 測試：check_datamap_preview.js 改驗不再出現「實驗」；check_datamap_tcon_gate.js 字級斷言改 18／19／22＋24。
 - S/D 快照基準未改（tools/datamap_sd_snapshot.json 與 v1.35.9 相同）。TFT 圖幾何（欄距、標籤列高度）改變；以遮掉幾何座標／字級的比對抽樣確認計算與結構相同。
 - 回歸：boe --qm 全民 109/0；tft_interact 962/0；preview 49/0；tcon_gate 63/0；標籤重疊量測（headless Chrome，全型號×Gate×CH1 左右 46 組）0 重疊。
+## 自檢畫面量測 (dgself) v2.7.12 — 2026-10-19 ｜ PATCH ｜ 量測儀連線參數改成與電腦畫面量測相同
+
+判定依據：docs/VERSIONING.md R1，修正「同一台 CA-410 在電腦畫面量測連得上、自檢頁連不上」，採 PATCH。
+
+### 起因
+- 同事B 10/19 10:54 來信「RE: Digital Gamma 迭代校正 issue」：「TCON自檢畫面量測學量測儀連結不上，電腦畫面量測的即時量測則是可以正常連接上」，截圖為按 ON 後「開啟量測儀失敗：量測儀未回應或回應無效」。Bruce 10/19 指派依 同事B 來信修改（派工 237771817389404160）。
+
+### 原因（讀碼比對，未在真機重現）
+- dg-selftest.html `dstCaOpen()` v1.0.0 起用 `{ baudRate: 115200 }`（8N1）開埠，指令結尾送 CR＋LF，BPR 握手只等 1500 ms。
+- dg-measure.html（同事B 實機可連）用原廠規格 §1.1.1 `DGM_PORT_SPEC`（38400／7／Even／2／RTS-CTS），握手不過才退 `DGM_PORT_LEGACY`（38400 8N1）；指令結尾只送 CR（註解：多送 LF 會回 ER10）；握手等 `DGM_HS_MS` 3000 ms。
+- v2.7.11 之前自檢頁沒有握手，所以按 ON 一律亮綠燈、到量測才失敗（同事B 10/15 第 2 點）；v2.7.11 加了握手後，參數不同的問題直接在 ON 顯示出來。
+
+### 修正
+- 開埠：先規格參數、再相容參數，兩段都要 BPR 回 `OKxx,鮑率` 才算連上；數值逐字照 dg-measure（DGM_PORT_SPEC／DGM_PORT_LEGACY／DGM_HS_MS／DGM_OPEN_MS／DGM_CLOSE_MS）。失敗用硬關閉（不送指令、每步有時限），同 dgmHardClose。
+- `dstCaCmd()` 指令結尾改成只送 CR。
+- 選埠照 dg-measure `dgmChooseAuthorized`：已授權的埠只有一個且有 USB VID／PID 才直接用，否則跳選擇視窗；兩種參數都失敗後，下一次按 ON 一定跳選擇視窗。重新整理自動重連只在授權埠只有一個時才試。
+- 測試：tests/dgself/scenarios/PEERB_meter.js 的假埠補 USB VID／PID 與 38400 回覆；新增 PEERB_meter2.js（規格→相容順序與參數、只送 CR、握手 3000 ms、多個授權埠跳選擇視窗、失敗後下次重選）。
+- 待 同事B 實機複測（Mac mini 沒有接 CA-410，未驗真機）。
+
+## Digital Gamma (dg) v2.6.1 — 2026-10-19 ｜ PATCH ｜ PQ Tools 匯入的這一輪按「清空」回到匯入視窗
+
+判定依據：docs/VERSIONING.md 判斷表「操作流程小調整」，既有按鈕與資料不變，採 PATCH。
+
+- 同事B 10/19 同一封信：「匯入PQ tools 量測資料的部分，希望清空後可以跳回原來輸入CCT檔案的地方，不然目前流程需要分開來輸入不能整包CCT直接輸入」。
+- dg.html：輸入資料卡的「清空」在這一輪是從入口③「匯入 PQ Tools 量測資料」開始、還沒選工作模式時（`DG_PQ && !DG_WMODE`），清完直接打開「匯入 PQ Tools 量測資料」視窗並提示重選 RaydiumCCT_….xlsx（新增三語字串 dg.pqCleared）。清的內容仍是 `dgClearAll()` 同一支；按「關閉」後畫面與 v2.6.0 相同。電腦畫面／T-CON 自檢入口的清空不變。
+- 截圖用 tests/dgself/scenarios/PEERB_shots.js（PEERB-SHOT-PQ／PEERB-SHOT-CA，DGSELF_SHOTS 改前改後同一支）。
+- 測試：新增 tests/dgself/scenarios/PEERB_pq_clear.js（PQ 匯入後清空 ⇒ 視窗開著、三部分已清空、提示三語；電腦畫面模式清空 ⇒ 不開視窗）。
+
+---
+
 ## Digital Gamma (dg) v2.6.0 — 2026-10-15 ｜ MINOR
 
 ⚠ 輸出變更：目標非 2.2／6500K 時，圖表及光學比較匯出的參考線改為設定目標；設定區預設展開，舊畫面基線不再適用。

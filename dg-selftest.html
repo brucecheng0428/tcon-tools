@@ -5133,41 +5133,103 @@ function dstCaCmd(text, ms) {
       resolve(null);
     }, ms || 6000);
     dstRxWaiters.push(w);
-    dstWriter.write(new TextEncoder().encode(text + '\r\n')).catch(function () {});
+    /* 🔴 v2.7.12（同事B 10/19「自檢畫面量測光學量測儀連結不上，電腦畫面量測的即時量測則是可以正常連接上」）：
+       結尾只送 CR（0x0D），與 dg-measure.html cmd() 相同（那邊註解：多送一個 LF 會回 ER10）。
+       v1.0.0 起這裡送的是 CR＋LF。 */
+    dstWriter.write(new TextEncoder().encode(text + '\r')).catch(function () {});
   });
+}
+/* ═══ 🔴 v2.7.12：開埠參數、順序、握手時限改成與 dg-measure.html 相同 ═══════════════
+   同事B 10/19 回報：自檢頁按量測儀 ON ⇒「開啟量測儀失敗：量測儀未回應或回應無效」，
+   同一台電腦的電腦畫面量測（dg-measure.html）連得上。讀碼比對兩頁，差在三處：
+     ① 開埠參數：本頁 v1.0.0 起是 { baudRate: 115200 }（8N1），
+        dg-measure 是原廠規格 §1.1.1 的 38400／7 bit／Even／2 stop／RTS-CTS（DGM_PORT_SPEC），
+        不通才退 38400 8N1（DGM_PORT_LEGACY），兩段都要 BPR 回覆合法才算連上。
+     ② 指令結尾：本頁 CR＋LF，dg-measure 只送 CR（見 dstCaCmd）。
+     ③ 握手等待：本頁 1500 ms，dg-measure DGM_HS_MS＝3000 ms（規格 §1.3 一來一回兩個 1.5 秒預算）。
+   ⇒ 三處都照 dg-measure 改（數值逐字抄 DGM_PORT_SPEC／DGM_PORT_LEGACY／DGM_HS_MS／DGM_OPEN_MS）。
+   🔴 真機原因沒有在治具上重現（Mac mini 沒接 CA-410）：上面是讀碼推論，要 同事B 用新版實機複測。
+   選埠也照 dg-measure 的 dgmChooseAuthorized：已授權的埠只有一個且有 USB VID／PID 才直接用，
+   多個或沒有 VID／PID 就跳選擇視窗；兩種參數都握手失敗，下一次按 ON 一定跳選擇視窗（可能選錯埠）。 */
+var DST_PORT_SPEC   = { baudRate: 38400, dataBits: 7, stopBits: 2, parity: 'even', flowControl: 'hardware' };
+var DST_PORT_LEGACY = { baudRate: 38400, dataBits: 8, stopBits: 1, parity: 'none' };
+var DST_HS_MS = 3000;      // = dg-measure DGM_HS_MS
+var DST_OPEN_MS = 6000;    // = dg-measure DGM_OPEN_MS
+var DST_CLOSE_MS = 3000;   // = dg-measure DGM_CLOSE_MS
+var dstCaRepick = false;   // 上一次兩種參數都失敗 ⇒ 下一次 ON 跳選擇視窗
+var dstCaModeUsed = null;  // 'spec'／'legacy'：這次實際連上的參數（夾具與 log 讀）
+function dstRace(p, ms) {
+  return new Promise(function (res) {
+    var done = false;
+    var to = setTimeout(function () { if (!done) { done = true; res({ ok: false, timeout: true }); } }, ms);
+    Promise.resolve(p).then(
+      function (v) { if (!done) { done = true; clearTimeout(to); res({ ok: true, v: v }); } },
+      function (e) { if (!done) { done = true; clearTimeout(to); res({ ok: false, e: e }); } });
+  });
+}
+function dstPortHasUsbIds(p) {
+  var i;
+  try { i = (p && p.getInfo) ? (p.getInfo() || {}) : {}; } catch (e) { return false; }
+  return i.usbVendorId != null && i.usbProductId != null;
+}
+/* 硬關閉：不送任何指令（流量控制下寫入可能掛住），每一步都有時限。理由同 dg-measure dgmHardClose。 */
+async function dstCaHardClose(port) {
+  try { if (dstReader) await dstRace(dstReader.cancel(), DST_CLOSE_MS); } catch (e) {}
+  try { if (dstReader) dstReader.releaseLock(); } catch (e) {}
+  try { if (dstWriter) dstWriter.releaseLock(); } catch (e) {}
+  try { if (port) await dstRace(port.close(), DST_CLOSE_MS); } catch (e) {}
+  dstReader = null; dstWriter = null; dstRxBuf = '';
+  dstRxWaiters.splice(0).forEach(function (w) { clearTimeout(w.timer); w.resolve(null); });
 }
 async function dstCaOpen() {
   /* v2.1.0：連線失敗的原因寫在硬體卡的那一行（#dst-say-link，開關旁邊看得到），不再寫到步驟卡最下面。 */
   if (!navigator.serial) { dstSay('dst-say-link', dstT('dst.errNoSerial')); return false; }
+  var port = null;
   try {
     var ports = await navigator.serial.getPorts();
-    dstPort = ports && ports.length ? ports[0] : await navigator.serial.requestPort();
-    await dstPort.open({ baudRate: 115200 });
-    dstWriter = dstPort.writable.getWriter();
-    dstReader = dstPort.readable.getReader();
-    dstCaReadLoop();
-    // BPR is the existing measurement page's read-only instrument handshake.
-    var hello = await dstCaCmd('BPR', 1500);
-    if (!/^OK\d\d,\d{3,6}$/.test(hello || '')) throw new Error(dstT('dst.errMeterHandshake'));
-    dstCaLinked = true;
-    dstRenderCa();
-    dstLog('== serial opened', 'o');
-    return true;
+    if (!dstCaRepick && ports && ports.length === 1 && dstPortHasUsbIds(ports[0])) port = ports[0];
+    else port = await navigator.serial.requestPort();
   } catch (e) {
-    /* ═══ 🔴 v1.7.3：失敗一定要把狀態收乾淨 ══════════════════════════════════
-       `dstCaLinked` 本來就只在 try 的最後才設 true（所以使用者取消選埠時它維持
-       false，這一點是讀碼確認過的，不是猜的）—— 但**半開的埠沒有收**：
-       `dstPort.open()` 成功之後才在 `getWriter()`／`getReader()` 丟出來的話，
-       `dstPort` 會留著一個已經開著的埠，下一次按就走到
-       `getPorts()` ⇒ ports[0] ⇒ `open()` ⇒ 「port is already open」，
-       而且那個例外**長得跟第一次的失敗一樣**，看不出是我們自己沒收。
-       ⇒ 一律走既有的 `dstCaClose()`（它把 writer／reader／port 逐一釋放、
-          把 dstCaLinked 設回 false、並重畫）。**不另寫一份收尾**。 */
-    try { await dstCaClose(); } catch (e2) {}
+    dstPort = null; dstCaLinked = false; dstRenderCa();
     dstSay('dst-say-link', dstT('dst.errSerialOpen', { m: dstErrMsg(e) }));
     dstLog('!  serial open failed: ' + dstErrMsg(e), 'e');
     return false;
   }
+  var tries = [['spec', DST_PORT_SPEC], ['legacy', DST_PORT_LEGACY]], lastErr = null;
+  for (var i = 0; i < tries.length; i++) {
+    var which = tries[i][0], opts = tries[i][1];
+    try {
+      dstPort = port;
+      dstLog('== serial open ' + which + ' ' + JSON.stringify(opts));
+      var r = await dstRace(port.open(opts), DST_OPEN_MS);
+      if (!r.ok) {
+        if (r.timeout) throw new Error('open() timeout ' + DST_OPEN_MS + ' ms');
+        if (!/already open/i.test(dstErrMsg(r.e)) && !(r.e && r.e.name === 'InvalidStateError')) throw r.e;
+      }
+      dstWriter = port.writable.getWriter();
+      dstReader = port.readable.getReader();
+      dstRxBuf = '';
+      dstCaReadLoop();
+      // BPR：規格 §3.3.1.3 唯讀查詢，與 dg-measure 握手同一道指令、同一個判準。
+      var hello = await dstCaCmd('BPR', DST_HS_MS);
+      if (!/^OK\d\d,\d{3,6}$/.test(hello || '')) throw new Error(dstT('dst.errMeterHandshake'));
+      dstCaLinked = true; dstCaRepick = false; dstCaModeUsed = which;
+      dstRenderCa();
+      dstLog('== serial opened (' + which + ')', 'o');
+      return true;
+    } catch (e) {
+      lastErr = e;
+      dstLog('!  serial ' + which + ' failed: ' + dstErrMsg(e), 'e');
+      await dstCaHardClose(port);
+    }
+  }
+  /* ═══ 🔴 v1.7.3：失敗一定要把狀態收乾淨（v2.7.12 改成上面的硬關閉，不再送 COM,0） ═══ */
+  dstPort = null; dstCaLinked = false; dstCaModeUsed = null; dstCaRepick = true;
+  dstCaCloseCount++;
+  dstRenderCa();
+  dstSay('dst-say-link', dstT('dst.errSerialOpen', { m: dstErrMsg(lastErr) }));
+  dstLog('!  serial open failed: ' + dstErrMsg(lastErr), 'e');
+  return false;
 }
 async function dstCaClose() {
   dstCaCloseCount++;                      // v1.11.0：夾具用的觀測點（產品不讀它）
@@ -7325,7 +7387,7 @@ async function dstPgAutoReconnect() {
   if (st.ca && !dstCaLinked && navigator.serial && navigator.serial.getPorts) {
     var ports = [];
     try { ports = await navigator.serial.getPorts(); } catch (e) {}
-    if (ports && ports.length) {
+    if (ports && ports.length === 1) {   // v2.7.12：與 dstCaOpen 選埠規則一致（多個要使用者自己挑）
       dstLog('== reload: reopening the optical meter (already granted port)', 'o');
       try { await dstCaOpen(); } catch (e) {}
       dstRenderBtns();
