@@ -2,6 +2,37 @@
 
 ---
 
+## Data Mapping (datamap) v1.35.26 — 2026-10-19 ｜ PATCH ｜ ⚠ 輸出變更（只有 EN01 MUX 的 ③ 與 MNT Tri＋Mirror 的 ③） ｜ EN01 MUX 原廠 TYPE 走線＋三層畫法；Tri Mirror 跨循環與 Single／Dual 統一
+
+判定依據：§2 案例 2 修正錯誤的顯示（v1.35.25 MUX 走線假設「每個 SD 腳位接相鄰 k 條」與原廠圖不符；Tri Mirror 與其他模式座標不一致）＋新增只影響 ③ 的面板設定 → PATCH（R3）；寫入值、script、Excel、② 表格不變；MNT／NB Single／Dual 輸出 0 差異。⚠ 輸出變更：EN01 MUX（MUX4／MUX6、RD_MODE 1/2 選 Source MUX）的 ③ 走線與畫法；MNT Hand Tri＋Mirror 的 ③ 名稱與位置。
+
+### 起因
+- Bruce 10/19 09:08（臨時互動區「EN01 TFT 接線圖：MUX4／MUX6 走線（查證後，問題 1/3）」）：選擇 A「改成原廠 TYPE 公式＋三層畫法，並問 同事D」，備註「可以先改網頁」（派工 237743897837056000）。
+- Bruce 10/19（問題 2/3，Mirror）：選 A「先統一網頁內部＋加圖例，等 RD 回覆再定方向」，備註「不要影響到已經驗證的 single gate 與 dual gate」（Dispatch 轉入同一派工）。
+
+### 依據
+- MUX 走線＝面板 demux layout，照 E507 xlsm 原廠 MUX 接線圖的 TYPE：Data 線欄＝12k·循環＋2k·⌊腳位/2⌋＋P[腳位 mod 2][SW]；P 表（MUX2 T1 [1 2|3 4]、T2 [1 3|2 4]；MUX3 T1 [1 2 3|4 5 6]、T2 [1 5 3|4 2 6]；MUX4 T1 [1 3 5 7|2 4 6 8]；MUX6 T1 [1..6|10 11 12 7 8 9]、T2 [1 11 3 7 5 9|10 2 12 4 8 6]）出自 assistant_kb datamap/詳細/SourceMUX_網路研究_20261018 §2.1（E507 MUX2!A97／A128、MUX3!A97／A128、MUX4!AA107、MUX6!AJ144／AV183／AW202）。（確定＝E507 範本面板；EN01 用哪個 TYPE＝未知，待 同事D）
+- SW＝MUX 切換 data line 的時段，不是 gate（決策 A27）。
+- Tri Mirror：v1.35.25 的 pvTriModel 不經 pvMirror ⇒ 名稱每循環 +6×SW、位置不反轉；Single／Dual（pvMirror）與 EN01 是位置 −1−k、名稱每循環 −6×SW（SourceMUX §4.2）。
+
+### 變更（datamap.html）
+- pvMuxType／PV_MUX_P／pvMuxEnc／pvMuxDec：TYPE 公式（雙向）；pvEn01Model、pvLineSrc、鎖定 CH1 換邊（lpF）、renderPvTft0 的 lkP／gLabF／swOf／dofOf 全部改由公式反查（原本 channel-major c·M＋j）。
+- ③ 三層畫法：SD 腳位標號（放在該腳位那一半的中間）→ 腳位匯流排（偶／奇兩條）→ 每條 Data 線一顆 demux TFT（SW 上色、title 說明）→ SW1～SWk 匯流排（TFT gate 點接）→ Data 線；圖左上標「MUXk TYPE n」。
+- 面板設定「MUX TYPE」（TYPE 1 預設／TYPE 2；MUX4 的 TYPE 2 停用）：只在 EN01 MUX 模式建立（MNT／NB DOM 不變）；鎖定時不能改；存檔只在 ≠1 時多一個 muxTy 欄。
+- 「RD_MODE 1/2 面板」列名改成「RD_MODE 1/2 面板（Gate 或 MUX2／MUX3）」、選項寫明 RD_MODE 1＝HSD／MUX2、2＝Tri／MUX3；EN01 RD_MODE 1／2 在 Gate 面板時圖例多一行「也可能是 MUX2／MUX3 面板，到面板區切 Source MUX」（Bruce 10/19「EN01 的 MUX 接線圖，有包含 mux2、mux3…嗎？」）。
+- 測試 hook window.dmPvRender（只重畫 ③）。
+- 圖例：EN01 MUX 一行（三層、SW≠gate、TYPE、待 同事D）；Mirror 跨循環一行（只在 Tri＋Mirror、EN01＋Mirror 顯示）。EN01 圖例原「MUX 面板每個 SD 腳位接相鄰…」改成「MUX 面板用哪個 TYPE」。
+- pvTriMirror（新）：Tri＋Mirror 套 pvMirror 同一式；pvMirror（Single／Dual）程式不動。
+- 文字：EN01 旗標列 Mirror＝1、MUX 時標「（推論）」；Benchmark 在 EN01 不給自動反推時寫原因（dm.bmRevEn01）；dm.en01Unk「此 Gate」→「此模式（RD_MODE：Gate 或 MUX）」；dm.hMuxT 後半更正（依 TYPE、SW 不是 gate）；en01DeText「同 MNT 每多一條 gate」→「SW k 用起始 T＋(k−1)」；pvEn01Model 註解 SW≠gate 更正。
+
+### 驗證
+- tools/check_datamap_en01tft.js（更新）667699 pass／0 fail：A 模型矩陣 442368 格（MUX 逐一跑 TYPE 1／2，位置＝測試內獨立抄寫的 TYPE 公式）；B SVG（含三層：每條 Data 線的 demux TFT 的 SW／腳位、腳位匯流排數、SW 匯流排數、TYPE 標示、圖例）；C xlsm 70 組 6585 格 0 差異；D（新）xlsm NORMAL TYPE 範例 13 組（MUX2 T1／T2、MUX3 T1／T2、MUX4 T1、MUX6 T1／T2）模型 1917 格、SVG 主循環 552 格 0 差異（不列入：MUX2!178／243、MUX4!139、MUX6!231，不是 NORMAL TYPE 1／2）；E（新）MUX TYPE 列只在 EN01 MUX、MUX4 停用 TYPE 2、切換會改走線、RD_MODE 1／2 的 MUX2／MUX3 提示。
+- tools/check_datamap_trimirror.js（新，比 af03783 與本版）312／0：Single／Dual 抽樣 24 組 0 差異；Tri＋Mirror 0 共 96 組 0 差異；Tri＋Mirror 1 共 96 組全部改變（名稱方向、位置反轉、圖例多 dm.pvMirLg 一行），96／96 等於 pvMirror 同式。
+- check_datamap_sd_snapshot：MNT／NB 0 差異；EN01 128 組只差說明文字（en01DeText、② en01Unk、圖例 MUX 句、Mirror＝1 標（推論）與 Mirror 跨循環圖例、RD_MODE 1/2 提示），TFT drain 逐格相同 ⇒ 重拍基準。
+- check_datamap_boe --qm /tmp/qm.bin 109／0；check_datamap_tft_interact 1404／0（Chrome headless 真滑鼠，含 EN01）。
+- 合併 main 75f71e7（DG v2.6.1／dgself v2.7.12）後再跑上述回歸；version.js 只改 datamap 一行，DG 兩行保留。
+- jsdom 量測：EN01 MUX4 整頁 render 約 93～137 秒（v1.35.25 同樣 93 秒），cpu profile 99% 在 ② renderGridEn01 的 optEl（jsdom named property 查詢），③ renderPvTft0 約 1.6 秒；Chrome 實機截圖每張不到 1 秒。
+
 ## Data Mapping (datamap) v1.35.25 — 2026-10-18 ｜ PATCH ｜ ⚠ 輸出變更（只有 EN01 ③ TFT 接線圖） ｜ EN01 TFT 接線圖：與 MNT／NB 同一套引擎，TCON Out／SD Out 改 12 循環
 
 判定依據：§2 案例 1 新增顯示（EN01 原本「暫不支援預覽」）→ PATCH（R1）；寫入值、script、Excel、② 表格、MNT／NB 畫面全部不變。⚠ 輸出變更：EN01 的 ③ TFT 卡與 ③ 排列組合（原本空白）現在有圖。
