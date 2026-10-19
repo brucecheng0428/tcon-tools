@@ -2,6 +2,37 @@
 
 ---
 
+## Data Mapping (datamap) v1.35.29 — 2026-10-19 ｜ PATCH ｜ 全型號 MUX 三層接線圖：MNT（EM01／EM02／E512）與 NB（E503／E501A／E501B／DAZ6138／6139）LTPS MUX2／MUX3 改成和 EN01 同一套三層畫法；MNT Gate Type 與 panel／sub／rd_mode 連動；MUX 列名 Line n-SWk
+
+判定依據：§2 案例 2 修正錯誤設計 → PATCH（R1）：LTPS 面板是 Source MUX（gate 不分段，原理 12.8），v1.35.28 以前 MNT／NB 把它畫成每 line 2／3 條 gate（Line 1-1/1-2/1-3），屬畫錯；Bruce 10/19 12:5x 指出其他 TCON 沒跟著 EN01 改。非 MUX（Single／Dual／HSD／Zigzag／1D1G／Tri-gate）畫面、寫入值不變。
+
+### 起因
+- Bruce 10/19 12:5x：「為何Data mapping網頁，其他tcon的mux接線，沒有一併更新成最新的畫法?」（派工 237801403670081536）
+- Bruce 10/19 13:4x：「依你的建議吧，是不是應該一起連動會比較好？…如果是 Mux 的做法，是不是就不適合叫做 Line 1-1、Line 1-2、Line 1-3…是不是用 Line 1…SW1…可以跟真的增加 gate 來做區別？」
+- Bruce 10/19 15:0x（截圖：EM01 Auto、LTPS、MUX3 normal type1 仍顯示 Tri-Gate、Line 1-1/1-2/1-3）：「其他tcon的mux畫法也沒改進」
+
+### 依據
+- 同事A EM01A1_rt7_register_force_mapping.xlsx LTPS 分頁：8 種 LTPS（MUX3／MUX2 × Normal／Zigzag × Type 1／2）＋BOE tri-gate 的 Register setting（AB1:AT29）與 Data mapping 範例（A58～A890）。
+- E512 隱藏表 rt7_2p_ltps_*（NB Auto 解碼）、原廠 MNT Tool LTPS sub 選單（EM01 RApp_TX.cpp:8963-8970）、瑞鼎 Raydium_TCON_DataMapping查詢_20260424.xlsx B15:F22。
+- 原廠 MNT Tool rd_mode：1D1G／Zigzag＝0、HSD＝1、LTPS＝2（EM01 RApp_TX.cpp:8925-8976、8994；EM02 :8738-8784；E512 :8508-8555）；EM02A1_RegisterBank.model:19498-19504、E512 model:17851-17857（0x504[7:6]）。
+
+### 變更
+- datamap-core.js：新增 muxPanel（全型號 Gate／MUX 判定單一來源；EN01＝en01Panel）、triSig、lineName／lineAlias／sameLine、triLabel、MNT_GATES／mntSetGate。
+  - MNT gateOf：LTPS MUX2＝'dual'（2 段，同事A 只用 _0／_1）、MUX3／Tri-Gate＝'tri'（v1.35.28 以前 LTPS 一律 'tri'）。
+  - MNT Gate Type 選單＝Single-Gate／Dual-Gate／Tri-Gate／MUX2／MUX3；選了寫 panel／sub／rd：Single＝panel 0／1 保留（原本一律寫 1＝Zigzag）＋rd 0；Dual＝panel 2＋rd 1；Tri-Gate＝panel 3＋rd 2＋state.triGate＝1（sub 保留）；MUX2／MUX3＝panel 3＋SUB[0] 1／0（保留 [1]／[2]）＋rd 2。
+  - ⚠ MUX2 的 rd_mode 寫 2（原廠 MNT Tool、EM02 model 都是 LTPS＝2，寫 1 時原廠 Tool 讀回會跳「rt7 Panel mode/rt8 rd mode not match」）；與 Dispatch 定案「MUX2→1」不同，已在完成回報列出待 Bruce／同事A 確認。NB 的 LTPS 清單照 RM8100x model（MUX2＝1）不動。
+  - Tri-Gate（BOE tri-gate）與 MUX3 zigzag type1 暫存器相同（同事A LTPS!AK8:AK10）⇒ 由 Gate 選單記 state.triGate（不是暫存器、不寫入）；沒選過時依 同事A BOE 表特徵（每個 Data 三段同 code、6 個 Data 不同、無 X）判斷；套原廠 (21) Tri+BOE＝Tri-Gate、(17)～(20)＝MUX3。
+  - 列名：Single＝Line n；Dual／HSD／Tri-gate＝Line n-k；MUX2／3／4／6（含 EN01）＝Line n-SWk（v1.35.28 EN01 寫 Line n·SWk）。Excel 匯出用新列名；匯入新舊列名都認（Line 1-1、Line 1-SW1、Line 1·SW1）。
+- datamap.html ③：pvLineOf／pvMuxBase 從 EN01 抽出共用；pvMuxFromT（MNT／NB：一個循環 6 個 SD 腳位 × SW 數，demux 走線＝pvMuxEnc 原廠 TYPE 公式、TYPE＝SUB_PANEL_MODE[2]）；pvMntMuxModel（MNT Hand MUX2／MUX3）；pvAutoModel 在 LTPS 改走三層。標題 Auto · MUX3（LTPS MUX3 normal type1）；MUX TYPE 列與圖例全型號顯示；圖例多一行列名說明（-1／-2＝gate 分段；-SW1＝MUX 時段）；MNT／NB Zigzag 照原廠表畫（第 2 條 line 接左邊 Data 線）。
+- MNT Tri 6 列表、Benchmark、log 列名改 DM.triLabel；commit 時把未選過的 triGate 固定成改之前的判定（改格子不會換面板）。
+- version.js、datamap-core.js 快取參數 dm13529。
+
+### 驗證
+- 新增 tools/check_datamap_muxall.js：A 同事A LTPS Data mapping 範例 24 段 × 3 型號逐格；B 瑞鼎 Excel／E512 隱藏表／Line OD pixel × TYPE 公式；C EM01／EM02／E512 × Auto／Hand × sub 0～7（含 Bruce 15:0x 截圖情境）＋Tri-Gate＋NB 4 型號 Auto；D Gate 選單連動；E 列名與 Excel 新舊相容。
+- check_datamap_muxall 2510/0（A 每型號 549 格 0 差異；A413／A424 Excel 本段名稱＝code 解出 +6 subpixel，改比名稱集合；B 16 組 0 不符）。
+- check_datamap_sd_snapshot：24096 pass／512 fail，不同的只有 Auto（Hand 關）panel 3（LTPS MUX）的 256 組（EM01／EM02／E512／E503／E501A／E501B／DAZ6138／DAZ6139 各 32 組，③ 與整頁）；暫存器／script／CKS／② 表格／第二組 0 差異；Single／Dual／HSD／Zigzag／1D1G、EN01、DAZ6111／DAZ7353 0 差異 ⇒ 重拍基準。工具加 SNAP_LIST（輸出全部不同的組合 id）。
+- check_datamap_boe --qm（全民 B19 DisplayOK_12）109/0；check_datamap_tft_interact 1404/0；check_datamap_tri 138/0（Gate 選單期望值加 MUX2／MUX3）；check_datamap_en01tft 668182/0；check_datamap_en01 75/0（MUX6 列名期望值改 Line n-SWk）。nbpx／bench 未跑（派工限制）。
+
 ## Data Mapping (datamap) v1.35.28 — 2026-10-19 ｜ PATCH ｜ EN01 Gate／MUX 依 TCON 暫存器自動判定，拿掉 ③「RD_MODE 1/2 面板」手動選項
 
 判定依據：§2 案例 2 修正錯誤設計 → PATCH（R1）：v1.35.25～26 的 ③「RD_MODE 1/2 面板」手動切 MUX 與 TCON 設定脫鉤，Bruce 10/19 13:0x 明說不應在面板區切換、要依 TCON 設定自動判定，屬「修正為原本就該有的行為」；看 MUX2／MUX3 接線的能力仍在（入口改在 ②-1 Gate Type，是 Bruce 指定位置），不是移除功能。⚠ 輸出變更：EN01 RD_MODE 1／2 的 ③ 由暫存器決定畫 Gate 或 MUX（PANEL_MODE＝3 的 code 匯入後直接畫 MUX；舊存檔的手動面板選擇不再生效）；EN01 選 MUX2／MUX3 會寫 PANEL_MODE／SUB_PANEL_MODE。MNT／NB 輸出 0 差異；EN01 Single／Dual／Tri／MUX4／MUX6 的寫入值不變。

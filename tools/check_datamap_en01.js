@@ -286,7 +286,7 @@ const regOf = (b, maps) => { const r = {}; maps.forEach(([f, t, l]) => { for (le
       { const s2 = DM.cloneState(S.cur); s2.rd = 1; ok(DM.en01RowT(s2, 0) === 1 && DM.en01RowT(s2, 1) === 2 && DM.en01RowT(s2, 7) === 2 && DM.en01RowT(Object.assign(s2, { deSel: 0x10 }), 1) === 5 && DM.en01RowT(Object.assign(s2, { deSel: 0x01, rd: 5 }), 4) === 4 && DM.en01RowT(Object.assign(s2, { deSel: 0x0E, rd: 0 }), 1) === 1,
         'T 依 FORCE_DE_SEL（同 MNT deSelTs）：0x0E＋HSD ⇒ SW1＝T1、SW2＝T2（同事E FORCE 分頁範例）；0x10 ⇒ SW2＝T5；0x01＋MUX6 ⇒ SW5＝T4；Single 未用的 SW2＝起始 T1'); }
       fire($('dm-gate'), 'MUX6 (RD_MODE=5)');
-      ok(S.cur.rd === 5 && S.cur.panel === 1 && g.querySelectorAll('tbody tr').length === 12 && $('dm-erl5').textContent === 'Line 1·SW6（_5）' && $('dm-erl6').textContent === 'Line 2·SW1（_6）', 'Gate Type 選 MUX6 ⇒ RD_MODE 5，PANEL_MODE 不動；P1+P2 的 12 列全顯示，列名 Line n·SWk（MNT 沒有 MUX，用 SW 標）');
+      ok(S.cur.rd === 5 && S.cur.panel === 1 && g.querySelectorAll('tbody tr').length === 12 && $('dm-erl5').textContent === 'Line 1-SW6（_5）' && $('dm-erl6').textContent === 'Line 2-SW1（_6）', 'Gate Type 選 MUX6 ⇒ RD_MODE 5，PANEL_MODE 不動；P1+P2 的 12 列全顯示，列名 Line n-SWk（MUX 用 SW 標）');   // v1.35.29：MUX 列名 Line n-SWk（派工 237801403670081536）
       const sc = w.dmBuildScript().text, lines = sc.split('\n').filter(l => /^write -m/.test(l));
       ok(lines.some(l => /^write -m 03D4 17 FF/.test(l)) && lines.some(l => /^write -m 041C 05 07/.test(l)) && !lines.some(l => /^write -m 11/.test(l)), '匯出 script：0x3D4←17、0x41C←05（mask 07）、沒有 P3');
       const sameOpts = Array.from($('dm-samev').options).map(o => o.value);

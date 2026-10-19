@@ -295,6 +295,46 @@
     else o.kind = 'rdx';
     return o;
   }
+  /* v1.35.29（Bruce 10/19 12:5x「為何Data mapping網頁，其他tcon的mux接線，沒有一併更新成最新的畫法?」；派工 237801403670081536）：
+     全型號共用的「面板是 Gate 還是 Source MUX」判定（單一來源；EN01 照 en01Panel）。MNT（EM01／EM02／E512）與 NB（E503／E501A／E501B／DAZ6138／6139）：
+       ・PANEL_MODE＝3（LTPS）＝Source MUX 面板：SUB_PANEL_MODE[0] 0＝MUX3／1＝MUX2、[1]＝Zigzag、[2]＝TYPE 1／2
+         （原廠 MNT Tool ComboBox_TX_sub_panel_mode「MUX3 normal type1…MUX2 zigzag type2」EM01 RApp_TX.cpp:8963-8970；同事A EM01A1 LTPS!AC1:AJ9；
+          瑞鼎查詢 Excel B15:D22；RM8100x model SUB_PANEL_MODE）。gate 不分段（一列 pixel 一條 gate），SW1～SWk 在 Source 端 demux（原理 12.8）。
+       ・例外：MNT Hand 的 Tri-Gate（BOE tri-gate）。同事A EM01A1 LTPS!AK8:AK10「LTPS BOE tri-gate」Manual setting 和 MUX3 zigzag type1 同一組暫存器
+         （panel 3、sub 2、force_sel_en 1）⇒ TCON 暫存器分不出來，是面板（玻璃）不同 ⇒ 由 ②-1 Gate Type 選 Tri-Gate 記在 state.triGate（不是暫存器、不寫入 TCON）；
+         沒選過（匯入 code／I2C 讀回／套原廠樣式）時用 同事A BOE 表的特徵判斷：每個 Data 三個時段填同一個 code、6 個 Data 各不相同、沒有 X
+         （LTPS!AK12:AK29、(21) Tri+BOE RApp_TX.h；mux3 的三個時段一定不同 code：同事A LTPS!AC12:AJ29 全部 0 例外）。
+       ・PANEL 0／1＝1 段（Single），2＝2 段（Dual／HSD）。 */
+  function triSig(s) {
+    for (var l = 0; l < 2; l++) {
+      var seen = {};
+      for (var c = 0; c < 6; c++) {
+        var a = s['c' + (12 * l + c)] | 0, b = s['c' + (12 * l + 6 + c)] | 0, x = s['x' + (12 * l + c)] | 0;
+        if (a !== b || b !== x || a > 29 || seen[a]) return false;
+        seen[a] = 1;
+      }
+    }
+    return true;
+  }
+  function muxPanel(key, s) {
+    var M = MODELS[key]; s = s || {};
+    if (!M) return { kind: '', mux: 0, type: 0, typeReg: false, zz: 0 };
+    if (M.kind === 'en01') return en01Panel(s);
+    var pm = s.panel | 0, sb = s.subPanel | 0, o = { kind: pm === 2 ? 'dual' : 'single', mux: 0, type: 0, typeReg: false, zz: 0, why: '' };
+    if (pm !== 3 || !fieldById(key, 'panel') || !(M.kind === 'mnt' || M.sem === 'e50x')) return o;   // DAZ6111／DAZ7353 的 PANEL 只有 0～2（沒有 LTPS），panel 3 不當 MUX
+    if (M.kind === 'mnt' && (s.hand | 0) && (s.triGate !== undefined ? !!s.triGate : triSig(s))) { o.kind = 'tri'; return o; }
+    o.mux = (sb & 1) ? 2 : 3; o.kind = 'mux' + o.mux; o.type = ((sb >> 2) & 1) + 1; o.typeReg = true; o.zz = (sb >> 1) & 1;
+    return o;
+  }
+  /* v1.35.29（Bruce 10/19 13:4x「如果是 Mux 的做法，是不是就不適合叫做 Line 1-1、Line 1-2…可以跟真的增加 gate 來做區別」；Dispatch 定案）：
+     ② 表格、③ 接線圖、Excel、Benchmark 列名單一來源：Single＝Line n；真的 gate 分段（Dual／HSD／Tri-gate）＝Line n-k；MUX（MUX2／3／4／6）＝Line n-SWk */
+  function lineName(n, k, kind) { return kind === 'mux' ? 'Line ' + n + '-SW' + k : (kind === 'gate' ? 'Line ' + n + '-' + k : 'Line ' + n); }
+  /* 舊列名（v1.35.28 以前的 Line n-k、Line n·SWk）⇒ 新列名也認得：匯入 Excel 時用 */
+  function lineAlias(label) {
+    var m = /^Line\s*(\d+)\s*(?:-|·|_)\s*(?:SW)?\s*(\d+)$/i.exec(String(label || '').trim());
+    return m ? [lineName(+m[1], +m[2], 'gate'), lineName(+m[1], +m[2], 'mux')] : [String(label || '').trim()];
+  }
+  function sameLine(a, b) { var A = lineAlias(a), B = lineAlias(b); return A.some(function (x) { return B.indexOf(x) >= 0; }); }
   /* [選單文字, RD_MODE, MUX（2／3＝要寫 PANEL_MODE＝3＋SUB[0]）]；沒有「Single＋MUX」這種組合（MUX 至少分 2 段） */
   var EN01_GATES = [['Single-Gate', 0], ['Dual-Gate', 1], ['Tri-Gate', 2], ['MUX2 (RD_MODE=1)', 1, 2], ['MUX3 (RD_MODE=2)', 2, 3], ['MUX4 (RD_MODE=3)', 3], ['MUX6 (RD_MODE=5)', 5]];
   var EN01_GKIND = { single: 0, dual: 1, tri: 2, mux2: 3, mux3: 4, mux4: 5, mux6: 6 };
@@ -710,7 +750,9 @@
     if (MODELS[key].kind === 'en01') return en01Gate(s);
     if (!s.hand) return 'off';
     var p = s.panel | 0;
-    if (semOf(key) !== 'e50x') return p <= 1 ? 'single' : (p === 2 ? 'dual' : 'tri');
+    /* v1.35.29：MNT 的 gate 值＝data 一條 line 分幾段（表格列數）：LTPS MUX2 分 2 段（同事A LTPS!AD11:AD24 line／pixel 只到 _0／_1）⇒ 'dual'；
+       MUX3 與 Tri-Gate 分 3 段 ⇒ 'tri'（v1.35.28 以前 LTPS 一律 'tri'，MUX2 被當成 6 列）。面板是 gate 分段還是 MUX 見 muxPanel */
+    if (semOf(key) !== 'e50x') return p <= 1 ? 'single' : (p === 2 ? 'dual' : (muxPanel(key, s).mux === 2 ? 'dual' : 'tri'));
     var r = s.rd | 0;
     if (p <= 1 && r === 0) return 'single';
     if (p === 2 && r === 1) return 'dual';
@@ -722,6 +764,7 @@
   function gateText(key, s) {
     if (MODELS[key].kind === 'en01') return en01GateText(s);
     var p = s.panel | 0;   // PY 先設 Non-Hand Mode（:28962），緊接著又依 PANEL_MODE 覆寫（:28998），所以實際顯示一律依 PANEL_MODE
+    if (p === 3 && MODELS[key].kind === 'mnt') { var J = muxPanel(key, s); if (J.mux) return MNT_GATES[J.mux === 2 ? 3 : 4]; }   // v1.35.29：MNT LTPS＝MUX2／MUX3（Tri-Gate＝BOE tri-gate）
     return p <= 1 ? GATE_ITEMS[1] : (p === 2 ? GATE_ITEMS[2] : GATE_ITEMS[3]);
   }
   function inputDict(key) { var se = semOf(key); return se === 'daz7353' ? D7353 : (se === 'daz6111' ? D6111 : GN1); }
@@ -1087,9 +1130,31 @@
     if (se === 'e50x') return g === 'dual' ? namesOf(rowDict(key, 1, g, s)) : (g === 'single' ? namesOf(rowDict(key, 0, g, s)) : []);   // v1.35.7：同一個 pool
     return namesOf(inputDict(key)).filter(function (n) { return n in GN2; });
   }
+  /* v1.35.29（Bruce 10/19 13:4x「依你的建議吧，是不是應該一起連動會比較好？」；Dispatch 定案 (1)；派工 237801403670081536）：
+     MNT Gate Type 選單＝Single／Dual／Tri（BOE tri-gate）／MUX2／MUX3，選了就一併寫 reg_panel_mode、reg_sub_panel_mode、reg_rd_mode（rt8 0x0504[7:6]，三型號同位址：
+     EM02A1_RegisterBank.model:19498-19504、E512_ModelFile_20250902152136.model:17851-17857、EM01 RApp_TX.cpp:8994 BK_TX_RT8_1＋0x04 mask 0xC0（RApp_Common.h:62 BK_RT8_TCON_1＝0x0500））。
+     rd_mode 值照原廠 MNT Tool（EM01 RApp_TX.cpp:8925-8976、EM02 :8738-8784、E512 :8508-8555）：1D1G／Zigzag＝0、HSD＝1、LTPS＝2——LTPS 不分 MUX2／MUX3 都寫 2，
+     EM02 model 註解同（「0: 1D1G / 1: HSD (dual-gate) / 2: LTPS (tri-gate)」）。⚠ 與 Dispatch 定案「MUX2→1」不同：MNT 原廠工具與 model 都是 2，
+     NB 的 RM8100x model 才寫「1 HSD／MUX2」（NB 的 LTPS 清單照它寫 1）；MNT MUX2 實際要 1 還是 2 待 同事A（不寄信，列入待問）。
+       Single：panel 保留 0／1（1D1G／Zigzag；原本是 HSD／LTPS 才改 0、sub 歸 0），rd 0（v1.35.28 以前一律寫 panel＝1＝Zigzag，MNT 已知問題 3）
+       Dual：panel 2（原本不是 HSD 才 sub 歸 0），rd 1
+       Tri-Gate：panel 3（sub 保留；BOE tri-gate 的 同事A 表是 sub 2），rd 2，triGate＝1
+       MUX2／MUX3：panel 3、SUB[0]＝1／0（保留 SUB[1] Zigzag、[2] TYPE；原本不是 LTPS 則歸 0），rd 2，triGate＝0 */
+  var MNT_GATES = ['Single-Gate', 'Dual-Gate', 'Tri-Gate', 'MUX2', 'MUX3'];
+  function mntSetGate(key, s, item) {
+    var gi = MNT_GATES.indexOf(item); if (gi < 0) return null;
+    var ns = cloneState(s), p = s.panel | 0, sb = s.subPanel | 0;
+    if (gi === 0) { if (p > 1) { ns.panel = 0; ns.subPanel = 0; } ns.rd = 0; ns.triGate = 0; }
+    else if (gi === 1) { ns.panel = 2; if (p !== 2) ns.subPanel = 0; ns.rd = 1; ns.triGate = 0; }
+    else if (gi === 2) { ns.panel = 3; ns.rd = 2; ns.triGate = 1; }
+    else { ns.panel = 3; ns.subPanel = (p === 3 ? sb & 6 : 0) | (gi === 3 ? 1 : 0); ns.rd = 2; ns.triGate = 0; }
+    if (!fieldById(key, 'rd')) delete ns.rd;
+    return pyNormalize(key, ns);
+  }
   /* Gate Type 下拉（PY get_object_to_dm_info :29849） */
   function setGate(key, s, item) {
     if (MODELS[key].kind === 'en01') return en01SetGate(s, item);   // DMM:436-449 只寫 RD_MODE；v1.35.28 MUX2／MUX3 另寫 PANEL_MODE／SUB_PANEL_MODE（en01SetGate）
+    if (MODELS[key].kind === 'mnt') return mntSetGate(key, s, item);   // v1.35.29：MNT Gate Type 與 rd_mode／panel_mode／sub_panel_mode 連動
     var gi = GATE_ITEMS.indexOf(item); if (gi <= 0) return null;
     var ns = cloneState(s);
     ns.panel = gi;
@@ -1209,6 +1274,7 @@
     var p = PRESETS[idx]; if (!p || MODELS[key].kind !== 'mnt') return s;
     var out = cloneState(s), mode = second || PRESET_SECOND;
     Object.keys(p.set).forEach(function (id) { var fd = fieldById(key, id); if (fd && (mode === 'vendor' || !isSecond(fd))) out[id] = p.set[id] & ((1 << fd.bits) - 1); });
+    out.triGate = (out.panel | 0) === 3 && (out.hand | 0) && triSig(out) ? 1 : 0;   // v1.35.29：原廠樣式的面板由內容判斷（(21) Tri+BOE＝Tri-Gate，(17)～(20)＝MUX3；muxPanel triSig）
     return out;
   }
   /* 這個預設樣式有沒有原廠表的第二組值（有 48 格清單的才有） */
@@ -1420,6 +1486,7 @@
   }
   function excelRows(key, s) {
     var rows = [['', 'Data 1', 'Data 2', 'Data 3', 'Data 4', 'Data 5', 'Data 6']], L = ['Line 1-1', 'Line 1-2', 'Line 2-1', 'Line 2-2'];
+    if (MODELS[key].kind === 'mnt' && muxPanel(key, s).mux === 2) L = L.map(function (x) { return lineAlias(x)[1]; });   // v1.35.29：MNT LTPS MUX2＝Line n-SWk（其他維持 Python UI 的 Line 1-1…）
     for (var r = 0; r < 4; r++) {
       var row = [L[r]];
       for (var c = 0; c < 6; c++) { var v = cellView(key, s, r, c); row.push(v.blank ? 'X' : v.txt); }
@@ -1432,7 +1499,7 @@
     var L = ['Line 1-1', 'Line 1-2', 'Line 2-1', 'Line 2-2'], names = [];
     for (var i = 0; i < 4; i++) {
       var row = null;
-      for (var r = 0; r < rows.length; r++) if (rows[r] && rows[r][0] === L[i]) { row = rows[r]; break; }
+      for (var r = 0; r < rows.length; r++) if (rows[r] && sameLine(rows[r][0], L[i])) { row = rows[r]; break; }   // v1.35.29：Line 1-SW1 也認（MNT MUX2 匯出的新列名）
       if (!row) return { ok: false, reason: 'no ' + L[i] };
       var vals = row.slice(1).filter(function (v) { return v !== '' && v != null; });
       if (vals.length !== 6) return { ok: false, reason: L[i] + ': ' + vals.length + ' cells' };
@@ -1559,6 +1626,7 @@
   ];
   function triOn(key, s) { return !!TRI.on && MODELS[key] && MODELS[key].kind === 'mnt' && gateOf(key, s) === 'tri'; }
   function gateItems(key) {
+    if (MODELS[key] && MODELS[key].kind === 'mnt') return MNT_GATES.slice();   // v1.35.29：MNT 多 MUX2／MUX3（Tri-Gate＝BOE tri-gate）
     var all = GATE_ITEMS.slice(1);
     if (!TRI.on || !MODELS[key] || MODELS[key].kind !== 'nb') return all;
     return all.filter(function (g) { return g !== 'Tri-Gate'; });
@@ -1615,14 +1683,14 @@
   /* Excel：與 excelRows 同格式（A 欄列名、B~G＝Data 1~6），列＝6 列 Tri；檔名 GateType(TriGate) */
   function triExcelRows(key, s) {
     var rows = [['', 'Data 1', 'Data 2', 'Data 3', 'Data 4', 'Data 5', 'Data 6']], N = triNames(key, s);
-    for (var r = 0; r < 6; r++) rows.push([TRI_ROWS[r].label].concat(N.slice(r * 6, r * 6 + 6)));
+    for (var r = 0; r < 6; r++) rows.push([triLabel(key, s, r)].concat(N.slice(r * 6, r * 6 + 6)));   // v1.35.29：MUX3＝Line n-SWk
     return rows;
   }
   function triExcelToNames(rows) {
     var names = [];
     for (var i = 0; i < 6; i++) {
-      var L = TRI_ROWS[i].label, row = null;
-      for (var r = 0; r < rows.length; r++) if (rows[r] && rows[r][0] === L) { row = rows[r]; break; }
+      var L = TRI_ROWS[i].label, row = null;   // v1.35.29：舊檔 Line 1-1 與新檔 Line 1-SW1 都認（sameLine）
+      for (var r = 0; r < rows.length; r++) if (rows[r] && sameLine(rows[r][0], L)) { row = rows[r]; break; }
       if (!row) return { ok: false, reason: 'no ' + L };
       var vals = row.slice(1).filter(function (v) { return v !== '' && v != null; });
       if (vals.length !== 6) return { ok: false, reason: L + ': ' + vals.length + ' cells' };
@@ -1656,12 +1724,15 @@
      EN01 line 數照 code header（en01Rows：P3 有載入才有 Line 3、4；I2C 讀回／沒匯入＝全部）。
      MNT／NB 4 列的列名與複本列＝v1.15.0 datamap.html rowLabel／renderGrid copyRow 原樣搬來（畫面 0 差異）。opt.four＝只要 4 列表（不換成 Tri 6 列）。 */
   var ROWS4 = ['Line 1-1', 'Line 1-2', 'Line 2-1', 'Line 2-2'];
-  function en01RowName(rd, row) {
-    var n = Math.floor(row / 6) + 1, k = row % 6 + 1, np = en01Phases(rd);
-    if (np === 1) return 'Line ' + n;
-    if (np === 2 || np === 3) return 'Line ' + n + '-' + k;
-    return 'Line ' + n + '·SW' + k;   // MUX4／MUX6；RD_MODE 4／6／7（model 寫 not support）全部顯示
+  /* v1.35.29：第二個參數可給整個 state（MUX2／MUX3 要看 PANEL_MODE／SUB_PANEL_MODE）；只給 RD_MODE 數字時 1／2 當 gate 分段（舊呼叫相容） */
+  function en01RowName(s, row) {
+    var st = typeof s === 'object' && s ? s : { rd: s }, n = Math.floor(row / 6) + 1, k = row % 6 + 1, np = en01Phases(st.rd);
+    if (np === 1) return lineName(n, k, 'single');
+    if ((np === 2 || np === 3) && !en01Panel(st).mux) return lineName(n, k, 'gate');
+    return lineName(n, k, 'mux');   // MUX2／3／4／6；RD_MODE 4／6／7（model 寫 not support）全部顯示（v1.35.28 以前 MUX 寫 Line n·SWk）
   }
+  /* MNT Tri 6 列的列名：Tri-Gate＝Line n-k；MUX3＝Line n-SWk（列順序、暫存器同 TRI_ROWS） */
+  function triLabel(key, s, row) { var R = TRI_ROWS[row], n = row < 3 ? 1 : 2, k = R.g + 1; return lineName(n, k, key && s && muxPanel(key, s).mux ? 'mux' : 'gate'); }
   function rowsFor(key, s, opt) {
     var M = MODELS[key]; if (!M) return [];
     s = s || {}; opt = opt || {};
@@ -1669,14 +1740,14 @@
       var np = en01Phases(s.rd);
       return en01Rows(opt.seg).map(function (r) {
         var on = np === null || (r % 6) < np;
-        return { r: r, label: en01RowName(s.rd, r) + '（_' + r + '）', show: on, hide: on ? null : 'keep', copyOf: null, seg: en01Seg(r) };
+        return { r: r, label: en01RowName(s, r) + '（_' + r + '）', show: on, hide: on ? null : 'keep', copyOf: null, seg: en01Seg(r) };
       });
     }
-    if (!opt.four && triOn(key, s)) return TRI_ROWS.map(function (R, i) { return { r: i, label: R.label, show: true, hide: null, copyOf: null }; });
-    var g = gateOf(key, s), mnt = M.kind === 'mnt', out = [];
+    if (!opt.four && triOn(key, s)) return TRI_ROWS.map(function (R, i) { return { r: i, label: triLabel(key, s, i), show: true, hide: null, copyOf: null }; });   // v1.35.29：MUX3＝Line n-SWk
+    var g = gateOf(key, s), mnt = M.kind === 'mnt', out = [], mx = mnt && g === 'dual' && muxPanel(key, s).mux === 2;
     for (var r = 0; r < 4; r++) {
       var suf = '（_' + r + '）', lb;
-      if (g === 'dual') lb = 'Line ' + ((r >> 1) + 1) + '-' + ((r & 1) + 1) + suf;
+      if (g === 'dual') lb = lineName((r >> 1) + 1, (r & 1) + 1, mx ? 'mux' : 'gate') + suf;   // v1.35.29：MNT LTPS MUX2＝Line n-SWk
       else if (g === 'single') lb = mnt ? 'Line ' + (r + 1) + suf : 'Line ' + ((r >> 1) + 1) + ((r & 1) ? '′' : '') + suf;
       else lb = ROWS4[r];
       var cp = M.sem === 'e50x' && g === 'single' && (r & 1) === 1 && !mnt;
@@ -1713,7 +1784,8 @@
     en01Seg: en01Seg, en01Addr: en01Addr, en01RowLabel: en01RowLabel, en01Phases: en01Phases, en01Rows: en01Rows, en01Defs: en01Defs, en01Name: en01Name, en01Value: en01Value,
     en01Gate: en01Gate, en01Panel: en01Panel, en01SetMuxType: en01SetMuxType, en01CellView: en01CellView, en01Pick: en01Pick, en01SameOptions: en01SameOptions, en01AllSame: en01AllSame,
     en01Ids: en01Ids, en01ExportRegs: en01ExportRegs, en01ExcelName: en01ExcelName, en01ExcelRows: en01ExcelRows, en01ExcelApply: en01ExcelApply,
-    en01Maps: en01Maps, parseEn01: parseEn01, rowsFor: rowsFor, rowsShown: rowsShown, en01RowName: en01RowName
+    en01Maps: en01Maps, parseEn01: parseEn01, rowsFor: rowsFor, rowsShown: rowsShown, en01RowName: en01RowName,
+    muxPanel: muxPanel, triSig: triSig, lineName: lineName, lineAlias: lineAlias, sameLine: sameLine, triLabel: triLabel, MNT_GATES: MNT_GATES, mntSetGate: mntSetGate
   };
   if (typeof module === 'object' && module.exports) module.exports = API;
   else root.TCONDataMap = API;

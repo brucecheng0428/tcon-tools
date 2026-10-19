@@ -175,6 +175,7 @@ function unpack(f) {
   Object.keys(res).forEach(id => { if (!base[id]) { fail++; (bad.extra = bad.extra || []).push(id); } });
   const fname = { regs: '暫存器／script／CKS／表格名稱', grid: '② 表格', x: '第二組', pv: '③ TFT 接線圖（逐格）', body: '整頁', missing: '基準有、現在沒有', extra: '現在多出' };
   Object.keys(bad).forEach(f => console.log('  ✗ ' + (fname[f] || f) + '：' + bad[f].length + ' 組，例 ' + bad[f].slice(0, 3).join('；')));
+  if (process.env.SNAP_LIST) fs.writeFileSync(process.env.SNAP_LIST, JSON.stringify(bad));   // v1.35.29：全部不同的組合 id（逐類說明用）
   const sig = v => v === undefined ? '（無）' : (v.split('§')[0] || '（摘要同，其他屬性）') + ' #' + v.split('§')[1].slice(0, 8);
   det.slice(0, +(process.env.SNAP_DET || 5)).forEach(x => {
     console.log('  ✗ ' + x.id + '：TFT ' + x.ps.length + ' 個位置不同');

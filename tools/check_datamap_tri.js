@@ -105,7 +105,7 @@ MNT.forEach(k => {
 });
 console.log('B. 型號分流與退回開關');
 NB.forEach(k => ok(DM.gateItems(k).join('|') === 'Single-Gate|Dual-Gate', k + ' Gate Type 不列 Tri：' + DM.gateItems(k).join('|')));
-MNT.forEach(k => ok(DM.gateItems(k).join('|') === 'Single-Gate|Dual-Gate|Tri-Gate', k + ' Gate Type 列 Tri'));
+MNT.forEach(k => ok(DM.gateItems(k).join('|') === 'Single-Gate|Dual-Gate|Tri-Gate|MUX2|MUX3', k + ' Gate Type 列 Tri'));   // v1.35.29：MNT 選單多 MUX2／MUX3（派工 237801403670081536）
 NB.forEach(k => { const s = Object.assign(DM.emptyState(k), { hand: 1, panel: 3, rd: 2 }); ok(!DM.triOn(k, s), k + ' 讀到 Tri：不走 6 列表'); });
 DM.TRI.on = false;
 ok(DM.gateItems('E503').join('|') === 'Single-Gate|Dual-Gate|Tri-Gate' && !DM.triOn('EM02', handTri('EM02', TRI_PRESETS[3].i)), 'TRI.on＝false：E503 照舊列 Tri、MNT 不走 6 列表（＝v1.31.4）');
@@ -122,7 +122,7 @@ DM.TRI.on = true;
   const lines = () => Array.from(d.querySelectorAll('#dm-tftbody svg text')).map(t => t.textContent).filter(t => /^Line \d-\d$/.test(t));
   for (const k of MNT) {
     fire('dm-model', k);
-    ok(gates() === 'Single-Gate|Dual-Gate|Tri-Gate', k + ' Gate Type：' + gates());
+    ok(gates() === 'Single-Gate|Dual-Gate|Tri-Gate|MUX2|MUX3', k + ' Gate Type：' + gates());
     for (const mi of [0, 1]) for (const cb of [0, 1]) {
       const s = handTri(k, TRI_PRESETS[3].i); s.mirror = mi; s.chrb = cb;
       w.dmState.cur = s; w.dmRender();
