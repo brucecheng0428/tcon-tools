@@ -1106,7 +1106,6 @@
       <div class="pg-info-item">
       <div class="pg-info-label" data-i18n="pat.lblBaseDpr">扣除縮放後的 dPR</div>
       <div class="pg-info-val" id="pg-basedpr">—</div>
-      <a href="#" id="pg-zw-textonly-undo" style="display:none;font-size:11px">—</a>
       </div>
       <div class="pg-info-item">
       <div class="pg-info-label" data-i18n="pat.lblDevRes">推算裝置像素</div>
@@ -1216,19 +1215,18 @@
     <div class="pg-zw-msg" id="pg-zw-msg">—</div>
     <div class="pg-zw-read" id="pg-zw-read">—</div>
     <div class="pg-zw-how" id="pg-zw-how">—</div>
-    <label id="pg-zw-textonly-row" style="display:none;margin:10px 0 2px;font-size:12.5px;line-height:1.5;cursor:pointer;text-align:left"><input type="checkbox" id="pg-zw-textonly" style="vertical-align:middle;margin-right:6px"><span id="pg-zw-textonly-lbl">—</span></label>
     <button id="pg-zw-close">—</button>
     <div class="pg-zw-foot" id="pg-zw-foot">—</div>
   </div>
 </div>
 
 <!-- 共用 JS（i18n 必須先於 common.js 載入） -->
-<script src="common/version.js?v=20261019pat385"></script>
-<script src="common/i18n.js?v=20261019pat385"></script>
+<script src="common/version.js?v=20261019pat386"></script>
+<script src="common/i18n.js?v=20261019pat386"></script>
 <!-- v3.8.2：縮放判準的單一來源（原本內嵌在本頁，dg-measure.html 也要用同一份） -->
-<script src="common/zoomprobe.js?v=20261019pat385"></script>
+<script src="common/zoomprobe.js?v=20261019pat386"></script>
 <script src="common/common.js?v=20260523"></script>
-<script src="common/subpix-colors.js?v=20261019pat385"></script>
+<script src="common/subpix-colors.js?v=20261019pat386"></script>
 <script>
 // ═══════════ Pattern Generator（畫面產生器） ═══════════
 (function(){
@@ -1380,44 +1378,21 @@
     }
   }
 
-  /* v3.8.5「我只放大了文字」確認（Bruce 2026-10-19 18:0x：v3.8.4 文字放大仍跳警示）。
-     查證（Chromium ui/display/win/screen_win.cc）：Windows「協助工具 → 文字大小」會被
-     Chromium 乘進螢幕的 device scale factor（device_scale_factor × text_scale_factor），
-     所以網頁看到的 devicePixelRatio、screen.width 和「系統顯示縮放 125%」完全一樣，
-     網頁端沒有任何訊號能分辨兩者 ⇒ 改由使用者確認一次。
-     套圖結果：全螢幕畫布是 CSS 尺寸 × dPR 的裝置像素（pgRenderFill），screen.width 也已
-     除以同一個係數，乘回去就是實體像素，所以文字放大不影響畫面的像素對應。
-     只在「只有 dPR 非整數」這一種警示時提供勾選；瀏覽器縮放、雙指縮放不提供。
-     記住的是當下的 dPR 值，dPR 一變（改了顯示器縮放或文字大小）就失效、重新警示。 */
-  var PG_ZW_TEXTONLY_KEY = 'pg.zw.textOnlyDpr';
-  I18N['pat.zwTextOnly'] = {
-    'zh-TW': '我只放大了 Windows 文字大小（顯示器與瀏覽器縮放都是 100%），不要再警示',
-    'en': 'I only enlarged Windows text size (display and browser zoom are both 100%); stop warning',
-    'zh-CN': '我只放大了 Windows 文字大小（显示器与浏览器缩放都是 100%），不要再警示'
-  };
-  I18N['pat.zwTextOnlyUndo'] = {
-    'zh-TW': '已設為「只放大文字」不警示・取消',
-    'en': 'Set as text-size only (no warning) · undo',
-    'zh-CN': '已设为「只放大文字」不警示・取消'
-  };
-  function pgZwDprKey(d){ return String(Math.round(d * 10000) / 10000); }
-  function pgZwTextOnlyGet(){ try { return localStorage.getItem(PG_ZW_TEXTONLY_KEY) || ''; } catch (e) { return ''; } }
-  function pgZwTextOnlySet(v){ try { if (v) localStorage.setItem(PG_ZW_TEXTONLY_KEY, v); else localStorage.removeItem(PG_ZW_TEXTONLY_KEY); } catch (e) {} }
-  function pgZwOsOnly(p){ return p.osBad && !p.zoomBad && !p.pinchBad; }
-
+  /* v3.8.6：只有「dPR 非整數」（顯示器縮放或 Windows 文字大小，網頁端無法分辨：Chromium
+     screen_win.cc 把 TextScaleFactor 乘進 device scale factor）而沒有瀏覽器縮放／雙指縮放時，
+     全螢幕畫布已依 dPR 補償成實體像素 1:1（pgRenderFill）⇒ 不警示。
+     補償條件：螢幕 CSS 寬高 × dPR 必須幾乎是整數（就是實體解析度）；對不上才照舊警示。
+     瀏覽器縮放、雙指縮放維持警示（行為不變）。 */
+  function pgZwCompensated(p){
+    if (!p.osBad || p.zoomBad || p.pinchBad) return false;
+    var sc = window.screen || {}, d = p.dpr;
+    var pw = (sc.width || 0) * d, ph = (sc.height || 0) * d;
+    return pw > 0 && ph > 0 && Math.abs(pw - Math.round(pw)) < 0.05 && Math.abs(ph - Math.round(ph)) < 0.05;
+  }
   function pgZwSync(){
     var p = pgZoomProbe();
-    var osOnly = pgZwOsOnly(p);
-    var textOnly = osOnly && pgZwTextOnlyGet() === pgZwDprKey(p.dpr);
-    var row = document.getElementById('pg-zw-textonly-row');
-    if (row) {
-      row.style.display = osOnly ? 'block' : 'none';
-      var lbl = document.getElementById('pg-zw-textonly-lbl'); if (lbl) lbl.textContent = t('pat.zwTextOnly');
-      var cb = document.getElementById('pg-zw-textonly'); if (cb) cb.checked = textOnly;
-    }
-    var undo = document.getElementById('pg-zw-textonly-undo');
-    if (undo) { undo.style.display = textOnly ? 'inline' : 'none'; undo.textContent = t('pat.zwTextOnlyUndo'); }
-    var bad = (p.zoomBad || p.osBad || p.pinchBad) && !textOnly;
+    var comp = pgZwCompensated(p);
+    var bad = (p.zoomBad || p.osBad || p.pinchBad) && !comp;
     // 簽章：狀態換到「另一個」不是 100% 的值時，關掉過的浮動視窗要重新彈出來
     var sig = bad ? (p.zoom.toFixed(4) + '/' + Math.round(p.base * 1000) + '/' + p.vv.toFixed(3)) : '';
 
@@ -1430,7 +1405,7 @@
     var bv = document.getElementById('pg-basedpr');
     if (bv) {
       bv.textContent = pgFmtNum(Math.round(p.base * 10000) / 10000);
-      bv.className = 'pg-info-val' + (p.osBad && !textOnly ? ' warn' : ' ok');
+      bv.className = 'pg-info-val' + (p.osBad && !comp ? ' warn' : ' ok');
     }
     // 🔴 v3.8.0 修正「推算裝置像素」——兩個獨立的錯，一起修：
     //
@@ -1499,14 +1474,6 @@
   function pgZwInit(){
     var btn = document.getElementById('pg-zw-close');
     if (btn) btn.addEventListener('click', pgZwDismiss);
-    var tcb = document.getElementById('pg-zw-textonly');
-    if (tcb) tcb.addEventListener('change', function(){
-      var p = pgZoomProbe();
-      pgZwTextOnlySet(tcb.checked && pgZwOsOnly(p) ? pgZwDprKey(p.dpr) : '');
-      pgZwSync();
-    });
-    var tun = document.getElementById('pg-zw-textonly-undo');
-    if (tun) tun.addEventListener('click', function(e){ e.preventDefault(); pgZwTextOnlySet(''); pgZwDismissed = ''; pgZwSync(); });
     var bar = document.getElementById('pg-zw-bar');
     if (bar) {
       bar.addEventListener('click', pgZwReopen);
@@ -2111,12 +2078,17 @@
     if (!ov || !ov.classList.contains('on')) return;
     var cv = document.getElementById('pg-fs-canvas');
     var dpr = window.devicePixelRatio || 1;
+    // v3.8.6（Bruce 2026-10-19 18:1x「匯入檔案以後，我再用全螢幕。這個版面就不應該…
+    // 讓文字大小影響到吧？」）：畫布本來就是「裝置像素」解析度（W＝CSS 寬×dPR、不縮放、
+    // 不內插），Windows 文字放大被 Chromium 乘進 dPR（screen_win.cc）時一樣逐點對到面板。
+    // 這版只補一個邊角：實體尺寸由「未取整的」CSS 寬×dPR 取整得到，CSS 尺寸再用 W÷dPR 回推
+    // （可為小數），避免 dPR 1.75 等係數下 CSS 先取整造成 backing 與畫面差零點幾像素而重新取樣。
+    var ovr = ov.getBoundingClientRect();
     var sz = pgFillCssSize();
-    var cssW = sz.w, cssH = sz.h;
-    var W = Math.round(cssW * dpr), H = Math.round(cssH * dpr);
+    var W = Math.round((ovr.width  || sz.w) * dpr), H = Math.round((ovr.height || sz.h) * dpr);
     if (W < 1 || H < 1) return;
-    cv.style.width  = cssW + 'px';
-    cv.style.height = cssH + 'px';
+    cv.style.width  = (W / dpr) + 'px';
+    cv.style.height = (H / dpr) + 'px';
     cv.width = W; cv.height = H;
     var ctx = cv.getContext('2d', { alpha: false });
     ctx.imageSmoothingEnabled = false;
