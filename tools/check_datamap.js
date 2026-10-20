@@ -65,7 +65,7 @@ for (const mk of ['EM02', 'E512', 'EM01', 'EM01F']) {
   ok(DM.locate(b).length === 0, 'EM02 表頭 rt8 起點錯 1 ⇒ 不命中');
   ok(!DM.parseCode(new Uint8Array(50), null, 'x.bin').ok, '太小的檔 ⇒ 拒絕');
   const f = DM.fieldById('E512', 'deSel').parts[0], g = DM.fieldById('EM02', 'deSel').parts[0];
-  ok(same(f, [0x0482, 7, 4]) && same(g, [0x04C5, 5, 0]), 'force_de_sel：E512 0x0482[7:4]、EM02 0x04C5[5:0]');
+  ok(same(f, [0x04C5, 5, 0]) && same(g, [0x04C5, 5, 0]), 'force_de_sel：E512 0x04C5[5:0]（v1.36.2，E512 model 0x445[5:0]）、EM02 0x04C5[5:0]');
   for (const m of DM.MNT_KEYS) { const r0 = DM.regsOf(m).find(e => e.reg === DM.MODELS[m].rt7); ok(r0 && (r0.mask & 1) === 0, m + ' rt7+0 遮罩不含 bit0（reg_isp_mlvds_sel）'); }
   /* register 名稱與 8100X model 共用：PY 表格 (type t, Data d) ＝ force_sel_{r0,g0,b0,r1,g1,b1}_t */
   ok(DM.fieldById('EM02', 'c0').parts[0][0] === 0x0483 && DM.fieldById('EM02', 'c6').parts[0][0] === 0x0484 && DM.fieldById('EM02', 'c1').parts[0][0] === 0x0487,

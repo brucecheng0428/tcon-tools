@@ -634,7 +634,11 @@
     EN01:    { key: 'EN01', label: 'EN01 (RM81008)', kind: 'en01', py: 'RM81008', sem: 'en01', mbus: true },   // v1.3.0（WPF RomCodeProcessUI；見 EN01 區塊）
     EM01: { key: 'EM01', label: 'EM01', kind: 'mnt', sem: 'e50x', rt7: 0x0400, icId: [0x01, 0xEF, 0xA0], deSel: { off: 0x45, shift: 0, bits: 6 } },
     EM02: { key: 'EM02', label: 'EM02', kind: 'mnt', sem: 'e50x', rt7: 0x0480, icId: [0x02, 0xEF, 0xA0], deSel: { off: 0x45, shift: 0, bits: 6 }, lod: 0x0900 },
-    E512: { key: 'E512', label: 'E512', kind: 'mnt', sem: 'e50x', rt7: 0x0480, icId: [0x12, 0xE5, 0xA0], deSel: { off: 0x02, shift: 4, bits: 4 } }
+    /* v1.36.2（Bruce 10/20「MNT， A」；派工 238132856823291904；型號/MNT §14.4）：E512 force_de_sel 由 rt7+0x02[7:4]（4 bit）改 rt7+0x45[5:0]（6 bit），同 EM01／EM02。
+       出處：E512_ModelFile_20250902152136.model（RCP 1.1.6.0）[reg_force_de_sel] RegAddr0＝0x445、RegMsb0＝5、RegBits0＝6（:16283-16288，model 用 0x400 基底，rt7 相對 +0x45）；
+       0x402[7:4] 是 reg_nml_4line_4pix_en[4]／all_port_mask_data_en[5]／last_port_mask_data_en[6]／now_dummy_in_act_en[7]（:15695-15732），舊設定會把 FORCE_DE_SEL 寫進這 4 個 enable。
+       EM02A1_RegisterBank.model:18905 reg_force_de_sel＝0x4C5[5:0] 相同。rt7 基底仍照原廠 E512 Tool 0x0480（RApp_Common.h:18；§14.5） */
+    E512: { key: 'E512', label: 'E512', kind: 'mnt', sem: 'e50x', rt7: 0x0480, icId: [0x12, 0xE5, 0xA0], deSel: { off: 0x45, shift: 0, bits: 6 } }
   };
   /* 下拉順序照 PY list_tcon（:3516），MNT 接在後面 */
   var MODEL_KEYS = ['DAZ6111', 'DAZ6138', 'DAZ6139', 'DAZ7353', 'E501A', 'E501B', 'E503', 'EM01', 'EM02', 'E512'];
@@ -913,7 +917,13 @@
     var r = s.rd | 0;
     if (p <= 1 && r === 0) return 'single';
     if (p === 2 && r === 1) return 'dual';
-    if (p === 3 && (r === 2 || r === 3)) return 'tri';
+    /* v1.36.2（Bruce 10/20「MNT， A」；派工 238132856823291904；型號/MNT §14.3）：e50x（MNT EM01／EM02／E512、NB E503 等）的 LTPS 也看 SUB[0]：
+       MUX2＝一條 line 分 2 段 ⇒ 'dual'（4 列 Line n-SWk）。rd 1＝v1.35.31 起網頁 Auto／Hand 寫法、rd 2＝原廠 MNT Tool 寫法（只依 panel 設 rd，型號/MNT §12.4），兩者都畫 MUX2；
+       MUX3／BOE Tri-Gate 照舊 rd 2／3 ⇒ 'tri'。v1.35.29～v1.36.1 這段只認 panel 3＋rd 2／3，Hand MUX2（rd 1）判 mismatch 表格不顯示、rd 2 畫成 6 列 */
+    if (p === 3) {
+      if (muxPanel(key, s).mux === 2) return (r === 1 || r === 2) ? 'dual' : 'mismatch';
+      return (r === 2 || r === 3) ? 'tri' : 'mismatch';
+    }
     return 'mismatch';
   }
   var GATE_ITEMS = ['Non-Hand Mode', 'Single-Gate', 'Dual-Gate', 'Tri-Gate'];   // PY:4074

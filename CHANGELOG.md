@@ -2,6 +2,25 @@
 
 ---
 
+## Data Mapping (datamap) v1.36.2 — 2026-10-20 ｜ PATCH ｜ ⚠ 輸出變更（E512 FORCE_DE_SEL 位址）｜ MNT 結案前 2 項：Hand MUX2 表格不顯示、E512 FORCE_DE_SEL 位址
+
+判定依據：docs/VERSIONING.md——修錯（Hand MUX2 判成「不是 Single／Dual／Tri 組合」、E512 欄位位址錯），沒有新增操作 ⇒ PATCH；E512 匯出／寫入的 FORCE_DE_SEL 位址改變 ⇒ 標 ⚠ 輸出變更（R1）。
+
+### 起因
+- Bruce 10/20 09:1x「data mapping，peera已回mail，我們修改的都正確，是否可以結案MNT TCON的部分了? MNT TCON還有什麼對應的地方要修改的，檢查一遍」→ 結案核對（派工 238109997002465280）找到 2 項 → Bruce 09:4x「MNT， A」（先修這 2 項再結案；派工 238132856823291904）。
+
+### 改動
+1. **Hand＋Gate Type MUX2 表格不顯示（C1）**：gateOf（datamap-core.js）e50x 分支（MNT EM01／EM02／E512、NB E503 等）panel 3 只認 rd 2／3，v1.35.31 起 MUX2 寫 rd 1 ⇒ 判 mismatch，② 表格不顯示並提示「PANEL_MODE＝3、RD_MODE＝1 不是 Single／Dual／Tri 組合」；rd 2（原廠 MNT Tool 寫法）則畫成 6 列。
+   改成 panel 3 先看 SUB[0]（muxPanel，與 Auto、rowsFor 同一來源）：MUX2＋rd 1／2 ⇒ dual（4 列 Line n-SWk）；MUX3／BOE Tri-Gate＋rd 2／3 ⇒ tri（照舊）；MUX2＋rd 0／3、MUX3＋rd 0／1 仍 mismatch。E503 同一條。
+2. **E512 FORCE_DE_SEL 位址（C2）**：MODELS.E512 deSel 由 rt7+0x02[7:4]（4 bit）改 rt7+0x45[5:0]（6 bit），同 EM01／EM02。出處：E512_ModelFile_20250902152136.model [reg_force_de_sel] RegAddr0＝0x445、[5:0] 6 bit（:16283-16288）；0x402[7:4] 是 reg_nml_4line_4pix_en／all_port_mask_data_en／last_port_mask_data_en／now_dummy_in_act_en（:15695-15732），舊版會把 FORCE_DE_SEL 寫進這 4 個 enable。實際寫入位址＝0x0480＋0x45＝0x04C5（rt7 基底照原廠 E512 Tool，不變）。
+- 不動：v1.35.32～v1.36.1 已定規則（三叉畫點、弧形、SW 標籤、Mirror 方向、FORCE_DE_SEL 預設 0x0E 可改）；NB E501A／E501B／E503 codefix 2-rt 11880 fail 不在本件。
+
+### 測試
+- tools/check_datamap_muxall.js 新增 G 段：EM01／EM02／E512 × LTPS sub 0～7 × rd（autoRd、2）× Mirror 0／1 ＋ E503 × sub 0～7 × rd（autoRd、2）＋ 不合理組合仍 mismatch；檢查 gateOf、沒有 mismatch 提示、② 列數／列名、③ 模型、③ Hand＝Auto（Mirror 只比第 0 循環，決策 A31）。
+- tools/check_datamap.js E512 force_de_sel 預期改 0x04C5[5:0]；desel 註解更新。
+- 結果見派工回報。
+- common/version.js datamap v1.36.2；datamap.html version.js `?v=20261020dm1362`、datamap-core.js `?v=20261020dm1362`。
+
 ## Data Mapping (datamap) v1.36.1 — 2026-10-20 ｜ PATCH ｜ ③ TFT 接線圖 MUX 區：方格旁不再寫 SW 編號、左側 SW1～SWk 標籤放大
 判定依據：docs/VERSIONING.md——只改繪圖呈現（字級、間距、拿掉重複的小字），暫存器、匯出、表格 0 差異 ⇒ PATCH。
 
