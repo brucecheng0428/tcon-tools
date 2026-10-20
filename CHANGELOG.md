@@ -2,6 +2,29 @@
 
 ---
 
+## mLVDS Skew 計算工具 (calc) v1.9.3 — 2026-10-21 ｜ PATCH ｜ 每顆 driver channel 數依上方設定自動帶入（Single／Dual 分開算，可手動覆寫、可重算）
+
+判定依據：PATCH（版號依派工指定 v1.9.2→v1.9.3）——輸入欄預設值改為依設定自動帶入，計算公式不變；相同 channel 輸入下 X／cof 與 v1.9.2 逐值相同。
+
+### 起因
+- Bruce 2026-10-21：「當 CALC 網頁上方的設定都設定完以後，理論上應該也可以算出每顆 driver 的 channel 數…預設的 channel 數也要跟著改變，而不是都填 864，當然還是可以手動去做更改。」「Single 跟 Dual Gate 會影響到 Channel 數」。
+
+### 規則與出處
+- 每顆 channel ＝ Hactive × 3（R、G、B）÷ 2（左右 2 Port）÷ Gate ÷ 每 Port driver 顆數。Single：Hactive × 3 ÷ 2 ÷ N；Dual：Hactive × 3 ÷ 2 ÷ 2 ÷ N。
+- Dual＝HSD 半源驅動（一條 data 線推 2 個 sub-pixel，assistant_kb datamap/原理 3.1、6.3），所以 channel 是 Single 的一半；與 CALC v1.8.0 cof 交界檢查同一關係（N × ch ÷ 3 ＝ Hactive ÷ 2 ÷ Gate，Bruce 確認過的提示）。
+- 核對：2560／Dual／2 顆 → 960 ✓（Bruce 案例）；2560／Dual／3 顆 → 640，舊預設 864 不是由設定算出（v1.8.0 起此組合會出 ⚠ 不一致提示）。
+
+### 改動（calc.html）
+1. Driver Channel 欄：Hactive、Hres. 下拉、Single／Dual、顆數任一改變 → 自動模式立即重算帶入，旁標「自動（依上方設定）」。
+2. 使用者手動輸入（且不等於自動值）→ 標「手動」、之後不覆蓋，顯示依設定算出的值＋「依設定重算」按鈕；算出不是整數 → 不帶入、顯示提示。
+3.「怎麼算（點開）」：文字規則＋Single、Dual 兩種範例＋目前代入（不寫 floor）。
+4. calc-guide 繁／簡／英各一句；common/version.js calc v1.9.3；version.js `?v=20261021calc193`。
+
+### 測試
+- jsdom ch193_test：自動矩陣 Hactive 5 × Gate 2 × 顆數 8＝80 組（整數帶入、非整數提示）、Bruce 例、Single↔Dual 即時重算、手動覆寫不被 Hactive／Gate／顆數改動覆蓋、依設定重算、Hres. 下拉、三語，100/0。
+- calc191_test 對 v1.9.2：相同 channel 輸入 1280 組 X／cof／計算方式逐值相同；clk192、calc190（眼圖）回歸通過。
+
+
 ## mLVDS Skew 計算工具 (calc) v1.9.2 — 2026-10-21 ｜ PATCH ｜ 時間軸 CLK 改連續不停
 
 判定依據：docs/VERSIONING.md PATCH——示意圖畫法修正；X／cof 數值不變。
