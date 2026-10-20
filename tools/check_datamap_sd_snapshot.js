@@ -18,6 +18,10 @@
      整頁 body 不再含 TFT 圖本體（由上面逐格比）；另去掉 v1.35.10 刪除的「實驗：Single／Dual／Tri」標籤（#dm-pv-exp，內容＝gate 類型，已由 |gate= 與 TFT meta 的 data-ng 比對）。
      報錯時寫「第 N 列、第 M 欄」與兩邊的內容摘要。
    基準：由 v1.35.9（241ca45，字級放大前）用本規則拍；v1.35.10 對它 24,608 項全同才存檔。
+   目前基準檔：datamap v1.36.4（origin/main 289e625），2026-10-20 重拍（聊天室派工 238195885631938560）；檔內 base 欄位＝基準版本，比對結束會印「基準來源 …」。
+     重拍前對舊基準 v1.35.30 的 6064 項 fail 逐類歸因：v1.35.32 MUX 接點／弧形、v1.36.0 HSD_MAP_INV 欄位／EN01 Register 300 欄／Mirror 圖例／
+     E501A・E501B・E503 FORCE_DE_SEL 0x0C 不蓋回、v1.36.1 MUX 區 SW 文字拿掉、v1.36.2 E512 FORCE_DE_SEL 移到 0x4C5[5:0]；未歸類 0
+     （說明見 assistant_kb datamap/詳細/SD快照基準重拍_v1364_20261020.md）。
    用法：node tools/check_datamap_sd_snapshot.js [repo]            比對（基準檔 tools/datamap_sd_snapshot.json）
          node tools/check_datamap_sd_snapshot.js [repo] --write    重拍基準（只能在已證明正確的版本做）
          環境變數：SNAP_FILE 基準檔、SNAP_ONLY 只跑某些型號（逗號）、SNAP_V 顯示每型號耗時、SNAP_DUMP／SNAP_DUMP_TO 傾印某組
