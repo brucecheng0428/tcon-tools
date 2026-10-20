@@ -2,6 +2,29 @@
 
 ---
 
+## mLVDS Skew 計算工具 (calc) v1.6.1 — 2026-10-20 ｜ PATCH ｜ 示波器 A Event B 不再除以 Gate（一律當 Single）
+
+⚠ 輸出變更：過去選 **Dual (2)** 時「示波器 A Event B 設定」的 B event 值不再成立（新值＝選 Single 的值）。選 Single 的結果、以及 **UI cof_cnt 分界值（Single／Dual 都）逐值不變**。
+
+判定依據：docs/VERSIONING.md R1——修 bug（Dual 時 B event 重複除 2：Bruce 實測 X1 應 960、工具算 480），輸出回到本來該有的值 ⇒ PATCH ＋ ⚠ 輸出變更；UI 無增減（Gate 選項保留原位）。
+
+### 起因
+- Bruce 2026-10-20 14:1x：H=2560、6-bit Driver、2 port 3 pair（14:2x 更正，原轉述「突破 3 pair」為語音誤植）、共 4 顆＝單 Port 2 顆、Dual Gate、Event 數＝0、每顆 960ch、EM02 ⇒ 工具 X1＝480，實測應為 960。
+- v1.6.0 代入：X1 = floor(floor(960×6÷3÷**2**)÷2)+0 = 480；不除 gate＝floor(1920÷2)=960＝實測。單 Port Driver 顆數已含 gate 影響，B event 再 ÷gate 是重複。
+- Bruce 14:5x 決定：「算示波器的 offset 位置（A Event B 的那個數值）的時候，用不到 single gate 跟 dual gate，都是把它當作 single gate 來處理。但是右邊那張 UI 的 COF CNT 卡片就要用到 single gate 跟 dual gate，所以還是要保留原本的設定。」
+
+### 改動
+1. calc.html `calculate()`：B event 的 X1 = floor(floor(X1×bits÷pairs)÷2)+Event 數、Xn = floor(Xn×bits÷pairs)+前一顆（拿掉 ÷gate）。
+2. 不動：Gate 單選鈕（原位）、UI cof_cnt 分界值 floor(Hactive÷2÷顆數÷gate×i−1)、EM02＝EM01÷2、End 2047、摘要「Gate=」。
+3. calc-guide（繁／簡／英）：Gate 欄位說明改「只影響 cof 分界值」；B event 公式拿掉 ÷gate；排查項與卡片說明同步。
+4. common/version.js calc v1.6.1；calc.html／index.html version.js `?v=20261020calc161`。
+
+### 測試
+- Bruce 條件：Single／Dual 下 X1／X2 都＝960／2880；cof1 EM01 Single 639／Dual 319、EM02 Single 319／Dual 159（＝v1.6.0）。
+- 矩陣 4100 項 0 fail：Hres 4 × bits 2 × pairs 2 × Event 數 2 × channel 4 × 顆數 1–8 × gate 2；B event＝v1.6.0 Single 的值、cof＝v1.6.0 同 gate 的值。jsdom 實頁同結果。
+- 派工 238188112907149312。
+
+
 ## Data Mapping (datamap) v1.36.4 — 2026-10-20 ｜ PATCH ｜ Hand MUX2 第 2 列小字改「SW2：起始欄＋1」
 
 判定依據：docs/VERSIONING.md——只改顯示文字，寫入不變 ⇒ PATCH。

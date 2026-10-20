@@ -682,7 +682,7 @@ window.GUIDE_FILES = { 'zh-TW': 'calc-guide.html', 'zh-CN': 'calc-guide-cn.html'
             <tr><td class="t-name">Hactive</td><td><span class="t-type tt-num">Number input</span></td><td>Positive integer, default 1920</td><td>Horizontal active pixel count. <strong>It alone decides the cof_cnt boundary values</strong>: the boundaries come from splitting Hactive evenly across the drivers. Enter Htotal (blank included) and every boundary comes out too large.</td></tr>
             <tr><td class="t-name">Driver bits</td><td><span class="t-type tt-rad">Radio buttons</span></td><td>6 / 8 (default) bits</td><td>Data bit width of the Source Driver. It multiplies straight into the event count.</td></tr>
             <tr><td class="t-name">Driver pairs</td><td><span class="t-type tt-rad">Radio buttons</span></td><td>3 (default) / 6 pairs</td><td>Data pair count of each driver. It divides into the event count. <strong>With 6 pairs the event count is half of 3 pairs</strong> - the same amount of data goes out over twice as many lines, so it takes half the time.</td></tr>
-            <tr><td class="t-name">Single / Dual Gate</td><td><span class="t-type tt-rad">Radio buttons</span></td><td>Single (1) (default) / Dual (2)</td><td>Dual Gate means one line of data is shared by two Gate groups, so <strong>both the event count and the cof boundary are divided by 2 again</strong>. Get this one wrong and both result tables come out off by a factor of two - it is the most common mistake.</td></tr>
+            <tr><td class="t-name">Single / Dual Gate</td><td><span class="t-type tt-rad">Radio buttons</span></td><td>Single (1) (default) / Dual (2)</td><td><strong>Only affects the cof boundary</strong>: with Dual the cof boundary is divided by 2 again. The scope B event value <strong>ignores Single / Dual and is always computed as Single</strong> (Drivers per Port already accounts for the gate).</td></tr>
             <tr><td class="t-name">Drivers per Port</td><td><span class="t-type tt-btn">Number buttons 1–8</span></td><td>3 on first load</td><td>How many drivers are chained on one Port. <strong>Clicking creates the X1…Xn input fields</strong>, and it also sets the row count of both result tables.</td></tr>
           </tbody>
         </table>
@@ -776,8 +776,8 @@ window.GUIDE_FILES = { 'zh-TW': 'calc-guide.html', 'zh-CN': 'calc-guide-cn.html'
         <table>
           <thead><tr><th>Target</th><th>B event value</th><th>Description</th></tr></thead>
           <tbody>
-            <tr><td class="t-name">X1 (first driver)</td><td><code>floor( floor(X1 × bits ÷ pairs ÷ gate) ÷ 2 ) + Events</code></td><td>First work out how many CLKs the data of one driver occupies, then take <strong>half of it</strong> (that lands in the middle of that driver's data, which is easier to trigger on), and add the starting event count you measured.</td></tr>
-            <tr><td class="t-name">X2 … Xn</td><td><code>floor(Xn × bits ÷ pairs ÷ gate) + previous value</code></td><td>A running sum. Each further driver waits one more driver's worth of data time.</td></tr>
+            <tr><td class="t-name">X1 (first driver)</td><td><code>floor( floor(X1 × bits ÷ pairs) ÷ 2 ) + Events</code></td><td>First work out how many CLKs the data of one driver occupies, then take <strong>half of it</strong> (that lands in the middle of that driver's data, which is easier to trigger on), and add the starting event count you measured.</td></tr>
+            <tr><td class="t-name">X2 … Xn</td><td><code>floor(Xn × bits ÷ pairs) + previous value</code></td><td>A running sum. Each further driver waits one more driver's worth of data time.</td></tr>
           </tbody>
         </table>
       </div>
@@ -951,7 +951,7 @@ window.GUIDE_FILES = { 'zh-TW': 'calc-guide.html', 'zh-CN': 'calc-guide-cn.html'
         <p style="color:var(--muted); font-size:.93rem;">Check these in order of likelihood:</p>
         <ol style="color:var(--muted); font-size:.93rem;">
           <li><strong>B Trigger is not set to both edges</strong> - a single edge is off by a factor of two.</li>
-          <li><strong>Single / Dual Gate is wrong</strong> - also off by a factor of two across the board.</li>
+          <li><strong>Drivers per Port or the X1…Xn channel counts are wrong</strong> - the B event value does not depend on Single / Dual Gate.</li>
           <li><strong>The starting event count is wrong</strong> - A must be the XSTB(TP) rising edge, and you count up to the RST falling edge.</li>
           <li><strong>X1 points the wrong way</strong> - X1 must be the driver closest to the TCON.</li>
           <li>Driver bits / pairs do not match the actual board.</li>
@@ -1080,10 +1080,10 @@ function switchTab(btn, group, panelId) {
 
 // === INTERFACE ZONE ===
 const zoneDescriptions = {
-  'c-basic': "<strong>Basic parameters</strong><br>The <b>Hres.</b> dropdown in the top right corner fills in Hactive with one click (1920 / 2560 / 3440 / 3840). Driver bits (6/8), Driver pairs (3/6) and Single / Dual Gate scale the event count; click <b>Drivers per Port (1–8)</b> at the bottom first, and the X1…Xn input fields appear below. <b>Get the Gate wrong and both result tables come out off by a factor of two</b>.",
+  'c-basic': "<strong>Basic parameters</strong><br>The <b>Hres.</b> dropdown in the top right corner fills in Hactive with one click (1920 / 2560 / 3440 / 3840). Driver bits (6/8) and Driver pairs (3/6) scale the event count, while Single / Dual Gate only affects the cof boundary; click <b>Drivers per Port (1–8)</b> at the bottom first, and the X1…Xn input fields appear below. <b>Get the Gate wrong and the cof boundaries come out off by a factor of two</b> (the scope B event values are unaffected).",
   'c-osc': "<strong>Oscilloscope trigger setup</strong><br>Enter the number of CLK events you measured between the XSTB(TP) rising edge and the mLVDS RST falling edge (default 510, 0 is allowed). Set the scope to <b>A event B</b>: A = XSTB(TP) rising edge, B = mLVDS CLK <b>both edges</b>. Click the diagram below to enlarge it; it supports wheel and pinch zoom, drag to pan, double-tap to reset and Esc to close.",
   'c-xn': "<strong>Xn Channel</strong><br>How many channels each Driver handles. <b>X1 is the driver closest to the TCON</b>. When you change X1, every X2…Xn you have not edited by hand follows it automatically; the ones you edited by hand stay as they are. <b>Copy to All</b> forces X1 onto every field and clears the hand-edited mark.",
-  'c-oscres': "<strong>Oscilloscope A Event B setup (result)</strong><br>Lists the B event value to set on the scope, driver by driver. The first one is <code>floor(floor(X1×bits÷pairs÷gate)÷2) + Events</code>, which lands in the middle of that driver's data and is easier to trigger on; each further driver adds one whole driver's worth of data time. The red note under the table repeats the A/B trigger conditions - <b>B must be set to both edges</b>.",
+  'c-oscres': "<strong>Oscilloscope A Event B setup (result)</strong><br>Lists the B event value to set on the scope, driver by driver. The first one is <code>floor(floor(X1×bits÷pairs)÷2) + Events</code>, which lands in the middle of that driver's data and is easier to trigger on; each further driver adds one whole driver's worth of data time. The red note under the table repeats the A/B trigger conditions - <b>B must be set to both edges</b>.",
   'c-cof': "<strong>UI cof_cnt boundary setup (result)</strong><br>The boundary values to write into the TCON registers: <code>floor(Hactive÷2÷drivers÷gate×i − 1)</code>. Switch between <b>EM01 (cof1–3) and EM02 (cof1–7)</b> in the top right corner. <b>The EM02 value = EM01 ÷ 2, rounded down</b>, but the end marker 2047 is never divided. You can change the cof item dropdown; change one row and the rows below it fall into order automatically.",
   'c-skew': "<strong>Skew reference table</strong><br>A static reference; it does not change with the calculation. On the left is cksk (shift CLK only): lane mapping la→0-3, lb→8-11, ra→4-7, rb→12-15, with coarse steps 0–15 in units of 1/16 UI, default 8. On the right is fine 0–7 for split (time) adjustment: 0 = P2S, 4 = 0 ps (default), and the rest are −52 / −31 / −14 / +11 / +36 / +59 ps. <b>The steps are not evenly spaced</b>.",
 };
