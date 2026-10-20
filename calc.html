@@ -161,6 +161,20 @@
   }
   .if-select:focus { outline: none; }
   .if-select option { background: #1e293b; color: #e2e8f0; }
+  /* v1.8.0 示波器觸發類型 */
+  .trig-select {
+    width: 100%; padding: 9px 26px 9px 10px; border: 1px solid var(--border); border-radius: 8px;
+    font-size: 14px; color: var(--text); background: #0f172a; cursor: pointer;
+    appearance: none; -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2394a3b8' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 8px center;
+  }
+  .trig-select:focus { outline: none; }
+  .trig-select option { background: #1e293b; color: #e2e8f0; }
+  #f-toff label, #f-clk label { text-transform: none; }
+  .trig-a-fixed { font-size: 13px; font-weight: 700; color: #fbbf24; margin-top: 6px; }
+  .trig-r-note { font-size: 12px; color: #94a3b8; }
+  .osc-t-sub { display: block; font-size: 12px; color: #94a3b8; font-weight: 400; margin-top: 3px; }
   /* ─── 示波器示意圖 ─────────────────────────── */
   .osc-diagram-wrap {
     margin-top: 10px;
@@ -524,10 +538,45 @@
   <div class="card" id="calc-card-osc-setup">
     <div class="card-header"><span class="icon">📺</span><span data-i18n="calc.oscSetup">示波器觸發設定</span></div>
     <div class="card-body">
+      <!-- v1.8.0 示波器觸發類型（Bruce 2026-10-20 19:4x）；A 一律＝XSTB 正緣、固定不給選（Bruce 19:5x） -->
+      <div class="field" id="f-trig">
+        <label data-i18n="calc.trigTypeLabel">示波器觸發類型</label>
+        <select id="trig-type" class="trig-select">
+          <option value="both" data-i18n="calc.trigOptBoth">A Event B（B＝正負緣）</option>
+          <option value="rise" data-i18n="calc.trigOptRise">A Event B（B＝正緣）</option>
+          <option value="fall" data-i18n="calc.trigOptFall">A Event B（B＝負緣）</option>
+          <option value="delay" data-i18n="calc.trigOptDelay">A 延遲時間後觸發 B</option>
+        </select>
+        <div class="trig-a-fixed" data-i18n="calc.trigAFixed">A：XSTB(TP) 正緣 ↑（固定）</div>
+      </div>
+      <div id="trig-delay-box" style="display:none">
+        <div class="field">
+          <label data-i18n="calc.trigDelayEdge">B 觸發邊緣（延遲後第一個）</label>
+          <select id="trig-delay-edge" class="trig-select">
+            <option value="rise" data-i18n="calc.edgeRise">正緣 ↑</option>
+            <option value="fall" data-i18n="calc.edgeFall">負緣 ↓</option>
+            <option value="both" data-i18n="calc.edgeBoth">正負緣 ↑↓</option>
+          </select>
+        </div>
+        <div class="field" id="f-toff">
+          <label><span data-i18n="calc.toffLabel">offset 時間（量測 XSTB↑→RST↓）</span><span class="required">*</span></label>
+          <div style="display:flex;gap:6px">
+            <input type="number" id="toff" placeholder="2550" min="0" step="any" style="flex:1 1 0;min-width:0">
+            <select id="toff-unit" class="trig-select" style="width:auto;flex:0 0 auto"><option value="ns">ns</option><option value="us">µs</option></select>
+          </div>
+          <div class="error-msg" data-i18n="calc.errToff">請輸入量測到的時間（≥ 0）</div>
+        </div>
+        <div class="field" id="f-clk">
+          <label><span data-i18n="calc.clkMhz">mini-LVDS CLK 頻率（MHz）</span><span class="required">*</span></label>
+          <input type="number" id="clk-mhz" placeholder="200" min="0" step="any">
+          <div class="error-msg" data-i18n="calc.errClk">請輸入大於 0 的頻率</div>
+        </div>
+      </div>
       <div class="field" id="f-rst">
         <label><span data-i18n="calc.oscEventLabel">XSTB(TP) rising→mLVDS RST falling 之 CLK EVENT 數</span><span class="required">*</span></label>
         <input type="number" id="rst" data-i18n-ph="calc.egValue510" placeholder="例：510" value="510" min="0" step="1">
-        <div class="field-hint" style="color:#f87171;font-weight:700;" data-i18n="calc.oscEventHint">(Trig=A event B，A=XSTB(TP)正緣，B=mLVDS CLK正負緣)</div>
+        <div class="field-hint" style="color:#f87171;font-weight:700;" id="osc-event-hint" data-i18n="calc.oscEventHint">(Trig=A event B，A=XSTB(TP)正緣，B=mLVDS CLK正負緣)</div>
+        <div class="field-hint trig-r-note" id="trig-r-note" style="display:none" data-i18n="calc.trigRNote">R 仍以正負緣計數（TCON 定義），工具自動換算。</div>
         <div class="error-msg" data-i18n="common.errorNonNeg">請輸入正整數（或 0）</div>
       </div>
       <div class="osc-diagram-wrap" id="osc-diagram-wrap" onclick="oscOpenLightbox()">
@@ -555,7 +604,7 @@
           <line x1="0" y1="170" x2="800" y2="170" stroke="#1e293b" stroke-width="0.6" stroke-dasharray="3 4"/>
           <line x1="200" y1="24" x2="200" y2="316" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="6 4"/>
           <rect x="188" y="6" width="24" height="16" fill="#fbbf24" rx="2"/>
-          <text x="200" y="18" fill="#020617" font-size="12" font-family="ui-monospace,monospace" font-weight="bold" text-anchor="middle">A</text>
+          <text x="200" y="18" fill="#020617" font-size="12" font-family="ui-monospace,monospace" font-weight="bold" text-anchor="middle">A↑</text>
           <line x1="560" y1="24" x2="560" y2="316" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="6 4"/>
           <rect x="548" y="6" width="24" height="16" fill="#fbbf24" rx="2"/>
           <text x="560" y="18" fill="#020617" font-size="12" font-family="ui-monospace,monospace" font-weight="bold" text-anchor="middle">B</text>
@@ -583,10 +632,11 @@
             <polygon points="200,320 212,315 212,325" fill="#f8fafc"/>
             <polygon points="560,320 548,315 548,325" fill="#f8fafc"/>
             <rect x="338" y="310" width="84" height="20" fill="#020617" stroke="#f8fafc" stroke-width="1" rx="3"/>
-            <text x="380" y="324" fill="#f8fafc" font-size="12" font-family="ui-monospace,monospace" font-weight="bold" text-anchor="middle" data-i18n="calc.oscEventNum">Event 數</text>
+            <text x="380" y="324" fill="#f8fafc" font-size="12" font-family="ui-monospace,monospace" font-weight="bold" text-anchor="middle" id="osc-event-num" data-i18n="calc.oscEventNum">Event 數</text>
           </g>
+          <g id="osc-edge-marks"></g>
         </svg>
-        <div class="osc-diagram-caption" data-i18n="calc.oscCaption">
+        <div class="osc-diagram-caption" id="osc-caption" data-i18n="calc.oscCaption">
           A Trigger：XSTB(TP) 正緣　·　B Trigger：mLVDS CLK 正負緣　·　計數 A→B 之間的 CLK Events
         </div>
       </div>
@@ -616,15 +666,15 @@
     <div class="rxtx-cards-row">
     <!-- 示波器 A Event B -->
     <div class="card" id="calc-card-osc-result">
-      <div class="card-header"><span class="icon">📺</span><span data-i18n="calc.oscResultTitle">示波器 A Event B 設定</span></div>
+      <div class="card-header"><span class="icon">📺</span><span id="osc-result-title" data-i18n="calc.oscResultTitle">示波器 A Event B 設定</span></div>
       <div class="card-body">
         <div class="result-table-wrap">
           <table>
-            <thead><tr><th>COF</th><th data-i18n="calc.oscResultBEvent">B event 值</th></tr></thead>
+            <thead><tr><th>COF</th><th id="osc-th-val" data-i18n="calc.oscResultBEvent">B event 值</th></tr></thead>
             <tbody id="osc-tbody"></tbody>
           </table>
         </div>
-        <div style="font-size:11px; color:#f87171; font-weight:700; margin-top:8px;" data-i18n="calc.oscResultFoot">
+        <div style="font-size:11px; color:#f87171; font-weight:700; margin-top:8px;" id="osc-result-foot" data-i18n="calc.oscResultFoot">
           A Trigger: TP（正緣） ／ B Trigger: mLVDS CLK（正負緣）
         </div>
       </div>
@@ -657,15 +707,16 @@
             <tbody id="cof-tbody"></tbody>
           </table>
         </div>
+        <div class="scope-hint" id="cof-warn" style="display:none;color:#fbbf24"></div>
       </div>
     </div>
     </div><!-- /rxtx-cards-row results -->
 
     <!-- v1.7.0 示波器 A Event B 示意圖（Bruce 2026-10-20 草稿 v5 定案「v5 ok」） -->
     <div class="card" id="calc-card-osc-diagram">
-      <div class="card-header"><span class="icon">📺</span><span data-i18n="calc.scopeDiagTitle">示波器 A Event B 示意圖</span></div>
+      <div class="card-header"><span class="icon">📺</span><span id="scope-diag-title" data-i18n="calc.scopeDiagTitle">示波器 A Event B 示意圖</span></div>
       <div class="card-body">
-        <div class="scope-hint" data-i18n="calc.scopeDiagHint">只畫一個 Port，圖可左右滑動。紅線＝X1、X2…；綠線＝cof_cnt 分界。</div>
+        <div class="scope-hint" data-i18n="calc.scopeDiagHint">只畫一個 Port，圖可左右滑動。紅線＝X1、X2…；綠線＝cof（driver 交界）。</div>
         <div class="scope-fig"><div class="scope-fig-lab" id="scope-lab"></div><div class="scope-fig-scroll" id="scope-main" data-noswipe></div></div>
         <div class="scope-hint" id="scope-note"></div>
         <div class="scope-sub" data-i18n="calc.scopeBitsTitle">Driver 開頭的 bit 排列</div>
@@ -745,7 +796,7 @@
 </div><!-- /container -->
 
 <!-- 共用 JS（i18n 必須先於 common.js 載入） -->
-<script src="common/version.js?v=20261020calc170"></script>
+<script src="common/version.js?v=20261020calc180"></script>
 <script src="common/i18n.js?v=20260907dg1130"></script>
 <script>
 /* v1.7.0：calc 專用翻譯鍵（示意圖、單一 Channel 欄位）。在 common.js 套用語言之前併入 I18N。 */
@@ -754,7 +805,7 @@ Object.assign(I18N, {
   'calc.chPerDrv':       { 'zh-TW': '每顆 Driver Channel 數（各顆相同）', 'en': 'Channels per Driver (same for all)', 'zh-CN': '每颗 Driver Channel 数（各颗相同）' },
   'calc.drvChipsHint':   { 'zh-TW': '點選顆數後出現 Channel 輸入欄', 'en': 'After selecting, the Channel input appears', 'zh-CN': '点选颗数后出现 Channel 输入栏' },
   'calc.scopeDiagTitle': { 'zh-TW': '示波器 A Event B 示意圖', 'en': 'Oscilloscope A Event B Diagram', 'zh-CN': '示波器 A Event B 示意图' },
-  'calc.scopeDiagHint':  { 'zh-TW': '只畫一個 Port，圖可左右滑動。紅線＝X1、X2…；綠線＝cof_cnt 分界。', 'en': 'One Port only; swipe left/right. Red = X1, X2…; green = cof_cnt boundary.', 'zh-CN': '只画一个 Port，图可左右滑动。红线＝X1、X2…；绿线＝cof_cnt 分界。' },
+  'calc.scopeDiagHint':  { 'zh-TW': '只畫一個 Port，圖可左右滑動。紅線＝X1、X2…；綠線＝cof（driver 交界）。', 'en': 'One Port only; swipe left/right. Red = X1, X2…; green = cof (driver boundary).', 'zh-CN': '只画一个 Port，图可左右滑动。红线＝X1、X2…；绿线＝cof（driver 交界）。' },
   'calc.scopeBitsTitle': { 'zh-TW': 'Driver 開頭的 bit 排列', 'en': 'Bit order at the start of a Driver', 'zh-CN': 'Driver 开头的 bit 排列' },
   'calc.sgPrev1':  { 'zh-TW': '前一筆', 'en': 'Previous', 'zh-CN': '前一笔' },
   'calc.sgPrev2':  { 'zh-TW': '最後 data', 'en': 'last data', 'zh-CN': '最后 data' },
@@ -764,13 +815,54 @@ Object.assign(I18N, {
   'calc.sgPct':    { 'zh-TW': 'Driver{i} 的 {p}%', 'en': '{p}% of Driver{i}', 'zh-CN': 'Driver{i} 的 {p}%' },
   'calc.sgPx':     { 'zh-TW': '該顆第 {n} px', 'en': 'pixel {n} of it', 'zh-CN': '该颗第 {n} px' },
   'calc.sgNotIn':  { 'zh-TW': '不在 Driver{i}', 'en': 'Not in Driver{i}', 'zh-CN': '不在 Driver{i}' },
-  'calc.sgOver':   { 'zh-TW': '超出', 'en': 'beyond', 'zh-CN': '超出' },
   'calc.sgScope1': { 'zh-TW': '示波器', 'en': 'Scope', 'zh-CN': '示波器' },
   'calc.sgScope2': { 'zh-TW': 'X 值', 'en': 'X', 'zh-CN': 'X 值' },
   'calc.sgNoteR':  { 'zh-TW': 'R＝{r} 時數字照算，圖上 XSTB↑ 仍畫在 RST 前（這段不照比例）。', 'en': 'With R = {r} the numbers are unchanged; XSTB↑ is still drawn before RST (not to scale).', 'zh-CN': 'R＝{r} 时数字照算，图上 XSTB↑ 仍画在 RST 前（这段不照比例）。' },
   'calc.sgBitsEv': { 'zh-TW': 'event（第 R 個＝RST↓＝第一個 data）', 'en': 'event (R-th = RST↓ = first data)', 'zh-CN': 'event（第 R 个＝RST↓＝第一个 data）' },
-  'calc.sgBitsPx': { 'zh-TW': '1 pixel＝{b} bit ÷ {p} pair＝{e} ev（{c} CLK）', 'en': '1 pixel = {b} bit ÷ {p} pair = {e} ev ({c} CLK)', 'zh-CN': '1 pixel＝{b} bit ÷ {p} pair＝{e} ev（{c} CLK）' },
-  'calc.sgBitsClk':{ 'zh-TW': 'CLK 正／負緣在每個 bit 正中間', 'en': 'CLK rising/falling edges sit at the centre of each bit', 'zh-CN': 'CLK 正／负缘在每个 bit 正中间' }
+  'calc.cofUnused':  { 'zh-TW': '（未使用）', 'en': ' (unused)', 'zh-CN': '（未使用）' },
+  'calc.cofMismatch':{ 'zh-TW': '⚠ {n} 顆 × {ch} ch ÷ 3＝{a} px，Hactive÷2÷Gate＝{b} px，不一致：cof 值依 Hactive 算，不在 driver 交界。', 'en': '⚠ {n} × {ch} ch ÷ 3 = {a} px but Hactive ÷ 2 ÷ Gate = {b} px: cof values follow Hactive and are not at the driver boundaries.', 'zh-CN': '⚠ {n} 颗 × {ch} ch ÷ 3＝{a} px，Hactive÷2÷Gate＝{b} px，不一致：cof 值依 Hactive 算，不在 driver 交界。' },
+  'calc.sgBitsClk':{ 'zh-TW': 'CLK 正／負緣在每個 bit 正中間', 'en': 'CLK rising/falling edges sit at the centre of each bit', 'zh-CN': 'CLK 正／负缘在每个 bit 正中间' },
+  // v1.8.0 示波器觸發類型（A 一律＝XSTB 正緣、固定）
+  'calc.trigTypeLabel': { 'zh-TW': '示波器觸發類型', 'en': 'Scope trigger type', 'zh-CN': '示波器触发类型' },
+  'calc.trigOptBoth':  { 'zh-TW': 'A Event B（B＝正負緣）', 'en': 'A Event B (B = both edges)', 'zh-CN': 'A Event B（B＝正负缘）' },
+  'calc.trigOptRise':  { 'zh-TW': 'A Event B（B＝正緣）', 'en': 'A Event B (B = rising)', 'zh-CN': 'A Event B（B＝正缘）' },
+  'calc.trigOptFall':  { 'zh-TW': 'A Event B（B＝負緣）', 'en': 'A Event B (B = falling)', 'zh-CN': 'A Event B（B＝负缘）' },
+  'calc.trigOptDelay': { 'zh-TW': 'A 延遲時間後觸發 B', 'en': 'A, then B after a delay', 'zh-CN': 'A 延迟时间后触发 B' },
+  'calc.trigAFixed':   { 'zh-TW': 'A：XSTB(TP) 正緣 ↑（固定）', 'en': 'A: XSTB(TP) rising ↑ (fixed)', 'zh-CN': 'A：XSTB(TP) 正缘 ↑（固定）' },
+  'calc.trigDelayEdge':{ 'zh-TW': 'B 觸發邊緣（延遲後第一個）', 'en': 'B edge (first one after the delay)', 'zh-CN': 'B 触发边缘（延迟后第一个）' },
+  'calc.edgeRise': { 'zh-TW': '正緣 ↑', 'en': 'Rising ↑', 'zh-CN': '正缘 ↑' },
+  'calc.edgeFall': { 'zh-TW': '負緣 ↓', 'en': 'Falling ↓', 'zh-CN': '负缘 ↓' },
+  'calc.edgeBoth': { 'zh-TW': '正負緣 ↑↓', 'en': 'Both ↑↓', 'zh-CN': '正负缘 ↑↓' },
+  'calc.clkMhz':   { 'zh-TW': 'mini-LVDS CLK 頻率（MHz）', 'en': 'mini-LVDS CLK frequency (MHz)', 'zh-CN': 'mini-LVDS CLK 频率（MHz）' },
+  'calc.errClk':   { 'zh-TW': '請輸入大於 0 的頻率', 'en': 'Enter a frequency above 0', 'zh-CN': '请输入大于 0 的频率' },
+  'calc.trigRNote':{ 'zh-TW': 'R 仍以正負緣計數（TCON 定義），工具自動換算。', 'en': 'R is still counted on both edges (TCON definition); the tool converts it.', 'zh-CN': 'R 仍以正负缘计数（TCON 定义），工具自动换算。' },
+  'calc.oscEventHint_rise':  { 'zh-TW': '(Trig=A event B，A=XSTB(TP)正緣，B=mLVDS CLK只數正緣)', 'en': '(Trig=A event B, A=XSTB(TP) rising, B=mLVDS CLK rising only)', 'zh-CN': '(Trig=A event B，A=XSTB(TP)正缘，B=mLVDS CLK 只数正缘)' },
+  'calc.oscEventHint_fall':  { 'zh-TW': '(Trig=A event B，A=XSTB(TP)正緣，B=mLVDS CLK只數負緣)', 'en': '(Trig=A event B, A=XSTB(TP) rising, B=mLVDS CLK falling only)', 'zh-CN': '(Trig=A event B，A=XSTB(TP)正缘，B=mLVDS CLK 只数负缘)' },
+  'calc.oscEventHint_delay': { 'zh-TW': '(A=XSTB(TP)正緣 → 延遲 t → B=mLVDS CLK 邊緣)', 'en': '(A=XSTB(TP) rising → delay t → B=mLVDS CLK edge)', 'zh-CN': '(A=XSTB(TP)正缘 → 延迟 t → B=mLVDS CLK 边缘)' },
+  'calc.oscCaption_rise':  { 'zh-TW': 'A Trigger：XSTB(TP) 正緣（固定）　·　B Trigger：mLVDS CLK 只數正緣 ▼　·　1 CLK＝1 Event', 'en': 'A Trigger: XSTB(TP) rising (fixed)  ·  B Trigger: mLVDS CLK rising only ▼  ·  1 CLK = 1 Event', 'zh-CN': 'A Trigger：XSTB(TP) 正缘（固定）　·　B Trigger：mLVDS CLK 只数正缘 ▼　·　1 CLK＝1 Event' },
+  'calc.oscCaption_fall':  { 'zh-TW': 'A Trigger：XSTB(TP) 正緣（固定）　·　B Trigger：mLVDS CLK 只數負緣 ▼　·　1 CLK＝1 Event', 'en': 'A Trigger: XSTB(TP) rising (fixed)  ·  B Trigger: mLVDS CLK falling only ▼  ·  1 CLK = 1 Event', 'zh-CN': 'A Trigger：XSTB(TP) 正缘（固定）　·　B Trigger：mLVDS CLK 只数负缘 ▼　·　1 CLK＝1 Event' },
+  'calc.oscCaption_delay': { 'zh-TW': 'A Trigger：XSTB(TP) 正緣（固定）　·　延遲 t 後，B＝第一個選定的 CLK 邊緣', 'en': 'A Trigger: XSTB(TP) rising (fixed)  ·  after delay t, B = first selected CLK edge', 'zh-CN': 'A Trigger：XSTB(TP) 正缘（固定）　·　延迟 t 后，B＝第一个选定的 CLK 边缘' },
+  'calc.oscEventNum_rise':  { 'zh-TW': '↑ Event 數', 'en': '↑ Events', 'zh-CN': '↑ Event 数' },
+  'calc.oscEventNum_fall':  { 'zh-TW': '↓ Event 數', 'en': '↓ Events', 'zh-CN': '↓ Event 数' },
+  'calc.oscEventNum_delay': { 'zh-TW': '延遲 t', 'en': 'Delay t', 'zh-CN': '延迟 t' },
+  'calc.oscResultBEvent_rise':  { 'zh-TW': 'B event 值（只數 ↑）', 'en': 'B event (rising only)', 'zh-CN': 'B event 值（只数 ↑）' },
+  'calc.oscResultBEvent_fall':  { 'zh-TW': 'B event 值（只數 ↓）', 'en': 'B event (falling only)', 'zh-CN': 'B event 值（只数 ↓）' },
+  'calc.oscResultBEvent_delay': { 'zh-TW': '延遲時間 t', 'en': 'Delay t', 'zh-CN': '延迟时间 t' },
+  'calc.oscResultFoot_rise':  { 'zh-TW': 'A Trigger: TP（正緣，固定） ／ B Trigger: mLVDS CLK（只數正緣）', 'en': 'A Trigger: TP (rising, fixed)  /  B Trigger: mLVDS CLK (rising only)', 'zh-CN': 'A Trigger: TP（正缘，固定） ／ B Trigger: mLVDS CLK（只数正缘）' },
+  'calc.oscResultFoot_fall':  { 'zh-TW': 'A Trigger: TP（正緣，固定） ／ B Trigger: mLVDS CLK（只數負緣）', 'en': 'A Trigger: TP (rising, fixed)  /  B Trigger: mLVDS CLK (falling only)', 'zh-CN': 'A Trigger: TP（正缘，固定） ／ B Trigger: mLVDS CLK（只数负缘）' },
+  'calc.oscResultFoot_delay_rise': { 'zh-TW': 'A Trigger: TP（正緣，固定） ／ 延遲 t 後 B Trigger: mLVDS CLK（正緣）', 'en': 'A Trigger: TP (rising, fixed)  /  after t, B Trigger: mLVDS CLK (rising)', 'zh-CN': 'A Trigger: TP（正缘，固定） ／ 延迟 t 后 B Trigger: mLVDS CLK（正缘）' },
+  'calc.oscResultFoot_delay_fall': { 'zh-TW': 'A Trigger: TP（正緣，固定） ／ 延遲 t 後 B Trigger: mLVDS CLK（負緣）', 'en': 'A Trigger: TP (rising, fixed)  /  after t, B Trigger: mLVDS CLK (falling)', 'zh-CN': 'A Trigger: TP（正缘，固定） ／ 延迟 t 后 B Trigger: mLVDS CLK（负缘）' },
+  'calc.oscResultFoot_delay_both': { 'zh-TW': 'A Trigger: TP（正緣，固定） ／ 延遲 t 後 B Trigger: mLVDS CLK（正負緣）', 'en': 'A Trigger: TP (rising, fixed)  /  after t, B Trigger: mLVDS CLK (both edges)', 'zh-CN': 'A Trigger: TP（正缘，固定） ／ 延迟 t 后 B Trigger: mLVDS CLK（正负缘）' },
+  'calc.tEvSub':   { 'zh-TW': '＝第 {e} 個正負緣 event', 'en': '= both-edge event {e}', 'zh-CN': '＝第 {e} 个正负缘 event' },
+  'calc.sgNoteSingle': { 'zh-TW': '只數{edge}：1 CLK＝1 event，X＝⌈正負緣 event÷2⌉；B 實際落點和紅線差 ≤1 個正負緣 event（½ CLK）。', 'en': '{edge} only: 1 CLK = 1 event, X = ⌈both-edge event ÷ 2⌉; actual B lands within 1 both-edge event (½ CLK) of the red line.', 'zh-CN': '只数{edge}：1 CLK＝1 event，X＝⌈正负缘 event÷2⌉；B 实际落点和红线差 ≤1 个正负缘 event（½ CLK）。' },
+  'calc.sgNoteDelay':  { 'zh-TW': '延遲 t＝offset {o}＋data event÷(2×{f} MHz)；B＝延遲後第一個{edge}。offset 這段不照比例。', 'en': 'Delay t = offset {o} + data events ÷ (2 × {f} MHz); B = first {edge} after the delay. The offset segment is not to scale.', 'zh-CN': '延迟 t＝offset {o}＋data event÷(2×{f} MHz)；B＝延迟后第一个{edge}。offset 这段不照比例。' },
+  'calc.oscResultTitle_delay': { 'zh-TW': '示波器延遲觸發設定', 'en': 'Oscilloscope Delayed Trigger Setup', 'zh-CN': '示波器延迟触发设定' },
+  'calc.scopeDiagTitle_delay':  { 'zh-TW': '示波器延遲觸發示意圖', 'en': 'Oscilloscope Delayed Trigger Diagram', 'zh-CN': '示波器延迟触发示意图' },
+  'calc.toffLabel': { 'zh-TW': 'offset 時間（量測 XSTB↑→RST↓）', 'en': 'Offset time (measured XSTB↑→RST↓)', 'zh-CN': 'offset 时间（量测 XSTB↑→RST↓）' },
+  'calc.errToff':   { 'zh-TW': '請輸入量測到的時間（≥ 0）', 'en': 'Enter the measured time (≥ 0)', 'zh-CN': '请输入量测到的时间（≥ 0）' },
+  'calc.tDataSub':  { 'zh-TW': '＝offset＋{e} 個 data event', 'en': '= offset + {e} data events', 'zh-CN': '＝offset＋{e} 个 data event' },
+  'calc.sgNoteDelayB': { 'zh-TW': '正負緣時落在紅線上；只選單一邊緣時差 ≤1 event（½ CLK）。', 'en': 'Both edges: lands on the red line; single edge: within 1 event (½ CLK).', 'zh-CN': '正负缘时落在红线上；只选单一边缘时差 ≤1 event（½ CLK）。' },
+  'calc.sgCnt':    { 'zh-TW': '▲＝被計數的邊緣', 'en': '▲ = counted edge', 'zh-CN': '▲＝被计数的边缘' }
 });
 </script>
 <script src="common/common.js?v=20260523"></script>
@@ -882,7 +974,7 @@ function renderCofTable(cofs, chips) {
     tr.innerHTML = `
       <td><select class="cof-item-select" onchange="enforceCofOrder(this)">${optionsHtml}</select></td>
       <td>${posText}</td>
-      <td><span class="val-highlight" style="background:var(--success)">${value}</span></td>
+      <td><span class="val-highlight" style="background:var(--success)">${value}</span>${value === 2047 ? '<span class="osc-t-sub">' + scEsc(t('calc.cofUnused').trim()) + '</span>' : ''}</td>
     `;
     cofTbody.appendChild(tr);
   }
@@ -926,7 +1018,7 @@ function calculate() {
   const gate    = parseInt(document.querySelector('input[name="gate"]:checked').value);
 
   const errH = !posInt(hactive);  setError('f-hactive', errH); if (errH) valid = false;
-  const errR = !nonNegInt(rst);   setError('f-rst', errR);     if (errR) valid = false;
+  const errR = !nonNegInt(rst) && trigMode() !== 'delay'; setError('f-rst', errR); if (errR) valid = false;
 
   if (selectedChips === 0) {
     alert(t('alert.selectChips'));
@@ -942,6 +1034,20 @@ function calculate() {
     else for (let i = 1; i <= selectedChips; i++) xiVals.push(parseInt(v)); // 各顆相同（v1.7.0）
   }
 
+  // v1.8.0：觸發類型（A 一律＝XSTB 正緣）；只有「延遲」需要 CLK 頻率
+  const trig = trigMode();
+  let fclk = null, toffNs = null;
+  if (trig === 'delay') {
+    const fv = document.getElementById('clk-mhz').value;
+    const errF = !(fv !== '' && Number(fv) > 0 && isFinite(Number(fv)));
+    setError('f-clk', errF); if (errF) valid = false; else fclk = Number(fv);
+    const ov = document.getElementById('toff').value;
+    const errO = !(ov !== '' && Number(ov) >= 0 && isFinite(Number(ov)));
+    setError('f-toff', errO); if (errO) valid = false;
+    else toffNs = Number(ov) * (document.getElementById('toff-unit').value === 'us' ? 1000 : 1);
+    setError('f-rst', false); // (d) 不用 R（Bruce 19:5x：offset 改用量測時間）
+  } else { setError('f-clk', false); setError('f-toff', false); }
+
   if (!valid) {
     const firstError = document.querySelector('.field.has-error');
     if (firstError) firstError.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -951,7 +1057,7 @@ function calculate() {
   const H  = parseInt(hactive);
   const B  = bits;
   const Pa = pairs;
-  const R  = parseInt(rst);
+  const R  = (trigMode() === 'delay') ? 0 : parseInt(rst); // (d)：offset 用量測時間，event 只算資料段（R 當 0）
   const N  = selectedChips;
 
   // v1.6.1（Bruce 2026-10-20 14:5x）：示波器 A Event B 一律當 Single Gate（單 Port Driver 顆數已含 gate 影響，不再 ÷gate）；
@@ -970,16 +1076,11 @@ function calculate() {
   }
   lastCofs = cofs;
 
-  const oscTbody = document.getElementById('osc-tbody');
-  oscTbody.innerHTML = '';
-  events.forEach((ev, i) => {
-    const tr = document.createElement('tr');
-    tr.innerHTML = `<td>X${i + 1}</td><td><span class="val-highlight">${ev}</span></td>`;
-    oscTbody.appendChild(tr);
-  });
+  lastScope = { N: N, R: R, B: B, Pa: Pa, xs: xiVals.slice(), ev: events.slice(), cofs: cofs.slice(),
+                trig: trig, dEdge: delayEdge(), fclk: fclk, toff: toffNs, H: H, gate: gate };
+  renderOscTable();
 
   renderCofTable(cofs, N);
-  lastScope = { N: N, R: R, B: B, Pa: Pa, xs: xiVals.slice(), ev: events.slice(), cofs: cofs.slice() };
   drawScope();
 
   const safeH    = (!isNaN(H) && H > 0) ? H : '—';
@@ -992,6 +1093,72 @@ function calculate() {
   document.getElementById('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
+
+// ─── v1.8.0 示波器觸發類型 ───────────────────────────────────────────────
+// Bruce 2026-10-20 19:4x：B 可能只支援正緣／負緣，或沒有 A Event B、只有「A 後延遲 t 再觸發 B」。19:5x：A 一律＝XSTB 正緣、固定不給選。
+// 計算核心不動：events[]（正負緣 event 數 E，R 仍是正負緣定義）照 v1.7.0；只在顯示時換算：
+//   只數正緣／負緣：1 CLK＝1 event → n＝⌈E÷2⌉（CLK 極性未知，實際落點在 E−1～E+1，≤½ CLK）。
+//   延遲（Bruce 19:5x）：offset 不用 R，改輸入量測的 XSTB↑→RST↓ 時間 T_off；t＝T_off＋E_data÷(2·f_CLK)，
+//         E_data＝從第一個 data 起算的正負緣 event 數（R＝0 時的 E）。DDR：1 個正負緣 event＝½ CLK＝1 bit 時間；
+//         RST↓ 在 bit 邊界、CLK 邊緣在 bit 正中間 → 目標邊緣在 t 之後 ¼ CLK、前一個邊緣在 t 之前 ¼ CLK：
+//         B 選正負緣→正好落在目標；選單一邊緣→目標或下一個（≤½ CLK）。
+function trigMode() { const el = document.getElementById('trig-type'); return el ? el.value : 'both'; }
+function delayEdge() { const el = document.getElementById('trig-delay-edge'); return el ? el.value : 'rise'; }
+function trigCount(ev) { return Math.ceil(ev / 2); }
+function trigDelayNs(ev, f, toff) { return (toff || 0) + ev * 1000 / (2 * f); }
+function fmtDelay(ns) {
+  if (ns >= 1000) return (Math.round(ns / 1000 * 10000) / 10000).toFixed(4) + ' µs';
+  return (Math.round(ns * 10) / 10).toFixed(1) + ' ns';
+}
+function countedEdge(p) { // 示意圖要標 ▲ 的邊緣：'rise'／'fall'／null
+  if (!p || p.trig === 'both') return null;
+  if (p.trig === 'delay') return p.dEdge === 'both' ? null : p.dEdge;
+  return p.trig;
+}
+function renderOscTable() {
+  const p = lastScope; if (!p) return;
+  const oscTbody = document.getElementById('osc-tbody');
+  oscTbody.innerHTML = '';
+  p.ev.forEach((ev, i) => {
+    const tr = document.createElement('tr');
+    if (!p.trig || p.trig === 'both') {
+      tr.innerHTML = `<td>X${i + 1}</td><td><span class="val-highlight">${ev}</span></td>`;
+    } else {
+      const v = (p.trig === 'delay') ? fmtDelay(trigDelayNs(ev, p.fclk, p.toff)) : String(trigCount(ev));
+      tr.innerHTML = `<td>X${i + 1}</td><td><span class="val-highlight">${v}</span><span class="osc-t-sub">${scEsc(p.trig === 'delay' ? t('calc.tDataSub', { e: ev }) : t('calc.tEvSub', { e: ev }))}</span></td>`;
+    }
+    oscTbody.appendChild(tr);
+  });
+}
+function setI18nKey(id, key) {
+  const el = document.getElementById(id); if (!el) return;
+  el.setAttribute('data-i18n', key); el.textContent = t(key);
+}
+function updateTrigUI() {
+  const m = trigMode(), suf = (m === 'both') ? '' : '_' + m;
+  document.getElementById('trig-delay-box').style.display = (m === 'delay') ? 'block' : 'none';
+  document.getElementById('trig-r-note').style.display = (m === 'rise' || m === 'fall') ? 'block' : 'none';
+  document.getElementById('f-rst').style.display = (m === 'delay') ? 'none' : '';
+  setI18nKey('osc-event-hint', 'calc.oscEventHint' + suf);
+  setI18nKey('osc-caption', 'calc.oscCaption' + suf);
+  setI18nKey('osc-event-num', 'calc.oscEventNum' + suf);
+  setI18nKey('osc-result-title', 'calc.oscResultTitle' + (m === 'delay' ? '_delay' : ''));
+  setI18nKey('scope-diag-title', 'calc.scopeDiagTitle' + (m === 'delay' ? '_delay' : ''));
+  setI18nKey('osc-th-val', 'calc.oscResultBEvent' + suf);
+  setI18nKey('osc-result-foot', 'calc.oscResultFoot' + (m === 'delay' ? '_delay_' + delayEdge() : suf));
+  const foot = document.getElementById('osc-result-foot'); if (foot) foot.style.fontSize = (m === 'both') ? '11px' : '12px';
+  ['osc-event-hint', 'osc-caption'].forEach(id => { const el = document.getElementById(id); if (el) el.style.fontSize = (m === 'both') ? '' : '12px'; }); // 新字 ≥12px
+  // 設定卡示意圖：只數單一邊緣時，在 A→B 之間被計數的 CLK 邊緣上方標 ▼（CLK 圖樣：↑ 在 5.5+22k、↓ 在 16.5+22k）
+  const g = document.getElementById('osc-edge-marks');
+  if (g) {
+    let h = '';
+    if (m === 'rise' || m === 'fall') {
+      const off = (m === 'rise') ? 5.5 : 16.5;
+      for (let x = off; x <= 560; x += 22) if (x > 200) h += '<polygon points="' + (x - 4) + ',240 ' + (x + 4) + ',240 ' + x + ',247" fill="#fbbf24"/>';
+    }
+    g.innerHTML = h;
+  }
+}
 
 // ─── v1.7.0 示波器 A Event B 示意圖 ─────────────────────────────────────
 // 只畫圖，不改計算：X 值、cof 值都直接用 calculate() 的結果（lastScope、cof 表同一套 EM01/EM02 規則）。
@@ -1014,13 +1181,18 @@ function drawScope() {
   const D = p.xs.map(x => Math.floor(x * p.B / p.Pa));
   const Sx = [p.R]; for (let i = 0; i < p.N; i++) Sx.push(Sx[i] + D[i]);
   const epp = 3 * p.B / p.Pa;                 // 每 pixel 佔幾個 event
+  // cof 由 Hactive 算、driver 寬度由 ch 算：兩者不一致時 cof 值不會落在 driver 交界 → 提示（不改 cof 值）
+  const pxDrv = p.N * p.xs[0] / 3, pxPort = (p.H && p.gate) ? p.H / 2 / p.gate : pxDrv;
+  const cofMis = p.N > 1 && Math.abs(pxDrv - pxPort) > 1e-6;
+  const misTxt = cofMis ? t('calc.cofMismatch', { n: p.N, ch: p.xs[0], a: Math.round(pxDrv * 100) / 100, b: Math.round(pxPort * 100) / 100 }) : '';
+  const cw = document.getElementById('cof-warn'); if (cw) { cw.textContent = misTxt; cw.style.display = cofMis ? 'block' : 'none'; }
   const VH = 330, yRul = 26, yX0 = 44, yX1 = 74, yD0 = 90, yD1 = 150, yC0 = 166, yC1 = 190, yLab = 212, yCof = 278;
   const k = 340 / Math.min.apply(null, D);
   const xP0 = 8, xP1 = 78, xA = 132, gapMin = 60;
   const notScale = p.R * k < gapMin;
   const xR = notScale ? xA + gapMin : xA + p.R * k;
   const X = e => (e >= p.R ? xR + (e - p.R) * k : (p.R > 0 ? xA + e * (xR - xA) / p.R : xA));
-  const xEnd = X(Sx[p.N]), VW = Math.ceil(xEnd + 150);
+  const xEnd = X(Sx[p.N]), VW = Math.ceil(xEnd + 330); // 右側留給「cofN＝2047（未使用）」
   let s = '<svg width="' + VW + '" height="' + VH + '" viewBox="0 0 ' + VW + ' ' + VH + '" xmlns="http://www.w3.org/2000/svg"><rect width="' + VW + '" height="' + VH + '" fill="#020617"/>';
   // 前一筆最後 data、Hblank、RST（LV0）
   s += '<rect x="' + xP0 + '" y="' + yD0 + '" width="' + (xP1 - xP0) + '" height="' + (yD1 - yD0) + '" fill="#1f2937" stroke="#64748b"/>'
@@ -1061,18 +1233,34 @@ function drawScope() {
   d += ' L ' + xEnd + ' ' + lv;
   s += '<line x1="' + xP0 + '" y1="' + yC1 + '" x2="' + xR + '" y2="' + yC1 + '" stroke="#f472b6" stroke-width="1.5" stroke-dasharray="3 3"/>';
   s += '<path d="' + d + '" stroke="#f472b6" stroke-width="1.2" fill="none" opacity="0.85"/>';
-  // cof 分界（值與 cof 表相同：EM02＝floor(EM01÷2)，End 2047）
-  for (let i = 0; i < p.N; i++) {
+  const cEdge = countedEdge(p);
+  if (cEdge) { // 示意 CLK 從低開始：第 1 個邊緣（xR+4）是 ↑，之後每 8px 交替
+    for (let xx = xR + 4 + (cEdge === 'rise' ? 0 : 8); xx < xEnd; xx += 16)
+      s += '<polygon points="' + (xx - 3) + ',' + (yC0 - 7) + ' ' + (xx + 3) + ',' + (yC0 - 7) + ' ' + xx + ',' + (yC0 - 2) + '" fill="#fbbf24"/>';
+  }
+  if (p.trig === 'delay' && p.N > 0) { // 延遲 t1：A → X1
+    const xt = X(p.ev[0]), yt = yC1 + 11;
+    s += '<line x1="' + xA + '" y1="' + yt + '" x2="' + xR + '" y2="' + yt + '" stroke="#22d3ee" stroke-width="3"/>'
+      + scT(xR - 30, yD1 - 26, 'offset', { a: 'end', c: '#67e8f9', b: 1, fs: 12 })
+      + '<line x1="' + (xR + 2) + '" y1="' + yt + '" x2="' + (xt - 2) + '" y2="' + yt + '" stroke="#fbbf24" stroke-width="1.6" stroke-dasharray="5 3"/>'
+      + '<polygon points="' + xt + ',' + yt + ' ' + (xt - 8) + ',' + (yt - 4) + ' ' + (xt - 8) + ',' + (yt + 4) + '" fill="#fbbf24"/>'
+      + scT((xA + xt) / 2, yt - 3, 't1 = ' + fmtDelay(trigDelayNs(p.ev[0], p.fclk, p.toff)), { a: 'middle', c: '#fbbf24', b: 1, fs: 12 });
+  }
+  // cof 交界（v1.8.0，Bruce 2026-10-20 21:3x）：cofN 綠線畫在 Driver N／N+1 交界，值同 cof 表（EM02＝floor(EM01÷2)）。
+  // 2047＝暫存器最大值＝未使用：不畫線，cof 列右端標「cofN＝2047（未使用）」；有效 cof 數＝顆數−1。
+  const cofRows = Math.max(p.N, maxCof), unused = [];
+  for (let i = 0; i < cofRows; i++) {
     const name = (i < maxCof) ? emOpts[i + 1] : '-';
-    const lastPx = (i < p.N - 1) ? p.cofs[i] : null;
-    const val = (lastPx !== null) ? (em === 'EM02' ? Math.floor(lastPx / 2) : lastPx) : 2047;
-    let xc, over = false;
-    if (lastPx !== null) { xc = X(p.R + (lastPx + 1) * epp); if (xc > xEnd + 0.5) { over = true; xc = Math.min(xc, VW - 70); } } else xc = xEnd;
-    const colr = over ? '#f87171' : '#4ade80';
-    s += '<line x1="' + xc + '" y1="' + (yRul + 12) + '" x2="' + xc + '" y2="' + (yCof - 2) + '" stroke="' + colr + '" stroke-width="2"' + (lastPx === null || over ? ' stroke-dasharray="3 3"' : '') + '/>';
-    const lab = (name !== '-' ? name : '-') + '＝' + val + (over ? ' ' + t('calc.sgOver') : '');
-    s += '<rect x="' + (xc - 62) + '" y="' + yCof + '" width="124" height="26" rx="4" fill="#052e16" stroke="' + colr + '"/>'
-      + scT(xc, yCof + 18, lab, { a: 'middle', c: over ? '#fca5a5' : '#4ade80', b: 1, fs: 14 });
+    if (i >= p.N - 1) { if (name !== '-') unused.push(name); continue; }
+    const val = (em === 'EM02') ? Math.floor(p.cofs[i] / 2) : p.cofs[i];
+    const xc = X(Sx[i + 1]);
+    s += '<line x1="' + xc + '" y1="' + (yRul + 12) + '" x2="' + xc + '" y2="' + (yCof - 2) + '" stroke="#4ade80" stroke-width="2"/>';
+    s += '<rect x="' + (xc - 62) + '" y="' + yCof + '" width="124" height="26" rx="4" fill="#052e16" stroke="#4ade80"/>'
+      + scT(xc, yCof + 18, name + '＝' + val + (cofMis ? ' ⚠' : ''), { a: 'middle', c: '#4ade80', b: 1, fs: 14 });
+  }
+  if (unused.length) {
+    const lab = (unused.length === 1 ? unused[0] : unused[0] + '～' + unused[unused.length - 1]) + '＝2047' + t('calc.cofUnused');
+    s += scT(xEnd + 8, yCof + 18, lab, { c: '#94a3b8', fs: 13 });
   }
   // X 標線
   for (let i = 0; i < p.N; i++) {
@@ -1082,7 +1270,9 @@ function drawScope() {
     s += '<line x1="' + x + '" y1="' + (yRul + 12) + '" x2="' + x + '" y2="' + (yLab - 2) + '" stroke="#f87171" stroke-width="2.4"/>';
     s += '<polygon points="' + x + ',' + (yD1 + 2) + ' ' + (x - 6) + ',' + (yD1 + 14) + ' ' + (x + 6) + ',' + (yD1 + 14) + '" fill="#f87171"/>';
     s += '<rect x="' + (x - 66) + '" y="' + (yLab - 2) + '" width="132" height="58" rx="5" fill="#2a0a0a" stroke="#f87171"/>';
-    s += scT(x, yLab + 17, 'X' + (i + 1) + ' = ' + xv, { a: 'middle', c: '#fecaca', b: 1, fs: 17 });
+    if (!p.trig || p.trig === 'both') s += scT(x, yLab + 17, 'X' + (i + 1) + ' = ' + xv, { a: 'middle', c: '#fecaca', b: 1, fs: 17 });
+    else if (p.trig === 'delay') s += scT(x, yLab + 17, 't' + (i + 1) + ' = ' + fmtDelay(trigDelayNs(xv, p.fclk, p.toff)), { a: 'middle', c: '#fecaca', b: 1, fs: 14 });
+    else s += scT(x, yLab + 17, 'X' + (i + 1) + ' = ' + trigCount(xv) + (p.trig === 'rise' ? ' ↑' : ' ↓'), { a: 'middle', c: '#fecaca', b: 1, fs: 17 });
     s += scT(x, yLab + 34, inside ? t('calc.sgPct', { i: i + 1, p: pct }) : t('calc.sgNotIn', { i: i + 1 }), { a: 'middle', c: '#fff' });
     if (inside) s += scT(x, yLab + 50, t('calc.sgPx', { n: Math.floor(inS / epp) }), { a: 'middle', c: '#cbd5e1', fs: 12 });
   }
@@ -1096,11 +1286,15 @@ function drawScope() {
     + scT(6, yLab + 24, t('calc.sgScope1'), { c: '#fecaca', fs: 12 }) + scT(6, yLab + 40, t('calc.sgScope2'), { c: '#fecaca', fs: 12 })
     + scT(6, yCof + 18, 'cof', { c: '#4ade80', b: 1 });
   document.getElementById('scope-lab').innerHTML = L + '</svg>';
-  document.getElementById('scope-note').textContent = notScale ? t('calc.sgNoteR', { r: p.R }) : '';
-  drawScopeBits(p.B, p.Pa, epp);
+  let note = (notScale && p.trig !== 'delay') ? t('calc.sgNoteR', { r: p.R }) : '';
+  if (p.trig === 'rise' || p.trig === 'fall') note += (note ? ' ' : '') + t('calc.sgNoteSingle', { edge: t(p.trig === 'rise' ? 'calc.edgeRise' : 'calc.edgeFall') });
+  else if (p.trig === 'delay') note += (note ? ' ' : '') + t('calc.sgNoteDelay', { o: fmtDelay(p.toff), f: p.fclk, edge: t({ rise: 'calc.edgeRise', fall: 'calc.edgeFall', both: 'calc.edgeBoth' }[p.dEdge]) }) + ' ' + t('calc.sgNoteDelayB');
+  if (misTxt) note = misTxt + (note ? ' ' + note : '');
+  document.getElementById('scope-note').textContent = note;
+  drawScopeBits(p.B, p.Pa, epp, countedEdge(p));
 }
-function drawScopeBits(B, Pa, epp) {
-  const cols = 2 * B, VW = 400, x0 = 50, cw = (VW - x0 - 4) / cols, rh = 32, VH = 58 + (Pa + 1) * rh + 52;
+function drawScopeBits(B, Pa, epp, cEdge) {
+  const cols = 2 * B, VW = 400, x0 = 50, cw = (VW - x0 - 4) / cols, rh = 32, VH = 58 + (Pa + 1) * rh + 34 + (cEdge ? 18 : 0);
   const pxPerGroup = Pa / 3, fill = ['#1e3a8a', '#3b0764', '#064e3b', '#7c2d12'], leg = ['#93c5fd', '#d8b4fe', '#6ee7b7', '#fdba74'];
   let s = '<svg viewBox="0 0 ' + VW + ' ' + VH + '" xmlns="http://www.w3.org/2000/svg"><rect width="' + VW + '" height="' + VH + '" fill="#020617"/>';
   s += scT(x0, 16, t('calc.sgBitsEv'), { c: '#9fb0c8' });
@@ -1111,6 +1305,8 @@ function drawScopeBits(B, Pa, epp) {
   for (let c = 0; c < cols; c++) { const xe = x0 + c * cw + cw / 2; d += ' L ' + xe + ' ' + lv; lv = (lv === y + 22) ? y + 5 : y + 22; d += ' L ' + xe + ' ' + lv; }
   d += ' L ' + (x0 + cols * cw) + ' ' + lv;
   s += '<path d="' + d + '" stroke="#f472b6" stroke-width="2" fill="none"/>';
+  if (cEdge) for (let c = (cEdge === 'rise' ? 0 : 1); c < cols; c += 2) { // 圖上第 R 個 event 畫成 ↑
+    const xe = x0 + c * cw + cw / 2; s += '<polygon points="' + (xe - 4) + ',' + (y - 2) + ' ' + (xe + 4) + ',' + (y - 2) + ' ' + xe + ',' + (y + 4) + '" fill="#fbbf24"/>'; }
   for (let c = 0; c < cols; c++) { const xe = x0 + c * cw + cw / 2; s += '<line x1="' + xe + '" y1="' + (y + 24) + '" x2="' + xe + '" y2="' + (42 + (Pa + 1) * rh) + '" stroke="#f472b6" stroke-width="1" stroke-dasharray="2 3" opacity="0.7"/>'; }
   for (let r = 0; r < Pa; r++) {
     y = 42 + (r + 1) * rh;
@@ -1126,8 +1322,8 @@ function drawScopeBits(B, Pa, epp) {
   const lg = [];
   for (let g = 0; g < 2; g++) for (let q = 0; q < pxPerGroup; q++) { const px = g * pxPerGroup + q; lg.push('<tspan fill="' + leg[px % 4] + '">■ pixel ' + px + '</tspan>'); }
   s += '<text x="' + x0 + '" y="' + y + '" font-size="13" fill="#e5edf8">' + lg.join(' ') + '</text>';
-  s += scT(x0, y + 18, t('calc.sgBitsPx', { b: 3 * B, p: Pa, e: epp, c: epp / 2 }));
-  s += scT(x0, y + 36, t('calc.sgBitsClk'), { c: '#f9a8d4' });
+  s += scT(x0, y + 18, t('calc.sgBitsClk'), { c: '#f9a8d4' });
+  if (cEdge) s += scT(x0, y + 36, t('calc.sgCnt'), { c: '#fbbf24' });
   document.getElementById('scope-bits').innerHTML = s + '</svg>';
 }
 
@@ -1204,8 +1400,18 @@ window._onLangChange = function(lang) {
       sumEl.textContent = t('calc.summaryFmt', d);
     } catch(e) {}
   }
+  updateTrigUI();
+  renderOscTable();
   drawScope();
 };
+// v1.8.0 觸發類型切換
+(function () {
+  const tt = document.getElementById('trig-type'), de = document.getElementById('trig-delay-edge');
+  if (tt) tt.addEventListener('change', updateTrigUI);
+  if (de) de.addEventListener('change', updateTrigUI);
+  window.addEventListener('pageshow', updateTrigUI);
+  updateTrigUI();
+})();
 
 // ─── 示波器 Lightbox（雙指縮放 / 平移） ─────────────────────────────────
 (function(){

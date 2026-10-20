@@ -2,6 +2,27 @@
 
 ---
 
+## mLVDS Skew 計算工具 (calc) v1.8.0 — 2026-10-20 ｜ MINOR ｜ 示波器觸發類型（正負緣／正緣／負緣／A 後延遲）、cof 綠線改畫在 driver 交界
+
+判定依據：docs/VERSIONING.md 判定表 MINOR——新增使用者能做的事（示波器觸發類型下拉、延遲觸發的 offset 時間與 CLK 頻率欄）；預設 (a) A Event B（B＝正負緣）的 B event 值與 cof_cnt 分界值逐值不變 ⇒ MINOR，不標 ⚠ 輸出變更。
+
+### 起因
+- Bruce 2026-10-20 19:5x：有些示波器 B 只能選正緣或負緣，或沒有 A Event B、只有「A 後經過一段時間再觸發 B（正緣／負緣／正負緣）」，延遲型要輸入 mini-LVDS CLK 頻率；A Event B 的 A 一律正緣；延遲型要含前面 offset，原本 510 那段改成量測時間再加進公式。
+- 21:2x「手機版的圖面不用放大」；21:3x「cof1 cof2 的位置，應該要在 driver 與 driver 的交界處」「cof 3 如果交界設定是 2047…2047 是最大值，代表用不到這個值」；21:4x 不要寫「1 pixel＝… ev」那行；「可以直接開始進行製作了。製作完 push」。
+
+### 改動（calc.html）
+1. 示波器觸發設定卡新增「示波器觸發類型」：(a) A Event B（B＝正負緣，預設）；(b) B＝正緣；(c) B＝負緣；(d) A 延遲時間後觸發 B（B 邊緣可選正緣／負緣／正負緣）。A 固定標「A：XSTB(TP) 正緣 ↑（固定）」，設定卡示意圖與時間軸圖的 A 都標 ↑。
+2. (b)(c)：X＝⌈正負緣 event÷2⌉，R 仍以正負緣輸入；結果表另列「＝第 E 個正負緣 event」。
+3. (d)：R 欄隱藏，改填量測的 offset 時間（XSTB↑→RST↓，ns／µs）與 CLK 頻率（MHz）；t＝offset＋data event÷(2·f_CLK)（data event＝R 代 0 的 E）；時間軸圖標 offset 段。
+4. 時間軸圖 cof：cofN 綠線畫在 Driver N／N+1 交界（原本依 Hactive 算出的像素位置畫，ch×顆數與 Hactive 不一致時會偏離）；值仍同 cof 表。cof＝2047（暫存器最大值）＝未使用：不畫線，在 cof 列右端標「cofN＝2047（未使用）」；有效 cof 數＝顆數−1；cof 表 2047 那列加註「未使用」。ch×顆數÷3 與 Hactive÷2÷Gate 不一致時，cof 卡與圖下加一行 ⚠ 提示（cof 值依 Hactive 算，不改公式）。
+5. bit 排列圖拿掉「1 pixel＝… ÷ … pair＝… ev（… CLK）」那行；手機字級不變。
+6. calc-guide（繁／簡／英）各補一句；common/version.js calc v1.8.0；calc.html／index.html version.js `?v=20261020calc180`。
+
+### 測試
+- jsdom：(a) vs v1.7.0（origin/main d7508b9 之 calc.html）逐值比對 4096 組（Hactive 4 × bits 2 × pairs 2 × gate 2 × R 0／510 × ch 640／864／960／1920 × 顆數 1–8 × EM01／EM02），B event 與 cof 表全同。
+- (b)(c)(d) 手算比對、cof 綠線＝driver 交界、2047 未使用標示、864ch 不一致提示：見任務回報。
+
+
 ## mLVDS Skew 計算工具 (calc) v1.7.0 — 2026-10-20 ｜ MINOR ｜ 示波器 A Event B 示意圖（水平時間軸＋bit 排列）、Channel 改單一欄位
 
 判定依據：docs/VERSIONING.md 判定表 MINOR——新增使用者看得到的功能（結果區新增「示波器 A Event B 示意圖」卡），並把 X1…Xn 多欄改成一個 Channel 欄位；計算公式不動，同一組輸入（各顆 ch 相同）的 B event 值與 cof_cnt 分界值逐值不變 ⇒ MINOR，不標 ⚠ 輸出變更。
