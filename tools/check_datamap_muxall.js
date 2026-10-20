@@ -211,6 +211,46 @@ try { EX = JSON.parse(cp.execFileSync('python3', ['-c', PY, XLSX], { encoding: '
         if (ns) { ok(ns.rd === DM.autoRd(k, ns) && ns.rd === seg(ns.panel, ns.subPanel, ns.triGate) - 1, 'F Auto Gate ' + k + ' ' + g + ' from ' + from + ' rd ' + ns.rd); nF++; } } }
     tab('F', ['rd 規則矩陣', nF + ' 項']);
   }
+  if (process.env.MUXALL_V) console.error("G start");
+  /* ── G：Hand LTPS MUX2／MUX3 表格顯示＋Hand＝Auto（v1.36.2，型號/MNT §14.3；派工 238132856823291904） ──
+     v1.35.31～v1.36.1：gateOf e50x 只認 panel 3＋rd 2／3 ⇒ Hand MUX2（rd 1）判 mismatch、表格不顯示；rd 2 畫 6 列。
+     矩陣：EM01／EM02／E512 × sub 0～7 × rd（autoRd＝網頁寫法、2＝原廠 MNT Tool 寫法）× Mirror 0／1；E503 × sub 0～7 × rd（autoRd、2）。
+     檢查：gateOf 不是 mismatch、表格提示／下一步不是 gridMismatch、② 列數（MUX2 4、MUX3 6）、列名 -SWk、③ 每個 pixel 名稱 Hand＝Auto（同一組 code）。 */
+  { let nG = 0;
+    const note = () => Array.from(d.querySelectorAll('[id$="gridnote"]')).map(e => e.textContent).join('|') + '|' + ($('stp-next') ? $('stp-next').textContent : '');
+    const misTxt = /PANEL_MODE[=＝]\d+.{0,3}RD_MODE/;
+    const names = (P, n) => P.rows.map(r => r.k + ":" + (n ? r.names.slice(0, n) : r.names).map(c => c && !c.off ? c.name : '-').join(',')).join(' / ');
+    for (const k of ['EM01', 'EM02', 'E512']) for (let sub = 0; sub < 8; sub++) for (const mir of [0, 1]) {
+      const M = (sub & 1) ? 2 : 3, x = A.XL_MNT.filter(r => r.panel === 3 && r.sub === sub && r.auto)[0];
+      const sa = DM.emptyState(k); sa.panel = 3; sa.subPanel = sub; sa.hand = 0; sa.mirror = mir; sa.rd = DM.autoRd(k, sa);
+      setState(k, sa); render(); const PA = w.dmPvModel(), cyc = mir ? 6 * M : 0, nA = names(PA, cyc);   // Mirror 只比第 0 循環（決策 A31：Hand 依 code 名稱、Auto 依畫面位置，跨循環座標系不同，與本件無關）
+      for (const rd of [DM.autoRd(k, sa), 2]) {
+        const s = DM.cloneState(sa); s.hand = 1; s.rd = rd; s.deEn = 0; for (let i = 0; i < 24; i++) { s['c' + i] = x.c[i]; if (x.x) s['x' + i] = x.x[i]; }
+        setState(k, s); render(); const P = w.dmPvModel(), g = DM.gateOf(k, s), rows = DM.rowsFor(k, s).filter(r => r.show).map(r => r.label.replace(/（.*$/, ''));
+        const id = 'G ' + k + ' Hand sub' + sub + ' rd' + rd + ' M' + mir; if (process.env.MUXALL_V) console.error(id);
+        ok(g === (M === 2 ? 'dual' : 'tri'), id + ' gateOf ' + g);
+        ok(!misTxt.test(note()), id + ' 沒有「不是 Single／Dual／Tri 組合」提示：' + note());
+        ok(rows.length === (M === 2 ? 4 : 6) && rows.every(l => /-SW\d$/.test(l)), id + ' ② 列 ' + rows.join(','));
+        ok(P.ok && P.mux === M && P.NG === 1, id + ' ③ mux=' + P.mux + ' NG=' + P.NG);
+        ok(names(P, cyc) === nA, id + ' ③ Hand＝Auto\n  H ' + names(P, cyc).slice(0, 160) + '\n  A ' + nA.slice(0, 160));
+        nG += 5;
+        if (k === 'EM01' && !mir && sub < 2) tab('G', [id, g, rows.join(' '), names(P, cyc) === nA ? "Hand＝Auto" : '不同']);
+      }
+    }
+    for (let sub = 0; sub < 8; sub++) {
+      const M = (sub & 1) ? 2 : 3, s0 = DM.emptyState('E503'); s0.panel = 3; s0.subPanel = sub; s0.rd = DM.autoRd('E503', s0);
+      for (const rd of [s0.rd, 2]) {
+        const s = DM.cloneState(s0); s.hand = 1; s.rd = rd; setState('E503', s); render();
+        const g = DM.gateOf('E503', s), id = 'G E503 Hand sub' + sub + ' rd' + rd; if (process.env.MUXALL_V) console.error(id);
+        ok(g === (M === 2 ? 'dual' : 'tri'), id + ' gateOf ' + g);
+        ok(!misTxt.test(note()), id + ' 沒有 mismatch 提示：' + note());
+        nG += 2; tab('G', [id, g, DM.rowsFor('E503', s).filter(r => r.show).length + ' 列']);
+      }
+    }
+    /* 不合理組合仍 mismatch：MUX2＋rd 0／3、MUX3＋rd 0／1 */
+    for (const k of ['EM01', 'E503']) for (const [sub, rd] of [[1, 0], [1, 3], [0, 0], [0, 1]]) { const s = DM.emptyState(k); s.hand = 1; s.panel = 3; s.subPanel = sub; s.rd = rd; ok(DM.gateOf(k, s) === 'mismatch', 'G ' + k + ' sub' + sub + ' rd' + rd + ' 應 mismatch：' + DM.gateOf(k, s)); nG++; }
+    tab('G', ['Hand MUX 矩陣', nG + ' 項']);
+  }
   function render() { w.dmRender(); }
   ok(!jerr.length, 'jsdomError：' + jerr.slice(0, 3).join(' | '));
   if (process.env.MUXALL_JSON) fs.writeFileSync(process.env.MUXALL_JSON, JSON.stringify(tables, null, 1));

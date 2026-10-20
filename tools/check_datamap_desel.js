@@ -28,7 +28,7 @@ ok(DM.deSelText(3, 6) === 'T1～T6＝第1～6欄', '3 → T1～T6＝第1～6欄�
 ok(DM.deSelText(5, 6) === 'T1～T7＝第1～7欄', '5 → T1～T7＝第1～7欄（' + DM.deSelText(5, 6) + '）');
 ok(DM.deSelText(14, 6) === 'T1～T7＝第2～8欄', '14 → T1～T7＝第2～8欄（' + DM.deSelText(14, 6) + '）');
 ok(DM.deSelText(63, 6) === 'T1～T10＝第1～10欄' && DM.deSelText(32, 6) === 'T1～T5＝第6～10欄', '0x3F → 第1～10欄、0x20 → 第6～10欄');
-ok(DM.deSelTs(15, 4).join() === '1,2,3,4,5,6,7,8' && DM.deSelTs(8, 4).join() === '4,5,6,7,8', '4 bit 欄位（NB／E512）同一規則：0xF → 第1～8欄、0x8 → 第4～8欄');
+ok(DM.deSelTs(15, 4).join() === '1,2,3,4,5,6,7,8' && DM.deSelTs(8, 4).join() === '4,5,6,7,8', '4 bit 欄位（NB；E512 v1.36.2 起改 6 bit）同一規則：0xF → 第1～8欄、0x8 → 第4～8欄');
 ok(DM.deSelText(0, 6) === '' && DM.deSelText(64, 6) === '', '0／超出 6 bit → 空');
 
 console.log('── ① T 使用分析（RD 定義：從最小的 T 開始用，T＝line buffer）');
