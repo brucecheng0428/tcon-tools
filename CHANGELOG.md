@@ -2,6 +2,28 @@
 
 ---
 
+## mLVDS Skew 計算工具 (calc) v1.6.2 — 2026-10-20 ｜ PATCH ｜ Hres./Hactive 自動防呆（Hactive 為準）
+
+判定依據：docs/VERSIONING.md 判定表 PATCH——防呆修正（Hres. 下拉與 Hactive 可能不一致，造成看到 2560、實際用 1920 算），沒有新增使用者能做的事；同一個 Hactive 的計算結果逐值不變 ⇒ PATCH，不標 ⚠ 輸出變更。
+
+### 起因
+- Bruce 2026-10-20 15:1x 回報 EM02 COF_CNT cof1 應 159 卻算出 119。查證：v1.6.0／v1.6.1 同樣條件 Hactive 2560 → 159、Hactive 1920 → 119；119＝floor((1920÷2÷2÷2−1)÷2)。Hactive 輸入框（預設 1920）和右上角 Hres. 下拉是兩個獨立欄位，下拉顯示 2560 時 Hactive 仍可能是 1920。
+- Bruce 決定：「CALC自動防呆，A，Hactive優先」。
+
+### 改動（calc.html）
+1. 影響範圍：計算只讀 Hactive（用在 UI cof_cnt 分界值；示波器 A Event B 不用 H）；Hres. 下拉沒有任何卡片直接讀，只負責寫入 Hactive ⇒ 以 Hactive 為唯一來源，不會讓其他卡片算錯。
+2. 改 Hactive（輸入／變更）→ Hres. 下拉自動跟著變；不在清單（1920／2560／3440／3840）內的值顯示「—」（新增隱藏選項 value=custom）。
+3. 選 Hres. 下拉 → 把該值寫入 Hactive（照舊），寫完兩者一致。
+4. 載入時、瀏覽器還原表單（pageshow）時、按計算前，都再以 Hactive 校正一次下拉 ⇒ 兩者不一致時一律以 Hactive 為準，畫面上的 Hres. 會改成實際用來計算的值。
+5. calc-guide（繁／簡／英）基本參數說明補一句「以 Hactive 為準」。
+6. common/version.js calc v1.6.2；calc.html／index.html `?v=20261020calc162`。
+
+### 測試
+- jsdom 實頁 15 項 0 fail：載入同步；輸入 2560／1366（→「—」）；選 3440／2560；強制不一致（下拉 2560、Hactive 1920）按計算 → 下拉改 1920、用 1920 算；pageshow 校正；Bruce 條件 H2560：EM02 Dual 159／Single 319、EM01 Dual 319／Single 639、X1 960；H3840／3440／1920 Single EM01 959／859／479。
+- 計算段落與 v1.6.1 逐字相同；矩陣 4100/0 照舊通過。
+- 派工 238188112907149312。
+
+
 ## mLVDS Skew 計算工具 (calc) v1.6.1 — 2026-10-20 ｜ PATCH ｜ 示波器 A Event B 不再除以 Gate（一律當 Single）
 
 ⚠ 輸出變更：過去選 **Dual (2)** 時「示波器 A Event B 設定」的 B event 值不再成立（新值＝選 Single 的值）。選 Single 的結果、以及 **UI cof_cnt 分界值（Single／Dual 都）逐值不變**。
