@@ -2,6 +2,26 @@
 
 ---
 
+## mLVDS Skew 計算工具 (calc) v1.9.0 — 2026-10-21 ｜ MINOR ｜ 眼圖預覽（依觸發類型）、CLK／data 全頁同色
+
+判定依據：docs/VERSIONING.md 判定表 MINOR——新增使用者看得到的功能（眼圖預覽）；X（B event／延遲 t）與 cof 值逐值不變 ⇒ MINOR，不標 ⚠ 輸出變更。
+
+### 起因
+- Bruce 2026-10-20 23:27（附手繪 3 張＋LeCroy 實際眼圖）：選不同示波器觸發方式要能預覽眼圖。
+- 23:4x：「clk顏色跟data顏色，整個網頁都要一致」。
+- 23:57 草稿留言：A Event B 正負緣「直接給兩張圖」（正緣、負緣都顯示，告訴使用者兩種都有可能），不要算奇偶；延遲觸發正負緣就是他畫的 CLK 中間 X 型眼圖。
+- 2026-10-21 00:0x：「1.9.0 版可以上線了」。
+
+### 改動（calc.html）
+1. 示意圖卡最下面新增「眼圖預覽」：只數正緣＝正緣眼圖；只數負緣＝負緣眼圖；A Event B（正負緣）＝正緣、負緣兩張並列並註明兩種都有可能；延遲觸發 B＝正緣／負緣＝該邊緣；B＝正負緣＝正負緣疊加眼圖（CLK X 型）。一行字寫判斷；眼圖與 X 值無關。
+2. 示意眼圖 ±1.15 UI、觸發點在中間、data 轉態在 ±½ UI（CLK 邊緣在 bit 正中間，TI SLDA007A 圖 7），不含抖動；手機兩張自動上下排。
+3. CLK／data 顏色收成共用常數 SC_CLK（#f472b6）／SC_DATA（#22d3ee），眼圖、時間軸圖、bit 排列圖共用，設定卡靜態圖同 hex；延遲 offset 段原本青色（與 data 撞色）改紫色 #a78bfa。
+4. calc-guide（繁／簡／英）各補一句；common/version.js calc v1.9.0；calc.html／index.html version.js `?v=20261020calc190`。
+
+### 測試
+- jsdom：四種觸發類型 × Hactive 2 × bits 2 × pairs 2 × gate 2 × R 2 × ch 2 × 顆數 1–8 × EM 2＝4096 組，X 與 cof 表和 v1.8.0（origin/main 81f6334）逐值相同；眼圖 7 種情境（張數、標題、CLK 曲線數）、顏色常數、三語無漏翻，4142/0。
+
+
 ## mLVDS Skew 計算工具 (calc) v1.8.0 — 2026-10-20 ｜ MINOR ｜ 示波器觸發類型（正負緣／正緣／負緣／A 後延遲）、cof 綠線改畫在 driver 交界
 
 判定依據：docs/VERSIONING.md 判定表 MINOR——新增使用者能做的事（示波器觸發類型下拉、延遲觸發的 offset 時間與 CLK 頻率欄）；預設 (a) A Event B（B＝正負緣）的 B event 值與 cof_cnt 分界值逐值不變 ⇒ MINOR，不標 ⚠ 輸出變更。
