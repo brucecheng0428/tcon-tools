@@ -2,6 +2,29 @@
 
 ---
 
+## Data Mapping (datamap) v1.36.3 — 2026-10-20 ｜ PATCH ｜ NB Hand MUX2 與 Auto 統一（列名、Gate 文字、③ MUX 三層）
+
+判定依據：docs/VERSIONING.md——修不一致（NB Hand MUX2 顯示與 Auto 不同），沒有新增操作、寫入暫存器不變 ⇒ PATCH；匯出／寫入 byte 不變（不標輸出變更）。
+
+### 起因
+- MNT 結案覆核（型號/MNT §14.8.8，派工 238115258781999104）發現：NB E503／E501A／E501B／DAZ6138／6139 Hand 開、PANEL_MODE 3＋SUB[0]＝1（MUX2）時，② 列名仍 Line n-1／n-2、Gate 文字顯示 Tri-Gate、③ 不畫 MUX 三層（Hand≠Auto 40 組）。
+- Bruce 10/20 11:5x「NB 的部分就處理。但是如果還是有不確定地方，還是要等rd回覆，我們可以確定的地方就先處理。」（派工 238148574474215424）
+
+### 改動（都比照 v1.36.2 MNT 的同一條資料流 muxPanel → gateOf／rowsFor／pvMuxFromT）
+1. **② 列名**（datamap-core.js rowsFor）：Hand MUX2（gateOf＝dual 且 muxPanel MUX2）一律 Line n-SWk，不再限 MNT。DAZ6111／DAZ7353 PANEL 只有 0～2，muxPanel 不回 MUX，不受影響。
+2. **Gate 文字**（datamap-core.js gateText）：NB e50x PANEL_MODE 3 依 SUB[0] 顯示 MUX2／MUX3（同 Auto autoGateText、MNT）。依據：RM8100x_for_FAE_20240925_20250311.model PANEL_MODE 3＝LTPS、SUB_PANEL_MODE「[0]: 0: MUX3, 1: MUX2」（:8510-8545）。Python UI V5.0.4 依 PANEL_MODE 3 一律顯示 Tri-Gate（RomCodeProcessUI.py:28998-29016），沒有 MUX2 概念，網頁照 model 與 Auto（決策 A37、Bruce 10/16「不用依照python」）。
+3. **③ 接線圖**（datamap.html pvModel）：NB Hand MUX2 走 pvMntMuxModel（AUTO.wiringFromState dual → pvMuxFromT 三層，同 MNT Hand MUX2）；Mirror 照 MNT Hand。
+4. **NB Hand MUX3 提示**：表格不適用的說明改寫 MUX3（只有一組 force_sel、沒有 SW3 暫存器；決策 A11 不變，仍不做 NB 手動 MUX3／Tri 表）。
+
+### 不動（不確定，列 datamap/RD問答/待問RD清單_總表 NB 段）
+- MUX2＋RD_MODE 3：NB model RD_MODE 只定義 0～2，維持 v1.36.2 mismatch（表格隱藏）。
+- MUX2＋RD_MODE 2：model 2＝TRI-GATE／MUX3，與 SUB MUX2 矛盾；維持 v1.36.2（比照原廠 MNT Tool 當 MUX2）。
+- NB Hand Gate 下拉仍只有 Single／Dual（決策 A11）；MUX2 只在讀回／匯入／由 Auto 開 Hand 時出現（灰色項目）。
+
+### 測試
+- tools/check_datamap_nbmux2.js（新增；由 check_datamap_mntclose.js 改）：gateOf 矩陣 MNT 3＋NB 5 型號 × panel × sub × rd × triGate、頁面 Hand MUX2 表格／Gate 文字／③ 三層、Hand＝Auto ③ 逐 Data 線、NB Hand MUX2 × Mirror、NB Hand MUX3、DAZ6111／7353。結果見派工回報。
+- common/version.js datamap v1.36.3；datamap.html／index.html `?v=20261020dm1363`。
+
 ## Data Mapping (datamap) v1.36.2 — 2026-10-20 ｜ PATCH ｜ ⚠ 輸出變更（E512 FORCE_DE_SEL 位址）｜ MNT 結案前 2 項：Hand MUX2 表格不顯示、E512 FORCE_DE_SEL 位址
 
 判定依據：docs/VERSIONING.md——修錯（Hand MUX2 判成「不是 Single／Dual／Tri 組合」、E512 欄位位址錯），沒有新增操作 ⇒ PATCH；E512 匯出／寫入的 FORCE_DE_SEL 位址改變 ⇒ 標 ⚠ 輸出變更（R1）。

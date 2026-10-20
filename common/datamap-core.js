@@ -931,7 +931,7 @@
   function gateText(key, s) {
     if (MODELS[key].kind === 'en01') return en01GateText(s);
     var p = s.panel | 0;   // PY 先設 Non-Hand Mode（:28962），緊接著又依 PANEL_MODE 覆寫（:28998），所以實際顯示一律依 PANEL_MODE
-    if (p === 3 && MODELS[key].kind === 'mnt') { var J = muxPanel(key, s); if (J.mux) return MNT_GATES[J.mux === 2 ? 3 : 4]; }   // v1.35.29：MNT LTPS＝MUX2／MUX3（Tri-Gate＝BOE tri-gate）
+    if (p === 3 && (MODELS[key].kind === 'mnt' || MODELS[key].sem === 'e50x')) { var J = muxPanel(key, s); if (J.mux) return MNT_GATES[J.mux === 2 ? 3 : 4]; }   // v1.36.3：NB e50x 同（Python UI 依 PANEL_MODE 顯示 Tri-Gate；model PANEL_MODE 3＝LTPS、SUB[0] 0 MUX3／1 MUX2，同 Auto autoGateText）   // v1.35.29：MNT LTPS＝MUX2／MUX3（Tri-Gate＝BOE tri-gate）
     return p <= 1 ? GATE_ITEMS[1] : (p === 2 ? GATE_ITEMS[2] : GATE_ITEMS[3]);
   }
   function inputDict(key) { var se = semOf(key); return se === 'daz7353' ? D7353 : (se === 'daz6111' ? D6111 : GN1); }
@@ -1915,7 +1915,7 @@
       });
     }
     if (!opt.four && triOn(key, s)) return TRI_ROWS.map(function (R, i) { return { r: i, label: triLabel(key, s, i), show: true, hide: null, copyOf: null }; });   // v1.35.29：MUX3＝Line n-SWk
-    var g = gateOf(key, s), mnt = M.kind === 'mnt', out = [], mx = mnt && g === 'dual' && muxPanel(key, s).mux === 2;
+    var g = gateOf(key, s), mnt = M.kind === 'mnt', out = [], mx = g === 'dual' && muxPanel(key, s).mux === 2;   // v1.36.3（Bruce 10/20「NB 的部分就處理」；派工 238148574474215424）：NB e50x（E503／E501A／E501B／DAZ6138／6139）Hand MUX2 也是 Line n-SWk（muxPanel 只對 MNT／e50x 回 mux，DAZ6111／7353 不受影響）
     for (var r = 0; r < 4; r++) {
       var suf = '（_' + r + '）', lb;
       if (g === 'dual') lb = lineName((r >> 1) + 1, (r & 1) + 1, mx ? 'mux' : 'gate') + suf;   // v1.35.29：MNT LTPS MUX2＝Line n-SWk
