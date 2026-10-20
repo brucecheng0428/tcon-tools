@@ -50,6 +50,14 @@
   }
   .copy-btn:active { opacity: 0.8; }
   .xi-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  /* v1.7.0 示波器 A Event B 示意圖：水平時間軸（左欄訊號名固定、右側可左右滑動）＋ bit 放大圖 */
+  .scope-fig { display: flex; border: 1px solid #22304d; border-radius: 8px; overflow: hidden; background: #020617; }
+  .scope-fig-lab { flex: 0 0 auto; }
+  .scope-fig-scroll { flex: 1 1 auto; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .scope-fig svg { display: block; max-width: none; }
+  .scope-hint { font-size: 12px; color: #94a3b8; margin: 4px 0 6px; }
+  .scope-sub { font-size: 13px; font-weight: 700; color: #cbd5e1; margin: 14px 0 6px; }
+  #scope-bits svg { width: 100%; max-width: 520px; height: auto; display: block; border-radius: 8px; }
   /* ─── CALCULATE BUTTON ───────────────────────── */
   .calc-btn-wrap { margin-bottom: 12px; }
   .calc-btn {
@@ -590,7 +598,6 @@
     <div class="card-header"><span class="icon">🟫</span><span data-i18n="calc.xiChannelTitle">Xn Channel（X1 最靠近 TCON）</span></div>
     <div class="card-body">
       <div id="x1-container"></div>
-      <div class="xi-grid" id="xi-grid"></div>
     </div>
   </div>
 
@@ -653,6 +660,18 @@
       </div>
     </div>
     </div><!-- /rxtx-cards-row results -->
+
+    <!-- v1.7.0 示波器 A Event B 示意圖（Bruce 2026-10-20 草稿 v5 定案「v5 ok」） -->
+    <div class="card" id="calc-card-osc-diagram">
+      <div class="card-header"><span class="icon">📺</span><span data-i18n="calc.scopeDiagTitle">示波器 A Event B 示意圖</span></div>
+      <div class="card-body">
+        <div class="scope-hint" data-i18n="calc.scopeDiagHint">只畫一個 Port，圖可左右滑動。紅線＝X1、X2…；綠線＝cof_cnt 分界。</div>
+        <div class="scope-fig"><div class="scope-fig-lab" id="scope-lab"></div><div class="scope-fig-scroll" id="scope-main" data-noswipe></div></div>
+        <div class="scope-hint" id="scope-note"></div>
+        <div class="scope-sub" data-i18n="calc.scopeBitsTitle">Driver 開頭的 bit 排列</div>
+        <div id="scope-bits"></div>
+      </div>
+    </div>
   </div><!-- /results -->
 
   <!-- Skew 檔位參照表 -->
@@ -726,14 +745,40 @@
 </div><!-- /container -->
 
 <!-- 共用 JS（i18n 必須先於 common.js 載入） -->
-<script src="common/version.js?v=20261020calc162"></script>
+<script src="common/version.js?v=20261020calc170"></script>
 <script src="common/i18n.js?v=20260907dg1130"></script>
+<script>
+/* v1.7.0：calc 專用翻譯鍵（示意圖、單一 Channel 欄位）。在 common.js 套用語言之前併入 I18N。 */
+Object.assign(I18N, {
+  'calc.xiChannelTitle': { 'zh-TW': 'Driver Channel', 'en': 'Driver Channel', 'zh-CN': 'Driver Channel' },
+  'calc.chPerDrv':       { 'zh-TW': '每顆 Driver Channel 數（各顆相同）', 'en': 'Channels per Driver (same for all)', 'zh-CN': '每颗 Driver Channel 数（各颗相同）' },
+  'calc.drvChipsHint':   { 'zh-TW': '點選顆數後出現 Channel 輸入欄', 'en': 'After selecting, the Channel input appears', 'zh-CN': '点选颗数后出现 Channel 输入栏' },
+  'calc.scopeDiagTitle': { 'zh-TW': '示波器 A Event B 示意圖', 'en': 'Oscilloscope A Event B Diagram', 'zh-CN': '示波器 A Event B 示意图' },
+  'calc.scopeDiagHint':  { 'zh-TW': '只畫一個 Port，圖可左右滑動。紅線＝X1、X2…；綠線＝cof_cnt 分界。', 'en': 'One Port only; swipe left/right. Red = X1, X2…; green = cof_cnt boundary.', 'zh-CN': '只画一个 Port，图可左右滑动。红线＝X1、X2…；绿线＝cof_cnt 分界。' },
+  'calc.scopeBitsTitle': { 'zh-TW': 'Driver 開頭的 bit 排列', 'en': 'Bit order at the start of a Driver', 'zh-CN': 'Driver 开头的 bit 排列' },
+  'calc.sgPrev1':  { 'zh-TW': '前一筆', 'en': 'Previous', 'zh-CN': '前一笔' },
+  'calc.sgPrev2':  { 'zh-TW': '最後 data', 'en': 'last data', 'zh-CN': '最后 data' },
+  'calc.sgEnd1':   { 'zh-TW': '資料結束', 'en': 'Data end', 'zh-CN': '数据结束' },
+  'calc.sgEnd2':   { 'zh-TW': '後面空白', 'en': 'then blank', 'zh-CN': '后面空白' },
+  'calc.sgXstbF':  { 'zh-TW': '↓ 在 data 內', 'en': '↓ inside data', 'zh-CN': '↓ 在 data 内' },
+  'calc.sgPct':    { 'zh-TW': 'Driver{i} 的 {p}%', 'en': '{p}% of Driver{i}', 'zh-CN': 'Driver{i} 的 {p}%' },
+  'calc.sgPx':     { 'zh-TW': '該顆第 {n} px', 'en': 'pixel {n} of it', 'zh-CN': '该颗第 {n} px' },
+  'calc.sgNotIn':  { 'zh-TW': '不在 Driver{i}', 'en': 'Not in Driver{i}', 'zh-CN': '不在 Driver{i}' },
+  'calc.sgOver':   { 'zh-TW': '超出', 'en': 'beyond', 'zh-CN': '超出' },
+  'calc.sgScope1': { 'zh-TW': '示波器', 'en': 'Scope', 'zh-CN': '示波器' },
+  'calc.sgScope2': { 'zh-TW': 'X 值', 'en': 'X', 'zh-CN': 'X 值' },
+  'calc.sgNoteR':  { 'zh-TW': 'R＝{r} 時數字照算，圖上 XSTB↑ 仍畫在 RST 前（這段不照比例）。', 'en': 'With R = {r} the numbers are unchanged; XSTB↑ is still drawn before RST (not to scale).', 'zh-CN': 'R＝{r} 时数字照算，图上 XSTB↑ 仍画在 RST 前（这段不照比例）。' },
+  'calc.sgBitsEv': { 'zh-TW': 'event（第 R 個＝RST↓＝第一個 data）', 'en': 'event (R-th = RST↓ = first data)', 'zh-CN': 'event（第 R 个＝RST↓＝第一个 data）' },
+  'calc.sgBitsPx': { 'zh-TW': '1 pixel＝{b} bit ÷ {p} pair＝{e} ev（{c} CLK）', 'en': '1 pixel = {b} bit ÷ {p} pair = {e} ev ({c} CLK)', 'zh-CN': '1 pixel＝{b} bit ÷ {p} pair＝{e} ev（{c} CLK）' },
+  'calc.sgBitsClk':{ 'zh-TW': 'CLK 正／負緣在每個 bit 正中間', 'en': 'CLK rising/falling edges sit at the centre of each bit', 'zh-CN': 'CLK 正／负缘在每个 bit 正中间' }
+});
+</script>
 <script src="common/common.js?v=20260523"></script>
 <script>
 // ─── State ────────────────────────────────────────────────────────────
 let selectedChips = 0;
 let lastCofs = [];
-let manualEdited = new Set();
+let lastScope = null; // v1.7.0 示意圖用（計算結果的副本，不回寫計算）
 const EM_OPTS = {
   'EM01': ['-', 'cof1', 'cof2', 'cof3'],
   'EM02': ['-', 'cof1', 'cof2', 'cof3', 'cof4', 'cof5', 'cof6', 'cof7']
@@ -749,76 +794,26 @@ function selectChips(n) {
 }
 
 function buildXiInputs(n) {
-  const sec          = document.getElementById('xi-section');
-  const x1Container  = document.getElementById('x1-container');
-  const grid         = document.getElementById('xi-grid');
-
+  // v1.7.0（Bruce 2026-10-20 17:44「一定都會強制讓各顆 ch 都是一樣的」）：只留一個 Channel 欄位，計算時套到每一顆。
+  const sec         = document.getElementById('xi-section');
+  const x1Container = document.getElementById('x1-container');
+  const prev = document.getElementById('x1');
+  const keep = prev ? prev.value : '864';
   x1Container.innerHTML = '';
-  grid.innerHTML = '';
-  manualEdited.clear();
 
   const x1Field = document.createElement('div');
   x1Field.className = 'field';
   x1Field.id = 'f-x1';
   x1Field.innerHTML = `
-    <label>X1 Channel<span class="required">*</span></label>
-    <div class="x1-input-row">
-      <input type="number" id="x1" value="864" min="1" step="1">
-      <button class="copy-btn" onclick="copyX1ToAll()">Copy to All</button>
-    </div>
+    <label><span data-i18n="calc.chPerDrv">${t('calc.chPerDrv')}</span><span class="required">*</span></label>
+    <input type="number" id="x1" value="${keep}" min="1" step="1">
     <div class="error-msg">${t('common.errorPosInt')}</div>
   `;
   x1Container.appendChild(x1Field);
-  const x1Inp = x1Field.querySelector('input');
-  attachClearError(x1Inp, false);
-
-  x1Inp.addEventListener('input', function() {
-    const val = this.value;
-    for (let j = 2; j <= selectedChips; j++) {
-      if (!manualEdited.has(j)) {
-        const inp = document.getElementById(`x${j}`);
-        if (inp) {
-          inp.value = val;
-          const field = inp.closest('.field');
-          if (field) { field.classList.remove('has-error'); inp.classList.remove('error'); }
-        }
-      }
-    }
-  });
-
-  for (let i = 2; i <= n; i++) {
-    const div = document.createElement('div');
-    div.className = 'field';
-    div.id = `f-x${i}`;
-    div.innerHTML = `
-      <label>X${i} Channel<span class="required">*</span></label>
-      <input type="number" id="x${i}" value="864" min="1" step="1">
-      <div class="error-msg">${t('common.errorPosInt')}</div>
-    `;
-    grid.appendChild(div);
-    const inp = div.querySelector('input');
-    inp.addEventListener('input', () => { manualEdited.add(i); });
-    attachClearError(inp, false);
-  }
+  attachClearError(x1Field.querySelector('input'), false);
 
   sec.style.display = 'block';
   document.getElementById('results').style.display = 'none';
-}
-
-// ─── Copy X1 to all Xn ───────────────────────────────────────────────
-function copyX1ToAll() {
-  const x1Val = document.getElementById('x1').value;
-  if (!x1Val) { alert(t('alert.enterX1First')); return; }
-  for (let i = 2; i <= selectedChips; i++) {
-    manualEdited.delete(i);
-    const inp = document.getElementById(`x${i}`);
-    inp.value = x1Val;
-    const field = inp.closest('.field');
-    if (field) {
-      field.classList.remove('has-error');
-      inp.classList.remove('error');
-    }
-  }
 }
 
 // ─── Real-time error clearing ─────────────────────────────────────────
@@ -939,12 +934,12 @@ function calculate() {
   }
 
   const xiVals = [];
-  for (let i = 1; i <= selectedChips; i++) {
-    const v   = document.getElementById(`x${i}`).value;
+  if (selectedChips > 0) {
+    const v   = document.getElementById('x1').value;
     const err = !posInt(v);
-    setError(`f-x${i}`, err);
+    setError('f-x1', err);
     if (err) valid = false;
-    else xiVals.push(parseInt(v));
+    else for (let i = 1; i <= selectedChips; i++) xiVals.push(parseInt(v)); // 各顆相同（v1.7.0）
   }
 
   if (!valid) {
@@ -984,6 +979,8 @@ function calculate() {
   });
 
   renderCofTable(cofs, N);
+  lastScope = { N: N, R: R, B: B, Pa: Pa, xs: xiVals.slice(), ev: events.slice(), cofs: cofs.slice() };
+  drawScope();
 
   const safeH    = (!isNaN(H) && H > 0) ? H : '—';
   const safeGate = (!isNaN(gate) && gate > 0) ? gate : '—';
@@ -993,6 +990,145 @@ function calculate() {
 
   document.getElementById('results').style.display = 'block';
   document.getElementById('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+
+// ─── v1.7.0 示波器 A Event B 示意圖 ─────────────────────────────────────
+// 只畫圖，不改計算：X 值、cof 值都直接用 calculate() 的結果（lastScope、cof 表同一套 EM01/EM02 規則）。
+// 畫法依 Bruce 2026-10-20 草稿 v5 定案：水平時間軸、只畫一個 Port；XSTB↑ 在 Hblank（前一筆最後 data 之後、RST 之前）、
+// XSTB↓ 在 RST 之後、data 內；第一個 data＝第 R 個 event（RST↓）。bit 放大圖依 TI SLDA007A §6.2（每對 pair 一色、LSB 先；
+// 6 pair 時 LV3～5 是下一個 pixel）與 §4.1 圖 7（CLK 正負緣在 bit 正中間）。
+function scEsc(v) { return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;'); }
+function scT(x, y, str, o) {
+  o = o || {};
+  return '<text x="' + x + '" y="' + y + '" font-size="' + (o.fs || 13) + '" fill="' + (o.c || '#e5edf8') + '"'
+    + (o.a ? ' text-anchor="' + o.a + '"' : '') + (o.b ? ' font-weight="700"' : '')
+    + ' font-family="-apple-system,PingFang TC,Noto Sans TC,sans-serif">' + scEsc(str) + '</text>';
+}
+function drawScope() {
+  const main = document.getElementById('scope-main');
+  if (!main || !lastScope) return;
+  const p = lastScope;
+  const em = document.getElementById('em-select').value;
+  const emOpts = EM_OPTS[em], maxCof = emOpts.length - 1;
+  const D = p.xs.map(x => Math.floor(x * p.B / p.Pa));
+  const Sx = [p.R]; for (let i = 0; i < p.N; i++) Sx.push(Sx[i] + D[i]);
+  const epp = 3 * p.B / p.Pa;                 // 每 pixel 佔幾個 event
+  const VH = 330, yRul = 26, yX0 = 44, yX1 = 74, yD0 = 90, yD1 = 150, yC0 = 166, yC1 = 190, yLab = 212, yCof = 278;
+  const k = 340 / Math.min.apply(null, D);
+  const xP0 = 8, xP1 = 78, xA = 132, gapMin = 60;
+  const notScale = p.R * k < gapMin;
+  const xR = notScale ? xA + gapMin : xA + p.R * k;
+  const X = e => (e >= p.R ? xR + (e - p.R) * k : (p.R > 0 ? xA + e * (xR - xA) / p.R : xA));
+  const xEnd = X(Sx[p.N]), VW = Math.ceil(xEnd + 150);
+  let s = '<svg width="' + VW + '" height="' + VH + '" viewBox="0 0 ' + VW + ' ' + VH + '" xmlns="http://www.w3.org/2000/svg"><rect width="' + VW + '" height="' + VH + '" fill="#020617"/>';
+  // 前一筆最後 data、Hblank、RST（LV0）
+  s += '<rect x="' + xP0 + '" y="' + yD0 + '" width="' + (xP1 - xP0) + '" height="' + (yD1 - yD0) + '" fill="#1f2937" stroke="#64748b"/>'
+    + scT((xP0 + xP1) / 2, yD0 + 26, t('calc.sgPrev1'), { a: 'middle', c: '#cbd5e1' }) + scT((xP0 + xP1) / 2, yD0 + 44, t('calc.sgPrev2'), { a: 'middle', c: '#cbd5e1' });
+  s += '<rect x="' + xP1 + '" y="' + yD0 + '" width="' + (xR - 26 - xP1) + '" height="' + (yD1 - yD0) + '" fill="#0b1324" stroke="#334155" stroke-dasharray="4 3"/>'
+    + scT(xP1 + 4, yD1 - 10, 'Hblank', { c: '#fbbf24', b: 1, fs: 12 });
+  s += '<path d="M ' + (xR - 26) + ' ' + (yD0 + 40) + ' L ' + (xR - 24) + ' ' + (yD0 + 14) + ' L ' + (xR - 2) + ' ' + (yD0 + 14) + ' L ' + xR + ' ' + (yD0 + 40) + '" stroke="#22d3ee" stroke-width="2.4" fill="#164e63"/>'
+    + scT(xR - 13, yD0 + 10, 'RST', { a: 'middle', c: '#67e8f9', b: 1, fs: 12 });
+  // Driver 區段
+  const cols = ['#1e3a8a', '#3b0764', '#064e3b', '#7c2d12'];
+  let pxAcc = 0;
+  for (let i = 0; i < p.N; i++) {
+    const xa = X(Sx[i]), xb = X(Sx[i + 1]);
+    const px0 = Math.floor(pxAcc + 1e-9); pxAcc += p.xs[i] / 3; const px1 = Math.floor(pxAcc - 1e-9);
+    s += '<rect x="' + xa + '" y="' + yD0 + '" width="' + (xb - xa) + '" height="' + (yD1 - yD0) + '" fill="' + cols[i % 4] + '" stroke="#94a3b8"/>';
+    s += scT(xa + 8, yD0 + 20, 'Driver ' + (i + 1), { b: 1, fs: 15, c: '#fff' })
+      + scT(xa + 8, yD0 + 38, p.xs[i] + ' ch · ' + (Math.round(p.xs[i] / 3 * 100) / 100) + ' px', { c: '#fff' })
+      + scT(xa + 8, yD0 + 54, D[i] + ' ev · ' + (D[i] / 2) + ' CLK', { c: '#fff' })
+      + scT(xb - 8, yD1 - 8, 'pixel ' + px0 + '～' + px1, { a: 'end', fs: 12, c: '#cbd5e1' });
+  }
+  s += scT(xEnd + 8, yD0 + 30, t('calc.sgEnd1'), { c: '#9fb0c8' }) + scT(xEnd + 8, yD0 + 48, t('calc.sgEnd2'), { c: '#9fb0c8' });
+  // 刻度
+  const tick = (x, lab, c) => { s += '<line x1="' + x + '" y1="' + (yRul + 4) + '" x2="' + x + '" y2="' + (yRul + 12) + '" stroke="' + (c || '#94a3b8') + '"/>' + scT(x, yRul, lab, { a: 'middle', fs: 12, c: c || '#cbd5e1' }); };
+  s += '<line x1="' + xP0 + '" y1="' + (yRul + 8) + '" x2="' + (xEnd + 20) + '" y2="' + (yRul + 8) + '" stroke="#475569"/>';
+  tick(xA, '0', '#fbbf24'); if (!notScale || p.R > 0) tick(xR, String(p.R));
+  for (let i = 1; i <= p.N; i++) tick(X(Sx[i]), String(Sx[i]));
+  // XSTB 窄脈衝
+  const xF = xR + 16;
+  s += '<path d="M ' + xP0 + ' ' + yX1 + ' L ' + xA + ' ' + yX1 + ' L ' + xA + ' ' + yX0 + ' L ' + xF + ' ' + yX0 + ' L ' + xF + ' ' + yX1 + ' L ' + (xEnd + 20) + ' ' + yX1 + '" stroke="#a3e635" stroke-width="2.4" fill="none"/>';
+  s += scT(xF + 6, yX0 + 10, t('calc.sgXstbF'), { c: '#a3e635', fs: 12 });
+  // A 線
+  s += '<line x1="' + xA + '" y1="' + (yRul + 12) + '" x2="' + xA + '" y2="' + yC1 + '" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="6 4"/>';
+  s += '<rect x="' + (xA - 44) + '" y="' + (yLab - 2) + '" width="88" height="40" rx="4" fill="#fbbf24"/>'
+    + scT(xA, yLab + 14, 'A：XSTB↑', { a: 'middle', c: '#111', b: 1 }) + scT(xA, yLab + 31, 'event 0', { a: 'middle', c: '#111', fs: 12 });
+  // CLK（DDR 示意，週期不照比例）
+  let d = 'M ' + xR + ' ' + yC1, lv = yC1;
+  for (let xx = xR + 4; xx < xEnd; xx += 8) { d += ' L ' + xx + ' ' + lv; lv = (lv === yC1) ? yC0 : yC1; d += ' L ' + xx + ' ' + lv; }
+  d += ' L ' + xEnd + ' ' + lv;
+  s += '<line x1="' + xP0 + '" y1="' + yC1 + '" x2="' + xR + '" y2="' + yC1 + '" stroke="#f472b6" stroke-width="1.5" stroke-dasharray="3 3"/>';
+  s += '<path d="' + d + '" stroke="#f472b6" stroke-width="1.2" fill="none" opacity="0.85"/>';
+  // cof 分界（值與 cof 表相同：EM02＝floor(EM01÷2)，End 2047）
+  for (let i = 0; i < p.N; i++) {
+    const name = (i < maxCof) ? emOpts[i + 1] : '-';
+    const lastPx = (i < p.N - 1) ? p.cofs[i] : null;
+    const val = (lastPx !== null) ? (em === 'EM02' ? Math.floor(lastPx / 2) : lastPx) : 2047;
+    let xc, over = false;
+    if (lastPx !== null) { xc = X(p.R + (lastPx + 1) * epp); if (xc > xEnd + 0.5) { over = true; xc = Math.min(xc, VW - 70); } } else xc = xEnd;
+    const colr = over ? '#f87171' : '#4ade80';
+    s += '<line x1="' + xc + '" y1="' + (yRul + 12) + '" x2="' + xc + '" y2="' + (yCof - 2) + '" stroke="' + colr + '" stroke-width="2"' + (lastPx === null || over ? ' stroke-dasharray="3 3"' : '') + '/>';
+    const lab = (name !== '-' ? name : '-') + '＝' + val + (over ? ' ' + t('calc.sgOver') : '');
+    s += '<rect x="' + (xc - 62) + '" y="' + yCof + '" width="124" height="26" rx="4" fill="#052e16" stroke="' + colr + '"/>'
+      + scT(xc, yCof + 18, lab, { a: 'middle', c: over ? '#fca5a5' : '#4ade80', b: 1, fs: 14 });
+  }
+  // X 標線
+  for (let i = 0; i < p.N; i++) {
+    const xv = p.ev[i], x = X(xv), inS = xv - Sx[i];
+    const pct = D[i] ? Math.round(inS / D[i] * 1000) / 10 : 0;
+    const inside = xv >= Sx[i] && xv <= Sx[i + 1];
+    s += '<line x1="' + x + '" y1="' + (yRul + 12) + '" x2="' + x + '" y2="' + (yLab - 2) + '" stroke="#f87171" stroke-width="2.4"/>';
+    s += '<polygon points="' + x + ',' + (yD1 + 2) + ' ' + (x - 6) + ',' + (yD1 + 14) + ' ' + (x + 6) + ',' + (yD1 + 14) + '" fill="#f87171"/>';
+    s += '<rect x="' + (x - 66) + '" y="' + (yLab - 2) + '" width="132" height="58" rx="5" fill="#2a0a0a" stroke="#f87171"/>';
+    s += scT(x, yLab + 17, 'X' + (i + 1) + ' = ' + xv, { a: 'middle', c: '#fecaca', b: 1, fs: 17 });
+    s += scT(x, yLab + 34, inside ? t('calc.sgPct', { i: i + 1, p: pct }) : t('calc.sgNotIn', { i: i + 1 }), { a: 'middle', c: '#fff' });
+    if (inside) s += scT(x, yLab + 50, t('calc.sgPx', { n: Math.floor(inS / epp) }), { a: 'middle', c: '#cbd5e1', fs: 12 });
+  }
+  s += '</svg>';
+  main.innerHTML = s;
+  // 左側固定訊號名稱
+  let L = '<svg width="62" height="' + VH + '" viewBox="0 0 62 ' + VH + '" xmlns="http://www.w3.org/2000/svg"><rect width="62" height="' + VH + '" fill="#0b1324"/>';
+  L += scT(6, yRul + 4, 'event', { c: '#9fb0c8', fs: 12 }) + scT(6, (yX0 + yX1) / 2 + 5, 'XSTB', { c: '#a3e635', b: 1 })
+    + scT(6, yD0 + 24, 'mLVDS', { c: '#22d3ee', b: 1 }) + scT(6, yD0 + 42, 'data', { c: '#22d3ee', b: 1 })
+    + scT(6, (yC0 + yC1) / 2 + 5, 'CLK', { c: '#f472b6', b: 1 })
+    + scT(6, yLab + 24, t('calc.sgScope1'), { c: '#fecaca', fs: 12 }) + scT(6, yLab + 40, t('calc.sgScope2'), { c: '#fecaca', fs: 12 })
+    + scT(6, yCof + 18, 'cof', { c: '#4ade80', b: 1 });
+  document.getElementById('scope-lab').innerHTML = L + '</svg>';
+  document.getElementById('scope-note').textContent = notScale ? t('calc.sgNoteR', { r: p.R }) : '';
+  drawScopeBits(p.B, p.Pa, epp);
+}
+function drawScopeBits(B, Pa, epp) {
+  const cols = 2 * B, VW = 400, x0 = 50, cw = (VW - x0 - 4) / cols, rh = 32, VH = 58 + (Pa + 1) * rh + 52;
+  const pxPerGroup = Pa / 3, fill = ['#1e3a8a', '#3b0764', '#064e3b', '#7c2d12'], leg = ['#93c5fd', '#d8b4fe', '#6ee7b7', '#fdba74'];
+  let s = '<svg viewBox="0 0 ' + VW + ' ' + VH + '" xmlns="http://www.w3.org/2000/svg"><rect width="' + VW + '" height="' + VH + '" fill="#020617"/>';
+  s += scT(x0, 16, t('calc.sgBitsEv'), { c: '#9fb0c8' });
+  for (let c = 0; c < cols; c++) if (c % 2 === 0 || cols <= 12) s += scT(x0 + c * cw + cw / 2, 36, c === 0 ? 'R' : '+' + c, { a: 'middle', fs: 11, c: c === 0 ? '#fbbf24' : '#cbd5e1' });
+  let y = 42;
+  s += scT(2, y + 19, 'CLK', { c: '#f472b6', b: 1, fs: 14 });
+  let lv = y + 22, d = 'M ' + x0 + ' ' + lv;
+  for (let c = 0; c < cols; c++) { const xe = x0 + c * cw + cw / 2; d += ' L ' + xe + ' ' + lv; lv = (lv === y + 22) ? y + 5 : y + 22; d += ' L ' + xe + ' ' + lv; }
+  d += ' L ' + (x0 + cols * cw) + ' ' + lv;
+  s += '<path d="' + d + '" stroke="#f472b6" stroke-width="2" fill="none"/>';
+  for (let c = 0; c < cols; c++) { const xe = x0 + c * cw + cw / 2; s += '<line x1="' + xe + '" y1="' + (y + 24) + '" x2="' + xe + '" y2="' + (42 + (Pa + 1) * rh) + '" stroke="#f472b6" stroke-width="1" stroke-dasharray="2 3" opacity="0.7"/>'; }
+  for (let r = 0; r < Pa; r++) {
+    y = 42 + (r + 1) * rh;
+    s += scT(2, y + 21, 'LV' + r, { c: '#22d3ee', b: 1, fs: 14 });
+    const color = 'RGB'[r % 3], pxIn = Math.floor(r / 3);
+    for (let c = 0; c < cols; c++) {
+      const px = Math.floor(c / B) * pxPerGroup + pxIn;
+      s += '<rect x="' + (x0 + c * cw) + '" y="' + (y + 3) + '" width="' + (cw - 1) + '" height="' + (rh - 6) + '" fill="' + fill[px % 4] + '"/>';
+      s += scT(x0 + c * cw + cw / 2, y + 21, color + (c % B), { a: 'middle', fs: cols > 12 ? 11 : 13, c: '#fff', b: 1 });
+    }
+  }
+  y = 42 + (Pa + 1) * rh + 14;
+  const lg = [];
+  for (let g = 0; g < 2; g++) for (let q = 0; q < pxPerGroup; q++) { const px = g * pxPerGroup + q; lg.push('<tspan fill="' + leg[px % 4] + '">■ pixel ' + px + '</tspan>'); }
+  s += '<text x="' + x0 + '" y="' + y + '" font-size="13" fill="#e5edf8">' + lg.join(' ') + '</text>';
+  s += scT(x0, y + 18, t('calc.sgBitsPx', { b: 3 * B, p: Pa, e: epp, c: epp / 2 }));
+  s += scT(x0, y + 36, t('calc.sgBitsClk'), { c: '#f9a8d4' });
+  document.getElementById('scope-bits').innerHTML = s + '</svg>';
 }
 
 // ─── Clear results on input / change ─────────────────────────────────
@@ -1027,6 +1163,7 @@ if (emSelect) {
   emSelect.addEventListener('change', () => {
     if (selectedChips > 0) {
       renderCofTable(lastCofs, selectedChips);
+      drawScope();
     }
   });
 }
@@ -1067,6 +1204,7 @@ window._onLangChange = function(lang) {
       sumEl.textContent = t('calc.summaryFmt', d);
     } catch(e) {}
   }
+  drawScope();
 };
 
 // ─── 示波器 Lightbox（雙指縮放 / 平移） ─────────────────────────────────

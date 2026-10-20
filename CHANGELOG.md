@@ -2,6 +2,32 @@
 
 ---
 
+## mLVDS Skew 計算工具 (calc) v1.7.0 — 2026-10-20 ｜ MINOR ｜ 示波器 A Event B 示意圖（水平時間軸＋bit 排列）、Channel 改單一欄位
+
+判定依據：docs/VERSIONING.md 判定表 MINOR——新增使用者看得到的功能（結果區新增「示波器 A Event B 示意圖」卡），並把 X1…Xn 多欄改成一個 Channel 欄位；計算公式不動，同一組輸入（各顆 ch 相同）的 B event 值與 cof_cnt 分界值逐值不變 ⇒ MINOR，不標 ⚠ 輸出變更。
+
+### 起因
+- Bruce 2026-10-20 16:4x：示波器觸發設定卡要顯示完整的 mini-LVDS data 分割畫法，以及 XSTB 寬度、A Event B 的 X1、X2… 落在哪裡；先在臨時互動區看草稿（ix-20261020-165648-f729，v1～v5）。
+- 草稿過程的 Bruce 決定（2026-10-20）：17:09 XSTB 窄脈衝，falling 在 RST pulse 之後、data 區內；XSTB↑ 一定在 RST 左邊、前一筆最後 data 右邊（Hblanking），R 仍可輸入 0、圖照這個規則畫；只畫一個 Port。17:44「不會有各顆 ch 不一樣的情況，一定都會強制讓各顆 ch 都是一樣的」。17:45 ch 直接用輸入值，不因 Single／Dual 換算。17:47 bit 圖要畫：LV0＝R、LV1＝G、LV2＝B。17:48 第一個 data＝RST↓ 那個 event（第 R 個）。18:08 CLK 正負緣切在 data 正中間。18:13 波形改水平橫向。18:18「v5 ok，趕快進行」。
+
+### 改動（calc.html）
+1. 結果區（兩張結果卡下方）新增「示波器 A Event B 示意圖」卡（#calc-card-osc-diagram）：
+   - 水平時間軸（左欄訊號名固定、右側可左右滑動，data-noswipe）：event 刻度、XSTB（↑在 Hblank、↓在 RST 後 data 內）、mLVDS data（前一筆最後 data → Hblank → RST → Driver 1…N，每顆標 ch／px／event／CLK／pixel 範圍）、CLK（DDR 示意）。
+   - 紅色垂直線＝X1…Xn（值、落在該顆幾 %、該顆第幾 px）；綠色垂直線＝cof_cnt 分界（值與 cof 表同規則：EM02＝floor(EM01÷2)、End 2047；落在資料外標「超出」）。R 很小／為 0 時一行小字說明這段不照比例。
+   - bit 排列放大圖：依 TI SLDA007A §6.2（每對 pair 一色、LSB 先；3 pair LV0/1/2＝R/G/B，6 pair LV3～5＝下一個 pixel；6 bit 每色 6 event、8 bit 8 event）、§4.1 圖 7（CLK 正負緣在 bit 正中間）；第一個 data＝第 R 個 event（Bruce 選定，TI 通用圖 10 RST 拉低後另隔 1～2 bit，記在 assistant_kb）。
+   - 只讀 calculate() 的結果副本（lastScope），不回寫計算；切 EM01／EM02、切語言時重畫。
+2. Channel 輸入：X1…Xn 多欄＋Copy to All 改成一個「每顆 Driver Channel 數（各顆相同）」欄位（id 仍為 x1），計算時套到每一顆；卡片標題改「Driver Channel」。
+3. 新翻譯鍵（三語）放在 calc.html 內、i18n.js 之後以 Object.assign 併入 I18N（只有 calc 用到；不動共用 i18n.js，避免全站 ?v= 連動）。
+4. calc-guide（繁／簡／英）：Driver Channel 段改成單一欄位、移除 Copy to All 說明與對應 FAQ；結果一段加一句示意圖說明。
+5. common/version.js calc v1.7.0；calc.html／index.html version.js `?v=20261020calc170`。
+
+### 測試
+- jsdom 新頁 vs v1.6.2（3b37d3c）逐值比對 4096 組（Hactive 4 × bits 2 × pairs 2 × gate 2 × Event 數 0／510 × ch 640／864／960／1920 × 顆數 1–8 × EM01／EM02），B event 與 cof 表全同。
+- Bruce 條件（2560／6bit／3pair／Dual／2 顆×960／R0／EM02）X1 960、X2 2880、cof1 159；R=510 → 1470／3390、159；3840／8bit／6pair／Single／4 顆×960／R510／EM01 → 1150／2430／3710／4990、cof 479／959／1439（皆＝線上 v1.6.2 實測值）。
+- 示意圖：X 標籤＝表、cof 標籤數＝顆數且 cof1＝表、bit 圖 LV 列數＝pairs；en／zh-CN／zh-TW 無漏翻鍵；Channel 只剩一個欄位；版號 v1.7.0；頁面無 JS 錯誤。
+- 派工：Bruce 2026-10-20 18:18「v5 ok，趕快進行」。
+
+
 ## mLVDS Skew 計算工具 (calc) v1.6.2 — 2026-10-20 ｜ PATCH ｜ Hres./Hactive 自動防呆（Hactive 為準）
 
 判定依據：docs/VERSIONING.md 判定表 PATCH——防呆修正（Hres. 下拉與 Hactive 可能不一致，造成看到 2560、實際用 1920 算），沒有新增使用者能做的事；同一個 Hactive 的計算結果逐值不變 ⇒ PATCH，不標 ⚠ 輸出變更。
