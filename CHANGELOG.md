@@ -2,6 +2,12 @@
 
 ---
 
+## Data Mapping (datamap) v1.36.4 — 2026-10-20 ｜ PATCH ｜ Hand MUX2 第 2 列小字改「SW2：起始欄＋1」
+
+判定依據：docs/VERSIONING.md——只改顯示文字，寫入不變 ⇒ PATCH。
+- v1.36.3 線上 Chrome 實測發現：Hand MUX2 表格第 2／4 列（Line n-SW2）下方小字仍是 Dual 的「下 gate：起始欄＋1」。MUX2 第 2 段是 SW2 不是 gate ⇒ 改「SW2：起始欄＋1」（起始欄＋1 不變，同 wiringFromState dual 第 k 段＝起始欄＋k−1）。datamap.html `dm.rowSw2`；E503 等 NB 與 EM01／EM02／E512 是同一行程式，一起套用。Dual／HSD 不變。
+- 派工 238148574474215424（Bruce 10/20 11:5x）。common/version.js datamap v1.36.4；`?v=20261020dm1364`。
+
 ## Data Mapping (datamap) v1.36.3 — 2026-10-20 ｜ PATCH ｜ NB Hand MUX2 與 Auto 統一（列名、Gate 文字、③ MUX 三層）
 
 判定依據：docs/VERSIONING.md——修不一致（NB Hand MUX2 顯示與 Auto 不同），沒有新增操作、寫入暫存器不變 ⇒ PATCH；匯出／寫入 byte 不變（不標輸出變更）。

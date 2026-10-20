@@ -117,6 +117,7 @@ for (const k of MNT) for (let from = 0; from <= 3; from++) for (let sb = 0; sb <
     for (let i = 0; i < 24; i++) s['c' + i] = (i * 5) % 18;
     setState(k, s); const P = w.dmPvModel(), G = gridShown(), id = k + ' Hand MUX2 sub' + sub + ' Mirror' + mir;
     ok(P.ok && P.mux === 2 && (!!P.mirror) === !!mir && G.tbl && /SW1/.test(G.rh[0]) && $('dm-gate').value === 'MUX2', 'E ' + id + ' ok=' + P.ok + ' mux=' + P.mux + ' mir=' + P.mirror + ' gate=' + $('dm-gate').value + ' ' + JSON.stringify(G), 'E');
+    ok(/SW2：起始欄/.test(($('dm-rs1') || {}).textContent || '') && !/下 gate/.test(($('dm-rs1') || {}).textContent || ''), 'E ' + id + ' 第 2 列小字：' + ($('dm-rs1') || {}).textContent, 'E');
     const tg = $('dm-pvtag') ? $('dm-pvtag').textContent : ''; ok(!/Tri-Gate/.test(tg), 'E ' + id + ' ③ 標籤不寫 Tri-Gate：' + tg, 'E');
   }
   for (const k of NB) for (const sub of [0, 2, 4, 6]) for (const rd of [2, 3]) {
