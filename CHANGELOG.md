@@ -2,6 +2,22 @@
 
 ---
 
+## mLVDS Skew 計算工具 (calc) v1.9.2 — 2026-10-21 ｜ PATCH ｜ 時間軸 CLK 改連續不停
+
+判定依據：docs/VERSIONING.md PATCH——示意圖畫法修正；X／cof 數值不變。
+
+### 起因
+- Bruce 2026-10-21 00:39（IMG_4662 紅圈：示意圖時間軸 Hblank／XSTB↑ 那段 CLK 是虛線平線）：「這個clock紅色圈起來的地方，你把它停掉了。實際上，clock在這邊是不能停的，要連貫。」
+
+### 改動（calc.html drawScope）
+1. 時間軸 CLK 從圖最左（前一筆最後 data）連續翻轉到最右（後一筆之前，與 XSTB／刻度線同長），拿掉 RST 前的虛線平線；相位不變（RST 後第一個邊緣 ↑，▼ 計數標記位置不變）。
+2. 全頁檢查：設定卡靜態圖 CLK 是整寬 pattern、bit 排列圖與眼圖 CLK 本來就連續，不需改。
+3. common/version.js calc v1.9.2；version.js `?v=20261021calc192`。
+
+### 測試
+- jsdom：觸發 4 × R 3 × 顆數 4 × bits 2 × pairs 2＝192 組時間軸 CLK 單一路徑、從左到右無中斷、邊緣間距固定、RST 後相位 ↑；X／cof 與 v1.9.1 逐值相同（calc191_test 1280 組）。
+
+
 ## mLVDS Skew 計算工具 (calc) v1.9.1 — 2026-10-21 ｜ PATCH ｜ cof_cnt「計算方式」展開區（文字步驟＋範例）、EM02 改獨立公式（數值不變）、眼圖切換觸發類型即時更新
 
 判定依據：docs/VERSIONING.md 判定表 PATCH——新增說明性展開區；EM01／EM02 cof 值與 v1.9.0 逐值相同（不標 ⚠ 輸出變更）。
