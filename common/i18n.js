@@ -1431,6 +1431,35 @@ var I18N = {
     'zh-TW': '本次匯出**有寫回 TCON UI DCLK**（{m}）：{was} → {now} MHz\n\n寫進去的 register：\n・AGBS_DCLK_INTEGER = {i}\n・AGBS_DCLK_FLOATING POINT = {f}（＝ 小數 × 65536）\n・FR_DCLK_INTEGER = {i}\n・FR_DCLK_FLOATING POINT = {f}\n\n這一組是照原廠「AGBSFR 標準化」的寫入序列產生的（FR 那一組原廠是直接指派成 AGBS 的值）。原廠標準化另外還會依 EDID 重寫 DCLK_ADJ／HBLANK／VBLANK／FR_DET_TH —— 本工具沒有 EDID 那一整套輸入，**那些一律不寫**。',
     'en': 'This export DID write TCON UI DCLK back ({m}): {was} → {now} MHz\n\nRegisters written:\n・AGBS_DCLK_INTEGER = {i}\n・AGBS_DCLK_FLOATING POINT = {f} (= fraction x 65536)\n・FR_DCLK_INTEGER = {i}\n・FR_DCLK_FLOATING POINT = {f}\n\nThis follows the official "AGBSFR standardize" write sequence (the official flow assigns the FR pair directly from the AGBS pair). The official flow also rewrites DCLK_ADJ / HBLANK / VBLANK / FR_DET_TH from the EDID - this tool has no EDID input, so those are NOT written.',
     'zh-CN': '本次导出**有写回 TCON UI DCLK**（{m}）：{was} → {now} MHz\n\n写进去的 register：\n・AGBS_DCLK_INTEGER = {i}\n・AGBS_DCLK_FLOATING POINT = {f}（＝ 小数 × 65536）\n・FR_DCLK_INTEGER = {i}\n・FR_DCLK_FLOATING POINT = {f}\n\n这一组是照原厂「AGBSFR 标准化」的写入序列产生的（FR 那一组原厂是直接指派成 AGBS 的值）。原厂标准化另外还会依 EDID 重写 DCLK_ADJ／HBLANK／VBLANK／FR_DET_TH —— 本工具没有 EDID 那一整套输入，**那些一律不写**。' },
+  /* ══ v4.59.0：匯入時自動判斷 T-Con 型號；EN01 的 AGBSFR DCLK（FNPLL）══════════════ */
+  'wfg.codeTconAutoSwitched': {
+    'zh-TW': '偵測到這份是 {to} 的 code，已從 {from} 自動切換為 {to}',
+    'en': 'This is a {to} code - TCON model switched from {from} to {to} automatically',
+    'zh-CN': '侦测到这份是 {to} 的 code，已从 {from} 自动切换为 {to}' },
+  'wfg.codeTconAmbiguous': {
+    'zh-TW': '⚠ 這份 code 用 {s} 的格式都讀得通，無法確定是哪一顆，型號維持 {m} 不變；若不是 {m}，請在匯入視窗改選後重新匯入。',
+    'en': '⚠ This code reads as any of {s}, so the model cannot be told apart; it stays {m}. If it is not {m}, pick the right model in the import dialog and import again.',
+    'zh-CN': '⚠ 这份 code 用 {s} 的格式都读得通，无法确定是哪一颗，型号维持 {m} 不变；若不是 {m}，请在导入窗口改选后重新导入。' },
+  'wfg.codeTconAmbiguousFail': {
+    'zh-TW': '這份 code 用 {s} 的格式都讀得通，無法確定是哪一顆，請在匯入視窗選對型號後重新匯入。',
+    'en': 'This code reads as any of {s}, so the model cannot be told apart. Pick the right model in the import dialog and import again.',
+    'zh-CN': '这份 code 用 {s} 的格式都读得通，无法确定是哪一颗，请在导入窗口选对型号后重新导入。' },
+  'wfg.codeNbDclkNotStdFn': {
+    'zh-TW': '⚠ {m}：這份 code 的 AGBSFR DCLK 沒有做過標準化（FNPLL_N_PRE={npre}，官方標準化會寫成 1），套公式只會得到 {v} MHz 這種上電預設值，因此 TCON UI DCLK **沒有自動帶入**，請自己確認。',
+    'en': '⚠ {m}: AGBSFR DCLK in this code was never standardized (FNPLL_N_PRE={npre}; the official standardize writes 1). The formula would only give a power-on default of {v} MHz, so TCON UI DCLK was NOT filled in - please set it yourself.',
+    'zh-CN': '⚠ {m}：这份 code 的 AGBSFR DCLK 没有做过标准化（FNPLL_N_PRE={npre}，官方标准化会写成 1），套公式只会得到 {v} MHz 这种上电默认值，因此 TCON UI DCLK **没有自动带入**，请自己确认。' },
+  'wfg.codeNbDclkAutoDiffFn': {
+    'zh-TW': '⚠ {m}：FNPLL 算出來的 DCLK 是 {v} MHz，但同一份 code 裡的 FNPLL_VALUE 是 {a}（官方標準化會寫成 DCLK 的整數部分），兩個來源對不上，因此 TCON UI DCLK **沒有自動帶入**，請自己確認。',
+    'en': '⚠ {m}: the FNPLL registers give {v} MHz but FNPLL_VALUE in the same code says {a} (the official standardize writes the integer part of DCLK). The two sources disagree, so TCON UI DCLK was NOT filled in - please set it yourself.',
+    'zh-CN': '⚠ {m}：FNPLL 算出来的 DCLK 是 {v} MHz，但同一份 code 里的 FNPLL_VALUE 是 {a}（官方标准化会写成 DCLK 的整数部分），两个来源对不上，因此 TCON UI DCLK **没有自动带入**，请自己确认。' },
+  'wfg.codeNbDclkFnAlt': {
+    'zh-TW': '⚠ 照官方標準化用 {r} MHz 查表的話，FNPLL_FTN 會是 {f}，超出 15 bit（官方 UI 會截掉高位，晶片上的 DCLK 就不是你設的值）；這次改用 {d} MHz 那一列的 N_FB／N_POS1／N_POS2，寫進去的 code 讀回仍是 {now} MHz。',
+    'en': '⚠ Looking up {r} MHz as the official standardize does would give FNPLL_FTN = {f}, which does not fit in 15 bits (the official UI drops the high bits, so the chip would not run at the DCLK you set). The {d} MHz row was used for N_FB / N_POS1 / N_POS2 instead; the written code still reads back as {now} MHz.',
+    'zh-CN': '⚠ 照官方标准化用 {r} MHz 查表的话，FNPLL_FTN 会是 {f}，超出 15 bit（官方 UI 会截掉高位，芯片上的 DCLK 就不是你设的值）；这次改用 {d} MHz 那一列的 N_FB／N_POS1／N_POS2，写进去的 code 读回仍是 {now} MHz。' },
+  'wfg.codeNbDclkWroteFn': {
+    'zh-TW': '本次匯出**有寫回 TCON UI DCLK**（{m}）：{was} → {now} MHz\n\n寫進去的 register：\n・FNPLL_VALUE = {a}\n・FNPLL_N_PRE = 1\n・FNPLL_N_FB = {fb}\n・FNPLL_N_POS1 = {p1}\n・FNPLL_N_POS2 = {p2}（RCLK {r}）\n・FNPLL_FTN = {ftn}\n\n這一組是照原廠 EN01「AGBSFR 標準化」的寫入序列產生的。原廠標準化另外還會依 EDID／iSP 重寫 OUTPUT_DCK_SET_EN／PORTPAIR／HBLANK／VBLANK／FR_DET_TH／VBP —— 本工具沒有那一整套輸入，**那些一律不寫**。',
+    'en': 'This export DID write TCON UI DCLK back ({m}): {was} → {now} MHz\n\nRegisters written:\n・FNPLL_VALUE = {a}\n・FNPLL_N_PRE = 1\n・FNPLL_N_FB = {fb}\n・FNPLL_N_POS1 = {p1}\n・FNPLL_N_POS2 = {p2} (RCLK {r})\n・FNPLL_FTN = {ftn}\n\nThis follows the official EN01 "AGBSFR standardize" write sequence. The official flow also rewrites OUTPUT_DCK_SET_EN / PORTPAIR / HBLANK / VBLANK / FR_DET_TH / VBP from the EDID / iSP settings - this tool has no such input, so those are NOT written.',
+    'zh-CN': '本次导出**有写回 TCON UI DCLK**（{m}）：{was} → {now} MHz\n\n写进去的 register：\n・FNPLL_VALUE = {a}\n・FNPLL_N_PRE = 1\n・FNPLL_N_FB = {fb}\n・FNPLL_N_POS1 = {p1}\n・FNPLL_N_POS2 = {p2}（RCLK {r}）\n・FNPLL_FTN = {ftn}\n\n这一组是照原厂 EN01「AGBSFR 标准化」的写入序列产生的。原厂标准化另外还会依 EDID／iSP 重写 OUTPUT_DCK_SET_EN／PORTPAIR／HBLANK／VBLANK／FR_DET_TH／VBP —— 本工具没有那一整套输入，**那些一律不写**。' },
   'wfg.ackClose':       { 'zh-TW': '開始編輯', 'en': 'Start editing', 'zh-CN': '开始编辑' },
   'wfg.codeCksTitle':   { 'zh-TW': '這份 code 的 checksum（全檔位元組總和）＝ {v}，與 EM02 工具顯示的 Orig CKS 相同',
                           'en': 'Checksum of this code (sum of all file bytes) = {v}; same value the EM02 tool shows as Orig CKS',

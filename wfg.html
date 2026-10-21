@@ -3688,8 +3688,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20261021wfg4580"></script>
-<script src="common/i18n.js?v=20261021wfg4580"></script>
+<script src="common/version.js?v=20261021wfg4590"></script>
+<script src="common/i18n.js?v=20261021wfg4590"></script>
 <script src="common/syscrc.js?v=20261014wfg4550"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -44415,6 +44415,14 @@ var WFG_TCON_CODECS = {
        詳見 `WFG_NB_MODELS.en01` 的註解。 */
   en01: {
     label: 'EN01', tconClass: 'NB', uiDclkRatio: 1, gpoBits: WFG_GPO_BITS_EN01, comboSrc: WFG_COMBO_SRC_EN01,
+    /* 🔴 v4.59.0：EN01 的 TCON UI DCLK 上限是 **210 MHz**，不是 NB 類別的 105。
+       出處：WPF RomCodeProcessUI `AgbsfrViewModelBase.Default_DCLK_Range()` ——
+       `_icInfo.IsEN01` ⇒ DCLK_Max = 210.0（DCLK_Min = 25.0）；同一支 ViewModel 的
+       `EN01_DCLK_Table`／`EN01_NFB_Table` 也一路排到 210。
+       Bruce 2026-10-21 寄給自己的 EN01 code（G140EF15 120Hz）DCLK＝178 MHz：沿用 105 會被
+       `wfgClampTconDclk()` 夾掉 ⇒「DCLK 沒照 code 設定顯示」的根因之一（另一個是 v4.25.0 起 EN01 不讀 DCLK）。
+       下限維持類別的 40（Bruce 2026-08-27「所有 TCON…最小值都是 40MHz」，比原廠 25 嚴，不放寬）。 */
+    uiDclkMax: 210,
     /* 🔴 v4.57.0：EN01 **不設** `mediumBySize`。它的 Flash code 實際只有 40960／40961 bytes
        （振嘉 2026-10-19 回報、SA 同事K 的 RM81008_TM_54G_* 兩份、WPF repo Doc/EN01/FALSH.bin），
        落在通則「8192＜n＜131072 不合法」的中間 ⇒ 讀檔前閘門會直接擋掉。EN01 的載體改由
@@ -45738,6 +45746,69 @@ window.wfgImpCancel = wfgImpCancel;
 
 /* 按鈕入口：先確認型號，**確認之後才開檔案選取**。 */
 window.wfgCodeImport = function() { wfgImpShow(); };
+/* ══ 🔴 v4.59.0：匯入時依 code 內容判斷是哪一顆 T-Con，選錯就自動改正 ══════════════════
+   Bruce 2026-10-21：「WFG 網頁如果 T-con 選擇是 A，但是匯入的 T-con 卻是 B，這應該也要可以判斷
+   到底這一版 code 是哪個 T-con，然後自動修正 T-con 的型號。」
+   ── 判斷方法：**每一顆的解析器都試一次**，不另寫一套「長得像」的特徵 ──────────────────
+     各 codec 的 `parseCode()` 本來就帶著該型號自己的結構檢查（檔案大小／載體、EDID 位置與 checksum、
+     EN01 的 Dynamic Header 與 checksum、MNT 各自的 bank 佈局、GPO 合理性 `wfgNbSane()`…），
+     能被某一顆完整解析＝結構上符合那一顆。實測 `~/TCON/Model` 等處 1,503 份真檔（檔名帶型號）
+     的交叉矩陣，只有兩種會被兩顆同時讀通，各用一條有實證的規則分開：
+       ① E501A ＋ E501B（兩顆訊號區相同）⇒ 用既有型號指紋 `GBPLL_EN_SDM`(0x15E[5])：
+          A 恆為 0、B 恆為 1（v4.26.0 實測 238 份零例外）；讀不到就不判定。
+       ② EN01 ＋ 其他（E503 的固定位址也可能讀得通 EN01 的 EEPROM，Bruce 這次就是這樣）⇒ EN01：
+          EN01 的 code 有 Dynamic Header 表（位置固定＋checksum 驗證），其他型號的真檔
+          實測沒有任何一份通過 EN01 解析器（矩陣數字見 CHANGELOG v4.59.0）。
+     判出唯一一顆才切換；0 顆（哪顆都讀不通）或還剩 2 顆以上（有歧義）⇒ **不切換**，只提示。
+   ── 為什麼推翻 v4.26.0「只回報、絕不改型號」──────────────────────────────────────────
+     那是 Bruce 2026-08-25 第 5 點的裁示；本版是他 2026-10-21 的新指示（上面原話），以新者為準。
+     切換走與匯入視窗完全相同的 `wfgCodeOnTconChange(…, { silentClamp: true })`，
+     並在匯入完成卡片寫一行「已從 A 切換為 B」，不靜默。
+   🔴 解析器都是純函式（不寫 wfg 狀態、不跳視窗），所以多試幾顆沒有副作用；EN01／E503 的 DCLK 閘門
+      會讀目前型號的規格，因此**切換之後一定重新解析一次**，用新型號的規格跑閘門。 */
+var WFG_CODE_DETECT_MAX_BYTES = 8 * 1024 * 1024;   // 讀檔前的大小閘門放寬到此（真檔最大 680,192 bytes）
+function wfgCodeAllImportExts() {
+  var out = [];
+  for (var k in WFG_TCON_CODECS) {
+    var c = WFG_TCON_CODECS[k];
+    if (!c || !c.parseCode || !c.importExts) continue;
+    for (var i = 0; i < c.importExts.length; i++) if (out.indexOf(c.importExts[i]) < 0) out.push(c.importExts[i]);
+  }
+  return out;
+}
+window.wfgCodeAllImportExts = wfgCodeAllImportExts;
+/* E501A／E501B 指紋（0 ＝ A、1 ＝ B、−1 ＝ 讀不到）。沿用 `wfgNbCheckModelId()` 的同一個位元。 */
+function wfgCodeE501Fingerprint(bytes, fname) {
+  var img = wfgCodeToImage(bytes, fname);
+  if (!img || !img.ok) return -1;
+  var r = wfgNbCheckModelId(img.bytes, WFG_NB_MODELS.e501a, {});
+  return (r && typeof r.got === 'number') ? r.got : -1;
+}
+/* 回傳 { key, hits, ambiguous }：key ＝ 唯一判定結果（判不出＝null）、hits ＝ 讀得通的型號。 */
+function wfgCodeDetectTcon(bytes, fname) {
+  var hits = [];
+  var ext = (String(fname || '').match(/\.[^.\/]+$/) || [''])[0].toLowerCase();
+  for (var k in WFG_TCON_CODECS) {
+    var c = WFG_TCON_CODECS[k];
+    if (!c || !c.parseCode) continue;
+    if (ext && c.importExts && c.importExts.indexOf(ext) < 0) continue;   // 這顆根本不收這種副檔名
+    var r = null;
+    try { r = c.parseCode(bytes, fname, null); } catch (e) { r = null; }
+    if (r && r.ok) hits.push(k);
+  }
+  if (hits.indexOf('e501a') >= 0 && hits.indexOf('e501b') >= 0) {          // 規則①
+    var fp = wfgCodeE501Fingerprint(bytes, fname);
+    if (fp === 0) hits = hits.filter(function(x) { return x !== 'e501b'; });
+    else if (fp === 1) hits = hits.filter(function(x) { return x !== 'e501a'; });
+  }
+  if (hits.length > 1 && hits.indexOf('en01') >= 0) hits = ['en01'];       // 規則②
+  return { key: hits.length === 1 ? hits[0] : null, hits: hits, ambiguous: hits.length > 1 };
+}
+window.wfgCodeDetectTcon = wfgCodeDetectTcon;
+function wfgCodeLabelsOf(keys) {
+  return keys.map(function(k) { return (WFG_TCON_CODECS[k] || {}).label || k; }).join('／');
+}
+
 /* 原本的匯入流程（開檔案選取 → 讀檔 → 解析 → 套用）。
    🔴 這一支**不再自己決定型號** —— 它一律用當下的 `wfgTconCodec()`，
    而型號在 `wfgImpConfirm()` 就已經定好了。 */
@@ -45747,7 +45818,8 @@ function wfgCodePickFile() {
   if (!codec.parseCode) { wfgCodeNotSupported(codec, 'import'); return; }   // v4.6.0：取消匯入，檔案選擇視窗不會開
   var input = document.createElement('input');
   input.type = 'file';
-  input.accept = codec.importExts.join(',');
+  /* v4.59.0：型號會依內容自動判斷 ⇒ 檔案選取框放行所有型號收的副檔名（原本只放目前型號的）。 */
+  input.accept = wfgCodeAllImportExts().join(',');
   input.onchange = function() {
     if (!input.files || !input.files[0]) return;
     var f = input.files[0];
@@ -45767,14 +45839,35 @@ function wfgCodePickFile() {
        2 字元再加位址／長度／checksum／換行），必須解碼後才知道內容多長。
        所以這道閘門對 `.hex` 一律放行，交給讀完之後的 `wfgCodeLoadImage()` 判。 */
     var pre = wfgCodeSizePreflight(codec, f);
-    if (pre) { wfgCodeImportFail(f.name, pre); return; }
+    /* v4.59.0：目前型號的大小閘門不過，可能只是選錯型號 ⇒ 在合理大小內仍讀進來判斷一次；
+       判斷後沒有要換型號，才照舊用這個理由擋下（行為與改前相同）。 */
+    if (pre && !(f.size <= WFG_CODE_DETECT_MAX_BYTES)) { wfgCodeImportFail(f.name, pre); return; }
     var reader = new FileReader();
     reader.onload = function(e) {
       var bytes = new Uint8Array(e.target.result);
-      function parse(o) {
-        try { return codec.parseCode(bytes, f.name, o); }
+      /* ══ v4.59.0：先判斷這份 code 是哪一顆（見 `wfgCodeDetectTcon()`）══════════════════ */
+      var _det = wfgCodeDetectTcon(bytes, f.name);
+      var _target = (_det.key && _det.key !== wfgTconKey()) ? _det.key : null;
+      var _fromLabel = codec.label, _swNote = '';
+      if (!_target && pre) { wfgCodeImportFail(f.name, pre); return; }
+      if (!_target && _det.ambiguous && _det.hits.indexOf(wfgTconKey()) >= 0) {
+        _swNote = t('wfg.codeTconAmbiguous').replace('{s}', wfgCodeLabelsOf(_det.hits))
+                    .replace(/\{m\}/g, codec.label);
+      }
+      /* 真的換型號：與匯入視窗同一支，silentClamp ⇒ 不跳換機種夾值提示（接著就整組覆蓋）。
+         只在**確定要套用**時才換（EM01 選 timing 時按取消 ⇒ 型號也不動）。 */
+      function commitSwitch() {
+        if (!_target) return;
+        wfgCodeOnTconChange(_target, { silentClamp: true });
+        codec = wfgTconCodec();
+        _swNote = t('wfg.codeTconAutoSwitched').replace(/\{to\}/g, codec.label).replace('{from}', _fromLabel);
+        _target = null;
+      }
+      function parseWith(c, o) {
+        try { return c.parseCode(bytes, f.name, o); }
         catch (err) { return { ok: false, reason: String(err && err.message || err) }; }
       }
+      function parse(o) { return parseWith(codec, o); }
       function finish(res) {
         wfgCodeApplyToWfg(res);
         wfgCodeSetStatus(f.name, (typeof res.cks === 'number') ? res.cks : -1);
@@ -45797,10 +45890,14 @@ function wfgCodePickFile() {
            ⇒ 本版另開 `res.notice`：**只放「非看不可」的一行字**，永遠不含資訊性內容。 */
         wfgAckShow(f.name, t('wfg.codeImportOk').replace('{f}', '').replace('{n}', String(res.applied))
                    .replace('{d}', res.detail || '').trim(),
-                   [res.notice, wfgSysCrcNote(codec, bytes)].filter(Boolean).join('　'));
+                   [_swNote, res.notice, wfgSysCrcNote(codec, bytes)].filter(Boolean).join('　'));
       }
-      var res = parse(null);
-      if (!res || !res.ok) { wfgCodeImportFail(f.name, (res && res.reason) || '?'); return; }
+      var res = parseWith(_target ? WFG_TCON_CODECS[_target] : codec, null);
+      if (!res || !res.ok) {
+        var _why = (res && res.reason) || '?';
+        if (_det.ambiguous) _why += '\n' + t('wfg.codeTconAmbiguousFail').replace('{s}', wfgCodeLabelsOf(_det.hits));
+        wfgCodeImportFail(f.name, _why); return;
+      }
       /* ══ v4.13.0：這份 code 有多組 GPO Timing ⇒ 讓使用者選 ═══════════════════
          🔴 只有 codec 真的回傳候選才會走這條（＝ EM01 Flash 且 slot 存在）。
          其餘型號、EEPROM、以及沒有 slot 的 Flash 檔連判斷都不會進來，流程完全不變。 */
@@ -45811,11 +45908,17 @@ function wfgCodePickFile() {
             wfgSetImportedFileName('tcon', '');
             return;
           }
+          commitSwitch();
           var r2 = parse({ gpoBase: base });
           if (!r2 || !r2.ok) { wfgCodeImportFail(f.name, (r2 && r2.reason) || '?'); return; }
           finish(r2);
         });
         return;
+      }
+      if (_target) {
+        commitSwitch();
+        res = parse(null);                         // 用新型號的規格重跑（DCLK 閘門讀的是目前型號）
+        if (!res || !res.ok) { wfgCodeImportFail(f.name, (res && res.reason) || '?'); return; }
       }
       finish(res);
     };
@@ -46205,6 +46308,19 @@ function wfgCodeExportRun(targetKey, fmt) {
                        .replace('{now}', wfgFmtDclk(out.dclkOut.to))
                        .replace(/\{i\}/g, String(out.dclkOut.intg))
                        .replace(/\{f\}/g, String(out.dclkOut.frac)));
+      } else if (out.dclkOut.kind === 'fnpll') {
+        msgs.unshift(t('wfg.codeNbDclkWroteFn').replace('{m}', codec.label)
+                       .replace('{was}', wfgFmtDclk(out.dclkOut.from))
+                       .replace('{now}', wfgFmtDclk(out.dclkOut.to))
+                       .replace('{a}', String(out.dclkOut.auto))
+                       .replace('{fb}', String(out.dclkOut.nFb))
+                       .replace('{p1}', String(out.dclkOut.nPos1))
+                       .replace('{p2}', String(out.dclkOut.nPos2))
+                       .replace('{r}', out.dclkOut.rclk)
+                       .replace('{ftn}', String(out.dclkOut.ftn)));
+        if (out.dclkOut.alt) msgs.splice(1, 0, t('wfg.codeNbDclkFnAlt')
+                       .replace('{r}', String(out.dclkOut.officialLookup)).replace('{f}', String(out.dclkOut.officialFtn))
+                       .replace('{d}', String(out.dclkOut.lookup)).replace('{now}', wfgFmtDclk(out.dclkOut.to)));
       } else {
         msgs.unshift(t('wfg.codeNbDclkWrote').replace('{m}', codec.label)
                        .replace('{was}', wfgFmtDclk(out.dclkOut.from))
@@ -48331,7 +48447,40 @@ var WFG_NB_MODELS = {
        ⇒ 依 Bruce 的退路裁示：EN01 匯入時**不自動帶入 DCLK**，浮動視窗照舊保留
           「TCON UI DCLK 需要確認」那一項。等哪天拿到一份標準化過的 EN01 code
           再回來驗證（判準：`FNPLL_N_PRE === 1` 且 `round(公式值) === DCLK_AUTO_MODE`）。 */
-    dclk: null,
+    /* ══ 🔴 v4.59.0：EN01 的 AGBSFR DCLK **開始做**（Bruce 2026-10-21）══════════════════
+       Bruce 原話：「套用之後我發現它的 DCLK 並沒有依照我 code 裡面設定的 DCLK 顯示出來。
+       ……要把它跟 E503 一樣，做到聯動到這個 WFG 網頁上面。」
+       上面 v4.25.0 留下的驗證判準（`FNPLL_N_PRE === 1` 且公式值與 DCLK 自動值一致），
+       這次拿到第一份**標準化過**的真檔就成立了：
+         `RM81008_JDZ_CSOT14.0(G140EF15_120Hz)_EDID(8_0Ah)_CKS(09BD_5317Fh)_…_20261021.bin`
+         （Bruce 2026-10-21 15:29 寄給自己，8192 bytes EEPROM）
+         FNPLL_N_FB=41、FNPLL_N_PRE=1、FNPLL_N_POS1=2、FNPLL_FTN=30514
+         ⇒ FVCO = 54×42/2 = 1134、WMK = 1134/2/3 = 189、
+           DCLK = Round(189 × (1 − 30514×0.125/65535), 2) = **178.00**
+         FNPLL_VALUE（0x8C[7],0x8D）= 178 ＝ trunc(DCLK) ⇒ 兩個來源一致。
+         反算（官方 Standardize）178 → N_FB 41／N_POS1 2／N_POS2 5／FTN 30514，與檔案**逐位相同**。
+       公式／反算出處：WPF RomCodeProcessUI（Bruce 自己的 repo，原始碼）
+         `Wpf.RomCodeProcessUI/ViewModels/AGBSFR/EN01AgbsfrViewModel.cs`
+           FVCO／WMK_WOSDM／ComputeDCLK／Standardize／InferRCLKTypeFromNPOS2 與兩張查表；
+         位址：`DLL_Raydium_CommonLibrary/Raydium.Core/Models/ICDefine.cs` `GetRM81008()`；
+         區塊名（＝ CheckList 的 Check Item）逐字取自 `RCP2/RomCodeProcessUI_2.0.19.0/ModelFiles/RM81008.model`。
+       🔴 `autoMode` 用 `.model` 的 **`FNPLL_VALUE`**（9 bit：0x8C[7] 高位、0x8D 低 8 位，Comment
+          「dclk value. {8c[7], 8d[7:0]}」）。ICDefine 把 0x8D 叫 `DCLK_AUTO_MODE`，但 RM81008.model
+          **沒有** `DCLK_AUTO_MODE` 這個區塊名 —— 寫那個名字官方 UI 會靜默略過那一列。
+          DCLK ≤ 210 ⇒ 高位恆為 0，與官方只寫 0x8D 的結果相同。 */
+    dclk: {
+      kind:     'fnpll',
+      nFb:      { reg: 0x0EC, msb: 6, lsb: 1, key: 'FNPLL_N_FB' },
+      nPre:     { reg: 0x0EB, msb: 3, lsb: 0, key: 'FNPLL_N_PRE' },
+      nPos1:    { reg: 0x0ED, msb: 7, lsb: 2, key: 'FNPLL_N_POS1' },
+      nPos2:    { key: 'FNPLL_N_POS2', parts: [{ reg: 0x0ED, msb: 1, lsb: 0 }, { reg: 0x0EE, msb: 6, lsb: 3 }] },
+      ftn:      { key: 'FNPLL_FTN',    parts: [{ reg: 0x0EF, msb: 6, lsb: 0 }, { reg: 0x0F0, msb: 7, lsb: 0 }] },
+      autoMode: { key: 'FNPLL_VALUE',  parts: [{ reg: 0x08C, msb: 7, lsb: 7 }, { reg: 0x08D, msb: 7, lsb: 0 }] },
+      /* 只記在明細、不當閘門：官方 UI 顯示 AGBSFR DCLK 不看它。 */
+      dckSetEn: { reg: 0x08A, msb: 6, lsb: 6, key: 'OUTPUT_DCK_SET_EN' },
+      /* `EN01AgbsfrViewModel::ComputeDCLK` 取 `Math.Round(…, 2, AwayFromZero)`。 */
+      round: 2
+    },
     sizes: null                                     // 大小不固定（6354 / 4096 都見過）
   }
 };
@@ -48530,6 +48679,7 @@ function wfgNbReadDclk(buf, m, ctx) {
   var _id = wfgNbCheckModelId(buf, m, ctx);
   if (!_id.ok) return { ok: false, why: _id.why, raw: null, idMismatch: true };
   if (d.kind === 'agbsfr') return wfgNbReadDclkAgbsfr(buf, m, ctx, d);
+  if (d.kind === 'fnpll') return wfgNbReadDclkFnpll(buf, m, ctx, d);     // v4.59.0：EN01
   if (d.kind !== 'gbpll') return { ok: false, why: '', raw: null };
   var raw = {
     enSdm:   wfgNbReadField(buf, m, ctx, d.enSdm),
@@ -48644,6 +48794,200 @@ function wfgNbDclkEncodeAgbsfr(dclk) {
   return { intg: i, frac: fr };
 }
 window.wfgNbDclkEncodeAgbsfr = wfgNbDclkEncodeAgbsfr;
+/* ══ 🔴 v4.59.0：EN01（RM81008）的 AGBSFR DCLK —— FNPLL ══════════════════════════════
+   正算（`EN01AgbsfrViewModel` 的 FVCO／WMK_WOSDM／ComputeDCLK）：
+       FVCO = 54 × (1 + FNPLL_N_FB) / (1 + FNPLL_N_PRE)        （N_PRE = 255 時官方回 null）
+       WMK  = FVCO / 2 / (1 + FNPLL_N_POS1)
+       DCLK = Round(WMK × (1 − FNPLL_FTN × 0.125 / 65535), 2)
+   反算（同檔 `Standardize()`，只取 PLL 這一段；`Standardize_CommonLogic()` 那一段不做，見匯出端）：
+       FNPLL_VALUE = trunc(DCLK)                        （官方 `DCLK.TruncateByte()`）
+       FNPLL_N_PRE = 1
+       d = Round(DCLK)（AwayFromZero）→ `EN01_NFB_Table` 查 N_FB、`EN01_DCLK_Table` 查 N_POS1 與 N_POS2
+       N_POS2 依 RCLK 型態（4/8、6/8、1）取欄；型態由**匯入那份 code** 的 N_POS2 反推
+         （`InferRCLKTypeFromNPOS2()`：用匯入 DCLK 那一列比對，推不出來＝官方預設 RCLK_4_8）
+       FTN = Round((1 − DCLK / WMK) × 65535 / 0.125)    （WMK 用**新的** N_FB／N_PRE／N_POS1）
+   ── 閘門（過不了就不填，理由寫在匯入卡片；順序即優先序）──────────────────────────────
+     ① 讀得到（bank 沒啟用／截斷 ⇒ 整組不採信）
+     ② 做過 AGBSFR 標準化：`FNPLL_N_PRE === 1`（官方 Standardize 一律寫 1）。
+        手上 3 份沒標準化的舊檔（Demo／F1567／FLASH）都是 3，算出 21.94／43.88 MHz ——
+        那是上電預設值，不是 UI 上的 DCLK（v4.25.0 不做的理由就是它）。
+     ③ 機種規格區間（EN01 40～210 MHz，見 `WFG_TCON_CODECS.en01.uiDclkMax`）
+     ④ 第二來源：`FNPLL_VALUE === trunc(DCLK)`（官方 Standardize 同一步寫的）
+   ⚠ `OUTPUT_DCK_SET_EN` 只記在明細不當閘門：官方 UI 顯示 DCLK 不看它。 */
+var WFG_EN01_DCLK_TABLE = [   // [DCLK 下限, 上限, N_POS1, N_POS2(RCLK 4/8), N_POS2(RCLK 6/8), N_POS2(RCLK 1)]
+  [110, 210,  2,  5,  3,  2],
+  [ 55, 109,  5, 11,  7,  5],
+  [ 38,  54,  8, 17, 11,  8],
+  [ 28,  37, 11, 23, 15, 11],
+  [ 25,  27, 14, 29, 19, 14]
+];
+var WFG_EN01_NFB_TABLE = [    // [DCLK 下限, 上限, N_FB]（逐列照抄 `EN01_NFB_Table`）
+  [207, 210,  48],
+  [203, 206,  47],
+  [199, 202,  46],
+  [195, 198,  45],
+  [190, 194,  44],
+  [186, 189,  43],
+  [182, 185,  42],
+  [178, 181,  41],
+  [174, 177,  40],
+  [169, 173,  39],
+  [165, 168,  38],
+  [161, 164,  37],
+  [157, 160,  36],
+  [152, 156,  35],
+  [148, 151,  34],
+  [144, 147,  33],
+  [140, 143,  32],
+  [136, 139,  31],
+  [131, 135,  30],
+  [127, 130,  29],
+  [123, 126,  28],
+  [119, 122,  27],
+  [114, 118,  26],
+  [110, 113,  25],
+  [106, 109,  49],
+  [104, 105,  48],
+  [102, 103,  47],
+  [100, 101,  46],
+  [ 98,  99,  45],
+  [ 95,  97,  44],
+  [ 93,  94,  43],
+  [ 91,  92,  42],
+  [ 89,  90,  41],
+  [ 87,  88,  40],
+  [ 85,  86,  39],
+  [ 83,  84,  38],
+  [ 81,  82,  37],
+  [ 79,  80,  36],
+  [ 76,  78,  35],
+  [ 74,  75,  34],
+  [ 72,  73,  33],
+  [ 70,  71,  32],
+  [ 68,  69,  31],
+  [ 66,  67,  30],
+  [ 64,  65,  29],
+  [ 62,  63,  28],
+  [ 60,  61,  27],
+  [ 57,  59,  26],
+  [ 55,  56,  25],
+  [ 54,  54,  37],
+  [ 53,  53,  36],
+  [ 51,  52,  35],
+  [ 50,  50,  34],
+  [ 48,  49,  33],
+  [ 47,  47,  32],
+  [ 46,  46,  31],
+  [ 44,  45,  30],
+  [ 43,  43,  29],
+  [ 41,  42,  28],
+  [ 40,  40,  27],
+  [ 38,  39,  26],
+  [ 37,  37,  34],
+  [ 36,  36,  33],
+  [ 35,  35,  32],
+  [ 34,  34,  31],
+  [ 33,  33,  30],
+  [ 32,  32,  29],
+  [ 31,  31,  28],
+  [ 30,  30,  27],
+  [ 29,  29,  26],
+  [ 28,  28,  25],
+  [ 27,  27,  30],
+  [ 26,  26,  29],
+  [ 25,  25,  28]
+];
+var WFG_EN01_RCLK_NAMES = ['4/8', '6/8', '1'];
+function _wfgEn01Row(tbl, d) {
+  for (var i = 0; i < tbl.length; i++) if (d >= tbl[i][0] && d <= tbl[i][1]) return tbl[i];
+  return null;
+}
+/* 正算；回傳 { fvco, wmk, dclk }（算不出來 dclk 為 NaN）。 */
+function wfgNbDclkCalcFnpll(nFb, nPre, nPos1, ftn, nd) {
+  var o = { fvco: NaN, wmk: NaN, dclk: NaN };
+  if (!(nFb >= 0) || !(nPre >= 0) || nPre === 255 || !(nPos1 >= 0) || !(ftn >= 0)) return o;
+  o.fvco = 54 * (1 + nFb) / (1 + nPre);
+  o.wmk = o.fvco / 2 / (1 + nPos1);
+  var v = o.wmk * (1 - ftn * 0.125 / 65535), f = Math.pow(10, isFinite(nd) ? nd : 2);
+  o.dclk = isFinite(v) ? Math.round(v * f) / f : NaN;
+  return o;
+}
+window.wfgNbDclkCalcFnpll = wfgNbDclkCalcFnpll;
+function wfgNbReadDclkFnpll(buf, m, ctx, d) {
+  var raw = {
+    nFb:      wfgNbReadField(buf, m, ctx, d.nFb),
+    nPre:     wfgNbReadField(buf, m, ctx, d.nPre),
+    nPos1:    wfgNbReadField(buf, m, ctx, d.nPos1),
+    nPos2:    wfgNbReadParts(buf, m, ctx, d.nPos2),
+    ftn:      wfgNbReadParts(buf, m, ctx, d.ftn),
+    auto:     wfgNbReadParts(buf, m, ctx, d.autoMode),
+    dckSetEn: d.dckSetEn ? wfgNbReadField(buf, m, ctx, d.dckSetEn) : -1
+  };
+  var c = wfgNbDclkCalcFnpll(raw.nFb, raw.nPre, raw.nPos1, raw.ftn, d.round);
+  raw.fvco = c.fvco; raw.wmk = c.wmk; raw.dclk = c.dclk;
+  var dclk = c.dclk;
+  /* 閘門①：讀不到 */
+  if (raw.nFb < 0 || raw.nPre < 0 || raw.nPos1 < 0 || raw.ftn < 0 || !isFinite(dclk)) {
+    return { ok: false, raw: raw,
+             why: t('wfg.codeNbDclkNoRegAgbs').replace('{m}', m.label).replace('{k}', 'FNPLL') };
+  }
+  /* 閘門②：沒做過 AGBSFR 標準化 */
+  if (raw.nPre !== 1) {
+    return { ok: false, raw: raw,
+             why: t('wfg.codeNbDclkNotStdFn').replace('{m}', m.label)
+                    .replace('{npre}', String(raw.nPre)).replace('{v}', wfgFmtDclk(dclk)) };
+  }
+  /* 閘門③：機種規格區間 */
+  var _sp = wfgTconSpec();
+  if (!(dclk >= _sp.uiDclkMin && dclk <= _sp.uiDclkMax)) {
+    return { ok: false, raw: raw,
+             why: t('wfg.codeNbDclkRange').replace('{m}', m.label).replace('{v}', wfgFmtDclk(dclk))
+                    .replace('{lo}', String(_sp.uiDclkMin)).replace('{hi}', String(_sp.uiDclkMax)) };
+  }
+  /* 閘門④：FNPLL_VALUE 交叉比對（`+1e-9` 吸收 178.00 在 double 下的表示誤差） */
+  if (raw.auto >= 0 && Math.floor(dclk + 1e-9) !== raw.auto) {
+    return { ok: false, raw: raw,
+             why: t('wfg.codeNbDclkAutoDiffFn').replace('{m}', m.label)
+                    .replace('{v}', wfgFmtDclk(dclk)).replace('{a}', String(raw.auto)) };
+  }
+  return { ok: true, dclk: dclk, why: '', raw: raw };
+}
+window.wfgNbReadDclkFnpll = wfgNbReadDclkFnpll;
+/* DCLK(MHz) → 各 register。`was` ＝ 匯入時的 raw（只用來推 RCLK 型態），可為 null。
+   ══ 🔴 FTN 超出 15 bit 時改查 floor(DCLK) 那一列（本工具的修正，不是官方行為）═════════════
+   官方 Standardize 用 Round(DCLK) 查表；DCLK 落在「d−0.5 ～ d」（四捨五入進位到 d）而 d 那一列的
+   WMK 餘裕不夠時，FTN 會超過 0x7FFF（例 40.5 → 查 41 → WMK 43.5 → FTN 36157），
+   官方 setter 只取低 15 bit（`GetLowBit`）⇒ 晶片上的 DCLK 會變成另一個值（官方 UI 的缺陷）。
+   實測 40～210 每 0.25 MHz 共 681 格，官方查法有一部分會溢位（數字見 CHANGELOG v4.59.0）；
+   改查 floor(DCLK) 那一列後**全部**落在 0～0x7FFF，且套回 code 再用官方公式讀回＝原值。
+   只有溢位時才改查；不溢位的格子與官方 Standardize 逐欄相同。 */
+var WFG_EN01_FTN_MAX = 0x7FFF;                              // FNPLL_FTN 0xEF[6:0]＋0xF0[7:0] ＝ 15 bit
+function wfgNbDclkEncodeFnpll(dclk, was) {
+  var col = 0;                                              // 官方預設 RCLK_4_8
+  if (was && was.nPos2 >= 0 && isFinite(was.dclk)) {
+    var r0 = _wfgEn01Row(WFG_EN01_DCLK_TABLE, Math.round(was.dclk));
+    if (r0) { for (var k = 0; k < 3; k++) if (was.nPos2 === r0[3 + k]) { col = k; break; } }
+  }
+  function at(d) {
+    var row = _wfgEn01Row(WFG_EN01_DCLK_TABLE, d), nfbRow = _wfgEn01Row(WFG_EN01_NFB_TABLE, d);
+    var o = { auto: Math.floor(dclk + 1e-9), nPre: 1, lookup: d,
+              nFb:   nfbRow ? nfbRow[2] : (was ? was.nFb : -1),
+              nPos1: row ? row[2] : (was ? was.nPos1 : -1),
+              nPos2: row ? row[3 + col] : (was ? was.nPos2 : -1),
+              rclk: WFG_EN01_RCLK_NAMES[col] };
+    var c = wfgNbDclkCalcFnpll(o.nFb, o.nPre, o.nPos1, 0, 6);
+    o.wmk = c.wmk;
+    o.ftn = (isFinite(c.wmk) && c.wmk > 0) ? Math.round((1 - dclk / c.wmk) * 65535 / 0.125) : -1;
+    return o;
+  }
+  var o = at(Math.round(dclk));                             // 正數 ⇒ Math.round 與 AwayFromZero 相同
+  if (!(o.ftn >= 0 && o.ftn <= WFG_EN01_FTN_MAX)) {
+    var o2 = at(Math.floor(dclk));
+    if (o2.ftn >= 0 && o2.ftn <= WFG_EN01_FTN_MAX) { o2.alt = true; o2.officialFtn = o.ftn; o2.officialLookup = o.lookup; o = o2; }
+  }
+  return o;
+}
+window.wfgNbDclkEncodeFnpll = wfgNbDclkEncodeFnpll;
 
 /* ── EDID 的 DTD#1 → Frame 參數 ──────────────────────────────────────────
    三顆 NB 的 code 檔開頭（E501 是 0x1000）都是一份完整 128 bytes EDID。
@@ -49153,6 +49497,14 @@ function wfgNbParse(rawBuf, fname, key) {
              m.dclk.intg.key + '@' + wfgNbOffStrOf(m.dclk.intg) + '=' + _r.intg + ' + ' +
              m.dclk.frac.key + '@' + wfgNbOffStrOf(m.dclk.frac) + '=' + _r.frac + '/65536' +
              (_r.frIntg >= 0 ? (' / FR_DCLK=' + wfgFmtDclk(_r.frDclk)) : '') + ')';
+    } else if (m.dclk.kind === 'fnpll') {
+      /* v4.59.0：EN01 —— 原始值與換算過程都寫出來（FVCO → WMK → DCLK）。 */
+      det += ' / TCON UI DCLK ' + wfgFmtDclk(_dc.dclk) + ' MHz (' +
+             m.dclk.nFb.key + '=' + _r.nFb + ' ' + m.dclk.nPre.key + '=' + _r.nPre + ' ' +
+             m.dclk.nPos1.key + '=' + _r.nPos1 + ' ' + m.dclk.ftn.key + '=' + _r.ftn +
+             ' => FVCO ' + wfgFmtDclk(_r.fvco) + ' / WMK ' + wfgFmtDclk(_r.wmk) +
+             (_r.auto >= 0 ? (' / ' + m.dclk.autoMode.key + '=' + _r.auto) : '') +
+             (_r.dckSetEn >= 0 ? (' / ' + m.dclk.dckSetEn.key + '=' + _r.dckSetEn) : '') + ')';
     } else {
       det += ' / TCON UI DCLK ' + wfgFmtDclk(_dc.dclk) + ' MHz (' +
              m.dclk.p.key + '@' + wfgNbOffStrOf(m.dclk.p) + '=' + _r.p + ' + ' +
@@ -49314,6 +49666,37 @@ function wfgNbBuildXlsx(key, opt) {
       if (DA.frIntg) _putA(DA.frIntg, encA.intg);
       if (DA.frFrac) _putA(DA.frFrac, encA.frac);
       dclkOut = { kind: 'agbsfr', from: _uiWas, to: _uiNow, intg: _iA, frac: _fA };
+    }
+    /* ══ 🔴 v4.59.0：EN01（RM81008）的反寫 —— FNPLL ═════════════════════════════════════
+       照官方 `EN01AgbsfrViewModel::Standardize()` 的 PLL 那一段（推導見 `wfgNbDclkEncodeFnpll()`）：
+         FNPLL_VALUE、FNPLL_N_PRE、FNPLL_N_FB、FNPLL_N_POS1、FNPLL_N_POS2、FNPLL_FTN。
+       ⚠ 不寫（與 E503 v4.25.0 同一條原則）：`Standardize_CommonLogic()` 那一段
+         （OUTPUT_ISPCK_SET_EN／OUTPUT_DCK_SET_EN／PORTPAIR／RES_H／AGBS_HBLK／FR_HBLK／AGBS_VBLK／
+         FR_VBLK／FR_DET_TH／VBP）—— 那些依 EDID／iSP 設定重寫，wfg 沒有那一整套輸入。
+         匯入閘門②已要求標準化過（N_PRE＝1），那份 code 的 OUTPUT_DCK_SET_EN 本來就由官方設好。
+       ⚠ SSCG（FNPLL_SPREAD／FNPLL_MF）與 DCLK 無關（`6.25×8×SPREAD/32767`），不寫。 */
+    if (m.dclk.kind === 'fnpll' && _changed) {
+      var DF = m.dclk, encF = wfgNbDclkEncodeFnpll(_uiNow, wfgNbDclkImported.raw);
+      var _bitsF = function(spec) {
+        var ps = spec.parts || [spec], n = 0;
+        for (var z = 0; z < ps.length; z++) n += (ps[z].msb - ps[z].lsb + 1);
+        return n;
+      };
+      var _putF = function(spec, val) {
+        var mx = Math.pow(2, _bitsF(spec)) - 1, v = Math.max(0, Math.round(val));
+        if (v > mx) { clamped.push({ sig: 'FRAME', field: spec.key, from: v, to: mx }); v = mx; }
+        _nbFrameRow(spec.key, wfgNbOffStrOf(spec), v);
+        return v;
+      };
+      var _vF  = _putF(DF.autoMode, encF.auto);
+      _putF(DF.nPre, encF.nPre);
+      var _fbF = _putF(DF.nFb, encF.nFb);
+      var _p1F = _putF(DF.nPos1, encF.nPos1);
+      var _p2F = _putF(DF.nPos2, encF.nPos2);
+      var _ftF = _putF(DF.ftn, encF.ftn);
+      dclkOut = { kind: 'fnpll', from: _uiWas, to: _uiNow, auto: _vF, nFb: _fbF,
+                  nPos1: _p1F, nPos2: _p2F, ftn: _ftF, rclk: encF.rclk,
+                  alt: !!encF.alt, lookup: encF.lookup, officialLookup: encF.officialLookup, officialFtn: encF.officialFtn };
     }
     if (m.dclk.kind === 'gbpll' && _changed) {
       var D = m.dclk, B = wfgNbDclkImported.raw, enc = wfgNbDclkEncode(_uiNow);

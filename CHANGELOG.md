@@ -2,6 +2,39 @@
 
 ---
 
+## 面板訊號模擬與取樣 (wfg) v4.59.0 — 2026-10-21 ｜ MINOR ｜ 匯入時自動判斷 T-Con 型號；EN01 的 AGBSFR DCLK 與 TCON UI DCLK 聯動
+
+判定依據：docs/VERSIONING.md MINOR——新增能力（自動判斷型號、EN01 DCLK 帶入／反寫），舊操作都在；型號選對時其他六顆的匯入與匯出與 v4.58.0 相同。⚠ 輸出變更（只限 EN01）：① 標準化過的 EN01 code 匯入後 TCON UI DCLK 改為依 code 帶入（v4.58.0 不帶入）；② EN01 的 TCON UI DCLK 上限 105 → 210 MHz，EN01 code 匯入時不再因 105 上限把 Frame Rate 往下調、DCLK 也不再被夾在 105。以 EN01 建立的舊基線（DCLK、Frame Rate、TCON Htotal）需重拍。
+
+### 起因
+- Bruce 2026-10-21（Dispatch 238567331664130048）：「WFG 網頁如果 T-con 選擇是 A，但是匯入的 T-con 卻是 B，這應該也要可以判斷到底這一版 code 是哪個 T-con，然後自動修正 T-con 的型號。剛剛我有寄給自己一版 EN01 的 code，你可以用那一版來套用。另外，套用之後我發現它的 DCLK 並沒有依照我 code 裡面設定的 DCLK 顯示出來。所以這個地方你也要看一下 EN01 的 DCLK 跟在 AGBSFR 那一頁的聯動，要把它跟 E503 一樣，做到聯動到這個 WFG 網頁上面。」
+- 測試檔：Bruce 2026-10-21 15:29 寄給自己的 `RM81008_JDZ_CSOT14.0(G140EF15_120Hz)_EDID(8_0Ah)_CKS(09BD_5317Fh)_(RM97K68_H_InitialCode04_DPCD5.4G)_20261021.bin`（8192 B，EEPROM）。v4.58.0 選 E503 匯入這份會被 E503 的固定位址讀通（所以沒報錯、型號沒換），而且 EN01 從 v4.25.0 起不讀 DCLK、NB 上限 105 也容不下 178 ⇒ 三個原因疊在一起。
+
+### 根因
+1. 型號：`wfgCodePickFile()` 一律用使用者選的型號解析；v4.26.0 的 E501A／B 指紋只警告不改型號（Bruce 2026-08-25 第 5 點的裁示，本版依 10/21 新指示改成自動改正）。
+2. EN01 DCLK：`WFG_NB_MODELS.en01.dclk = null`（v4.25.0 因手上 3 份 EN01 都沒做過 AGBSFR 標準化、驗不過而刻意不做；當時寫下的判準是「拿到 `FNPLL_N_PRE === 1` 且公式值與 DCLK 自動值一致的檔再做」）。Bruce 這份就是第一份標準化過的真檔。
+3. 上限：EN01 走 NB 類別上限 105 MHz，但官方 EN01 的 DCLK 範圍是 25～210（WPF `AgbsfrViewModelBase.Default_DCLK_Range()`，`IsEN01` ⇒ Max 210）；178 會被夾掉。
+
+### 依據（讀碼＋實測）
+- EN01 公式／反算：WPF RomCodeProcessUI（Bruce 自己的 repo）`Wpf.RomCodeProcessUI/ViewModels/AGBSFR/EN01AgbsfrViewModel.cs`——`FVCO = 54×(1+N_FB)/(1+N_PRE)`、`WMK = FVCO/2/(1+N_POS1)`、`ComputeDCLK = Round(WMK×(1−FTN×0.125/65535), 2)`；`Standardize()`：`DCLK_AUTO_MODE = trunc(DCLK)`、`N_PRE = 1`、`N_FB`／`N_POS1`／`N_POS2` 由 `EN01_NFB_Table`／`EN01_DCLK_Table` 以 Round(DCLK) 查（N_POS2 依 RCLK 型態，`InferRCLKTypeFromNPOS2()`）、`FTN = Round((1−DCLK/WMK)×65535/0.125)`。位址 `Raydium.Core/Models/ICDefine.cs GetRM81008()`；區塊名逐字取 `RCP2/RomCodeProcessUI_2.0.19.0/ModelFiles/RM81008.model`（`.model` 沒有 `DCLK_AUTO_MODE`，0x8D 屬於 9 bit 的 `FNPLL_VALUE` = {0x8C[7], 0x8D}）。
+- Bruce 這份 code：FNPLL_N_FB=41、N_PRE=1、N_POS1=2、N_POS2=5、FTN=30514、FNPLL_VALUE=178、OUTPUT_DCK_SET_EN=1 ⇒ FVCO 1134、WMK 189、DCLK = Round(189×(1−30514×0.125/65535),2) = **178.00**，與 FNPLL_VALUE 相同；反算 178 得 N_FB 41／N_POS1 2／N_POS2 5（RCLK 4/8）／FTN 30514，與檔案逐位相同。
+- 型號判斷的實證：1,503 份檔名帶型號的真檔（`~/TCON/Model`、`~/TCON/TCON_UI`、郵件封存），7 顆解析器交叉矩陣：只有兩種重疊——E501A＋E501B（231 份，靠既有 `GBPLL_EN_SDM` 指紋分）與 EN01＋E503（1 份，就是 Bruce 這份；其他型號的真檔沒有任何一份通過 EN01 解析器）。
+
+### 改動（wfg.html、common/i18n.js、common/version.js、index.html、說明頁三語）
+1. `wfgCodeDetectTcon(bytes, fname)`：7 顆 `parseCode()` 各試一次（副檔名不收的跳過），E501A／B 用 `GBPLL_EN_SDM` 分、EN01 有 Dynamic Header 就判 EN01；唯一一顆才回 key，0 顆或 ≥2 顆回 null。
+2. `wfgCodePickFile()`：讀檔後先判斷，與目前型號不同就走 `wfgCodeOnTconChange(key, { silentClamp: true })`（與匯入視窗手動選型號同一支）再用新型號重新解析；匯入完成卡片多一行「偵測到這份是 X 的 code，已從 A 自動切換為 X」。EM01 有多組 timing 時，型號在按確定後才換（取消＝型號也不動）。有歧義且目前型號在其中 ⇒ 不換、卡片提醒；目前型號讀不通又有歧義 ⇒ 失敗訊息附候選。檔案選取框放行所有型號的副檔名；目前型號的讀檔前大小閘門不過時，8 MB 內仍讀進來判斷，判斷後沒換型號才照舊擋。
+3. EN01 `dclk` 改為 `kind: 'fnpll'`：`wfgNbReadDclkFnpll()` 正算＋四道閘門（讀得到／`FNPLL_N_PRE === 1`／40～210／`FNPLL_VALUE === trunc(DCLK)`），過了就填 TCON UI DCLK、ack 卡的 DCLK 項消失（與 E503 同路徑）；沒標準化的 EN01 照舊不填並講理由（新訊息 `wfg.codeNbDclkNotStdFn`）。
+4. 匯出：有匯入基準且 DCLK 改過才寫 `FNPLL_VALUE／N_PRE／N_FB／N_POS1／N_POS2／FTN` 六列（`wfgNbDclkEncodeFnpll()`，RCLK 型態沿用匯入值）；`Standardize_CommonLogic()` 那段（OUTPUT_DCK_SET_EN、PORTPAIR、HBLK/VBLK、FR_DET_TH、VBP）與 SSCG 不寫，理由同 E503 v4.25.0。
+5. 🔴 官方查表的溢位：官方用 Round(DCLK) 查表，DCLK 落在 d−0.5～d 時有些格子 FTN 會超過 15 bit（例 40.5 → 查 41 → FTN 36157），官方 setter 只取低 15 bit ⇒ 晶片上的 DCLK 會變成別的值。本工具只在溢位時改查 floor(DCLK) 那一列，並在匯出訊息講明（`wfg.codeNbDclkFnAlt`）；40～210 每 0.25 MHz 共 680 格（扣掉＝匯入值那 1 格）中有 40（另以 0.01 MHz 一格離線驗算：17,001 格中 633 格溢位，改查後全部 round-trip；整數 DCLK 0 格溢位） 格屬於這種情況，其餘與官方逐欄相同。
+6. `WFG_TCON_CODECS.en01.uiDclkMax = 210`（下限維持 40）。
+
+### 測試
+- 新增 `tools/check_wfg_tcon_detect.mjs`（headless Chrome，產品函式＋按鈕路徑）：A 判斷矩陣 1,500 份＋Bruce 2 份：EM02 28/28、E512 91（另 3 份哪顆都讀不通）、EM01 134（24）、E503 968（1）、EN01 5/5、E501B 114（2）、E501A 117（16），誤判 0、歧義 0。B 畫面流程：9 份代表檔 × 先選 7 顆＝63 組，型號全對、切換提示只在選錯時出現、最終狀態（18 條訊號、frame、FLR、UI DCLK、ack 項目）與「匯入視窗手動選對」完全相同。C EN01：Bruce 那份手算 178.00＝帶入值、ack 的 DCLK 項消失；匯入→不改→匯出 0 列 FNPLL；40～210 每 0.25 MHz 680 格匯出 6 列＝官方 Standardize 獨立移植（40 格溢位改查 floor）、套回原檔再讀回＝原值；178 反算＝檔案原值；RCLK 型態沿用；畫面改 150 匯出 6 列正確；3 份未標準化舊檔不帶入並講理由。D 改前改後 125 份（每型號 ≤20＋全部 EN01）：122 份狀態與匯出列完全相同；Bruce 兩份 DCLK 由不帶入變 178（預期）；RM81008_FLASH.bin（1920×1200 未標準化）只有 frameRate／dclk／rxDclk／htotal／tconHtotal 不同＝上限 105→210 的連帶，訊號、FLR、匯出列相同。U 375px 切換提示在畫面內。全套 27/28（唯一 ✗ 是測試的允許欄位漏了 frameRate，修正後 EN01 子集重跑 22/0）。
+- 既有回歸：`check_wfg_nb_script.mjs`（base＝v4.58.0 854e942，含 E503 hex／E501A／E501B／EN01 Demo 真檔）698/0（7 顆 × 12 組 seed＋4 份真檔，NB .xlsx bytes 與 MNT .script 改前改後逐位元相同）；`check_wfg_en01_flash.mjs`（含 Bruce 兩份）60/0；`check_wfg_auto_var_clock.mjs` 54/0；`check_cache_buster.py` 通過；去註解建置＋`verify-site.mjs` 38 頁去註解前後一致。
+- 未驗：沒有在 Windows 上用 RCP2 實際開 WFG 匯出的 EN01 清單（本機 Mac 跑不了 WPF）；溢位改查 floor 那一列是本工具的處理，官方 UI 的同一格會寫出截掉高位的值。
+
+---
+
 ## 面板訊號模擬與取樣 (wfg) v4.58.0 — 2026-10-21 ｜ MINOR ｜ NB 匯出可選 .xlsx（預設）或 .script
 
 判定依據：docs/VERSIONING.md MINOR——新增選項；預設仍是 .xlsx，NB .xlsx 與 MNT .script 的輸出與 v4.57.0 逐位元相同，舊操作不變。
