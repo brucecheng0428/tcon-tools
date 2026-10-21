@@ -2,6 +2,50 @@
 
 ---
 
+## Data Mapping (datamap) v1.37.0 — 2026-10-21 ｜ MINOR ｜ EN01 開放 Benchmark 自動反推（快速路徑、分段執行可取消、多解提示）
+
+判定依據：docs/VERSIONING.md R3——使用者多能做一件事（EN01 也能按「自動反推」）⇒ MINOR。MNT／NB 反推結果逐欄不變（見測試），不標 ⚠ 輸出變更；結果行在有多組 0 錯解時多一句「共 N 組 0 錯解」（MNT／NB 也會出現，只是文字）。
+
+### 起因
+- Bruce 2026-10-21：「為何 EN01 的 DataMap 網頁它沒有反推的功能？」→ Dispatch 說明 v1.35.26 起 EN01 刻意不給（估約 MNT 150 倍、未實測），提兩個做法 → Bruce：「可以，可以派人做」。派工 238563327454375936。
+
+### 先實測（現行演算法只補 EN01 的格子清單，演算法不動）
+| 情境 | Chrome 桌機 | jsdom（Node） |
+|---|---|---|
+| Single 48 格、改輸出對調 | 253 ms、6,394 次評估、0 錯 | 372 ms |
+| Single 48 格、改 CH1 左右 | 8.0 s 撞時間上限、123,921 次、仍 96 錯（沒有 Mirror 候選） | 8.0 s、96 錯 |
+| HSD 96 格、改輸出對調 | 2.2 s、25,546 次、0 錯 | 3.4 s |
+| MUX6 288 格、改輸出對調 | 22.3 s（頁面凍結）、76,612 次、0 錯 | 32.2 s |
+| MUX6 288 格、改 CH1 左右 | — | 108 s、153,242 次、仍 456 錯 |
+⇒ 不夠快（手機會更久），改演算法。
+
+### 改動（datamap.html）
+1. EN01 格子／選項／寫入：格子＝Benchmark 同一份（bmCells，目前 Gate 顯示的列 × Data1～12，最多 288 格）；選項＝該列 T 的 133 個候選（DM.en01Defs）；寫入＝DM.en01Pick。
+2. 可分解快速路徑：pvEn01Model 每筆資料帶 src（來自 ② 哪一格，pvLineOf／pvChrb 保留），pvWiresSpec 帶 rs（收到的資料來自哪一格），lkErr 可逐格歸因（LK_ATTR）。固定 Mirror／CHRB／其他暫存器時每格只影響自己那幾條線 ⇒ 第 i 個候選只評一次（所有格同時填自己的第 i 個候選，再把錯格分回各格），133 次評估取代「格數 × 133」次；每格取法與逐格下降相同（目前值已最少就不動，否則取候選順序中第一個最少的），最後完整評分驗算，對不上就退回逐格下降。MNT／NB 模型沒有 src ⇒ 照舊逐格下降。
+3. EN01 反推也試 Mirror 0／1（EN01 模型本來就畫 Mirror）；結果行 Mirror 1 標「（推論）」（同 ③ 旗標列，Mirror 跨循環方向待 同事D）。
+4. 不卡頁面：反推改成可分段的 generator；按鈕走非同步分段（每段約 30 ms），結果行顯示「計算中…（已評估 n 次，s 秒）」與「取消」鈕；取消或計算中改了設定 ⇒ 結果作廢、什麼都不改。時間上限（8 秒）只算計算時間。window.dmBench.reverse() 仍同步（測試用，結果相同）。
+5. 多組 0 錯解：結果行加「共 N 組 0 錯解，已依排名選第 1 組（其他組見 ④ 記錄）」，④ 記錄列出前 8 組（Mirror／CHRB／改了哪些暫存器／第一列前 6 格）。同一組暫存器值只算一次。
+6. 拿掉 dm.bmRevEn01（三語「EN01 不提供自動反推…」）與 #dm-bench-reven01；新增 dm.bmRevRun／bmRevX／bmRevCancel／bmRevStale／bmRevMulti（三語）。
+7. 測試入口：dmBench.reverseAsync／cancel／running／dry／slow／evalErr。
+8. common/version.js datamap v1.37.0；datamap.html／index.html version.js `?v=20261021dm1370`。
+
+### 實測（新版）
+| 情境（Chrome 桌機，DRY） | 耗時 | 評估次數 | 結果 |
+|---|---|---|---|
+| Single 48 格 對調／CH1／SHL＋BGR | 84／81／58 ms | 425～568 | 0 錯（CH1 用 Mirror 1） |
+| HSD 96 格 同上 | 115／117／104 ms | 560～568 | 0 錯 |
+| MUX3 144 格 同上 | 188／185／159 ms | 560～568 | 0 錯 |
+| MUX4 192 格 同上 | 248／244／226 ms | 564～568 | 0 錯 |
+| MUX6 288 格 對調／SHL＋BGR | 327／271 ms | 548 | 0 錯 |
+| MUX6 288 格 CH1 | 8.0 s（時間上限，分段執行不凍結、可取消） | 14,564 | 最少 336 錯，不套用 |
+- MUX6 CH1 換邊：不限時間＋FORCE_DE_SEL 窮舉 8 bit（T0～T7）也最少 168 錯（144 格、Line 1～2）⇒ 網頁模型下改 TCON 設定改不回來（推論：MUX 換邊是 SD 腳位反向、SW 順序不變），照規則「有錯不套用」。
+- MUX3／MUX4 用「CH1 右的 Mirror 1 解」重新鎖定：MUX3 鎖定當下就 96 錯；MUX4 改回 CH1 左不限時間最少 96 錯（原 Mirror 0 表在該鎖定下 192 錯）⇒ MUX＋Mirror 走線本來就是推論（assistant_kb 型號/EN01 §7.4／9.5），不是搜尋漏掉。
+- 按鈕分段執行（Chrome）：MUX6 CH1 跑滿 8 秒期間最長一段 46 ms、畫面最長停頓 116 ms；成功時最後套用的整頁重畫（② 與 Benchmark 各 288 個下拉）約 0.8 秒，是頁面原本的重畫成本。
+
+### 測試
+- tools/check_datamap_en01rev.js（新）：270／270——E1 162（E507 xlsm 原廠範例 8 種 Gate／MUX 的 Mirror 0 當已知接線 × 6 種變更 ⇒ 0 錯＋完整評分驗算；另用 CH1 右的 Mirror 1 解重新鎖定 Single／Dual／MUX2 × 5 種變更 ⇒ 0 錯；MUX6 CH1 兩組列為預期無解）、E2 13（改回原設定 ⇒ ②-2 每格、Mirror／CHRB／READ_RVS 回到原本接線）、E3 14（快速路徑＝逐格下降，逐欄相同）、E4 71（多解提示）、E5 5（按鈕、實際套用、復原）、E6 5（分段、取消、計算中改設定作廢）
+- tools/check_datamap_lkrev_same.js（新，比本版與 origin/main 854e942；最終版再跑一次同結果）：MNT／NB 234 情境（10 型號 × 起點 × 6 種 Driver／面板變更，時間上限兩版都 60 s）反推後 ② 全部欄位、錯格數、是否套用、結果行（去掉新增尾巴）逐欄相同 234／234。
+- check_datamap_sd_snapshot（基準 v1.36.4）：MNT 9984／0、E50x 7680／0、DAZ 5520／0、EN01 1024／0；check_datamap_boe --qm /tmp/qm.bin 109／0；check_datamap_lkrev 742／2（2 項失敗與 origin/main 相同：EM01 Auto HSD type4、EM02 Auto 1D1G 對調後「復原」比對）；check_datamap 282／4（同 origin/main）；check_datamap_en01 75／0；muxall 3464／0；desel 133／0；check_datamap_en01tft 668182／0。check_datamap_bench 近期各版都沒列入，本版背景跑超過 1 小時未完，不列入。
 ## 面板訊號模擬與取樣 (wfg) v4.59.0 — 2026-10-21 ｜ MINOR ｜ 匯入時自動判斷 T-Con 型號；EN01 的 AGBSFR DCLK 與 TCON UI DCLK 聯動
 
 判定依據：docs/VERSIONING.md MINOR——新增能力（自動判斷型號、EN01 DCLK 帶入／反寫），舊操作都在；型號選對時其他六顆的匯入與匯出與 v4.58.0 相同。⚠ 輸出變更（只限 EN01）：① 標準化過的 EN01 code 匯入後 TCON UI DCLK 改為依 code 帶入（v4.58.0 不帶入）；② EN01 的 TCON UI DCLK 上限 105 → 210 MHz，EN01 code 匯入時不再因 105 上限把 Frame Rate 往下調、DCLK 也不再被夾在 105。以 EN01 建立的舊基線（DCLK、Frame Rate、TCON Htotal）需重拍。
