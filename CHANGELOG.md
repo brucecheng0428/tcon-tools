@@ -2,6 +2,34 @@
 
 ---
 
+## 面板訊號模擬與取樣 (wfg) v4.58.0 — 2026-10-21 ｜ MINOR ｜ NB 匯出可選 .xlsx（預設）或 .script
+
+判定依據：docs/VERSIONING.md MINOR——新增選項；預設仍是 .xlsx，NB .xlsx 與 MNT .script 的輸出與 v4.57.0 逐位元相同，舊操作不變。
+
+### 起因
+- Bruce 2026-10-21（Dispatch 238491472580210688）：「如果是 NB 的 T-Con（包含 E503 這些）要匯出script時，可以多一個選項，讓使用者選擇要匯出 Excel 檔還是 .script 檔。」理由：EN01 的 UI（也可開 E503 的 code）現在也支援 monitor 的 script 檔。
+- 「EN01 的 UI」＝ WPF RomCodeProcessUI（RCP2，`~/ClaudeData/Projects/WPF_RomCodeProcessUI`）；EN01 是 NB 型號（RM81008），不是 EM01。
+
+### 依據（讀碼）
+- RCP2 Script 分頁：`Raydium.Wpf.Common/Helpers/Scripting/ScriptParser.cs` 解析 `write -m <ADDR> <VALUE> <MASK>`／`write -n`，`//` 後為註解；`ScriptViewModel.AddrType` 預設 Register；`Wpf.RomCodeProcessUI/Modules/ScriptModule.cs` 以 `RegisterDictionary`（DataWrapper.RegAddr）對位址，RegAddr 由 `RomCodeInfo.TaskSetRegisterData` 依 IC 的 ROM↔Register 區段連續指派。
+- NB .xlsx 的 `Offset (HEX)`（Slave 0x3E）就是 `.model` 的 RegAddr（E503 XSTB 0x3B0、E501 0x480、EN01 0x490）⇒ .script 用同一組位址、Address Type 選 Register。
+- 多段欄位左邊是 MSB（同 `wfgNbOffStrOf()` 註記的官方 `write_value_to_multi_3e_data()`）。
+
+### 改動（wfg.html、common/i18n.js、common/version.js、index.html、說明頁三語）
+1. `wfgNbBuildScript(key)`：先跑原本的 `wfgNbBuildXlsx()`，把每一列的 Offset 字串拆段翻成 `write -m AAAA VV MM    // <Check Item> = 值`（與 MNT 的 `wfgEm02Line()` 同一個產生器），`// -- FRAME --`／`// -- XSTB --` 分段，純 ASCII 保險絲同 MNT。夾值、略過、DCLK 反寫、PANEL_MODE、EN01 只寫 16 條等判斷全部沿用，不另寫一套。
+2. NB 四顆 codec 加 `exportAlt: 'script'`／`buildExportAlt`；`wfgCodeExportRun(targetKey, fmt)` 只有 fmt＝'script' 且型號有 `exportAlt` 才改走 .script，其餘照舊。
+3. 匯出確認框：目標是 NB 時多「② 檔案類型（NB）」下拉，預設 .xlsx、每次開框重設；MNT 不出現。型號下拉 NB 項顯示 `(.xlsx / .script)`；兩個下拉改為依內容寬度（375px 不溢出）。
+4. .script 匯出後的提示改說 Script 分頁流程（Address Type＝Register、預覽無 Not Found 再 Apply、Save As）；其餘 NB 提示（夾值／DCLK／略過）不變。
+5. `wfgNbBuildXlsx()` 回傳多一個 `rowSig`（每列屬哪一段），不進 xlsx。
+
+### 測試（tools/check_wfg_nb_script.mjs，headless Chrome，698/0）
+- A 改前（origin/main bdba9ca）改後逐位元：12 組 seed＋4 份真檔（E503 hex、E501A、E501B、EN01 Demo，匯入後 DCLK +1 讓 DCLK／PANEL_MODE 列也進來）× 7 顆型號，NB .xlsx bytes 與 MNT .script（遮時間戳／版號行）112 項全相同。
+- B NB .script 與 .xlsx 各自用獨立套用器套到記憶體，逐 byte 相同；C RCP2 ScriptParser 規則 JS 移植解析 0 錯誤、純 ASCII、單 byte；D 位址都在 .model 暫存器區段內，GPO／frame 列的位元都是 .model 定義欄位（DCLK 反寫列沿用 xlsx 既有寫法，FAE .model 未列全，只驗區段）。
+- E 與 EM02 範例同格式；U 畫面：E503／EN01／E501B 預設下載 .xlsx（PK）、選 .script 下載 text .script；EM01 框無檔案類型、仍下載 .script；375px 下拉與按鈕在畫面內。
+- 未驗：沒有在 Windows 上用 RCP2 實際 Apply（本機 Mac 無法跑 WPF）；解析規則是照原始碼移植。
+
+---
+
 ## mLVDS Skew 計算工具 (calc) v1.9.3 — 2026-10-21 ｜ PATCH ｜ 每顆 driver channel 數依上方設定自動帶入（Single／Dual 分開算，可手動覆寫、可重算）
 
 判定依據：PATCH（版號依派工指定 v1.9.2→v1.9.3）——輸入欄預設值改為依設定自動帶入，計算公式不變；相同 channel 輸入下 X／cof 與 v1.9.2 逐值相同。

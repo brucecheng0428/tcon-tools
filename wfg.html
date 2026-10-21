@@ -3688,8 +3688,8 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20261019wfg4570"></script>
-<script src="common/i18n.js?v=20261019wfg4570"></script>
+<script src="common/version.js?v=20261021wfg4580"></script>
+<script src="common/i18n.js?v=20261021wfg4580"></script>
 <script src="common/syscrc.js?v=20261014wfg4550"></script>
 <script src="common/common.js?v=20260523"></script>
 <script>
@@ -44367,7 +44367,9 @@ var WFG_TCON_CODECS = {
     label: 'E503', tconClass: 'NB', uiDclkRatio: 1, gpoBits: WFG_GPO_BITS_NB, comboSrc: WFG_COMBO_SRC_E503,
     importExts: ['.bin', '.hex'], exportFormat: 'xlsx', exportBinary: true, mediumBySize: true,
     parseCode: function(buf, fname) { return wfgNbParse(buf, fname, 'e503'); },
-    buildExport: function(opt) { return wfgNbBuildXlsx('e503', opt); }
+    buildExport: function(opt) { return wfgNbBuildXlsx('e503', opt); },
+    /* v4.58.0：可改匯出 .script（Bruce 2026-10-21），見 wfgNbBuildScript() */
+    exportAlt: 'script', buildExportAlt: function(opt) { return wfgNbBuildScript('e503', opt); }
   },
   /* ══ 🔴 v4.26.0：舊的 `e501` 一顆拆成 `e501a` ＋ `e501b` ═══════════════════════════
      Bruce 2026-08-25 逐字：
@@ -44394,13 +44396,17 @@ var WFG_TCON_CODECS = {
        一個 .hex 都沒有。`.hex` 仍留著是因為共用層本來就支援，多留無害。 */
     importExts: ['.bin', '.hex'], exportFormat: 'xlsx', exportBinary: true, mediumBySize: true,
     parseCode: function(buf, fname) { return wfgNbParse(buf, fname, 'e501a'); },
-    buildExport: function(opt) { return wfgNbBuildXlsx('e501a', opt); }
+    buildExport: function(opt) { return wfgNbBuildXlsx('e501a', opt); },
+    /* v4.58.0：可改匯出 .script（Bruce 2026-10-21），見 wfgNbBuildScript() */
+    exportAlt: 'script', buildExportAlt: function(opt) { return wfgNbBuildScript('e501a', opt); }
   },
   e501b: {
     label: 'E501B', tconClass: 'NB', uiDclkRatio: 1, gpoBits: WFG_GPO_BITS_NB, comboSrc: WFG_COMBO_SRC_E501,
     importExts: ['.bin', '.hex'], exportFormat: 'xlsx', exportBinary: true, mediumBySize: true,
     parseCode: function(buf, fname) { return wfgNbParse(buf, fname, 'e501b'); },
-    buildExport: function(opt) { return wfgNbBuildXlsx('e501b', opt); }
+    buildExport: function(opt) { return wfgNbBuildXlsx('e501b', opt); },
+    /* v4.58.0：可改匯出 .script（Bruce 2026-10-21），見 wfgNbBuildScript() */
+    exportAlt: 'script', buildExportAlt: function(opt) { return wfgNbBuildScript('e501b', opt); }
   },
   /* EN01 ＝ RM81008（2026-08-23 查證：六個 `.model` 檔逐一 MD5 相同、
      RCP2 exe 內含 UI 字串 `RM81008(EN01)`、UserManual 明寫「EN01 系列的 RM81008」、
@@ -44431,7 +44437,9 @@ var WFG_TCON_CODECS = {
        這一格就是把舊 `hasSecondDly` 那個**已經不成立**的警示，換成一個仍然成立的。 */
     hasSecondStSpLine: true,
     parseCode: function(buf, fname) { return wfgNbParse(buf, fname, 'en01'); },
-    buildExport: function(opt) { return wfgNbBuildXlsx('en01', opt); }
+    buildExport: function(opt) { return wfgNbBuildXlsx('en01', opt); },
+    /* v4.58.0：可改匯出 .script（Bruce 2026-10-21），見 wfgNbBuildScript() */
+    exportAlt: 'script', buildExportAlt: function(opt) { return wfgNbBuildScript('en01', opt); }
   }
 };
 /* v4.6.0：目前機種的單一真值搬進 `wfgFrame.codeTcon`（見該處註解）。
@@ -45951,10 +45959,15 @@ function wfgExpCompatCheck(targetKey) {
 window.wfgExpCompatCheck = wfgExpCompatCheck;
 
 var _wfgExpPick = null;
+/* v4.58.0：NB 的檔案類型（'xlsx' 預設／'script'）。每次開框都回到預設 —— 維持現行。 */
+var _wfgExpFmt = 'xlsx';
+function wfgExpPickFmt(v) { _wfgExpFmt = (v === 'script') ? 'script' : 'xlsx'; }
+window.wfgExpPickFmt = wfgExpPickFmt;
 function wfgExpShow() {
   var m = document.getElementById('wfg-exp-mask');
   if (!m) { wfgCodeExportRun(wfgTconKey()); return; }   // 大聲失敗不了就照舊直接匯出
   _wfgExpPick = wfgTconKey();
+  _wfgExpFmt = 'xlsx';
   var sub = document.getElementById('wfg-exp-sub');
   if (sub) sub.textContent = t('wfg.expSub').replace('{m}', (wfgTconCodec() && wfgTconCodec().label) || '');
   wfgExpRender();
@@ -45968,14 +45981,26 @@ function wfgExpRender() {
   var cur = wfgTconKey();
   var html = '<div class="wfg-ack-item tone-blue"><div class="wfg-ack-num">1</div><div class="wfg-ack-tx">'
            + '<div class="wfg-ack-name">' + t('wfg.expPickName') + '</div>'
-           + '<div class="wfg-ack-row"><select class="wfg-ack-input" style="width:auto;min-width:150px" onchange="wfgExpPick(this.value)">';
+           + '<div class="wfg-ack-row"><select class="wfg-ack-input" style="flex:0 1 auto;width:auto;min-width:150px;max-width:100%" onchange="wfgExpPick(this.value)">';
   for (var k in WFG_TCON_CODECS) {
     var c = WFG_TCON_CODECS[k];
     if (!c.buildExport) continue;                       // 沒有匯出器的型號不列
     html += '<option value="' + k + '"' + (k === _wfgExpPick ? ' selected' : '') + '>'
-          + c.label + '  (.' + c.exportFormat + ')' + (k === cur ? '  ' + t('wfg.expCurrentTag') : '') + '</option>';
+          + c.label + '  (.' + c.exportFormat + (c.exportAlt ? ' / .' + c.exportAlt : '') + ')' + (k === cur ? '  ' + t('wfg.expCurrentTag') : '') + '</option>';
   }
   html += '</select></div></div></div>';
+  /* v4.58.0：NB 多一項「檔案類型」。MNT 沒有 `exportAlt` ⇒ 這一項不出現，畫面與以前相同。 */
+  var _pc = WFG_TCON_CODECS[_wfgExpPick] || {};
+  if (_pc.exportAlt) {
+    html += '<div class="wfg-ack-item tone-blue"><div class="wfg-ack-num">2</div><div class="wfg-ack-tx">'
+          + '<div class="wfg-ack-name">' + t('wfg.expFmtName') + '</div>'
+          + '<div class="wfg-ack-row"><select id="wfg-exp-fmt" class="wfg-ack-input" style="flex:0 1 auto;width:auto;min-width:150px;max-width:100%" onchange="wfgExpPickFmt(this.value)">'
+          + '<option value="xlsx"' + (_wfgExpFmt !== 'script' ? ' selected' : '') + '>' + t('wfg.expFmtXlsx') + '</option>'
+          + '<option value="script"' + (_wfgExpFmt === 'script' ? ' selected' : '') + '>' + t('wfg.expFmtScript') + '</option>'
+          + '</select></div>'
+          + '<div class="wfg-ack-where">' + t('wfg.expFmtWhere') + '</div>'
+          + '</div></div>';
+  }
 
   var r = wfgExpCompatCheck(_wfgExpPick);
   var tgtLabel = (WFG_TCON_CODECS[_wfgExpPick] || {}).label || _wfgExpPick;
@@ -46076,7 +46101,7 @@ function wfgExpConfirm() {
   /* v4.16.2：不再有「超界就不給匯出」這條路 —— 夾值由 `wfgNbBuildXlsx()` 處理，
      夾了什麼由匯出後的訊息逐條說明。 */
   wfgExpCancel();
-  wfgCodeExportRun(k);
+  wfgCodeExportRun(k, _wfgExpFmt);
 }
 /* 使用者主動選擇「連資料一起換過去」。走既有的 `wfgCodeOnTconChange()`，
    所以夾值明細與確認卡一項都不會少；回來後重畫這個框（超界項應該就清空了）。 */
@@ -46099,21 +46124,25 @@ window.wfgCodeExport = function() {
   wfgExpShow();
 };
 /* 實際產檔。`targetKey` ＝ 確認框選定的型號，**不一定等於目前機種**。 */
-function wfgCodeExportRun(targetKey) {
+function wfgCodeExportRun(targetKey, fmt) {
   var codec = WFG_TCON_CODECS[targetKey];
   if (!codec) return;
   if (!codec.buildExport) { wfgCodeNotSupported(codec, 'export'); return; }
+  /* v4.58.0：NB 可改匯出 .script（`exportAlt`）。沒指定或不是 alt ⇒ 走原本的格式，行為不變。 */
+  var useAlt = !!(codec.exportAlt && codec.buildExportAlt && fmt === codec.exportAlt);
+  var ext = useAlt ? codec.exportAlt : codec.exportFormat;
+  var isBin = useAlt ? false : !!codec.exportBinary;
   var out;
-  try { out = codec.buildExport({ onlyChanged: false, comments: true }); }
+  try { out = (useAlt ? codec.buildExportAlt : codec.buildExport)({ onlyChanged: false, comments: true }); }
   catch (err) { alert(String(err && err.message || err)); return; }
   if (!out || !out.ok) { alert((out && out.reason) || '?'); return; }
   var now = new Date();
   var p = function(n) { return n < 10 ? '0' + n : '' + n; };
   var stamp = now.getFullYear() + p(now.getMonth() + 1) + p(now.getDate()) + '_' + p(now.getHours()) + p(now.getMinutes());
-  var fname = 'WFG_GPO_' + codec.label + '_' + stamp + '.' + codec.exportFormat;
+  var fname = 'WFG_GPO_' + codec.label + '_' + stamp + '.' + ext;
   /* v4.14.0：NB 三顆匯出的是 .xlsx（二進位），MNT 三顆仍是 .script（文字）。
      差異只有「拿 bytes 還是 text」與 MIME，其餘下載流程完全共用 —— 不另開一條路徑。 */
-  var blob = codec.exportBinary
+  var blob = isBin
     ? new Blob([out.bytes], { type: out.mime || 'application/octet-stream' })
     : new Blob([out.text], { type: 'text/plain;charset=utf-8' });
   var a = document.createElement('a');
@@ -46187,7 +46216,8 @@ function wfgCodeExportRun(targetKey) {
                           : t('wfg.codeNbDclkNoDelta')));
       }
     }
-    msgs.push(t('wfg.codeNbXlsxFlow').replace('{n}', String(out.count)));
+    msgs.push(useAlt ? t('wfg.codeNbScriptFlow').replace('{n}', String(out.count))
+                     : t('wfg.codeNbXlsxFlow').replace('{n}', String(out.count)));
   }
   /* v4.16.0：用「不是目前機種」的格式匯出時，把這件事講清楚 ——
      檔名裡雖然有型號，但使用者剛剛在畫面上看的是另一顆的上下限與 COMBO 對象。 */
@@ -49179,6 +49209,9 @@ function wfgNbBuildXlsx(key, opt) {
   var m = WFG_NB_MODELS[key];
   if (!m) return { ok: false, reason: 'unknown NB model: ' + key };
   var rows = [WFG_NB_XLSX_HEADER.slice()];
+  /* v4.58.0：`rowSig[i]` ＝ rows[i] 屬於哪一段（'FRAME' 或訊號名），只給 .script 產生器分段用，
+     不進 xlsx ⇒ xlsx 位元不變。 */
+  var rowSig = [null];
   var cnt = 0, sigCnt = 0, dropped = [], skipped = [], clamped = [];
   /* ══ v4.23.0：frame 層級的三列，排在所有訊號之前（與 MNT 的 script 排法一致）══════
      ① `RD_MODE`（GATE TYPE）—— Bruce 2026-08-24：「匯出 code 的時候，也有 Single 和 Dual
@@ -49194,7 +49227,7 @@ function wfgNbBuildXlsx(key, opt) {
     for (var z = 0; z < r.length; z++) r[z] = null;
     r[0] = m.tconName; r[1] = key; r[2] = '0x3E'; r[3] = 2; r[4] = off; r[5] = 0;
     r[6] = '0x' + (val >>> 0).toString(16).toUpperCase();
-    rows.push(r); cnt++;
+    rows.push(r); rowSig.push('FRAME'); cnt++;
   }
   if (m.layout === 'A' && m.rdMode) {
     _nbFrameRow('RD_MODE', wfgNbOff(m.rdMode.reg, m.rdMode.msb, m.rdMode.lsb),
@@ -49371,7 +49404,7 @@ function wfgNbBuildXlsx(key, opt) {
       row[4] = off;
       row[5] = 0;                            // Default Case
       row[6] = '0x' + val.toString(16).toUpperCase();
-      rows.push(row);
+      rows.push(row); rowSig.push((WFG_EM02_SIGS[i] || String(i)).toUpperCase());
       cnt++; sigCnt++;
     }
   }
@@ -49379,13 +49412,98 @@ function wfgNbBuildXlsx(key, opt) {
      用 `cnt` 判的話「一條訊號都沒勾」再也不會被擋下，那是靜默改變既有行為。 */
   if (!sigCnt) return { ok: false, reason: t('wfg.codeErrNbNoRows') };
   var bytes = wfgBuildXlsx(rows);
-  return { ok: true, bytes: bytes, count: cnt, dropped: dropped, rows: rows,
+  return { ok: true, bytes: bytes, count: cnt, dropped: dropped, rows: rows, rowSig: rowSig,
            skipped: skipped, clamped: clamped, pmSkipped: pmSkipped, dclkOut: dclkOut,
            dropKey: m.dropKey || 'wfg.codeNbDropped',
            mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' };
 }
 window.wfgNbParse = wfgNbParse;
 window.wfgNbBuildXlsx = wfgNbBuildXlsx;
+
+/* ══ v4.58.0：NB 匯出 .script（與 Monitor 同格式）═════════════════════════════════
+   Bruce 2026-10-21：「現在 EN01 的 UI（也可以使用 E503 的 code）也可以支援 monitor 的 script 檔，
+   所以如果是 NB 的 T-Con（包含 E503 這些）要匯出 script 時，可以多一個選項，讓使用者選擇
+   要匯出 Excel 檔還是 .script 檔。」
+   ── 做法：不另寫一套 NB 規則，直接把 `wfgNbBuildXlsx()` 的列「逐列翻成」write -m ──────────
+     ⇒ 夾值、略過、DCLK 反寫、PANEL_MODE、EN01 只寫 16 條……所有 xlsx 的判斷**一字不改**沿用，
+       兩種格式寫的暫存器與值必然相同（測試逐 byte 比對兩者套用後的結果）。
+   ── 位址空間：Register（不是 ROM offset）─────────────────────────────────────────
+     xlsx 的 `Offset (HEX)` 搭配 Slave 0x3E ＝ TCON register 位址，就是 `.model` 的 `RegAddrN`
+     （例 E503 XSTB 0x3B0、E501 0x480、EN01 0x490 —— RCP2 ModelFiles 逐一可查）。
+     RCP2（WPF RomCodeProcessUI）Script 分頁：`ScriptViewModel.AddrType` 預設 Register，
+     `ScriptModule.ResolveValues()` 用 `RegisterDictionary`（key ＝ DataWrapper.RegAddr）對位址；
+     語法由 `ScriptParser.Parse()` 解析：`write -m <ADDR> <VALUE> <MASK>`，`//` 之後是註解。
+   ── 多段欄位：左邊是 MSB（與官方 `write_value_to_multi_3e_data()` 相同，見 `wfgNbOffStrOf()`）──
+     例 `0x3B4[5:0],0x3B5[7:0]` 的 14 bit 值 v ⇒ 0x3B4 拿 v>>8、0x3B5 拿 v&0xFF。
+   🔴 解析不了的 Offset 字串一律大聲失敗，不猜。 */
+function wfgNbOffParse(str) {
+  var segs = String(str).split(','), parts = [];
+  for (var i = 0; i < segs.length; i++) {
+    var m = /^\s*0x([0-9A-Fa-f]+)\[(\d+)(?::(\d+))?\]\s*$/.exec(segs[i]);
+    if (!m) return null;
+    var msb = +m[2], lsb = (m[3] === undefined) ? msb : +m[3];
+    if (msb > 7 || lsb > msb) return null;
+    parts.push({ addr: parseInt(m[1], 16), msb: msb, lsb: lsb });
+  }
+  return parts.length ? parts : null;
+}
+window.wfgNbOffParse = wfgNbOffParse;
+
+function wfgNbBuildScript(key, opt) {
+  opt = opt || {};
+  var x = wfgNbBuildXlsx(key, opt);
+  if (!x || !x.ok) return x;
+  var m = WFG_NB_MODELS[key];
+  var lines = [], cnt = 0, lastSig = null;
+  if (opt.comments !== false) {
+    lines.push('// WFG ' + (window.TOOL_VERSIONS ? TOOL_VERSIONS.wfg : '(version unknown)') + ' - exported ' + m.label +
+               ' GPO settings (NB, ' + wfgEm02Ascii(m.tconName) + ')');
+    lines.push('// Load this file from the Script page of RomCodeProcessUI, Address Type = Register.');
+    lines.push('// Same register writes as the .xlsx check list export (' + x.count + ' items). Digital signals (GPO) only.');
+    lines.push('// ' + new Date().toISOString());
+    if (wfgCodeLastFileName) lines.push('// source: ' + wfgEm02Ascii(wfgCodeLastFileName));
+    lines.push('');
+  }
+  for (var r = 1; r < x.rows.length; r++) {
+    var row = x.rows[r], item = String(row[1]), offStr = String(row[4]);
+    var val = parseInt(String(row[6]).replace(/^0x/i, ''), 16);
+    var parts = wfgNbOffParse(offStr);
+    if (!parts || !isFinite(val)) {
+      return { ok: false, reason: 'cannot convert ' + item + ' offset "' + offStr + '" to .script' };
+    }
+    var sig = x.rowSig ? x.rowSig[r] : null;
+    if (opt.comments !== false && sig !== lastSig) {
+      if (lastSig !== null) lines.push('');
+      lines.push('// -- ' + sig + ' --');
+      lastSig = sig;
+    }
+    /* 從最右段（LSB）往左分配位元。 */
+    var shift = 0, out = [];
+    for (var k = parts.length - 1; k >= 0; k--) {
+      var P = parts[k], w = P.msb - P.lsb + 1, fmask = (1 << w) - 1;
+      var pv = Math.floor(val / Math.pow(2, shift)) & fmask;
+      var note = item + ' = ' + val;
+      if (parts.length === 2) note += (k === 0) ? ' (high)' : ' (low)';
+      else if (parts.length > 2) note += ' (part ' + (k + 1) + '/' + parts.length + ', MSB first)';
+      out.unshift(wfgEm02Line(P.addr, (pv << P.lsb) & 0xFF, (fmask << P.lsb) & 0xFF,
+                              opt.comments !== false ? note : ''));
+      shift += w;
+    }
+    for (var q = 0; q < out.length; q++) lines.push(out[q]);
+    cnt += out.length;
+  }
+  var text = lines.join('\n') + '\n';
+  for (var c = 0; c < text.length; c++) {
+    if (text.charCodeAt(c) > 0x7F) {
+      var ln = text.slice(0, c).split('\n').length;
+      return { ok: false, reason: 'non-ASCII char U+' + text.charCodeAt(c).toString(16).toUpperCase() +
+                                  ' at line ' + ln + ' - the .script format accepts ASCII only' };
+    }
+  }
+  return { ok: true, text: text, count: cnt, items: x.count, dropped: x.dropped, skipped: x.skipped,
+           clamped: x.clamped, pmSkipped: x.pmSkipped, dclkOut: x.dclkOut, dropKey: x.dropKey };
+}
+window.wfgNbBuildScript = wfgNbBuildScript;
 window.WFG_NB_MODELS = WFG_NB_MODELS;
 window.WFG_NB_FIELDS = WFG_NB_FIELDS;
 
