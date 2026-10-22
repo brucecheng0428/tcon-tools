@@ -15,7 +15,7 @@
 <link rel="stylesheet" href="common/common.css?v=20260903help">
 <link rel="stylesheet" href="common/done-step.css?v=20261001dst275">
 <!-- 🔴 version.js 必須最先載入（common/version.js 開頭那條規則）。 -->
-<script src="common/version.js?v=20261022nm2"></script>
+<script src="common/version.js?v=20261022en01"></script>
 <script src="common/i2c-bridge.js?v=20261012ib100"></script>
 <style>
   /* ═══ 本頁專屬樣式 ════════════════════════════════════════════════════════
@@ -1477,6 +1477,7 @@
 
 <script src="common/i18n.js?v=20261022nm2"></script>
 <script src="common/i2c-mbus.js?v=20261008dst276"></script>
+<script src="common/tcon-detect.js?v=20261022td110"></script>
 <script src="common/common.js?v=20260923dst1190"></script>
 <!-- v2.6.0：「匯出 Excel」—— 與 DG 第 3 部分「下載新產出 RGB LUT 檔」同一個格式表與同一個產生器 -->
 <script src="common/xlsx.js?v=20260930dst260"></script>
@@ -2669,7 +2670,6 @@ var dstSettleUsedMs = DST_SETTLE_DEFAULT;   // 進迴圈前抓一次，迴圈中
 var DST_ICS = [
   {
     key: 'E512AX', name: 'E512A1',
-    id: [0x12, 0xE5, 0xA0],                              // L383–393
     /* 🔴 這是**畫面上的字**，所以存的是 i18n key 不是字串常數。
        E512A2 與 E512A1 共用同一組 ID，上游工具也分不出來 —— 但兩顆的出圖序列
        相同（它沒有獨立的 per-IC 檔），所以不必做成 alts，如實標示就夠了。 */
@@ -2748,7 +2748,7 @@ var DST_ICS = [
     }
   },
   {
-    key: 'V007SX', name: 'V007SX', id: [0x05, 0xE5, 0xF0],   // L395–405
+    key: 'V007SX', name: 'V007SX',   // L395–405
     /* 🔴 反組譯子集裡**沒有**這一顆的 per-IC 檔 ⇒ 沒有任何序列可以照抄。
        認得出來，但一個位址都不寫。這是「正確地不實作」，不是漏抄。 */
     patternOk: false,
@@ -2756,7 +2756,7 @@ var DST_ICS = [
     obs: { icid: { addr: 0xFF00, len: 3 } }
   },
   {
-    key: 'V512SX', name: 'V512S1', id: [0x12, 0xF5, 0xF0],   // L407–417
+    key: 'V512SX', name: 'V512S1',   // L407–417
     patternOk: true,
     ptgBase: 0x0200,
     soft: { addr: 0x0200, and: 0xB3, or: 0x4C, src: 'L2729–2748' },
@@ -2777,7 +2777,7 @@ var DST_ICS = [
     dgEn: { addr: 0x005D, bit: 0, src: 'IP/RaydiumV512S1_RM80120.cs:2699-2727 (Get)' }
   },
   {
-    key: 'EM01A1', name: 'EM01A1', id: [0x01, 0xEF, 0xA0],   // L419–429
+    key: 'EM01A1', name: 'EM01A1',   // L419–429
     /* 🔴 撞號如實呈現：EM01AX（L419）與 VM01AX（L431）的判別條件**逐字相同**。
        好消息（可逐位元覆核）：出圖那一段兩顆的序列**完全相同**
        （0x1200 &0xB3|0x4C、0x1201=58、0x1238、0x123A、0x1240、ud 順序也相同），
@@ -2893,7 +2893,7 @@ var DST_ICS = [
            agingRo: { addr: 0xE801, bit: 0 } }
   },
   {
-    key: 'EM02A1', name: 'EM02A1', id: [0x02, 0xEF, 0xA0],   // L455–465
+    key: 'EM02A1', name: 'EM02A1',   // L455–465
     /* 🔴 第二組撞號：上游工具把 EM02A1 與 V512S2 交給**同一支**判別函式
        （L177–179）。兩顆的 ptg base 同為 0x0C00、offset 也相同，但有**兩處**不同：
          ① cursor clock-enable：0x0003 bit2 對 0x0004 bit2
@@ -2960,7 +2960,7 @@ var DST_ICS = [
     obs: { icid: { addr: 0xFF00, len: 3 }, agingRo: { addr: 0xE801, bit: 0 } }
   },
   {
-    key: 'VM02AX', name: 'VM02S1', id: [0x02, 0xEF, 0xF0],   // L443–453
+    key: 'VM02AX', name: 'VM02S1',   // L443–453
     patternOk: true,
     ptgBase: 0x0C00,
     soft: { addr: 0x0C00, and: 0xB3, or: 0x4C, src: 'L3328–3347' },
@@ -2985,7 +2985,7 @@ var DST_ICS = [
 
 /* 🔴 這四個是 **7-bit** slave address（上游工具的 96/97/104/105）。
    8-bit 表示法（左移一位）不同：0x60→0xC0/0xC1、0x68→0xD0/0xD1（W/R）。 */
-var DST_SLAVES = [0x60, 0x61, 0x68, 0x69];
+var DST_SLAVES = TconDetect.ICID_SLAVES.slice();   /* v2.8.1：slave 掃描順序與 0xFF00 ID 表在全站共用的 common/tcon-detect.js */
 function dstSlaveLabel(s) {
   var h = function (v) { return '0x' + v.toString(16).toUpperCase(); };
   return h(s) + ' (7-bit) = ' + h((s << 1) & 0xFF) + '/' + h(((s << 1) | 1) & 0xFF) + ' (8-bit W/R)';
@@ -3133,14 +3133,12 @@ function dstIsBusIdle(b) {
 }
 /* 🔴 比對照上游工具：`data[0]==… && data[1]==… && (data[2] & 0xF0)==…`。
    **第三個 byte 的低 4 位是版本／變體，不參與比對**（01 EF A1 與 01 EF A0 同一顆）。 */
+/* v2.8.1（Bruce 2026-10-22「認Tcon的方式全部都一樣」）：0xFF00 的 ID 比對改呼叫全站共用的 TconDetect.matchIcId
+   （common/tcon-detect.js，同一份 CheckICID 表與掃描順序）；這裡只用 key 對到本頁的 per-IC 序列表 DST_ICS。 */
 function dstMatchIc(b) {
-  if (!b || b.length < 3) return null;
-  if (dstIsBusIdle(b)) return null;
-  for (var i = 0; i < DST_ICS.length; i++) {
-    var ic = DST_ICS[i];
-    if (!ic.id) continue;
-    if (b[0] === ic.id[0] && b[1] === ic.id[1] && (b[2] & 0xF0) === ic.id[2]) return ic;
-  }
+  var e = TconDetect.matchIcId(b);
+  if (!e) return null;
+  for (var i = 0; i < DST_ICS.length; i++) if (DST_ICS[i].key === e.key) return DST_ICS[i];
   return null;
 }
 
@@ -3287,27 +3285,9 @@ async function dstScanIdentify() {
   try { last = parseInt(localStorage.getItem('dst-last-slave'), 10); } catch (eL) {}
   if (order.indexOf(last) > 0) { order.splice(order.indexOf(last), 1); order.unshift(last); }
   dstLog('-- scan slaves: ' + order.map(function (v) { return '0x' + v.toString(16).toUpperCase(); }).join(' -> '));
-  for (var si = 0; si < order.length; si++) {
-    var sl = order[si];
-    dstSlave = sl;
-    var tag = '0x' + sl.toString(16).toUpperCase();
-    try {
-      var d = await dstReadReg(0xFF00, 3);
-      var hex = dstHex(d);
-      if (d && d.length >= 3 && dstIsBusIdle(d)) {
-        /* 🔴 全 0xFF ＝ 總線閒置、沒有裝置回應。不可當命中。 */
-        results.push(tag + ' <- ' + hex + ' (idle)');
-      } else if (d && d.length >= 3) {
-        results.push(tag + ' <- ' + hex);
-        if (!chosen) { chosen = d; chosenSlave = sl; }
-        if (chosen === d && dstMatchIc(d)) break;   // v2.7.10：已知 IC ⇒ 不再掃其餘 slave
-      } else {
-        results.push(tag + ' <- ' + (d ? d.length : 0) + 'B');
-      }
-    } catch (e) {
-      results.push(tag + ' x');
-    }
-  }
+  /* v2.8.1：逐一探 slave 改呼叫共用的 TconDetect.scanIcId（全 FF＝閒置不算命中；選第一個有回應的；認到已知 IC 就停） */
+  var sc = await TconDetect.scanIcId({ read: async function (sl, aw, addr, len) { dstSlave = sl; try { return await dstReadReg(addr, len); } catch (e) { return null; } } }, { slaves: order });
+  results = sc.results; chosen = sc.first; chosenSlave = sc.firstSlave;
   dstLog('-- scan result: ' + results.join('   '));
 
   /* 🔴 v1.4.0：0xFF00 的三個 byte 與 slave 標籤**不再顯示在畫面上**（Bruce：

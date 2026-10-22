@@ -25,6 +25,7 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 (function (root) {
   'use strict';
+  var TD = root.TconDetect || (typeof require === 'function' ? require('./tcon-detect.js') : null);   /* 全站共用 T-CON 辨認表 */
 
   var SECTOR = 0x1000, PAGE = 0x100;
 
@@ -111,11 +112,14 @@
     /* PY:33501–33521 i2c_flash_check_ic_version。7C:98≠0 ⇒ E501 系列；7C:95 ⇒ 0x00 RM81010、0x40/0x41 RM81011。
        🔴 原廠依讀到的 ID 自動換流程；網頁是使用者先選型號，所以讀到的和選的不同就擋下（安全防呆，不是 Flash 指令）。 */
     check: async function (io, wantA) {
-      var id = (await io.r(0x7C, 1, 0x95, 1))[0];
-      var t98 = (await io.r(0x7C, 1, 0x98, 1))[0];
+      /* v1.35.0：讀哪裡、ID 表都用全站共用的 common/tcon-detect.js（TconDetect.REG／e501ByRom），本檔不另存 ID 表 */
+      var A = TD.REG.E501_ID, B = TD.REG.E501_FLAG;
+      var id = (await io.r(A.slave, A.awid, A.addr, A.len))[0];
+      var t98 = (await io.r(B.slave, B.awid, B.addr, B.len))[0];
       if (t98 === 0x00) throw SfError('i2c.sfErrNotE501', { v: hx(t98) });
-      if (wantA && id !== 0x00) throw SfError('i2c.sfErrE501Mismatch', { want: 'E501A', got: hx(id) });
-      if (!wantA && id !== 0x40 && id !== 0x41) throw SfError('i2c.sfErrE501Mismatch', { want: 'E501B', got: hx(id) });
+      var e = TD.e501ByRom(id, t98), fam = e ? e.family : null;
+      if (wantA && fam !== 'E501A') throw SfError('i2c.sfErrE501Mismatch', { want: 'E501A', got: hx(id) });
+      if (!wantA && fam !== 'E501B') throw SfError('i2c.sfErrE501Mismatch', { want: 'E501B', got: hx(id) });
       return id;
     },
     /* PY:33971–33995 i2c_flash_init */
@@ -699,9 +703,10 @@
     id: 'EN01', chip: 'RM81008', jedec: false, canWrite: true, padZero: false, padPage: true, legacySeq: true, eraseAll: null,
     /* 原廠連線後只讀 IC 版本 3E:0x207E bit3:0（0＝A1、1＝A2），只顯示、不擋操作（RCI:1397–1416）。 */
     detect: async function (io) {
-      var v = (await io.r(N, 2, 0x207E, 1))[0];
-      var n = v & 0x0F;
-      return { icVer: n, icVerTxt: n === 0 ? 'A1' : (n === 1 ? 'A2' : 'Unknown') };
+      var R = TD.REG.EN01_VER;   /* v1.35.0：位址與 A1／A2 對照在共用的 common/tcon-detect.js */
+      var v = (await io.r(N, R.awid, R.addr, R.len))[0];
+      var n = v & R.mask;
+      return { icVer: n, icVerTxt: TD.en01VerText(n) };
     },
     /* 讀：`0039←C0`（見上方說明，沿用舊版 RCIo:1063）→ Initial（ICD:611–620）→ 每頁 ENP:123–142 →
        ENP:151 0099←00×9 → FM:186／ENP:38–41 0098←00。 */

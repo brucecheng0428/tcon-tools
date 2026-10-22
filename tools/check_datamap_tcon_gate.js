@@ -37,7 +37,7 @@ async function open(opt) {
     } });
   await new Promise(r => dom.window.addEventListener('load', r));
   const w = dom.window, d = w.document, $ = id => d.getElementById(id);
-  const isId = m => m.type === 'read' && ((m.addr === 0xFF00 && m.len === 3) || m.slave === 0x7C || m.slave === 0x7D);
+  const isId = m => m.type === 'read' && ((m.addr === 0xFF00 && m.len === 3) || m.slave === 0x7C || m.slave === 0x7D || (m.slave === 0x3E && m.addr === 0x207E));   /* v1.37.1：共用 TconDetect 在 E501 表沒命中時讀 3E:207E（EN01 ID），屬 ID 讀取 */
   return { w, d, $, log, opt, mem, reads: () => log.filter(m => m.type === 'read' && !isId(m)).length,
     writes: () => log.filter(m => m.type === 'rawwrite' && !(m.slave === 0x7E && m.addr === 0xAB)).length,
     mode: () => $('dm-modebar').getAttribute('data-mode') + '｜' + $('dm-modebar').textContent,

@@ -18,8 +18,7 @@
     位址／bit／行號由程式從 .model 抽出（NBD_GPIO，行號存在 txL／selL）。封裝腳名來源：assistant_kb
     reference/NB_TCON_debug_TCON資料夾整理_20261022.md §5（datasheet Pin List）；查不到的標「封裝腳位待確認」。
   ・I2C：I2C Bridge（common/i2c-bridge.js 連線位址／徽章／下載提示；common/i2c-mbus.js M-Bus 導通 C-Bus），
-    WebSocket 協定（ping／open／read／rawwrite／close）與 IC 辨認（7C:95／7C:98／7D:007D／3E:207E）照 datamap.html。
-    （2026-10-22：IC 辨認改共用函式由另一個派工處理，本版不動辨認。）
+    WebSocket 協定（ping／open／read／rawwrite／close）照 datamap.html；IC 辨認一律呼叫全站共用的 common/tcon-detect.js（TconDetect.detect，v1.1.1）。
     🔴 不下 datamap 那一筆 E503 3E:0059←1E —— 0x059 正是 WP pin 的 TX_IN_SEL（實測用的輸出腳），下了會把 debug 輸出蓋掉。
     每一列都是「讀 → 只改遮罩內的 bit → 寫 → 讀回比對」；第一次寫前的原值記下來給「還原」。
   ・匯出：Excel 照 WFG NB 匯出（wfg.html wfgNbBuildXlsx：WFG_NB_XLSX_HEADER 22 欄、Check Item＝.model 區塊名、
@@ -145,7 +144,7 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20261022nm2"></script>
+<script src="common/version.js?v=20261022en01"></script>
 <script src="common/i18n.js?v=20261022nm2"></script>
 <script>
 /* 本頁字串（三語：zh-TW／en／zh-CN），併進共用 I18N（做法同 datamap.html） */
@@ -199,7 +198,11 @@
     'nd.linkErr': ['連不上 I2C Bridge', 'Cannot reach the I2C Bridge', '连不上 I2C Bridge'],
     'nd.icGot': ['認到 {ic}', 'Found {ic}', '认到 {ic}'],
     'nd.icSwitch': ['認到的是 {ic}，已切換 IC', 'Detected {ic}; IC switched', '认到的是 {ic}，已切换 IC'],
-    'nd.icNone': ['認不出 T-CON，不寫入', 'T-CON not identified; nothing written', '认不出 T-CON，不写入'],
+    'nd.icNone': ['認不出 T-CON（讀到：{raw}）。請在上面「IC」選好型號，會照選的型號執行', 'T-CON not identified (read: {raw}). Pick the IC above; it will run as the picked IC', '认不出 T-CON（读到：{raw}）。请在上面「IC」选好型号，会照选的型号执行'],
+    'nd.icManual': ['手動選 {ic}（自動辨認沒認出）', '{ic} picked manually (auto detection failed)', '手动选 {ic}（自动辨认没认出）'],
+    'nd.icAmb': ['分不出 {a}（讀到：{raw}）。請在上面「IC」選好型號', 'Cannot tell {a} apart (read: {raw}). Pick the IC above', '分不出 {a}（读到：{raw}）。请在上面「IC」选好型号'],
+    'nd.icOther': ['認到的是 {ic}，這頁不支援；不寫入', 'Detected {ic}, not supported on this page; nothing written', '认到的是 {ic}，这页不支持；不写入'],
+    'nd.icMismatch': ['板子認到的是 {ic}，和選的不同；請改回 {ic}', 'The board is {ic}, not the picked IC; switch back to {ic}', '板子认到的是 {ic}，和选的不同；请改回 {ic}'],
     'nd.runOk': ['完成：{n} 列寫入並讀回相符', 'Done: {n} rows written and verified', '完成：{n} 行写入并读回相符'],
     'nd.runFail': ['第 {i} 列讀回不符，已停止', 'Row {i} read-back mismatch; stopped', '第 {i} 行读回不符，已停止'],
     'nd.undoOk': ['已還原 {n} 個 byte', 'Restored {n} bytes', '已还原 {n} 个 byte'],
@@ -219,6 +222,7 @@
 <script src="common/common.js?v=20260523"></script>
 <script src="common/xlsx.js?v=20261008dm11825"></script>
 <script src="common/i2c-mbus.js?v=20261008dm11825"></script>
+<script src="common/tcon-detect.js?v=20261022td110"></script>
 <script src="common/i2c-bridge.js?v=20261013dm1240"></script>
 <script>
 /* ═══ GPIO 位址表：由 WPF ModelFiles 的 .model 程式抽出（id＝.model 父節點名；tx＝[位址, bit]；sel＝[位址, msb, lsb]；
@@ -466,7 +470,7 @@ var NBD_GPIO = {"E503":{"model":"RM8100x_for_FAE_20240925_20250311.model","tcon"
   }
 
   /* ── 狀態 ── */
-  var S = { ws: null, seq: 0, pend: {}, linked: false, busy: false, miss: null, userClose: false, checked: null,
+  var S = { ws: null, seq: 0, pend: {}, linked: false, busy: false, miss: null, userClose: false, checked: null, manual: false, det: null,
             rb: {}, orig: {}, r20d0: null, code: 0xAA,
             burnOk: function () { return !!($('nd-burn').checked && $('nd-burn1').checked && $('nd-burn2').checked); } };
   function pinsNow() { return [].slice.call(document.querySelectorAll('#nd-gpios select')).map(function (x) { return x.value; }); }
@@ -604,20 +608,17 @@ var NBD_GPIO = {"E503":{"model":"RM8100x_for_FAE_20240925_20250311.model","tcon"
     }
     return r;
   }
-  async function tryRead1(slave, awid, addr) { try { var b = await rawRead(slave, awid, addr, 1); return b.length ? b[0] : null; } catch (e) { return null; } }
-  /* IC 辨認：datamap.html checkTcon() 的 NB 段（7C:95／7C:98 → E501A／E501B；7D:007D ≤ 4 → 3E:207E 10/11＝EN01，否則 E503） */
+  /* IC 辨認：一律呼叫全站共用的 TconDetect.detect（common/tcon-detect.js），本頁不自己寫辨認流程或 ID 表。
+     回 { ic }＝本頁支援的型號；{ other }＝認到但本頁不支援；{ none, amb, raw }＝認不出／分不出（改用畫面上選的 IC）。 */
   async function checkIc() {
-    var mb = await TconMbus.open(rawWrite); log(mb.ok ? TconMbus.LOG : tt('tcon.mbusFail', { err: mb.err }));
-    var id95 = await tryRead1(0x7C, 1, 0x95), f98 = await tryRead1(0x7C, 1, 0x98);
-    log('0x7C:0x95 = ' + (id95 == null ? '—' : hex(id95, 2)) + ' · 0x7C:0x98 = ' + (f98 == null ? '—' : hex(f98, 2)));
-    if (id95 == null || f98 == null) return null;
-    if (f98 !== 0) { var E501 = { 0x00: 'E501A', 0x40: 'E501B', 0x41: 'E501B' }; return E501[id95] || null; }
-    var v7d = await tryRead1(0x7D, 2, 0x007D); log('0x7D:0x007D = ' + (v7d == null ? '—' : hex(v7d, 2)));
-    if (v7d == null || v7d > 4) return null;
-    var b = await tryRead1(0x3E, 2, 0x207E);
-    if (b == null || b === 0xFF) { await TconMbus.open(rawWrite); b = await tryRead1(0x3E, 2, 0x207E); }
-    log('0x3E:0x207E = ' + (b == null ? '—' : hex(b, 2)));
-    return (b === 0x10 || b === 0x11) ? 'EN01' : 'E503';
+    var io = { read: async function (s, aw, a, n) { try { return await rawRead(s, aw, a, n); } catch (e) { return null; } }, write: rawWrite };
+    var r = await TconDetect.detect(io, { log: log });
+    S.det = r;
+    var fams = (r.alts && (r.ambiguous || r.conflict)) ? r.alts.map(TconDetect.familyOfName) : [r.family];
+    var one = fams.every(function (f) { return f && f === fams[0]; }) ? fams[0] : null;
+    if (one && G[one]) return { ic: one };
+    if (one && !r.unknown) return { other: r.name };
+    return { none: true, amb: (r.ambiguous || r.conflict) ? (r.alts || []).join('／') : '', raw: r.rawText || '—' };
   }
   async function connect() {
     if (S.linked) return disconnect();
@@ -631,7 +632,7 @@ var NBD_GPIO = {"E503":{"model":"RM8100x_for_FAE_20240925_20250311.model","tcon"
     ws.onclose = function () {
       for (var k in S.pend) { try { clearTimeout(S.pend[k].timer); S.pend[k].reject(new Error('closed')); } catch (e) {} }
       S.pend = {}; if (S.linked && !S.userClose) S.miss = 'drop';
-      S.linked = false; S.ws = null; S.checked = null; render();
+      S.linked = false; S.ws = null; S.checked = null; S.manual = false; render();
     };
     var opened = await new Promise(function (res) {
       var done = false, to = setTimeout(function () { if (!done) { done = true; res(false); } }, WS_MS);
@@ -650,8 +651,12 @@ var NBD_GPIO = {"E503":{"model":"RM8100x_for_FAE_20240925_20250311.model","tcon"
       }
       if (!op || !op.ok) throw new Error('open failed');
       S.linked = true; log('channel open');
-      var ic = await checkIc(); S.checked = ic;
-      if (!ic) { $('nd-ic').textContent = tt('nd.icNone'); status(tt('nd.icNone'), 'err'); }
+      var res = await checkIc(), ic = res.ic || null; S.checked = ic; S.manual = !!res.none;
+      if (res.other) { $('nd-ic').textContent = tt('nd.icOther', { ic: res.other }); status(tt('nd.icOther', { ic: res.other }), 'err'); }
+      else if (!ic) {
+        var m = res.amb ? tt('nd.icAmb', { a: res.amb, raw: res.raw }) : tt('nd.icNone', { raw: res.raw });
+        $('nd-ic').textContent = tt('nd.icManual', { ic: $('nd-icsel').value }); status(m, 'err'); log(m);
+      }
       else if (ic !== $('nd-icsel').value) { $('nd-icsel').value = ic; onIc(); $('nd-ic').textContent = tt('nd.icGot', { ic: ic }); status(tt('nd.icSwitch', { ic: ic }), 'ok'); }
       else { $('nd-ic').textContent = tt('nd.icGot', { ic: ic }); status(''); }
     } catch (e) {
@@ -665,9 +670,14 @@ var NBD_GPIO = {"E503":{"model":"RM8100x_for_FAE_20240925_20250311.model","tcon"
     S.userClose = true; S.miss = null;
     try { if (S.ws && S.ws.readyState === 1) await send({ type: 'close' }); } catch (e) {}
     try { if (S.ws) S.ws.close(); } catch (e) {}
-    S.ws = null; S.linked = false; S.checked = null; $('nd-ic').textContent = ''; log('disconnected'); render();
+    S.ws = null; S.linked = false; S.checked = null; S.manual = false; $('nd-ic').textContent = ''; log('disconnected'); render();
   }
-  function icOk() { return S.linked && S.checked && S.checked === $('nd-icsel').value; }
+  /* 認到 ⇒ 只能照認到的型號下；認不出 ⇒ 照使用者在畫面上選的 IC 下（不擋住使用） */
+  function icOk() { return !!(S.linked && ((S.checked && S.checked === $('nd-icsel').value) || (!S.checked && S.manual))); }
+  function icWhy() {
+    if (S.checked && S.checked !== $('nd-icsel').value) return tt('nd.icMismatch', { ic: S.checked });
+    var d = S.det; return d && !d.unknown && d.name ? tt('nd.icOther', { ic: d.name }) : tt('nd.icNone', { raw: (d && d.rawText) || '—' });
+  }
   /* 一列：讀 → 只改遮罩內 bit → 寫 → 讀回比對；第一次寫前的原值記到 S.orig（還原用） */
   async function doRow(b, i, mode) {
     var r = b.rows[i], aw = r.ob;
@@ -693,7 +703,7 @@ var NBD_GPIO = {"E503":{"model":"RM8100x_for_FAE_20240925_20250311.model","tcon"
   }
   async function guard(fn) {
     if (!S.linked) { status(tt('nd.needLink'), 'err'); return; }
-    if (!icOk()) { status(tt('nd.icNone'), 'err'); return; }
+    if (!icOk()) { status(icWhy(), 'err'); return; }
     if (S.busy) return;
     S.busy = true; status(tt('nd.busy')); render();
     try { await fn(); } catch (e) { status(String(e && e.message || e), 'err'); log('ERR ' + (e && e.message || e)); }
@@ -722,7 +732,12 @@ var NBD_GPIO = {"E503":{"model":"RM8100x_for_FAE_20240925_20250311.model","tcon"
   }
 
   /* ── 事件 ── */
-  function onIc() { fillItems(); fillGpio(false); S.rb = {}; if (S.linked && S.checked && S.checked !== $('nd-icsel').value) $('nd-ic').textContent = tt('nd.icGot', { ic: S.checked }); render(); }
+  function onIc() {
+    fillItems(); fillGpio(false); S.rb = {};
+    if (S.linked && S.checked && S.checked !== $('nd-icsel').value) $('nd-ic').textContent = tt('nd.icGot', { ic: S.checked });
+    else if (S.linked && !S.checked && S.manual) $('nd-ic').textContent = tt('nd.icManual', { ic: $('nd-icsel').value });
+    render();
+  }
   $('nd-icsel').addEventListener('change', onIc);
   $('nd-item').addEventListener('change', function () { fillGpio(false); S.rb = {}; render(); });
   $('nd-q').addEventListener('input', function () { fillItems(); fillGpio(false); S.rb = {}; render(); });

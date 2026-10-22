@@ -425,6 +425,7 @@
   @media (pointer: coarse) { .dm-cell { height: 44px; font-size: 15px; } .dm-sel, .dm-in, .sbtn { min-height: 40px; height: auto; } }
   @media (max-width: 640px) { .dm-push { margin-left: 0; } .dm-grid tbody th { width: 76px; } table.dm-grid { min-width: 520px; } }
 </style>
+<script src="common/tcon-detect.js?v=20261022td110"></script>   <!-- v1.37.2：放 head（不依賴 DOM；body 結構與快照基準相同） -->
 </head>
 <body>
 <div id="ptr-indicator"><span class="ptr-icon">⬇</span><span class="ptr-text" data-i18n="ptr.pull">下拉刷新</span></div>
@@ -690,7 +691,7 @@
   <div class="dm-minibody dm-pvdrag" id="dm-mini-body"><div class="dm-mininote hidden" id="dm-mini-note"></div><div class="dm-tftmini" id="dm-mini-svg"></div></div>
 </div>
 
-<script src="common/version.js?v=20261022nm2"></script>
+<script src="common/version.js?v=20261022en01"></script>
 <script src="common/i18n.js?v=20261022nm2"></script>
 <script>
 (function () {
@@ -1119,7 +1120,7 @@
     'dm.icE503u': ['7D:007D 落在 E503 表內但 3E:207E 分不出 E503／EN01：當 E503 處理，但不寫 3E:0059。', '7D:007D is in the E503 table but 3E:207E cannot tell E503 from EN01: treated as E503 without writing 3E:0059.', '7D:007D 落在 E503 表内但 3E:207E 分不出 E503／EN01：当 E503 处理，但不写 3E:0059。'],
     'dm.icEn01': ['Check T-CON ⇒ EN01（RM81008，0x3E:0x207E = {v}；slave 0x3E）', 'Check T-CON ⇒ EN01 (RM81008, 0x3E:0x207E = {v}; slave 0x3E)', 'Check T-CON ⇒ EN01（RM81008，0x3E:0x207E = {v}；slave 0x3E）'],
     'dm.icNone': ['⚠ 認不出 T-CON，沿用 {m}', '⚠ T-CON not recognised; keeping {m}', '⚠ 认不出 T-CON，沿用 {m}'],
-    'dm.daz13x': ['DAZ6138 與 DAZ6139 是同一顆 IC，Check T-CON 分不出來；兩者 Data Mapping 表相同。', 'DAZ6138 and DAZ6139 are the same IC and cannot be told apart; their Data Mapping tables are identical.', 'DAZ6138 与 DAZ6139 是同一颗 IC，Check T-CON 分不出来；两者 Data Mapping 表相同。'],
+    'dm.icRaw': ['（讀到：{raw}）DAZ6138／DAZ6139 不自動辨認，要用請在型號下拉手選。', '(read: {raw}) DAZ6138/DAZ6139 are not auto-detected; pick them manually in the model list.', '（读到：{raw}）DAZ6138／DAZ6139 不自动辨认，要用请在型号下拉手选。'],
     'dm.e503NoConfirm': ['E503 是手選的（未經 Check T-CON 確認）：只下 7E:AB←CD，不寫 3E:0059。', 'E503 was picked by hand (not confirmed by Check T-CON): only 7E:AB←CD is sent, 3E:0059 is not written.', 'E503 是手选的（未经 Check T-CON 确认）：只下 7E:AB←CD，不写 3E:0059。'],
     'dm.wrOk': ['已寫入 {n} 個 byte', '{n} bytes written', '已写入 {n} 个 byte'],
     'dm.wrFail': ['寫入失敗 {n} 個位址，已從 TCON 重新讀回', '{n} addresses failed; re-read from TCON', '写入失败 {n} 个地址，已从 TCON 重新读回'],
@@ -1177,7 +1178,7 @@
 <script src="common/subpix-colors.js?v=20261008dm11825"></script>
 <script src="common/xlsx.js?v=20261008dm11825"></script>
 <script src="common/syscrc.js?v=20261022nm2"></script>
-<script src="common/datamap-core.js?v=20261022nm2"></script>
+<script src="common/datamap-core.js?v=20261022en01"></script>
 <script src="common/datamap-lod.js?v=20261022nm2"></script>
 <script src="common/datamap-auto.js?v=20261022nm2"></script>
 <script src="common/i2c-mbus.js?v=20261008dm11825"></script>
@@ -4134,7 +4135,6 @@
       throw new Error('write 0x' + hex(slave, 2) + ':0x' + hex(addr, 4) + ' fail' + (r.err ? ' ' + r.err : ''));
     }
   }
-  async function tryRead1(slave, awid, addr) { try { var b = await rawRead(slave, awid, addr, 1); return b.length ? b[0] : null; } catch (e) { return null; } }
   var io = {
     read: function (addr, len) { return rawRead(!isMnt() ? 0x3E : S.slave, 2, addr, len); },
     write: function (addr, bytes) { return rawWrite(!isMnt() ? 0x3E : S.slave, 2, addr, bytes); }
@@ -4203,41 +4203,27 @@
   /* Check T-CON：i2c.html 的兩段（A：RomCodeProcessUI 的 7C／7D 讀法＋SY 表；B：0xFF00 IC ID）合在這裡 */
   /* v1.18.10（Bruce 2026-10-08）：Check T-CON 不分型號，辨認前一律先下 M-Bus 導通 C-Bus（common/i2c-mbus.js，PY:31839）。
      失敗不中止（沒有 0x7E 的板子會 NACK），寫進 log；認不出來時把原因放進提示。 */
+  /* v1.37.1（Bruce 2026-10-22「認Tcon的方式全部都一樣啊，你管他是哪個分頁、哪個網頁？」）：辨認流程與 ID 表全部改呼叫
+     全站共用的 TconDetect.detect（common/tcon-detect.js）；本頁只把結果對到自己的型號 key、顯示訊息。
+     M-Bus 導通 C-Bus 也在 TconDetect.detect 裡先下（不分型號，失敗不中止）。 */
   async function checkTcon() {
-    var mb = await TconMbus.open(rawWrite);
-    log(mb.ok ? 'n' : 'e', mb.ok ? TconMbus.LOG : tt('tcon.mbusFail', { err: mb.err }));
-    S.mbusErr = mb.ok ? null : mb.err;
-    var pick = $('dm-slave').value, list = pick === 'auto' ? [0x60, 0x61, 0x68, 0x69] : [+pick];
-    for (var i = 0; i < list.length; i++) {
-      try {
-        var id = await rawRead(list[i], 2, 0xFF00, 3), idTxt = id.map(function (b) { return hex(b, 2); }).join(' ');
-        log('n', 'R 0x' + hex(list[i], 2) + ':0xFF00 x3 -> ' + idTxt);
-        var mk = DM.modelByIcId(id);
-        if (mk) { S.slave = list[i]; return { key: mk, info: tt('dm.icMnt', { id: idTxt, m: mk, s: hex(list[i], 2) }) }; }
-      } catch (e) { log('n', 'slave 0x' + hex(list[i], 2) + ': ' + (e.message || e)); }
+    var pick = $('dm-slave').value;
+    var dio = { read: async function (s, aw, a, n) { try { return await rawRead(s, aw, a, n); } catch (e) { return null; } }, write: rawWrite };
+    var r = await TconDetect.detect(dio, { log: function (m) { log('n', m); }, icidSlaves: pick === 'auto' ? null : [+pick] });
+    S.mbusErr = r.mbus.ok ? null : r.mbus.err;
+    log(r.mbus.ok ? 'n' : 'e', r.mbus.ok ? TconMbus.LOG : tt('tcon.mbusFail', { err: r.mbus.err }));
+    var f = r.family, raw = r.raw; S.detRaw = r.rawText || '';
+    if (r.src === 'icid') {
+      if (!DM.MODELS[f]) return null;
+      S.slave = r.slave;
+      return { key: f, info: tt('dm.icMnt', { id: raw['FF00@' + hex(r.slave, 2)], m: f, s: hex(r.slave, 2) }) };
     }
-    var id95 = await tryRead1(0x7C, 1, 0x95), f98 = await tryRead1(0x7C, 1, 0x98);
-    log('n', '0x7C:0x95 = ' + (id95 == null ? '—' : hex(id95, 2)) + ' · 0x7C:0x98 = ' + (f98 == null ? '—' : hex(f98, 2)));
-    if (id95 != null && f98 != null) {
-      if (f98 !== 0) {
-        var E501 = { 0x00: 'E501A', 0x40: 'E501B', 0x41: 'E501B', 0x7E: 'DAZ6111' };   // RomCodeProcessUI.py tcon_id_dict :2600-2604
-        if (E501[id95]) return { key: E501[id95], info: tt('dm.icNb', { n: E501[id95] + ' (0x7C:0x95 = ' + hex(id95, 2) + ')' }) };
-      } else {
-        var v7d = await tryRead1(0x7D, 2, 0x007D);
-        log('n', '0x7D:0x007D = ' + (v7d == null ? '—' : hex(v7d, 2)));
-        if (v7d != null && v7d <= 4) {
-          var b = await tryRead1(0x3E, 2, 0x207E);
-          if (b == null || b === 0xFF) { await TconMbus.open(rawWrite); b = await tryRead1(0x3E, 2, 0x207E); }
-          log('n', '0x3E:0x207E = ' + (b == null ? '—' : hex(b, 2)));
-          if (b === 0x10 || b === 0x11) return { key: 'EN01', info: tt('dm.icEn01', { v: hex(b, 2) }) };   // v1.20.0：EN01 已支援（舊版：認出但不讀不寫）
-          var sure = b != null && b !== 0xFF && (b >> 4) !== 1;
-          return { key: 'E503', e503: sure, info: tt('dm.icNb', { n: 'E503 (0x7D:0x007D = ' + hex(v7d, 2) + ')' }) + (sure ? '' : '  ' + tt('dm.icE503u')) };
-        }
-        /* v1.35.21：DAZ6138／DAZ6139 同一顆 IC（E418A4：assistant_kb IC外部型號總表.md:47-48），PY i2c_check_e503_ver（PY:31711-31712）只印「DAZZO Old TCON #DAZ613x」，
-           沒有任何暫存器可分 ⇒ 已選 DAZ6139 時保留，否則 DAZ6138。DAZ7353（E404A3）PY／WPF 都沒有 ID 判斷，不猜。 */
-        if (v7d != null) { var d13 = S.model === 'DAZ6139' ? 'DAZ6139' : 'DAZ6138'; return { key: d13, info: tt('dm.icNb', { n: 'DAZ613x → ' + d13 }) + '  ' + tt('dm.daz13x') }; }
-      }
-    }
+    if (f === 'E501A' || f === 'E501B' || f === 'DAZ6111') return { key: f, info: tt('dm.icNb', { n: f + ' (0x7C:0x95 = ' + hex(raw['7C:95'], 2) + ')' }) };
+    if (f === 'EN01') return { key: 'EN01', info: tt('dm.icEn01', { v: hex(raw['3E:207E'], 2) }) };   // v1.20.0：EN01 已支援
+    if (f === 'E503') { var sure = !!r.isE503; return { key: 'E503', e503: sure, info: tt('dm.icNb', { n: 'E503 (0x7D:0x007D = ' + hex(raw['7D:007D'], 2) + ')' }) + (sure ? '' : '  ' + tt('dm.icE503u')) }; }
+    /* v1.37.2（Bruce 2026-10-22「把所有 6138 的 T-CON check 方式都移掉」）：Check T-CON 不再自動回 DAZ6138／DAZ6139
+       （TconDetect v1.1 已不回 DAZ613x）；DAZ6138／6139 仍可在型號下拉手選。認不出 ⇒ 顯示讀到的原始值。 */
+    S.detRaw = r.rawText || '';
     return null;
   }
   async function doCheck() {
@@ -4252,7 +4238,7 @@
         await readBack(false);
         if (!S.initLinked) { initSnap(tt('dm.rstWhatRead')); S.initLinked = true; }   // v1.18.25：連線後第一次 Check 讀回 ⇒ 初始快照
       }
-      else { var m = tt('dm.icNone', { m: DM.MODELS[S.model].label }) + (S.mbusErr ? '  ' + tt('tcon.mbusFail', { err: S.mbusErr }) : ''); $('dm-ic').textContent = m; toast('e', m); }
+      else { var m = tt('dm.icNone', { m: DM.MODELS[S.model].label }) + (S.detRaw ? '  ' + tt('dm.icRaw', { raw: S.detRaw }) : '') + (S.mbusErr ? '  ' + tt('tcon.mbusFail', { err: S.mbusErr }) : ''); $('dm-ic').textContent = m; toast('e', m); log('e', m); }
     } catch (e) { toast('e', String(e && e.message || e)); }
     finally { S.busy = false; render(); }
   }

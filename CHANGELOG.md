@@ -2,6 +2,44 @@
 
 ---
 
+## Data Mapping (datamap) v1.37.2 — 2026-10-22 ｜ PATCH ｜ EN01 被認成 DAZ6138：移除 6138 自動辨認、全站共用一套 T-CON 辨認
+
+同一次修改連帶：I2C (i2c) v1.34.4、NB TCON Debug應用 (nbdebug) v1.1.1、TCON 自檢 (dgself) v2.8.1（各自條目在下面，內容同本條）。
+
+判定依據：`docs/VERSIONING.md` R1（修 bug；操作流程不變 ⇒ PATCH）。⚠ 輸出變更：Check T-CON 不再自動回 DAZ6138／DAZ6139（改為「認不出」＋讀到的原始值，型號仍可手選）；暫存器值、匯出檔內容不變。
+
+### 需求（Bruce 2026-10-22，經 Dispatch，派工 238945607310413824）
+- 「I2C check TCON 明明是 EN01 的，卻會跑出 6138。你看一下問題在哪裡，如果沒辦法解決的話，就把 6138 給移除」
+- 「6138 一直被污染，最好先把它移掉吧。把所有 6138 的 T-CON check 方式都移掉，然後 EN01 檢查一下，確認一下要怎麼確認 EN01。」
+- 「可以 follow 同事E 那邊的 UI，就是 RCP2。他 E2N01 在下卡面的時候，都會加一個 M-bus 跟 C-bus 導通的 cmd」
+
+### 原因（讀碼＋模擬重現，未取得實機讀值）
+- 舊流程（datamap／i2c／nbdebug 各一份）：7C:0x98＝0 之後讀 7D:0x007D；**不在 E503 表（00–04）就直接判 DAZ613x**（原廠 RomCodeProcessUI.py i2c_check_e503_ver L31711–31712 的 else，沒有任何 6138 專屬暫存器可確認），EN01 的 ID（3E:0x207E）根本沒讀。EN01 的 7D 讀到表外值時就變成「6138」。
+
+### 內容
+1. 全站唯一的 T-CON 辨認 `common/tcon-detect.js`（TconDetect v1.1）：i2c.html、datamap.html、dg-selftest.html、nbdebug.html、common/i2c-spiflash.js 都呼叫它，各頁自己的辨認流程與 ID 表刪除（數值與出處逐條沿用）。流程：先下 M-Bus→C-Bus（0x7E:0xAB←CD）→ 7C:95／98 查 E501 表 → 沒命中就讀 3E:0x207E，0x10／0x11 ⇒ EN01 A1／A2 → 否則 7D:007D 查 E503 表。
+2. **DAZ6138／DAZ6139 一律不自動辨認**：上面走到「7D:007D 不在 E503 表」時回「認不出」，畫面顯示讀到的原始值（7C:95、7C:98、7D:007D、3E:207E、各 slave 0xFF00）。DAZ6138／6139 只留在手選清單（datamap 型號下拉、i2c 的型號下拉）。
+3. M-Bus 導通 C-Bus 照 RCP2（WPF RomCodeProcessUI）：RM81008 的 MbusToCbus＝slave 0x7E、1-byte offset 0xAB、寫 0xCD（DLL_Raydium_CommonLibrary/Raydium.Core/Models/ICDefine.cs:576-580）；RCP2 在 Load ROM（AppViewModel.cs:1554）、Write ROM（:1681，之後才 WP Low）、Register 讀寫（RegisterModule.cs:36）、Model File 同步（ModelFileModule.cs:236，EEPROM 時）、DP Status 等每個 I2C 動作前都先送。本站：辨認一開始送一次（TconDetect.detect），datamap 之後每次讀寫前 preamble() 也送（EN01 m.mbus＝true）。只在共用模組 `common/i2c-mbus.js` 一份。
+4. nbdebug：認不出時不擋，顯示原始值並照畫面選的 IC 執行（標「手動選」）；認到了卻選別顆仍擋下。
+5. Pages 新增關卡：`tools/check_tcon_detect_single.mjs`（發佈內容除 tcon-detect.js 外不准自己讀 ID 暫存器／寫 ID 表）、`tools/check_tcon_detect.mjs`（模擬 I2C：EN01 五種讀法、舊 6138 回應不再判 6138、隨機 4096 組讀值 0 組判 DAZ613x、先下 7E:AB←CD 再辨認）。
+
+### 測試
+見本次 commit 訊息（check_tcon_detect、check_tcon_detect_single、i2c_tool_selftest、check_datamap_tcon_gate、check_nbdebug、sd_snapshot、boe --qm）。
+
+### 待實機
+- Bruce 用 RM81008 板子在 Data Mapping 按 Check T-CON：應顯示「Check T-CON ⇒ EN01（RM81008，0x3E:0x207E = 10／11）」。若顯示「認不出」，記錄區會列出讀到的原始值。
+## I2C (i2c) v1.34.4 — 2026-10-22 ｜ PATCH ｜ T-CON 辨認改用全站共用 common/tcon-detect.js；DAZ6138／6139 不再自動辨認
+
+判定依據：R1（修 bug）。內容、原因、測試見上方 Data Mapping v1.37.2 條目。Check T-CON 走到「7D:007D 不在 E503 表」時改為認不出（下拉給全部型號，含 DAZ6138／6139 手選）。
+
+## NB TCON Debug應用 (nbdebug) v1.1.1 — 2026-10-22 ｜ PATCH ｜ IC 辨認改用全站共用 common/tcon-detect.js（EN01／RM81008 認得）
+
+判定依據：R1（修 bug）。內容、原因、測試見上方 Data Mapping v1.37.2 條目。認不出時顯示讀到的原始值並照畫面選的 IC 執行（標「手動選」）；認到了卻選別顆仍擋下。
+
+## TCON 自檢畫面量測 (dgself) v2.8.1 — 2026-10-22 ｜ PATCH ｜ 0xFF00 ID 表與 slave 掃描順序改用全站共用 common/tcon-detect.js
+
+判定依據：R1（重構、行為不變：同一份 CheckICID 表與掃描順序）。見上方 Data Mapping v1.37.2 條目。
+
 ## I2C (i2c) v1.34.3 — 2026-10-22 ｜ PATCH
 
 判定依據：VERSIONING.md R1（文字修正，操作流程不變 ⇒ PATCH）。⚠ 輸出變更：「檢查治具通道」說明最後一句。

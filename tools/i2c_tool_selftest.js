@@ -4939,14 +4939,15 @@ function baseScript(f) {
       EQ(A.ckResult().name, 'DAZ6111', '③ 0x95 = 0x7E ⇒ DAZ6111');
       EQ(W(sent), ['0x7E:1:0xAB←CD'], '③ 不是 E503 ⇒ 只有辨認前那一筆 7E:AB←CD');
     }
-    /* ── ④ e503 版本表外的值 ⇒ DAZ613x，且 DAZ6138/6139 掛成可選（上游也分不出）── */
+    /* ── ④ e503 版本表外的值：原廠判 DAZ613x；v1.34.4（Bruce 2026-10-22「把所有 6138 的 T-CON check 方式都移掉」）起
+          不自動判 ⇒ 認不出，下拉給全部型號（含 DAZ6138／6139 手選）── */
     {
       await useHelper(ckScript({
         '0x7C:1:0x95': [0x00], '0x7C:1:0x98': [0x00], '0x7D:2:0x7D': [0x77]
       }));
       await A.checkTcon(); await quiesce();
-      EQ(A.ckResult().name, 'DAZ613x', '④ 0x007D 不在 0x00–0x04 ⇒ DAZ613x（L31711–31712 else）');
-      EQ(A.ckResult().alts, ['DAZ6138', 'DAZ6139'], '🔴 ④ 同一顆 IC（E418A4）⇒ 兩個都列，不假裝分得出');
+      EQ(!!A.ckResult().unknown && !/DAZ613/.test(String(A.ckResult().name)), true, '④ 0x007D 不在 0x00–0x04 ⇒ 認不出（不再自動判 DAZ613x）');
+      EQ(A.ckResult().alts.indexOf('DAZ6138') >= 0 && A.ckResult().alts.indexOf('DAZ6139') >= 0 && A.ckResult().alts.indexOf('EN01') >= 0, true, '④ 下拉含 EN01、DAZ6138、DAZ6139（手選）');
       EQ(doc.getElementById('tcon-pick').style.display, '', '④ 有歧義 ⇒ 下拉出現');
     }
     /* ── ⑤ 0xFF00 的高 nibble 比對（PQ Tool CheckICID L419）─────────────────

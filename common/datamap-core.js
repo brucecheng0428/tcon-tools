@@ -632,13 +632,13 @@
     E501B:   { key: 'E501B', label: 'E501B (RM81011)', kind: 'nb', py: 'RM81011', tbl: 'RM81010', sem: 'e50x', mbus: true },
     E503:    { key: 'E503', label: 'E503 (RM81000~RM81004)', kind: 'nb', py: 'RM81000', tbl: 'RM81000', sem: 'e50x', mbus: true, e503: true },
     EN01:    { key: 'EN01', label: 'EN01 (RM81008)', kind: 'en01', py: 'RM81008', sem: 'en01', mbus: true },   // v1.3.0（WPF RomCodeProcessUI；見 EN01 區塊）
-    EM01: { key: 'EM01', label: 'EM01', kind: 'mnt', sem: 'e50x', rt7: 0x0400, icId: [0x01, 0xEF, 0xA0], deSel: { off: 0x45, shift: 0, bits: 6 } },
-    EM02: { key: 'EM02', label: 'EM02', kind: 'mnt', sem: 'e50x', rt7: 0x0480, icId: [0x02, 0xEF, 0xA0], deSel: { off: 0x45, shift: 0, bits: 6 }, lod: 0x0900 },
+    EM01: { key: 'EM01', label: 'EM01', kind: 'mnt', sem: 'e50x', rt7: 0x0400, deSel: { off: 0x45, shift: 0, bits: 6 } },
+    EM02: { key: 'EM02', label: 'EM02', kind: 'mnt', sem: 'e50x', rt7: 0x0480, deSel: { off: 0x45, shift: 0, bits: 6 }, lod: 0x0900 },
     /* v1.36.2（Bruce 10/20「MNT， A」；派工 238132856823291904；型號/MNT §14.4）：E512 force_de_sel 由 rt7+0x02[7:4]（4 bit）改 rt7+0x45[5:0]（6 bit），同 EM01／EM02。
        出處：E512_ModelFile_20250902152136.model（RCP 1.1.6.0）[reg_force_de_sel] RegAddr0＝0x445、RegMsb0＝5、RegBits0＝6（:16283-16288，model 用 0x400 基底，rt7 相對 +0x45）；
        0x402[7:4] 是 reg_nml_4line_4pix_en[4]／all_port_mask_data_en[5]／last_port_mask_data_en[6]／now_dummy_in_act_en[7]（:15695-15732），舊設定會把 FORCE_DE_SEL 寫進這 4 個 enable。
        EM02A1_RegisterBank.model:18905 reg_force_de_sel＝0x4C5[5:0] 相同。rt7 基底仍照原廠 E512 Tool 0x0480（RApp_Common.h:18；§14.5） */
-    E512: { key: 'E512', label: 'E512', kind: 'mnt', sem: 'e50x', rt7: 0x0480, icId: [0x12, 0xE5, 0xA0], deSel: { off: 0x45, shift: 0, bits: 6 } }
+    E512: { key: 'E512', label: 'E512', kind: 'mnt', sem: 'e50x', rt7: 0x0480, deSel: { off: 0x45, shift: 0, bits: 6 } }
   };
   /* 下拉順序照 PY list_tcon（:3516），MNT 接在後面 */
   var MODEL_KEYS = ['DAZ6111', 'DAZ6138', 'DAZ6139', 'DAZ7353', 'E501A', 'E501B', 'E503', 'EM01', 'EM02', 'E512'];
@@ -1773,13 +1773,6 @@
     }
     return { state: decode(key, function (r) { return mem[r] | 0; }), bytes: mem };
   }
-  function modelByIcId(id) {
-    for (var i = 0; i < MNT_KEYS.length; i++) {
-      var m = MODELS[MNT_KEYS[i]];
-      if (id && id.length >= 3 && id[0] === m.icId[0] && id[1] === m.icId[1] && (id[2] & 0xF0) === m.icId[2]) return m.key;
-    }
-    return null;
-  }
 
   /* ── v1.32.0 Tri-Gate（Bruce 2026-10-15 核可規劃 assistant_kb/reference/DataMapping_TriGate規劃_20261015.md 方案 A）──────────────
      硬性限制（Bruce 10/15「任何 tri-gate 的新增設定，千萬不要影響到原本 single gate 跟 dual gate 的結果」）：以下全是新函式，
@@ -1949,7 +1942,7 @@
     loadCodeBytes: loadCodeBytes, modelFromName: modelFromName, locate: locate, parseCode: parseCode, nbFileOf: nbFileOf, cksOf: cksOf,
     buildScript: buildScript, applyScript: applyScript, pyScriptRows: pyScriptRows, applyPyScriptRows: applyPyScriptRows,
     excelName: excelName, excelRows: excelRows, excelToNames: excelToNames, readXlsxRows: readXlsxRows,
-    writeRegs: writeRegs, readSpans: readSpans, readState: readState, modelByIcId: modelByIcId, hex: hex,
+    writeRegs: writeRegs, readSpans: readSpans, readState: readState, hex: hex,
     SELECT_KEYS: SELECT_KEYS, EN01_CH: EN01_CH, EN01_HD: EN01_HD, en01TRel: en01TRel, en01SName: en01SName, en01TLabel: en01TLabel, EN01_TABS: EN01_TABS, EN01_TDEF: EN01_TDEF, EN01_TMAX: EN01_TMAX, EN01_POOL: EN01_POOL, MNT_POOL: MNT_POOL, ltpsZzPool: ltpsZzPool, ltpsZzKind: ltpsZzKind, ltpsZzIdx: ltpsZzIdx, en01XApprox: en01XApprox,
     poolIdx: poolIdx, poolCov: poolCov, linPx: linPx, en01BaseT: en01BaseT, en01RowT: en01RowT, EN01_GATES: EN01_GATES, EN01_PANEL: EN01_PANEL,
     en01Seg: en01Seg, en01Addr: en01Addr, en01RowLabel: en01RowLabel, en01Phases: en01Phases, en01Rows: en01Rows, en01Defs: en01Defs, en01Name: en01Name, en01Value: en01Value,
