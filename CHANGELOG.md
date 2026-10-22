@@ -2,6 +2,27 @@
 
 ---
 
+## NB TCON Debug應用 (nbdebug) v1.1.0 — 2026-10-22 ｜ MINOR ｜ 群組訊號全部列出、多 bit 同時輸出、EN01 依原廠文件
+
+判定依據：VERSIONING.md 判定表「多了新功能，原本的做法不變」⇒ MINOR（新增群組項目、多 bit 每 bit 一支 GPIO、搜尋；原有常用項目的操作流程不變）。⚠ 輸出變更：EN01 的 TX_EN 改照 EN01 Debug Mode 文件寫 nibble＝1（以前只改 TX_EN 一個 bit）；Core state[3] 改成 Core state[3:0]（4 列 GPIO）；驗證等級多「原廠文件」。
+
+### 需求（Bruce 2026-10-22，經 Dispatch，派工 238929121141362688）
+- 「Corestate應該不只 bit 3 吧？我記得應該還有幾個 bit啊，那個可以拿出來一起看的。我怎麼看到你在項目裡面這麼少？還有項目為什麼只有這幾個，沒有其他的嗎？」
+- EN01 Debug Mode 說明文件下載、分析後加到網頁；投影片裡很多資訊是圖檔，要轉成文字看。
+
+### 內容
+1. 項目＝「常用」12 項＋ debug 群組 39 組（dbg_01–dbg_20、dbg2_00–dbg2_12：原廠文件有逐 bit 內容的全部群組）的每個訊號；下拉依群組分（顯示 TOP_DBG_SEL／DBG_SEL3 值），上方可搜尋。多 bit 訊號（RT0_CORESTATE[3:0]、DP_STATE、UNPK_STATE、P0_O…）合成一個項目。
+2. 多 bit：每個 bit 一列「輸出 GPIO」下拉，預設分到不同腳（第一個 bit＝原預設腳，其餘依序挑封裝腳已確認的），重複時警告並停用執行／匯出；暫存器表、I2C 執行、Excel、.script 都含全部 bit。
+3. 群組來源：EN01 Debug Mode 文件（2026-10）p7、p9–p12；E503A／E501B debug 投影片 p7、p9–p13（圖檔用 macOS Vision OCR 轉文字後逐張看圖核對）。EN01 與 E503 不同處：dbg_20[5]＝RING_OSC_OUTDIV8（E503／E501 為 0）、dbg2_09／0a[2]＝RG_FNPLL_RSTB（E503／E501 為 RG_GBPLL_EXT_RSTN）。dbg2_10–12 只有 EN01 文件有內容 ⇒ E503／E501 標「推論，未實測」。
+4. 驗證等級：實測驗證／原廠腳本／原廠文件／推論，未實測。EN01 原本「依 E503 推論」的 RX DE、TX DE（RT6_DE）、RX link clock、BS、BE、Core state 改為原廠文件；TX DE（ISP0_FIFO_IRDY0）、PLL lock 文件沒有 ⇒ 仍是推論。E501A 沒有自己的文件 ⇒ 推論。
+5. E503、EN01 沒有 PSR（文件註明 PSR 訊號內部 tie 0）⇒ 不列 PSR 相關訊號。E501 的 TX_IN_SEL 26h／27h 是 BE／BS ⇒ 群組項目用到 bit6／7 時改走 DBG_SEL3（DEBUG_OUT2）。
+6. 新增常用項目「OSC ÷8（直接選 3Dh）」（TX_IN_SEL 3Dh＝OSC_CLK_DIV8，不用選群組；三份文件都有）。
+7. E501B 的 GPIO 清單補上 model 沒有、投影片 p3 有的 GPIO_07–10、GPIO_12。
+8. 拿掉頁尾「Designed by Bruce」（工具頁都沒有，只有首頁與說明頁有）。
+
+### 測試（tools/check_nbdebug.mjs）
+另新增 `tools/check_tcon_detect.mjs`（共用辨認的模擬 I2C：EN01 在 7D:007D 表外時不再被判成 DAZ6138、先下 M-Bus→C-Bus 再辨認、E501／E503／DAZ／EM01 各一；Pages 發佈前跑）。新增 G：群組 39 組、Core state 4 bit（四顆 IC 預設 4 支不同腳、暫存器＝TOP 02＋TX_IN_SEL 24/23/22/21、Excel 4 列、.script 套用結果）、重複腳停用、11 個群組訊號抽查（EN01 DP_STATE、UNPK_STATE、dbg_08 DP_STATE[3:0]、RING_OSC_OUTDIV8、BS、RG_FNPLL_RSTB；E503 RG_GBPLL_EXT_RSTN、dbg2_10 推論；E501B 走 DBG_SEL3、PSR_STATE；E501A 推論）、E503／EN01 無 PSR、E501 不用 26h／27h、搜尋；以及「工具頁沒有 page-credit」。
+
 ## NB TCON Debug應用 (nbdebug) v1.0.1 — 2026-10-22 ｜ PATCH ｜ 拿掉人名、EN01（RM81008）認不出、認不出時可手選
 
 判定依據：`docs/VERSIONING.md` R1（修 bug、文字修正；操作流程不變 ⇒ PATCH）。⚠ 輸出變更：畫面上驗證等級標籤與說明文字改寫；暫存器值、匯出檔內容不變。
