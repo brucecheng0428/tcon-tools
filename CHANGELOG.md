@@ -2,6 +2,38 @@
 
 ---
 
+## NB TCON Debug應用 (nbdebug) v1.1.3 — 2026-10-23 ｜ PATCH ｜ 對外頁面不顯示驗證等級／來源（同一次：dgself v2.9.1，見下一條）
+
+判定依據：`docs/VERSIONING.md` §1「只是內部改善 → PATCH」。拿掉的是說明性標籤，選 IC／項目／GPIO、I2C 執行、還原、匯出的操作與輸出不變（暫存器序列、Excel 列與 .script 指令不變；.script 檔頭版號照常變成 v1.1.3）⇒ PATCH，不帶 ⚠ 輸出變更。
+
+### 需求（Bruce 2026-10-23 00:2x）
+「另外，你的 NB tcon DBG 應用網頁不要寫什麼「原廠文件」，然後「實測驗證」這些也都不要寫，那一列都拿掉。」
+
+### 做法
+1. nbdebug：IC 下拉下面那一列（`#nd-info`：等級小標籤＋tooltip 來源＋量測提示）整列拿掉；量測提示（量哪支腳、看到什麼）移到「說明」第一行（`#nd-probe`）。
+2. nbdebug「說明」：拿掉「驗證等級」段與來源清單（原 `SRC` 表）；注意事項改成不帶出處的寫法（RX DE、EN01 TX_EN 兩條）；GPIO 下拉與說明不再標「（推論）」。程式裡的 `lv`／`src`／`SRC`／`DOC_SRC`／`lvTag`／`nd.lv*`／`nd.pkgInf` 一併移除，等級與出處只留在 assistant_kb/debugmode。
+3. dgself v2.9.1（另列一條）：NB 提示拿掉「尚未實機確認」字樣。
+4. 全站盤點（去註解後的發佈檔）：其餘頁面（datamap、i2c、dg-selftest 其他字串、wfg 等）沒有等級／來源標籤；wfg.html 裡的同類字樣都在註解內，發佈時去掉。
+5. 新關卡 `tools/check_no_verif_labels.mjs`：掃去註解後的發佈檔（範圍同 check_no_names），出現「實測驗證／原廠文件／原廠腳本／推論，未實測／驗證等級／實測設定／原廠 debug 文件／未實機確認」與簡中、英文對應字樣就不發佈；已加進 `.github/workflows/pages.yml`（人名檢查之後）。origin/main 有 47 處，本版 0 處。
+6. CLAUDE.md、check_no_names.mjs 的提示不再建議「來源寫中性說法」，改為不寫等級與出處。
+
+### 測試
+- `tools/check_nbdebug.mjs`：M 矩陣改驗「沒有等級列」、量測提示改讀 `#nd-probe`；N 項新增三語 × 每個 IC × 每個項目（說明展開）畫面＋tooltip＋下拉文字不可有等級／來源字樣、沒有 `nd.lv*` key；X 項新增匯出 Excel／.script 不可有等級／來源字樣；G 抽查拿掉等級比對。新增 `NBD_NO_WEBKIT=1`（本機沒有 WebKit 時只跑 Chrome）。
+- 版號：common/version.js nbdebug v1.1.3、dgself v2.9.1；nbdebug.html／index.html 的 version.js、i18n.js `?v=20261023nd113`；dg-selftest.html `?v=20261023dst291`。
+
+---
+
+## TCON 自檢畫面量測 (dgself) v2.9.1 — 2026-10-23 ｜ PATCH ｜ NB 提示拿掉「尚未實機確認」
+
+判定依據：`docs/VERSIONING.md` §1 內部改善 ⇒ PATCH；只改提示文字，出圖、寫入、十字座標都不變。
+
+- 需求與關卡同上一條（nbdebug v1.1.3，Bruce 2026-10-23：對外頁面不寫驗證等級／來源）。
+- `dst.nbNote`（common/i18n.js，三語）拿掉「十字線依 model 暫存器打，尚未實機確認」，留「NB 讀不到解析度，十字以 1920x1080 置中」。
+- 測試：tests/dgself run-all 1642 passed／0 failed（124 情境）；check_i2c_pages_sim 38／0。
+- 版號：common/version.js dgself v2.9.1；dg-selftest.html 的 version.js／i18n.js `?v=20261023dst291`。
+
+---
+
 ## TCON 自檢畫面量測 (dgself) v2.9.0 — 2026-10-22 ｜ MINOR ｜ 支援 NB T-CON（EN01／E503／E501A／E501B）：aging Pattern 0 打灰階／RGB、十字線
 
 判定依據：`docs/VERSIONING.md` §2 案例 1（新增一個完整功能：NB 型號可以出圖量測；MNT 既有畫面與操作不變）⇒ MINOR。

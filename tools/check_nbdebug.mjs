@@ -7,7 +7,7 @@
      D  頁面內 GPIO 表（NBD_GPIO）逐支對回 .model 原文（TX_EN／TX_IN_SEL 位址、bit、行號）。
      M  矩陣：每個 IC × 每個項目 × 每支 GPIO，用畫面下拉切換後讀表格（tr[data-k]）與獨立寫的期望表比對：
         選擇暫存器、TX_EN（該支的位址與 bit）、TX_IN_SEL（該支的位址、位元範圍、值）、列數（無殘留）、
-        預設腳與驗證等級（預設＝來源等級；其他腳＝依 model 位址推論）。桌機 1280 ×（Chrome、WebKit）、375 ×（WebKit）。
+        預設腳；v1.1.3 起畫面沒有驗證等級列（#nd-info／.nd-tag 不存在），量測提示在「說明」#nd-probe。桌機 1280 ×（Chrome、WebKit）、375 ×（WebKit）。
      X  匯出：按「匯出 Excel／匯出 .script」實際下載，Excel 解壓讀 sheet1（表頭＝wfg.html 的 WFG_NB_XLSX_HEADER、
         每列 Slave／Offset-Bytes／Offset／值），.script 照 write -m 語法逐行解析後套到記憶體，與期望表逐 byte 比對；
         KOSC 預設不含燒錄列，勾三格才有，檔內有 IRREVERSIBLE。
@@ -15,6 +15,7 @@
         讀回 ✓ → 還原回原值；EN01 KOSC：未勾燒錄不寫 7C:01=01；勾了但 20D0≠0 拒絕；20D0=0 才送；
         選 E503 但板子是 EN01 ⇒ 自動切 IC。
      N  v1.0.1：頁面三語文字、tooltip、原始碼都不可有人名／信件出處（tools/name-guard.mjs 雜湊名單）。
+        v1.1.3（Bruce 2026-10-23）：頁面三語文字、tooltip、說明、匯出檔都不可有驗證等級／來源標籤（tools/check_no_verif_labels.mjs 字樣）。
      U  點擊數：開頁 → 3 個下拉＋1 個按鈕到下載；預設組合 1 個按鈕；375 與桌機各一次，截圖。
    退出碼：0 通過／1 有失敗／2 跑不起來
    ═══════════════════════════════════════════════════════════════════════ */
@@ -26,6 +27,7 @@ import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { inflateRawSync } from 'node:zlib';
 import { findNames } from './name-guard.mjs';
+import { findVerifLabels } from './check_no_verif_labels.mjs';
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const PWC = process.env.PLAYWRIGHT_CORE;
@@ -33,6 +35,7 @@ if (!PWC || !existsSync(PWC)) { console.error('🛑 需要 PLAYWRIGHT_CORE=<play
 const { chromium, webkit } = createRequire(import.meta.url)(PWC);
 const CHROME = process.env.CHROME || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const SHOT = process.env.NBD_SHOT_DIR || '';
+const NO_WEBKIT = !!process.env.NBD_NO_WEBKIT;   /* 本機沒有 playwright WebKit 快取時只跑 Chrome（回報要寫明） */
 const MODEL_DIR = process.env.NBD_MODEL_DIR || '';
 if (SHOT) mkdirSync(SHOT, { recursive: true });
 let pass = 0, fail = 0; const fails = [];
@@ -41,23 +44,22 @@ const H = (v, n = 2) => v.toString(16).toUpperCase().padStart(n, '0');
 
 /* ── 期望表（由信件／腳本原文獨立重寫，不讀頁面程式）── */
 const EXP = {
-  rxde: { regs: [[0x007, 0x02], [0x00A, 0x02]], sel: [0x37], lv: { E503: 'meas', E501A: 'inf', E501B: 'vdoc', EN01: 'vdoc' } },
-  txde: { regs: [[0x007, 0x12], [0x008, 0x01], [0x009, 0x07]], sel: [0x20], lv: { E503: 'meas', E501A: 'inf', E501B: 'inf', EN01: 'inf' } },
-  txrt6: { regs: [[0x00A, 0x02]], sel: [0x35], lv: { E503: 'vendor', E501A: 'inf', E501B: 'vdoc', EN01: 'vdoc' } },
-  osc: { regs: [[0x007, 0x01]], sel: [0x24], lv: { E503: 'vendor', E501A: 'inf', E501B: 'vdoc', EN01: 'vendor' } },
-  oscd: { regs: [], sel: [0x3D], lv: { E503: 'vdoc', E501A: 'inf', E501B: 'vdoc', EN01: 'vdoc' } },
-  kosc: { only: ['EN01'], regs: [[0x007, 0x01]], sel: [0x24], lv: { EN01: 'vendor' },
+  rxde: { regs: [[0x007, 0x02], [0x00A, 0x02]], sel: [0x37] },
+  txde: { regs: [[0x007, 0x12], [0x008, 0x01], [0x009, 0x07]], sel: [0x20] },
+  txrt6: { regs: [[0x00A, 0x02]], sel: [0x35] },
+  osc: { regs: [[0x007, 0x01]], sel: [0x24] },
+  oscd: { regs: [], sel: [0x3D] },
+  kosc: { only: ['EN01'], regs: [[0x007, 0x01]], sel: [0x24],
           post: [[0x3E, 0x0E4, 0x83], [0x7C, 0x0F, 0x80], [0x7C, 0x0A, 0x5A], [0x7C, 0x0B, 0xC3], [0x7C, 0x01, 0x00], [0x7C, 0x00, 0xAA]] },
-  pll0: { not: ['E501A', 'E501B'], regs: [[0x007, 0x13], [0x008, 0x01]], sel: [0x27], lv: { E503: 'vendor', EN01: 'inf' } },
-  pll1: { regs: [[0x007, 0x13], [0x008, 0x01]], sel: [0x22], lv: { E503: 'vendor', E501A: 'inf', E501B: 'inf', EN01: 'inf' } },
-  rxclk: { regs: [[0x007, 0x01]], sel: [0x22], lv: { E503: 'vdoc', E501A: 'inf', E501B: 'vdoc', EN01: 'vdoc' } },
-  bs: { regs: [[0x00A, 0x16]], sel: [0x36], def: { E503: 'GPIO_04' }, lv: { E503: 'vendor', E501A: 'inf', E501B: 'vdoc', EN01: 'vdoc' } },
-  be: { regs: [[0x00A, 0x16]], sel: [0x35], def: { E503: 'GPIO_BLEN' }, lv: { E503: 'vendor', E501A: 'inf', E501B: 'vdoc', EN01: 'vdoc' } },
+  pll0: { not: ['E501A', 'E501B'], regs: [[0x007, 0x13], [0x008, 0x01]], sel: [0x27] },
+  pll1: { regs: [[0x007, 0x13], [0x008, 0x01]], sel: [0x22] },
+  rxclk: { regs: [[0x007, 0x01]], sel: [0x22] },
+  bs: { regs: [[0x00A, 0x16]], sel: [0x36], def: { E503: 'GPIO_04' } },
+  be: { regs: [[0x00A, 0x16]], sel: [0x35], def: { E503: 'GPIO_BLEN' } },
   /* v1.1.0：Core state[3:0]＝dbg_02 [4:1]（TOP_DBG_SEL 02，TX_IN_SEL 24／23／22／21） */
-  core: { regs: [[0x007, 0x02]], sel: [0x24, 0x23, 0x22, 0x21], lv: { E503: 'vdoc', E501A: 'inf', E501B: 'vdoc', EN01: 'vdoc' } },
+  core: { regs: [[0x007, 0x02]], sel: [0x24, 0x23, 0x22, 0x21] },
 };
 const DEF = { E503: 'GPIO_ROM_WP', E501A: 'FLASH_WP_GPIO_05', E501B: 'FLASH_WP_GPIO_05', EN01: 'GPIO_07' };
-const LVTXT = { meas: '實測驗證', vendor: '原廠腳本', vdoc: '原廠文件', inf: '推論，未實測', pin: '依 model 位址推論，未實測' };
 const ICS = ['E503', 'E501A', 'E501B', 'EN01'];
 const itemsFor = ic => Object.keys(EXP).filter(k => (!EXP[k].only || EXP[k].only.includes(ic)) && (!EXP[k].not || !EXP[k].not.includes(ic)));
 /* gids：每個 bit 一支腳（字串＝單 bit）。EN01 的 TX_EN 照 EN01 Debug Mode 文件 p2 寫 nibble＝1；E503／E501 只改 TX_EN 一個 bit */
@@ -182,13 +184,12 @@ async function runEngine(name, browserType, opts, viewport, full) {
         await sel(page, 'nd-gpio', gid); combos++;
         const pins = await page.$$eval('#nd-gpios select', a => a.map(x => x.value));
         const got = await tableKeys(page), want = expRows(G, ic, it, pins).map(rowKey);
-        const lv = await page.$eval('#nd-info .nd-tag', e => e.textContent);
-        const wantLv = LVTXT[gid === dp ? EXP[it].lv[ic] : 'pin'];
-        const ok = JSON.stringify(got) === JSON.stringify(want) && lv === wantLv;
-        if (ok) okc++; else check(`${tag} M ${ic}/${it}/${gid}`, false, JSON.stringify(got) + ' vs ' + JSON.stringify(want) + ' lv ' + lv + '/' + wantLv);
+        const noLv = await page.evaluate(() => !document.getElementById('nd-info') && !document.querySelector('.nd-tag'));
+        const ok = JSON.stringify(got) === JSON.stringify(want) && noLv;
+        if (ok) okc++; else check(`${tag} M ${ic}/${it}/${gid}`, false, JSON.stringify(got) + ' vs ' + JSON.stringify(want) + ' 等級列殘留 ' + !noLv);
         /* 量測位置：查不到封裝腳就要有「待確認」 */
         const g = G[ic].gpios.find(x => x.id === gid);
-        const meas = await page.$eval('#nd-info', e => e.textContent);
+        const meas = await page.$eval('#nd-probe', e => e.textContent);
         if (!g.pst && !/待確認/.test(meas)) check(`${tag} M ${ic}/${gid} 待確認標示`, false, meas);
         if (g.pst === 'ok' && !meas.includes(g.pkg)) check(`${tag} M ${ic}/${gid} 封裝腳名`, false, meas);
       }
@@ -212,6 +213,8 @@ async function runEngine(name, browserType, opts, viewport, full) {
     check(`${tag} X Excel Check Item＝.model 名（GPIO 列）`, rows.slice(1).some(r => r[1] === G[ic].gpios.find(g => g.id === gid).selN));
     const st = (await grab(page, '#nd-script')).buf.toString('utf8');
     parseScript(st, exp, `${tag} X ${ic}/${it}/${gid}`);
+    { const all = Object.values(z).map(b => b.toString('utf8')).join('\n') + '\n' + st, vh = findVerifLabels(all);
+      check(`${tag} X ${ic}/${it}/${gid} 匯出 Excel／.script 沒有驗證等級／來源標籤`, vh.length === 0, vh.map(h => h.word).join(',')); }
     if (it === 'kosc') {
       check(`${tag} X KOSC 預設不含燒錄`, !/OSC_PROGRAM_EFUSE/.test(st) && !rows.some(r => r[1] === 'OSC_PROGRAM_EFUSE'));
       await page.check('#nd-burn'); await page.check('#nd-burn1');
@@ -287,8 +290,21 @@ async function runEngine(name, browserType, opts, viewport, full) {
     }
     const hits = findNames(txt);
     check(`${tag} N 頁面三語文字／tooltip／原始碼沒有人名或信件出處`, hits.length === 0, hits.slice(0, 5).map(h => h.kind + ':' + h.masked).join(' '));
-    const lvs = await pn.evaluate(() => [I18N['nd.lvMeas']['zh-TW'], I18N['nd.lvVendor']['zh-TW'], I18N['nd.lvVdoc']['zh-TW'], I18N['nd.lvInf']['zh-TW']].join('|'));
-    check(`${tag} N 驗證等級＝實測驗證／原廠腳本／原廠文件／推論，未實測`, lvs === '實測驗證|原廠腳本|原廠文件|推論，未實測', lvs);
+    /* v1.1.3：畫面（三語 × 每個 IC × 每個項目，說明展開）＋tooltip 不可有驗證等級／來源標籤；原始碼會去註解才發佈，這裡只看畫面 */
+    let vt = '';
+    for (const lg of ['zh-TW', 'en', 'zh-CN']) {
+      await pn.selectOption('#lang-select', lg);
+      for (const ic of ICS) for (const it of itemsFor(ic)) {
+        await pn.selectOption('#nd-icsel', ic); await pn.selectOption('#nd-item', it);
+        await pn.evaluate(() => { document.getElementById('nd-helpbox').open = true; });
+        vt += '\n' + await pn.evaluate(() => document.body.innerText + '\n' + [...document.querySelectorAll('[title]')].map(e => e.title).join('\n') + '\n' + [...document.querySelectorAll('option')].map(o => o.textContent).join('\n'));
+      }
+    }
+    const vh = findVerifLabels(vt);
+    check(`${tag} N 畫面三語／說明／tooltip／下拉沒有驗證等級或來源標籤`, vh.length === 0, vh.slice(0, 5).map(h => h.word + '…' + vt.slice(Math.max(0, h.at - 20), h.at + 20)).join(' | '));
+    const lvKeys = await pn.evaluate(() => Object.keys(I18N).filter(k => /^nd\.(lv|pkgInf)/.test(k)));
+    check(`${tag} N 沒有等級標籤的 i18n key（nd.lv*／nd.pkgInf）`, lvKeys.length === 0, lvKeys.join(','));
+
     await pn.close();
   }
   /* G：v1.1.0 多 bit 與群組項目 */
@@ -318,25 +334,25 @@ async function runEngine(name, browserType, opts, viewport, full) {
     const p0 = await pg.$eval('#nd-gpio', s => s.value); await pg.selectOption('#nd-gpio-1', p0);
     check(`${tag} G 重複腳 ⇒ 警告且匯出停用`, /同一支 GPIO/.test(await pg.$eval('#nd-warn', e => e.textContent)) && await pg.$eval('#nd-xlsx', b => b.disabled) && await pg.$eval('#nd-script', b => b.disabled));
     /* 群組項目抽查（依 EN01 Debug Mode 文件／E503A、E501B 投影片） */
-    const spot = async (ic, id, wantRegs, wantSels, wantLv) => {
+    const spot = async (ic, id, wantRegs, wantSels) => {
       await pg.selectOption('#nd-icsel', ic); await pg.selectOption('#nd-item', id);
-      const ks = await tableKeys(pg), lv = await pg.$eval('#nd-info .nd-tag', e => e.textContent);
+      const ks = await tableKeys(pg);
       const regs = ks.filter(k => /^w:3E:000[0-9A]:7:0:/.test(k)).map(k => k.split(':').slice(2, 3)[0] + '=' + k.split(':')[5]);
       const sels = ks.filter((k, i) => i % 2 === 1 && false);
       const selv = (await pg.evaluate(() => NBD.build(document.getElementById('nd-icsel').value, document.getElementById('nd-item').value, [].slice.call(document.querySelectorAll('#nd-gpios select')).map(x => x.value)).rows.filter(r => r.sel).map(r => r.val)));
-      check(`${tag} G 抽查 ${ic} ${id}`, JSON.stringify(regs) === JSON.stringify(wantRegs) && JSON.stringify(selv) === JSON.stringify(wantSels) && lv === wantLv, regs.join(',') + ' / ' + selv.map(v => v.toString(16)).join(',') + ' / ' + lv);
+      check(`${tag} G 抽查 ${ic} ${id}`, JSON.stringify(regs) === JSON.stringify(wantRegs) && JSON.stringify(selv) === JSON.stringify(wantSels), regs.join(',') + ' / ' + selv.map(v => v.toString(16)).join(','));
     };
-    await spot('EN01', 'g:dbg_07:DP_STATE', ['0007=07'], [0x29, 0x28, 0x27], '原廠文件');
-    await spot('EN01', 'g:dbg_07:UNPK_STATE', ['0007=07'], [0x26, 0x25, 0x24], '原廠文件');
-    await spot('EN01', 'g:dbg_08:DP_STATE', ['0007=08'], [0x28, 0x27, 0x26, 0x25], '原廠文件');
-    await spot('EN01', 'g:dbg_20:RING_OSC_OUTDIV8', ['0007=4A'], [0x25], '原廠文件');
-    await spot('EN01', 'g:dbg2_06:DP_2_FIFO_BS_TOG', ['0007=36'], [0x26], '原廠文件');
-    await spot('EN01', 'g:dbg2_09:RG_FNPLL_RSTB', ['0007=39'], [0x22], '原廠文件');
-    await spot('E503', 'g:dbg2_09:RG_GBPLL_EXT_RSTN', ['0007=39'], [0x22], '原廠文件');
-    await spot('E503', 'g:dbg2_10:DPCD_204H_IAD', ['0007=40'], [0x21], '推論，未實測');
-    await spot('E501B', 'g:dbg_02:DPFIFO_2_RTLOG_DE', ['000A=02'], [0x37], '原廠文件');
-    await spot('E501B', 'g:dbg_16:PSR_STATE', ['000A=26'], [0x38, 0x37, 0x36], '原廠文件');
-    await spot('E501A', 'g:dbg_01:OSC_CLK_DIV8', ['0007=01'], [0x24], '推論，未實測');
+    await spot('EN01', 'g:dbg_07:DP_STATE', ['0007=07'], [0x29, 0x28, 0x27]);
+    await spot('EN01', 'g:dbg_07:UNPK_STATE', ['0007=07'], [0x26, 0x25, 0x24]);
+    await spot('EN01', 'g:dbg_08:DP_STATE', ['0007=08'], [0x28, 0x27, 0x26, 0x25]);
+    await spot('EN01', 'g:dbg_20:RING_OSC_OUTDIV8', ['0007=4A'], [0x25]);
+    await spot('EN01', 'g:dbg2_06:DP_2_FIFO_BS_TOG', ['0007=36'], [0x26]);
+    await spot('EN01', 'g:dbg2_09:RG_FNPLL_RSTB', ['0007=39'], [0x22]);
+    await spot('E503', 'g:dbg2_09:RG_GBPLL_EXT_RSTN', ['0007=39'], [0x22]);
+    await spot('E503', 'g:dbg2_10:DPCD_204H_IAD', ['0007=40'], [0x21]);
+    await spot('E501B', 'g:dbg_02:DPFIFO_2_RTLOG_DE', ['000A=02'], [0x37]);
+    await spot('E501B', 'g:dbg_16:PSR_STATE', ['000A=26'], [0x38, 0x37, 0x36]);
+    await spot('E501A', 'g:dbg_01:OSC_CLK_DIV8', ['0007=01'], [0x24]);
     const noPsr = await pg.evaluate(() => ['E503', 'EN01'].every(ic => !NBD.allItems(ic).some(it => /PSR/.test(it.label) && !/VSC_SDP/.test(it.label))));
     check(`${tag} G E503／EN01 不列 PSR 訊號（文件：沒有 PSR，tie 0）`, noPsr);
     const e501bit67 = await pg.evaluate(() => ['E501A', 'E501B'].every(ic => NBD.allItems(ic).filter(it => it.group).every(it => it.regs[0].addr === 0x00A || it.bits.every(b => b.sel !== 0x26 && b.sel !== 0x27))));
@@ -390,8 +406,11 @@ if (MODEL_DIR) {
 
 try {
   await runEngine('chrome', chromium, { executablePath: CHROME, headless: true }, { width: 1280, height: 900 }, true);
-  await runEngine('webkit', webkit, { headless: true }, { width: 1280, height: 900 }, false);
-  await runEngine('webkit', webkit, { headless: true }, { width: 375, height: 812 }, false);
+  if (NO_WEBKIT) console.log('（WebKit 略過：NBD_NO_WEBKIT）');
+  else {
+    await runEngine('webkit', webkit, { headless: true }, { width: 1280, height: 900 }, false);
+    await runEngine('webkit', webkit, { headless: true }, { width: 375, height: 812 }, false);
+  }
   await runEngine('chrome', chromium, { executablePath: CHROME, headless: true }, { width: 375, height: 812 }, false);
 } catch (e) { console.error('🛑 ' + (e.stack || e)); srv.close(); process.exit(2); }
 srv.close();

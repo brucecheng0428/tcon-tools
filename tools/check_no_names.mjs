@@ -33,5 +33,5 @@ for (const f of files) {
     for (const hit of findNames(l)) { bad++; console.log(`  ✗ ${f}:${i + 1}:${hit.at + 1}  ${hit.kind}「${hit.masked}」` + (PLAIN ? '  …' + l.slice(Math.max(0, hit.at - 30), hit.at + 40).trim() + '…' : '')); }
   });
 }
-if (bad) { console.log(`✗ check_no_names：${bad} 處人名／信件出處——對外頁面改寫成中性來源（例：實測設定（2026-10）、原廠 debug 文件、model 暫存器表）`); process.exit(1); }
+if (bad) { console.log(`✗ check_no_names：${bad} 處人名／信件出處——對外頁面拿掉人名與出處（等級與出處只留在 assistant_kb）`); process.exit(1); }
 console.log(`✓ check_no_names：${files.length} 個發佈檔沒有人名／信件出處（名單：中文 ${NAME_GUARD_COUNTS.cjk}、英文全名 ${NAME_GUARD_COUNTS.enFull}、英文單名 ${NAME_GUARD_COUNTS.enOne}）`);

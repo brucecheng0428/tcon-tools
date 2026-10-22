@@ -13,7 +13,8 @@
 - 所有 I2C 頁面一律走共用導通與共用辨認（Bruce 2026-10-22「所有用到 I2C 的網頁都應該要修正喔」）：頁面的 WebSocket send 包 `TconMbus.session`（`common/i2c-mbus.js`，連線後第一次 I2C 讀寫前先下 0x7E:0xAB←CD）；要知道 IC 型號只呼叫 `TconDetect`（`common/tcon-detect.js`），不另寫 ID 表、自動辨認不回 DAZ6138／6139。新 I2C 頁照做；只放 I2C Bridge 下載連結的頁列進 `tools/check_i2c_pages.mjs` 的 DOWNLOAD_ONLY 並寫理由。發佈關卡 `check_i2c_pages.mjs` 會擋；改 I2C 頁時加跑 `tools/check_i2c_pages_sim.mjs`（模擬 I2C）。
 - UI 三語 `zh-TW / zh-CN / en` 同步，相關說明與匯出內容隨功能更新。
 - UI 只留常用操作；細節按需展開，診斷放 log/debug。明確要求的操作不再加重複確認；容易誤觸、非當前目的的不可逆清空保留確認。
-- 對外網頁（線上站的頁面文字、tooltip、說明、匯出內容、CHANGELOG）不寫同事／客戶人名、email 與信件出處（「某某信」「某某 10/14」）；來源寫中性說法（實測設定（2026-10）、原廠腳本、原廠 debug 文件、model 暫存器表）。人名只留在 assistant_kb 內部筆記。`tools/check_no_names.mjs` 在 Pages 發佈前擋（雜湊名單 `tools/name-guard.json`，由 `tools/name_guard_gen.py` 從 assistant_kb 通訊錄＋`reference/對外網頁人名檢查名單.md` 產生；依 Bruce 2026-10-22）。 commit message、作者欄與 repo 內新增的內容（CHANGELOG、tools、tests、docs）同樣不寫人名：`tools/check_commit_names.mjs`（同一份名單）由 commit-msg hook 與 `.github/workflows/name-guard.yml` 擋；2026-10-22 已依 Bruce 授權改寫整個 git 歷史並 force-push 清掉舊人名（舊名改成「同事A…」代號）。
+- 對外網頁（線上站的頁面文字、tooltip、說明、匯出內容、CHANGELOG）不寫同事／客戶人名、email 與信件出處（「某某信」「某某 10/14」）。人名只留在 assistant_kb 內部筆記。`tools/check_no_names.mjs` 在 Pages 發佈前擋（雜湊名單 `tools/name-guard.json`，由 `tools/name_guard_gen.py` 從 assistant_kb 通訊錄＋`reference/對外網頁人名檢查名單.md` 產生；依 Bruce 2026-10-22）。 commit message、作者欄與 repo 內新增的內容（CHANGELOG、tools、tests、docs）同樣不寫人名：`tools/check_commit_names.mjs`（同一份名單）由 commit-msg hook 與 `.github/workflows/name-guard.yml` 擋；2026-10-22 已依 Bruce 授權改寫整個 git 歷史並 force-push 清掉舊人名（舊名改成「同事A…」代號）。
+- 對外網頁不顯示驗證等級與來源標籤（實測驗證／原廠腳本／原廠文件／推論，未實測、實測設定、原廠 debug 文件等），等級與出處只留在 assistant_kb；`tools/check_no_verif_labels.mjs` 在 Pages 發佈前擋（依 Bruce 2026-10-23）。
 - 公開內容與程式碼使用中性代號，移除他家商標／型號；必要協定值可保留。依 Bruce 2026-09-29 決策，Raydium、自家 RM 型號、PQ Tools、AUX GUI、Raydium 檔名均保留；歸屬不明先確認。
 - DG 復刻依原廠實際程式；資料入口 `~/TCON/Share/DG/gamma_analysis_v150/`。不把交接文件中的建議當原廠規格。TCON 原始資料唯讀。
 
