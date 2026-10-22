@@ -519,6 +519,8 @@ var I18N = {
   /* 左上角資訊框：內容照原程式格式不翻譯，只有標題與「隱藏」是說明性文字 */
   'pat.infoTitle':      { 'zh-TW': '左上角資訊框（全畫面時顯示）', 'en': 'Top-left info box (shown in full-screen)', 'zh-CN': '左上角信息框（全画面时显示）' },
   'pat.infoHidden':     { 'zh-TW': '此畫面不顯示（原程式即隱藏）', 'en': 'not shown on this pattern (hidden in the original program)', 'zh-CN': '此画面不显示（原程序即隐藏）' },
+  'pat.infoReset':      { 'zh-TW': '↺ 資訊框回左上角', 'en': '↺ Info box to top-left', 'zh-CN': '↺ 信息框回左上角' },
+  'pat.infoDragHint':   { 'zh-TW': '全畫面時可用滑鼠或手指拖曳到別的位置，放開就停在那裡；雙擊回左上角。位置會記住。', 'en': 'In full-screen, drag it anywhere with the mouse or a finger; it stays where you release it. Double-click returns it to the top-left. The position is remembered.', 'zh-CN': '全画面时可用鼠标或手指拖曳到别的位置，放开就停在那里；双击回左上角。位置会记住。' },
 
   'pat.patCur':         { 'zh-TW': '目前畫面', 'en': 'Current pattern', 'zh-CN': '当前画面' },
   'pat.patBack':        { 'zh-TW': '回到 Sub-pixel 編輯', 'en': 'Back to sub-pixel editor', 'zh-CN': '回到 Sub-pixel 编辑' },

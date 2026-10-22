@@ -2,6 +2,23 @@
 
 ---
 
+## Pattern Generator (pattern) v3.9.0 — 2026-10-22 ｜ MINOR ｜ 全畫面左上角資訊框（XY 座標等）可拖曳
+
+判定依據：VERSIONING.md §1 判定表「多了新功能，原本的做法不變」⇒ MINOR（預設位置、內容、鍵盤操作都不變；只是多了拖曳）。輸出到面板的 pattern 像素不變（資訊框是疊在畫布上的 DOM，本來就會出現在全畫面/面板上，與原程式相同；這版只改它的位置）。
+
+### 需求（Bruce 2026-10-22，經 Dispatch，派工 238950555360202752）
+- 「Pattern Gen 的網頁，在 XY coordinate 的那個畫面，左上方會有 XY 的座標。目前那個座標是一直固定在那邊的，有可能會擋到我要看的畫面（像是要亮的 Pixel 或 Cursor）。所以我要把它做成可以用滑鼠拖曳、移動到其他位置的功能」
+
+### 內容
+- pattern.html：`#pg-info` 用 Pointer Events 拖曳（滑鼠、觸控都可），放開停在原處；拖出畫面會夾在可視範圍內。位置存 localStorage `pgInfoPos`（可移動範圍的比例 fx/fy，try/catch），重新整理、切換 pattern、進出全螢幕、換螢幕尺寸都維持；文字變長（Checker）也不會超出畫面。
+- 雙擊資訊框、全畫面面板「↺ 資訊框回左上角」、頁面資訊框說明列的 ↺ 都回到預設 (1,1) 並清掉記憶。
+- 拖曳不誤觸：pointerdown 不往下傳；拖曳中 mousemove 不交給全畫面層（不會叫出側邊面板、不會藏游標）；按在框上的觸控不觸發「邊緣滑入開面板」；放大鏡在拖曳時定住；雙擊不往上傳（不會中止 Response Time）；右鍵照舊叫出選單；方向鍵照常移動準星。
+- 資訊框只在全畫面層出現（頁面上的預覽沒有這個框），所以只有一處要拖。
+- common/i18n.js 新增 `pat.infoReset`、`pat.infoDragHint`（三語）；說明頁三語 XY Coordinate 一列補一句；common/version.js pattern v3.9.0；所有頁面 i18n.js／version.js 的 `?v=` 改 20261022pat390。
+
+### 測試
+- 新增 `tools/check_pattern_infodrag.mjs`（PLAYWRIGHT_CORE、系統 Chrome）：桌機 1280×800 拖到四角（故意拖出畫面外）與中間、拖曳前後畫布像素雜湊與準星座標相同、面板沒被叫出、重新整理／切 Gray Level／離開再進全畫面位置維持、方向鍵照常、雙擊與兩個 ↺ 回預設；手機 375×667 觸控拖曳（按在離邊緣 <26px 的框上不會叫出面板）、拖出畫面外夾住。34 pass / 0 fail。
+
 ## Data Mapping (datamap) v1.37.2 — 2026-10-22 ｜ PATCH ｜ EN01 被認成 DAZ6138：移除 6138 自動辨認、全站共用一套 T-CON 辨認
 
 同一次修改連帶：I2C (i2c) v1.34.4、NB TCON Debug應用 (nbdebug) v1.1.1、TCON 自檢 (dgself) v2.8.1（各自條目在下面，內容同本條）。

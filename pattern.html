@@ -267,6 +267,13 @@
     line-height: 19px; white-space: pre; letter-spacing: 0;
   }
   #pg-info.on { display: inline-block; }
+  /* v3.9.0（Bruce 2026-10-22）：資訊框可用滑鼠／手指拖曳，放開停在原處；雙擊回左上角。
+     ★ 本站設計，與原程式不同：原程式固定在左上角，XY Coordinate 時會擋到要看的 pixel／準星。
+     只改游標樣式與位置，不畫進 canvas，pattern 像素不受影響。 */
+  #pg-info { cursor: move; touch-action: none; user-select: none; -webkit-user-select: none; }
+  #pg-info.dragging { cursor: grabbing; }
+  .pg-infoecho .pg-info-tip { display: block; margin-top: 4px; font-size: 11px; color: var(--text-sub); }
+  .pg-infoecho .pg-info-reset { margin-left: 6px; padding: 1px 7px; font-size: 11px; vertical-align: middle; }
 
   .pg-infoecho {
     margin-top: 8px; padding: 7px 10px; border-radius: 8px;
@@ -1159,6 +1166,7 @@
     <h3 data-i18n="pat.fsPanelTitle">畫面產生器</h3>
     <button class="pg-btn full" id="pg-fs-menu" data-i18n="pat.fsMenuBtn">☰ 測試畫面選單</button>
     <button class="pg-btn full" id="pg-fs-side-toggle" data-i18n="pat.fsSwitchSide">⇄ 切換面板左右</button>
+    <button class="pg-btn full" id="pg-info-reset" data-i18n="pat.infoReset">↺ 資訊框回左上角</button>
     <button class="pg-btn full accent" id="pg-fs-exit" data-i18n="pat.fsExit">✕ 離開全畫面</button>
     <div class="pg-keyhelp" id="pg-fs-keyhelp"></div>
     <div class="pg-fs-info" id="pg-fs-info"></div>
@@ -1221,8 +1229,8 @@
 </div>
 
 <!-- 共用 JS（i18n 必須先於 common.js 載入） -->
-<script src="common/version.js?v=20261022nm2"></script>
-<script src="common/i18n.js?v=20261022nm2"></script>
+<script src="common/version.js?v=20261022pat390"></script>
+<script src="common/i18n.js?v=20261022pat390"></script>
 <!-- v3.8.2：縮放判準的單一來源（原本內嵌在本頁，dg-measure.html 也要用同一份） -->
 <script src="common/zoomprobe.js?v=20261019pat387"></script>
 <script src="common/common.js?v=20260523"></script>
@@ -2436,6 +2444,9 @@
     setTimeout(pgRenderFill, 60);
     setTimeout(pgRenderFill, 350);
     pgRenderFill();
+    pgInfoApplyPos();
+    setTimeout(pgInfoApplyPos, 60);
+    setTimeout(pgInfoApplyPos, 350);
     // 警示要跟著搬進全螢幕元素（fullscreenchange 也會做一次，這裡是保底）
     setTimeout(function(){ pgZwAttach(); pgZwSync(); }, 80);
   }
@@ -4977,12 +4988,14 @@
     var txt = pgInfoText();
     if (el) {
       if (txt === null) { el.classList.remove('on'); el.textContent = ''; }
-      else { el.textContent = txt; el.classList.add('on'); }
+      else { el.textContent = txt; el.classList.add('on'); pgInfoApplyPos(); }
     }
     if (echo) {
       echo.innerHTML = (txt === null)
         ? escapeHtml(t('pat.infoTitle')) + ' <span class="hide">' + escapeHtml(t('pat.infoHidden')) + '</span>'
-        : escapeHtml(t('pat.infoTitle')) + ' <b>' + escapeHtml(txt) + '</b>';
+        : escapeHtml(t('pat.infoTitle')) + ' <b>' + escapeHtml(txt) + '</b>' +
+          (pgInfoPos ? '<button type="button" class="pg-mini pg-info-reset" data-act="info-reset">' + escapeHtml(t('pat.infoReset')) + '</button>' : '') +
+          '<span class="pg-info-tip">' + escapeHtml(t('pat.infoDragHint')) + '</span>';
     }
     // 只有 Checker 需要每秒跳一次；其餘畫面把計時器關掉（原程式也只在 Checker 啟用 Timer）
     var needTimer = (pgMode === 'pattern' && PG_MODE[pgPat.id] >= 600);
@@ -4991,6 +5004,102 @@
   }
   // 原程式在「重繪 Checker」的結尾把起算點歸零並啟用 Timer → 改格數等操作也會重新計時
   function pgCkRestart(){ pgCkT0 = Date.now(); }
+
+  // ─── 資訊框拖曳（v3.9.0，Bruce 2026-10-22「做成可以用滑鼠拖曳、移動到其他位置」）───
+  // 位置存「可移動範圍的比例」(fx, fy)：0＝貼左／上、1＝貼右／下。文字變長（Checker）、
+  // 進出全螢幕或換螢幕尺寸時照比例重算並夾在可視範圍內，不會跑出畫面。
+  // null＝預設：CSS 的 left:1px top:1px（與原程式 Panel1 Left=1 Top=1 相同）。
+  // 拖曳只動這個 DOM 框，不畫進 canvas；送到面板的 pattern 像素不變。
+  var PG_INFO_POS_KEY = 'pgInfoPos';
+  var pgInfoPos = null, pgInfoDrag = null;
+  function pgInfoClamp01(v){ v = +v; return isFinite(v) ? Math.min(1, Math.max(0, v)) : 0; }
+  function pgInfoPosLoad(){
+    try {
+      var o = JSON.parse(localStorage.getItem(PG_INFO_POS_KEY) || 'null');
+      if (o && isFinite(+o.fx) && isFinite(+o.fy)) pgInfoPos = { fx: pgInfoClamp01(o.fx), fy: pgInfoClamp01(o.fy) };
+    } catch (e) {}
+  }
+  function pgInfoPosSave(){
+    try {
+      if (pgInfoPos) localStorage.setItem(PG_INFO_POS_KEY, JSON.stringify(pgInfoPos));
+      else localStorage.removeItem(PG_INFO_POS_KEY);
+    } catch (e) {}
+  }
+  // 可移動範圍＝全畫面層的大小 − 資訊框大小
+  function pgInfoRoom(el){
+    var ov = document.getElementById('pg-fs');
+    var VW = (ov && ov.clientWidth) || window.innerWidth, VH = (ov && ov.clientHeight) || window.innerHeight;
+    return { w: Math.max(0, VW - el.offsetWidth), h: Math.max(0, VH - el.offsetHeight) };
+  }
+  function pgInfoApplyPos(){
+    var el = document.getElementById('pg-info');
+    if (!el || pgInfoDrag) return;
+    if (!pgInfoPos) { el.style.left = ''; el.style.top = ''; return; }
+    if (!el.offsetWidth) return;                       // 全畫面沒開／框隱藏時量不到尺寸，進全畫面再算
+    var rm = pgInfoRoom(el);
+    el.style.left = Math.round(pgInfoPos.fx * rm.w) + 'px';
+    el.style.top  = Math.round(pgInfoPos.fy * rm.h) + 'px';
+  }
+  function pgInfoReset(){
+    pgInfoPos = null; pgInfoPosSave(); pgInfoApplyPos(); pgUpdateInfo();
+  }
+  function pgBindInfoDrag(){
+    var el = document.getElementById('pg-info');
+    if (!el) return;
+    el.addEventListener('pointerdown', function(e){
+      if (e.button !== undefined && e.button !== 0) return;    // 右鍵照舊叫出選單
+      e.preventDefault(); e.stopPropagation();
+      var r = el.getBoundingClientRect();
+      pgInfoDrag = { dx: e.clientX - r.left, dy: e.clientY - r.top, moved: false };
+      el.classList.add('dragging');
+      pgMagBar.dragging = true;                                // 拖曳期間放大鏡內容定住
+      try { el.setPointerCapture(e.pointerId); } catch (err) {}
+    });
+    el.addEventListener('pointermove', function(e){
+      if (!pgInfoDrag) return;
+      e.preventDefault(); e.stopPropagation();
+      var ov = document.getElementById('pg-fs');
+      var VW = (ov && ov.clientWidth) || window.innerWidth, VH = (ov && ov.clientHeight) || window.innerHeight;
+      var x = Math.max(0, Math.min(VW - el.offsetWidth,  e.clientX - pgInfoDrag.dx));
+      var y = Math.max(0, Math.min(VH - el.offsetHeight, e.clientY - pgInfoDrag.dy));
+      el.style.left = Math.round(x) + 'px';
+      el.style.top  = Math.round(y) + 'px';
+      pgInfoDrag.moved = true;
+    });
+    ['pointerup', 'pointercancel'].forEach(function(ev){
+      el.addEventListener(ev, function(e){
+        if (!pgInfoDrag) return;
+        var d = pgInfoDrag;
+        pgInfoDrag = null;
+        el.classList.remove('dragging');
+        pgMagBar.dragging = false;
+        if (e) { e.preventDefault(); e.stopPropagation(); }
+        if (d.moved) {
+          var rm = pgInfoRoom(el);
+          pgInfoPos = { fx: rm.w ? pgInfoClamp01(el.offsetLeft / rm.w) : 0,
+                        fy: rm.h ? pgInfoClamp01(el.offsetTop  / rm.h) : 0 };
+          pgInfoPosSave();
+          pgInfoApplyPos();
+          pgUpdateInfo();
+        }
+      });
+    });
+    // 拖曳中不要把滑鼠移動交給全畫面層（否則拖到側邊會把控制面板叫出來、游標被藏起來）；
+    // 按在框上的觸控也不要觸發「從邊緣滑入開面板」。
+    el.addEventListener('mousemove', function(e){ if (pgInfoDrag) e.stopPropagation(); });
+    el.addEventListener('touchstart', function(e){ e.stopPropagation(); }, { passive: true });
+    // 雙擊回到預設左上角（不往上傳，避免觸發 Response Time 的雙擊中止）
+    el.addEventListener('dblclick', function(e){ e.preventDefault(); e.stopPropagation(); pgInfoReset(); });
+    window.addEventListener('resize', pgInfoApplyPos);
+    document.addEventListener('fullscreenchange', function(){ setTimeout(pgInfoApplyPos, 0); });
+    document.addEventListener('webkitfullscreenchange', function(){ setTimeout(pgInfoApplyPos, 0); });
+    var rb = document.getElementById('pg-info-reset');
+    if (rb) rb.addEventListener('click', function(e){ e.stopPropagation(); pgInfoReset(); });
+    var echo = document.getElementById('pg-infoecho');
+    if (echo) echo.addEventListener('click', function(e){
+      if (e.target && e.target.closest && e.target.closest('[data-act="info-reset"]')) pgInfoReset();
+    });
+  }
 
   // ─── 選取畫面 ───
   function pgSelectPattern(id){
@@ -5675,6 +5784,8 @@
   // ─── 事件綁定 ─────────────────────────────────────
   function pgBind(){
     var ov0 = document.getElementById('pg-fs');
+    pgInfoPosLoad();
+    pgBindInfoDrag();
     // ── 編輯格：點下去就直接套用目前灰階值（可按住拖曳連續塗刷） ──
     var rows = document.getElementById('pg-rows');
     var painting = false;
