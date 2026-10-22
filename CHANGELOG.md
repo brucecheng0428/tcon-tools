@@ -2,6 +2,44 @@
 
 ---
 
+## I2C (i2c) v1.34.6 — 2026-10-22 ｜ PATCH ｜ 全站 I2C 頁統一：連線後第一次讀寫前一律先下共用 M-Bus 導通（＋datamap v1.37.3、nbdebug v1.1.2、dgself v2.8.2）
+
+判定依據：`docs/VERSIONING.md` R1（修 bug：I2C 頁手動讀寫前沒有導通，不改操作流程）⇒ PATCH。⚠ 輸出變更（i2c）：同一個操作在 I2C 匯流排上多一筆 0x7E:0xAB ← CD（連線後第一次讀寫前，一次連線只一筆）。datamap／nbdebug／dgself 畫面與匯流排順序都不變（原本就在連線後先導通），只是改成同一支共用程式。
+
+### 需求（Bruce 2026-10-22，經 Dispatch，聊天室派工 238973630923444224）
+- 「所有用到 I2C 的網頁都應該要修正喔，你有做到嗎？」
+
+### 盤點（修前，origin/main 80cd9a7）
+| 頁面 | 有沒有 I2C | 連線後第一次讀寫前導通 | 辨認 |
+|---|---|---|---|
+| i2c.html | 有（WebSocket） | ✗ 只有按 Check T-CON／外部 Flash／燒 EEPROM 時才下；連線後直接手動讀寫不會先下 | TconDetect ✓ |
+| datamap.html | 有 | ✓（連線自動 Check T-CON，TconDetect.detect 先下）；寫入前 preamble 再下 | TconDetect ✓ |
+| nbdebug.html | 有 | ✓（連線自動認 IC，TconDetect.detect 先下）；執行前再下 | TconDetect ✓ |
+| dg-selftest.html | 有 | ✓（open 後 dstMbusOpen） | TconDetect.scanIcId／matchIcId ✓（本頁只支援 MNT） |
+| dg.html | 沒有（只載 i2c-bridge.js 放下載連結；I2C 在 dg-selftest 分頁） | — | — |
+| dg-measure、ca410-*、aux、wfg、isp、la、pattern、rxtx、calc、fstest、index | 沒有 I2C 連線（Web Serial 量測儀／離線解碼） | — | — |
+- 每頁的導通都是各自寫一段（四種寫法），沒有一個保證「任何讀寫之前一定先導通」的地方。6138：四頁自動辨認都已不回 DAZ6138／6139（tcon-detect.js v1.2）。
+
+### 內容
+1. `common/i2c-mbus.js` v1.1 新增 `TconMbus.session(send)`：頁面把自己的 WebSocket send 包一層，之後每一則訊息都先經過它 —— ping／open／close／note／abortwrite／chandiag 直接送；open／close 把「這次連線已導通」歸零；這次連線第一則碰 I2C 的訊息（read／rawwrite／write／batchwrite）送出前先送一筆 rawwrite 0x7E:0xAB ← CD；那一則本身就是 7E:AB←CD（Check T-CON／TconDetect／dgself 自己下的）就不重複；NACK（沒有 0x7E 的板子，例如 MNT）不中止、只記一次 log。出處：RCP2 每個 I2C 動作前送 MbusToCbus（ICDefine.cs:576–580、RegisterModule.cs:36）；Python UI i2c_open_mbus_to_cbus L31832–31839。0x7E 在 I2C 規格是保留位址（1111xxx），一般 EEPROM／PMIC 不會回應。
+2. 四頁只呼叫：i2c.html `i2ctSend`／`i2ctSendLong`（batchwrite 的 id 仍同步回填，中止鈕不受影響）、datamap.html／nbdebug.html `send`、dg-selftest.html `dstSend` 都改成經 `TconMbus.session`。i2c.html 連線本身仍不做任何 I2C 傳輸（Bruce 2026-09-18「i2c 頁完全去 TCON 化」不變），第一次讀寫時才下。
+3. 辨認：四頁都只呼叫 `TconDetect`（common/tcon-detect.js），沒有自己的 ID 表；自動辨認不回 DAZ6138／6139（不變，這次加全掃測試）。
+4. 全站檢查 `tools/check_i2c_pages.mjs`（放進 Pages 發佈關卡）：開 I2C 連線的頁沒載 i2c-mbus.js／tcon-detect.js、沒有 TconMbus.session、有任何送訊息的函式繞過 session、沒呼叫 TconDetect、載了 i2c-bridge.js 卻不開連線又沒寫理由（DOWNLOAD_ONLY）⇒ 失敗；另含 session 單元測試與 TconDetect 7D:007D×3E:207E 全掃（1792 組不回 613x）。對 origin/main 跑 ⇒ 11 項失敗（會擋）；本版 50/0。
+5. 模擬測試 `tools/check_i2c_pages_sim.mjs`（PLAYWRIGHT_CORE、系統 Chrome、假 I2C Bridge）：每個 I2C 頁實際按連線／讀寫，驗「連線後第一筆 I2C＝7E:AB←CD、只一筆」與 EN01 板判 EN01、MNT 板（0x7E NACK）照常認 EM02、EEPROM 板照常讀。origin/main：32/6（i2c.html 三種板子都是先讀後導通）；本版 38/0。
+6. common/version.js i2c v1.34.6、datamap v1.37.3、nbdebug v1.1.2、dgself v2.8.2；四頁 i2c-mbus.js `?v=20261022mb110`；所有頁 version.js `?v=20261022i2c1346`。CLAUDE.md 加規則「所有 I2C 頁面一律走共用導通與共用辨認」。
+
+### 測試
+見本次完成回報（check_i2c_pages 50/0、check_i2c_pages_sim 38/0、check_tcon_detect、check_tcon_detect_single、i2c_tool_selftest、check_nbdebug、tests/dgself、sd_snapshot、boe）。
+
+## Data Mapping (datamap) v1.37.3 — 2026-10-22 ｜ PATCH ｜ I2C 送訊息改經共用 TconMbus.session
+判定依據：R1。內容、原因、測試見上方 I2C v1.34.6 條目；畫面與匯流排順序不變。
+
+## NB TCON Debug應用 (nbdebug) v1.1.2 — 2026-10-22 ｜ PATCH ｜ I2C 送訊息改經共用 TconMbus.session
+判定依據：R1。內容、原因、測試見上方 I2C v1.34.6 條目；畫面與匯流排順序不變。
+
+## TCON 自檢畫面量測 (dgself) v2.8.2 — 2026-10-22 ｜ PATCH ｜ I2C 送訊息改經共用 TconMbus.session
+判定依據：R1。內容、原因、測試見上方 I2C v1.34.6 條目；畫面與匯流排順序不變。
+
 ## I2C (i2c) v1.34.5 — 2026-10-22 ｜ PATCH ｜ 認不出時的型號清單也拿掉 DAZ6138／6139
 
 判定依據：R1（修 bug）。Bruce 2026-10-22 實測：「I2C頁面怎麼還沒改，還是6138」（經 Dispatch）。

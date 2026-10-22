@@ -10,6 +10,7 @@
 
 ## 實作入口
 - 頁面與功能看 `index.html`、共用程式看 `common/`；各工具說明在 `<工具>-guide.html`。說明頁不納入工具版號。
+- 所有 I2C 頁面一律走共用導通與共用辨認（Bruce 2026-10-22「所有用到 I2C 的網頁都應該要修正喔」）：頁面的 WebSocket send 包 `TconMbus.session`（`common/i2c-mbus.js`，連線後第一次 I2C 讀寫前先下 0x7E:0xAB←CD）；要知道 IC 型號只呼叫 `TconDetect`（`common/tcon-detect.js`），不另寫 ID 表、自動辨認不回 DAZ6138／6139。新 I2C 頁照做；只放 I2C Bridge 下載連結的頁列進 `tools/check_i2c_pages.mjs` 的 DOWNLOAD_ONLY 並寫理由。發佈關卡 `check_i2c_pages.mjs` 會擋；改 I2C 頁時加跑 `tools/check_i2c_pages_sim.mjs`（模擬 I2C）。
 - UI 三語 `zh-TW / zh-CN / en` 同步，相關說明與匯出內容隨功能更新。
 - UI 只留常用操作；細節按需展開，診斷放 log/debug。明確要求的操作不再加重複確認；容易誤觸、非當前目的的不可逆清空保留確認。
 - 對外網頁（線上站的頁面文字、tooltip、說明、匯出內容、CHANGELOG）不寫同事／客戶人名、email 與信件出處（「某某信」「某某 10/14」）；來源寫中性說法（實測設定（2026-10）、原廠腳本、原廠 debug 文件、model 暫存器表）。人名只留在 assistant_kb 內部筆記。`tools/check_no_names.mjs` 在 Pages 發佈前擋（雜湊名單 `tools/name-guard.json`，由 `tools/name_guard_gen.py` 從 assistant_kb 通訊錄＋`reference/對外網頁人名檢查名單.md` 產生；依 Bruce 2026-10-22）。

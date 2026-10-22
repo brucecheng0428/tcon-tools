@@ -30,7 +30,7 @@
           出來」。那個前提**早就不成立**：bridge 的靜態檔服務拒絕子資料夾、而且自 v1.7.0
           起預設關閉 —— 詳細依據與行號寫在 body 末端那兩個 <script> 的上面。）
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="common/version.js?v=20261022i2c1345"></script>
+<script src="common/version.js?v=20261022i2c1346"></script>
 <script src="common/i2c-bridge.js?v=20261012ib100"></script>
 <style>
   * { box-sizing: border-box; }
@@ -1652,7 +1652,7 @@
         無範圍的 `label{}` 等等，與本頁同名而語意完全不同，載進來會整頁走樣。
         頁首那四條宣告是逐字抄過來的，來源行號寫在各自上面。 -->
 <script src="common/i18n.js?v=20261022pat390"></script>
-<script src="common/i2c-mbus.js?v=20261008i2c1341"></script>
+<script src="common/i2c-mbus.js?v=20261022mb110"></script>
 <script src="common/tcon-detect.js?v=20261022td120"></script>
 <script src="common/common.js?v=20261008i2c1341"></script>
 <script src="common/i2c-spiflash.js?v=20261022en01"></script>
@@ -3289,7 +3289,16 @@ function i2ctSyncButtons(){
 }
 
 /* ═══ WebSocket（I2C Bridge）═══════════════════════════════════════════════ */
-function i2ctSend(obj){
+/* v1.34.6（Bruce 2026-10-22「所有用到 I2C 的網頁都應該要修正喔」）：每一則訊息先經過全站共用的
+   TconMbus.session（common/i2c-mbus.js）⇒ 這次連線第一次 I2C 讀寫前一定先下 M-Bus 導通 C-Bus（0x7E:0xAB ← CD）。
+   連線本身仍然不做任何 I2C 傳輸（Bruce 2026-09-18「i2c 頁完全去 TCON 化」不變）；第一次讀寫時才下，失敗不中止。 */
+var i2ctMbusSess = null;
+function i2ctMbus(){
+  if (!i2ctMbusSess) i2ctMbusSess = TconMbus.session(i2ctSendRaw, { log: function (r) { i2ctLog(TconMbus.autoText(r), r.ok ? 'o' : 'n'); } });
+  return i2ctMbusSess;
+}
+function i2ctSend(obj){ return i2ctMbus().send(obj); }
+function i2ctSendRaw(obj){
   return new Promise(function (resolve, reject) {
     if (!i2ctWs || i2ctWs.readyState !== 1) { reject(new Error(i2ctT('i2c.errNotLinked'))); return; }
     var id = ++i2ctSeq; obj.id = id;
@@ -3309,11 +3318,16 @@ function i2ctSend(obj){
         每收到一則進度就重新計時，真的靜止超過逾時才算失敗。
      ② 進度訊息交給 `onProgress` 回呼（進度條在那裡更新）。
    `obj.id` 會回填，呼叫端拿它去送 abortwrite。 */
+/* v1.34.6：batchwrite 也先經過共用 M-Bus 導通；id 仍在呼叫當下同步回填（中止鈕要用） */
 function i2ctSendLong(obj, onProgress, idleMs){
+  obj.id = ++i2ctSeq;
+  return i2ctMbus().ensure(obj).then(function () { return i2ctSendLongRaw(obj, onProgress, idleMs); });
+}
+function i2ctSendLongRaw(obj, onProgress, idleMs){
   var idle = idleMs || I2CT_TIMEOUT_MS;
   return new Promise(function (resolve, reject) {
     if (!i2ctWs || i2ctWs.readyState !== 1) { reject(new Error(i2ctT('i2c.errNotLinked'))); return; }
-    var id = ++i2ctSeq; obj.id = id;
+    var id = obj.id || ++i2ctSeq; obj.id = id;
     var timer = null;
     var arm = function () {
       if (timer) clearTimeout(timer);

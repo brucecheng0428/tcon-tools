@@ -66,9 +66,68 @@
     return { ok: true };
   }
 
+  /* ═══ v1.1（Bruce 2026-10-22「所有用到 I2C 的網頁都應該要修正喔，你有做到嗎？」）═══════════════
+     連線後第一次 I2C 讀寫前，一律先下 M-Bus 導通 C-Bus。做法只寫在這裡，頁面只呼叫：
+       頁面把自己的 WebSocket send 包一層 TconMbus.session(send)，之後每一則訊息都先經過 ensure()——
+       ・ping／open／close／note／abortwrite／chandiag（不碰 I2C 匯流排）直接送；open／close 把「這次連線已導通」歸零。
+       ・這次連線第一則碰 I2C 的訊息（read／rawwrite／write／batchwrite…）送出前，先送一筆 rawwrite 0x7E:0xAB ← CD。
+         那一則本身就是 7E:AB←CD（Check T-CON／TconDetect.detect／dg-selftest 自己下的）⇒ 不重複送。
+       ・失敗不中止（沒有 0x7E 的板子會 NACK，例如 MNT），log 記一次，之後照常讀寫。
+     出處：RCP2（WPF RomCodeProcessUI）每個 I2C 動作前都送 MbusToCbus（ICDefine.cs:576–580、RegisterModule.cs:36）；
+           Python UI i2c_open_mbus_to_cbus（RomCodeProcessUI.py L31832–31839）。
+     0x7E 在 I2C 規格是保留位址（1111xxx），一般 EEPROM／PMIC／感測器不會回應 ⇒ I2C 頁的通用讀寫不受影響。
+     全站檢查：tools/check_i2c_pages.mjs（Pages 發佈關卡）。 */
+  var META = { ping: 1, open: 1, close: 1, note: 1, abortwrite: 1, chandiag: 1, hello: 1 };
+  function isCmd(o) {
+    return !!o && o.type === 'rawwrite' && (o.slave | 0) === CMD.slave && (o.addr | 0) === CMD.addr &&
+      (o.awid == null || (o.awid | 0) === CMD.awid) && Array.isArray(o.data) && o.data.length === 1 && (o.data[0] & 0xFF) === CMD.data[0];
+  }
+  function session(send, opts) {
+    opts = opts || {};
+    var st = { open: false, pending: null, last: null, auto: 0, gen: 0 };
+    function reset() { st.open = false; st.pending = null; st.gen++; }
+    function ensure(obj) {
+      var t = obj && obj.type;
+      if (t === 'open' || t === 'close') { reset(); return Promise.resolve(null); }
+      if (!t || META[t] || st.open) return Promise.resolve(null);
+      if (isCmd(obj)) { st.open = true; return Promise.resolve(null); }
+      if (!st.pending) {
+        var gen = st.gen;
+        st.pending = (async function () {
+          var r;
+          /* autoSending：只在呼叫 send 的同步瞬間為 true（頁面 send 在這一刻把 JSON 交給 WebSocket），
+             讓測試夾具分得出「這一筆是自動補的」；送出去的內容與一般 rawwrite 完全相同。 */
+          var p;
+          try { if (g.TconMbus) g.TconMbus.autoSending = true; p = send({ type: 'rawwrite', slave: CMD.slave, addr: CMD.addr, data: CMD.data.slice(), awid: CMD.awid }); }
+          catch (e) { p = Promise.reject(e); }
+          finally { if (g.TconMbus) g.TconMbus.autoSending = false; }
+          try { r = await p; }
+          catch (e) { r = { ok: false, err: String((e && e.message) || e || 'write failed') }; }
+          var res = (r && r.ok === false) ? { ok: false, err: String(r.err || (r.status != null ? 'status ' + r.status : 'write failed')) } : { ok: true };
+          if (gen === st.gen) { st.open = true; st.last = res; st.auto++; }
+          if (opts.log) { try { opts.log(res); } catch (e) {} }
+          return res;
+        })();
+      }
+      return st.pending;
+    }
+    function guarded(obj) { return ensure(obj).then(function () { return send(obj); }); }
+    return { send: guarded, ensure: ensure, reset: reset, state: st };
+  }
+  function autoText(res) {
+    return (res && res.ok) ? 'W 0x7E:0xAB <- CD (M-Bus to C-Bus, before the first I2C transfer of this connection)'
+      : 'M-Bus to C-Bus 0x7E:0xAB <- CD: no ACK (' + ((res && res.err) || '?') + '); continuing (normal when the board has no M-Bus switch)';
+  }
+
   g.TconMbus = {
+    VERSION: '1.1',
+    autoSending: false,
     CMD: CMD,
     LOG: 'W 0x7E:0xAB <- CD (M-Bus to C-Bus)',
-    open: open
+    open: open,
+    session: session,
+    isCmd: isCmd,
+    autoText: autoText
   };
+  if (typeof module === 'object' && module.exports) module.exports = g.TconMbus;
 })(typeof window !== 'undefined' ? window : globalThis);

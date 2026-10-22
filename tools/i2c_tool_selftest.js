@@ -53,6 +53,9 @@ const pageErrors = [];
       才驗得到「頁面有沒有照收到的資料落格」。 */
 function makeMockWS(win, script) {
   const sent = [];
+  /* v1.34.6：TconMbus.session 在連線後第一次讀寫前自動補的 7E:AB←CD 另外記在 sent.mbus（pos＝當時 sent 的長度），
+     不進 sent ⇒ 既有「送了幾則／送了什麼」的逐則比對不受影響；第 81 組專門驗它。 */
+  sent.mbus = [];
   class MockWS {
     constructor(url) {
       this.url = url; this.readyState = 0;
@@ -61,6 +64,11 @@ function makeMockWS(win, script) {
     }
     send(txt) {
       const m = JSON.parse(txt);
+      if (win.TconMbus && win.TconMbus.autoSending) {
+        sent.mbus.push({ pos: sent.length, m: m });
+        setTimeout(() => { if (this.onmessage) this.onmessage({ data: JSON.stringify({ id: m.id, type: 'result', ok: true, status: 0, transferred: 1 }) }); }, 0);
+        return;
+      }
       sent.push(m);
       /* 🔴 第三個參數 `emit`（v1.21.0 加）：讓腳本自己主動推訊息。
          `batchwrite` 的 bridge 會在寫的過程中**單向**送多則 `progress`，
@@ -5176,6 +5184,31 @@ function baseScript(f) {
     await win.__i2ct.disconnect();
   }
   /* ═════════════════════════════════════════════════════════════════════ */
+  G('90. 🔴 v1.34.6：連線後第一次讀寫前先下共用 M-Bus 導通（TconMbus.session）');
+  {
+    const plain = (m) => m.type === 'ping' ? { helper: '1.15.0', proto: 4, ok: true }
+      : (m.type === 'open' || m.type === 'close') ? { ok: true, channels: 1 }
+      : m.type === 'read' ? { ok: true, status: 0, usbrt: 1, data: new Array(m.len).fill(0x11) } : { ok: true, status: 0 };
+    const isIo = m => ['read', 'rawwrite', 'write', 'batchwrite'].includes(m.type);
+    const sent = await useHelper(plain);
+    EQ(sent.mbus.length, 0, '連線本身不送 M-Bus（i2c 頁連線不做 I2C 傳輸，不變）');
+    A.setInputs({ slave: '0x68', awid: 2, off: '0x0000' });
+    const n0 = sent.length;
+    await A.doRead(); await quiesce();
+    const firstIo = sent.findIndex((m, i) => i >= n0 && isIo(m));
+    EQ(sent.mbus.length, 1, '🔴 第一次讀取 ⇒ 先送一筆 7E:AB←CD');
+    const mb = sent.mbus[0] && sent.mbus[0].m;
+    CHECK(!!mb && mb.type === 'rawwrite' && mb.slave === 0x7E && mb.addr === 0xAB && mb.awid === 1 && JSON.stringify(mb.data) === '[205]', '🔴 內容＝rawwrite 0x7E／1-byte 0xAB／CD   got=' + JSON.stringify(mb));
+    CHECK(firstIo >= 0 && sent.mbus[0] && sent.mbus[0].pos === firstIo, '🔴 在第一筆讀取之前送   pos=' + (sent.mbus[0] && sent.mbus[0].pos) + ' firstIo=' + firstIo);
+    await A.doRead(); await quiesce();
+    EQ(sent.mbus.length, 1, '同一次連線再讀一次 ⇒ 不重送');
+    const sent2 = await useHelper(plain);
+    A.setInputs({ slave: '0x68', awid: 2, off: '0x0000' });
+    await A.doRead(); await quiesce();
+    EQ(sent2.mbus.length, 1, '重新連線 ⇒ 第一次讀取前再送一次');
+    await win.__i2ct.disconnect();
+  }
+
   console.log('\n' + '═'.repeat(64));
   if (fails) { console.log('🔴 ' + fails + ' / ' + total + ' 項未通過'); process.exit(1); }
   console.log('✅ 全部通過：' + total + ' 項（' + groups.length + ' 組）');

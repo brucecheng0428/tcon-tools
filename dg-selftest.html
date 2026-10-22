@@ -15,7 +15,7 @@
 <link rel="stylesheet" href="common/common.css?v=20260903help">
 <link rel="stylesheet" href="common/done-step.css?v=20261001dst275">
 <!-- 🔴 version.js 必須最先載入（common/version.js 開頭那條規則）。 -->
-<script src="common/version.js?v=20261022pat390"></script>
+<script src="common/version.js?v=20261022i2c1346"></script>
 <script src="common/i2c-bridge.js?v=20261012ib100"></script>
 <style>
   /* ═══ 本頁專屬樣式 ════════════════════════════════════════════════════════
@@ -1476,7 +1476,7 @@
 </div>
 
 <script src="common/i18n.js?v=20261022pat390"></script>
-<script src="common/i2c-mbus.js?v=20261008dst276"></script>
+<script src="common/i2c-mbus.js?v=20261022mb110"></script>
 <script src="common/tcon-detect.js?v=20261022td120"></script>
 <script src="common/common.js?v=20260923dst1190"></script>
 <!-- v2.6.0：「匯出 Excel」—— 與 DG 第 3 部分「下載新產出 RGB LUT 檔」同一個格式表與同一個產生器 -->
@@ -3200,7 +3200,14 @@ function dstCursorOf(ic, altIdx) {
    🔴 寫入用 `write`（2-byte offset）而不是 `rawwrite`：
       bridge 端的 `write` 分支**自己也有一份白名單**（ptg bank ＋ cursor），
       `rawwrite` 沒有。縱深防禦要的就是這一層，不可以為了「比較通用」換掉。 */
+/* v2.8.2（Bruce 2026-10-22「所有用到 I2C 的網頁都應該要修正喔」）：每一則訊息先經過全站共用的 TconMbus.session
+   （common/i2c-mbus.js）⇒ 這次連線第一次 I2C 讀寫前一定先下 M-Bus 導通 C-Bus。連線後 dstMbusOpen 自己下的那一筆不重複。 */
+var dstMbusSess = null;
 function dstSend(obj) {
+  if (!dstMbusSess) dstMbusSess = TconMbus.session(dstSendRaw, { log: function (r) { dstLog(TconMbus.autoText(r), r.ok ? 'w' : 'n'); } });
+  return dstMbusSess.send(obj);
+}
+function dstSendRaw(obj) {
   return new Promise(function (resolve, reject) {
     if (!dstWs || dstWs.readyState !== 1) { reject(new Error(dstT('dst.errNotLinked'))); return; }
     var id = ++dstWsSeq; obj.id = id;

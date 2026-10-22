@@ -18,6 +18,14 @@ function __fakeWs() {
   var ws = { readyState: 1, onmessage: null, close: function () { ws.readyState = 3; },
     send: function (t) {
       var m = JSON.parse(t), rep;
+      /* dgself v2.8.2：TconMbus.session（common/i2c-mbus.js）在這次連線第一次讀寫前自動補的 7E:AB←CD
+         另外記在 __mbus，不進 __rawwrites（__arm 跳過了 dstConnect，實機上那一筆在連線時就下過了）。 */
+      if (window.TconMbus && window.TconMbus.autoSending) {
+        (window.__mbus = window.__mbus || []).push(m);
+        rep = { type: 'result', id: m.id, cmd: 'rawwrite', ok: true, status: 0 };
+        setTimeout(function () { if (ws.onmessage) ws.onmessage({ data: JSON.stringify(rep) }); }, window.__replyDelay || 0);
+        return;
+      }
       if (m.type === 'read') { window.__readAddrs.push(m.addr);
         var d = [];
         for (var i = 0; i < m.len; i++) {
