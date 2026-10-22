@@ -15,7 +15,7 @@
 <link rel="stylesheet" href="common/common.css?v=20260903help">
 <link rel="stylesheet" href="common/done-step.css?v=20261001dst275">
 <!-- 🔴 version.js 必須最先載入（common/version.js 開頭那條規則）。 -->
-<script src="common/version.js?v=20261022i2c1346"></script>
+<script src="common/version.js?v=20261022dst290"></script>
 <script src="common/i2c-bridge.js?v=20261012ib100"></script>
 <style>
   /* ═══ 本頁專屬樣式 ════════════════════════════════════════════════════════
@@ -1475,7 +1475,7 @@
   </div>
 </div>
 
-<script src="common/i18n.js?v=20261022pat390"></script>
+<script src="common/i18n.js?v=20261022dst290"></script>
 <script src="common/i2c-mbus.js?v=20261022mb110"></script>
 <script src="common/tcon-detect.js?v=20261022td120"></script>
 <script src="common/common.js?v=20260923dst1190"></script>
@@ -2981,7 +2981,87 @@ var DST_ICS = [
        位元出來，畫面上就會出現一個沒有依據的「12-bit / Target」。 */
     dgEn: { addr: 0x008A, bit: 0, src: 'IP/RaydiumVM02S1.cs:3298-3326' }
   }
-];
+].concat(DST_NB_ICS());
+
+/* ═══ v2.9.0：NB T-CON（EN01／E503／E501A／E501B）══════════════════════════
+   🔴 NB 不走 0xFF00 ID 表：沒有 MNT 命中時才用全站共用的 TconDetect.detect（A 段：7C／7D／3E）
+      認 family，再對到這裡的一筆。slave 一律 0x3E、2-byte offset。
+   出圖做法（.model 暫存器表，WPF ModelFiles；行號＝檔內 [區塊] 那一行）：
+     ① AG_PGEN_PAT ＝ 0（Pattern 0 ＝ user define，Raydium_TCON_Pattern_List_20260108.xlsx B3／B4）
+     ② PAT0_USER_R／G／B（各 10 bit：hi 8 bit ＋ lo 2 bit）
+     ③ AG_PGEN_EN ＝ 1（"the customized pattern select enable signal"）
+     ④ AG_INV ＝ 1（EN01 RT0_AG_INV "set 1 to inverse AGING mode"；E503／E501 AGING_INV "1b : On"）
+   🔴 只設 ④ 不設 ③：aging 會照 AG_NUM_OF_PAT／AG_PAT_FMT_n／AG_PAT_TIME_n 輪播
+      （model 註解 "Set 4'd10, the pattern will show the pattern0-pattern10 repeatly"），
+      畫面不會定住（2026-10-22 補充：只設 AG_INV 會跑黑白 RGB 這類 BIST 輪播）。
+      ⇒ ③ 一定要寫，而且放在 ④ 之前：一進 aging 就是指定的 Pattern 0，不先閃一輪。
+   🔴 RMW：同一個 byte 還有別的欄位（例 EN01 0x239[7] PWRSAV_DISABLE、0x241[6:0] AGBS_PAUSE／
+      AG_HOLD_DISABLE／BS_PAT_TIME、0x23A／0x23B 其他位元），只改自己那幾個 bit。
+   🔴 十字線：四份 model 都有 CURSOR 區塊（REG_CURSOR_EN、REG_CURSOR_MODE 0＝cross line、
+      REG_CUR_COLOR R[0] G[1] B[2]、REG_CUR_XPOS／YPOS 12 bit）。沒有線寬欄位。
+      EN01 位址取 RM81008.model:15935（0x600–0x603，與 RM81008_eDP_RX.model:398 一致）；
+      RM81008_OTHERS.model:41 寫 0x311 與 E503 相同，但 RM81008.model 的 0x311 是 REG26（L2847），
+      判定為抄自 E503 的舊檔，不採用。🔴 只有讀碼，尚未在實機確認十字會疊在 aging 畫面上。
+   🔴 寫入走 rawwrite（2-byte）：I2C Bridge 的 `write` 白名單只放 MNT 的 ptg／cursor 區段，
+      NB 的 AG_INV（E503 0x1F8）與 cursor（0x311／0x3E2／0x600）不在裡面。
+      本頁的 per-IC 白名單（wr）照舊是唯一寫入出口，只放下面列的位址。 */
+function DST_NB_ICS() {
+  function e(o) {
+    return Object.assign({ nb: true, patternOk: true, depth: 10, slave: 0x3E, patNo: 0 }, o);
+  }
+  return [
+    e({ key: 'EN01', family: 'EN01', name: 'EN01 (RM81008)', model: 'RM81008.model',
+        agInv:   { addr: 0x0226, bit: 0, src: 'RM81008.model:16228 RT0_AG_INV' },
+        pgenEn:  { addr: 0x0241, bit: 7, src: 'RM81008.model:13215 AG_PGEN_EN' },
+        pgenPat: { addr: 0x0239, mask: 0x7F, src: 'RM81008.model:13223 AG_PGEN_PAT[6:0]' },
+        pat0: { r: { hi: 0x023C, lo: 0x023A, sh: 0 }, g: { hi: 0x023D, lo: 0x023B, sh: 4 }, b: { hi: 0x023E, lo: 0x023B, sh: 0 },
+                src: 'RM81008.model:13259/13270/13281 PAT0_USER_R/G/B' },
+        nbCur: { ctl: 0x0600, xyHi: 0x0601, xLo: 0x0602, yLo: 0x0603, src: 'RM81008.model:15935-15972 CURSOR' },
+        wr: [[0x0226, 0x0226], [0x0239, 0x023E], [0x0241, 0x0241], [0x0600, 0x0603]] }),
+    e({ key: 'E503', family: 'E503', name: 'E503 (RM8100x)', model: 'RM8100x_for_FAE_20240925_20250311.model',
+        agInv:   { addr: 0x01F8, bit: 0, src: 'RM8100x_for_FAE:9192 AGING_INV' },
+        pgenEn:  { addr: 0x0213, bit: 7, src: 'RM8100x_for_FAE:9199 AG_PGEN_EN' },
+        pgenPat: { addr: 0x020B, mask: 0x7F, src: 'RM8100x_for_FAE:9206 AG_PGEN_PAT[6:0]' },
+        pat0: { r: { hi: 0x020E, lo: 0x020C, sh: 0 }, g: { hi: 0x020F, lo: 0x020D, sh: 4 }, b: { hi: 0x0210, lo: 0x020D, sh: 0 },
+                src: 'RM8100x_for_FAE:9503/9514/9525 PAT0_USER_R/G/B' },
+        nbCur: { ctl: 0x0311, xyHi: 0x0312, xLo: 0x0313, yLo: 0x0314, src: 'RM8100x_for_FAE:10739-10776 CURSOR' },
+        wr: [[0x01F8, 0x01F8], [0x020B, 0x0210], [0x0213, 0x0213], [0x0311, 0x0314]] }),
+    e({ key: 'E501A', family: 'E501A', name: 'E501A (RM81010)', model: 'RM81010_for_FAE_20240509_20241127.model',
+        agInv:   { addr: 0x02E0, bit: 0, src: 'RM81010_for_FAE:10416 AGING_INV' },
+        pgenEn:  { addr: 0x02FB, bit: 7, src: 'RM81010_for_FAE:10423 AG_PGEN_EN' },
+        pgenPat: { addr: 0x02F3, mask: 0x7F, src: 'RM81010_for_FAE:10430 AG_PGEN_PAT[6:0]' },
+        pat0: { r: { hi: 0x02F6, lo: 0x02F4, sh: 0 }, g: { hi: 0x02F7, lo: 0x02F5, sh: 4 }, b: { hi: 0x02F8, lo: 0x02F5, sh: 0 },
+                src: 'RM81010_for_FAE:10769/10780/10791 PAT0_USER_R/G/B' },
+        nbCur: { ctl: 0x03E2, xyHi: 0x03E3, xLo: 0x03E4, yLo: 0x03E5, src: 'RM81010_for_FAE:12020-12057 CURSOR' },
+        wr: [[0x02E0, 0x02E0], [0x02F3, 0x02F8], [0x02FB, 0x02FB], [0x03E2, 0x03E5]] }),
+    e({ key: 'E501B', family: 'E501B', name: 'E501B (RM81011)', model: 'RM81011_for_FAE_20231025_20240509.model',
+        agInv:   { addr: 0x02E0, bit: 0, src: 'RM81011_for_FAE:10273 AGING_INV' },
+        pgenEn:  { addr: 0x02FB, bit: 7, src: 'RM81011_for_FAE:10280 AG_PGEN_EN' },
+        pgenPat: { addr: 0x02F3, mask: 0x7F, src: 'RM81011_for_FAE:10287 AG_PGEN_PAT[6:0]' },
+        pat0: { r: { hi: 0x02F6, lo: 0x02F4, sh: 0 }, g: { hi: 0x02F7, lo: 0x02F5, sh: 4 }, b: { hi: 0x02F8, lo: 0x02F5, sh: 0 },
+                src: 'RM81011_for_FAE:10584/10595/10606 PAT0_USER_R/G/B' },
+        nbCur: { ctl: 0x03E2, xyHi: 0x03E3, xLo: 0x03E4, yLo: 0x03E5, src: 'RM81011_for_FAE:11820-11857 CURSOR' },
+        wr: [[0x02E0, 0x02E0], [0x02F3, 0x02F8], [0x02FB, 0x02FB], [0x03E2, 0x03E5]] })
+  ];
+}
+function dstNbOf(family) {
+  for (var i = 0; i < DST_ICS.length; i++) if (DST_ICS[i].nb && DST_ICS[i].family === family) return DST_ICS[i];
+  return null;
+}
+/* NB 的 Pattern 0 顏色：12-bit（本頁內部刻度）→ 10-bit，回傳要寫的 6 個位址與值（純函式，可單元測）。
+   lo byte 用 RMW：cur 是 { addr: 原值 }。 */
+function dstNbPat0Writes(ic, r12, g12, b12, cur) {
+  function to10(v) { return Math.max(0, Math.min(1023, Math.round(v / 4))); }
+  var v = { r: to10(r12), g: to10(g12), b: to10(b12) }, out = {}, lo = {};
+  ['r', 'g', 'b'].forEach(function (c) {
+    var p = ic.pat0[c];
+    out[p.hi] = (v[c] >> 2) & 0xFF;
+    if (!(p.lo in lo)) lo[p.lo] = (cur && cur[p.lo] != null) ? cur[p.lo] : 0;
+    lo[p.lo] = (lo[p.lo] & ~(0x03 << p.sh) & 0xFF) | ((v[c] & 0x03) << p.sh);
+  });
+  Object.keys(lo).forEach(function (a) { out[a] = lo[a]; });
+  return { v10: v, w: out };
+}
 
 /* 🔴 這四個是 **7-bit** slave address（上游工具的 96/97/104/105）。
    8-bit 表示法（左移一位）不同：0x60→0xC0/0xC1、0x68→0xD0/0xD1（W/R）。 */
@@ -3232,7 +3312,9 @@ function dstOnMessage(ev) {
 
 async function dstReadReg(addr, len) {
   if (!dstLinked) throw new Error(dstT('dst.errNotLinked'));
-  var r = await dstSend({ type: 'read', slave: dstSlave, addr: addr, len: len });
+  var rq = { type: 'read', slave: dstSlave, addr: addr, len: len };
+  if (dstIc && dstIc.nb) rq.awid = 2;          // v2.9.0：NB 0x3E 2-byte offset（MNT 的訊息不變）
+  var r = await dstSend(rq);
   if (!r.ok) {
     dstLog('R  ' + dstAddrText(addr) + ' x' + len + '  FAIL  status=' + (r.status != null ? r.status : '?')
       + (r.err ? '  ' + r.err : ''), 'e');
@@ -3254,7 +3336,11 @@ async function dstWriteReg(addr, bytes) {
     throw new Error(msg);
   }
   var arr = []; for (var i = 0; i < bytes.length; i++) arr.push(bytes[i] & 0xFF);
-  var r = await dstSend({ type: 'write', slave: dstSlave, addr: addr, data: arr });
+  /* v2.9.0：NB 走 rawwrite（2-byte）—— bridge 的 `write` 白名單只有 MNT 的 ptg／cursor 區段（見 DST_NB_ICS 說明）；
+     上面這道 per-IC 白名單照舊是唯一出口。MNT 照舊走 `write`。 */
+  var r = (dstIc && dstIc.nb)
+    ? await dstSend({ type: 'rawwrite', slave: dstSlave, addr: addr, data: arr, awid: 2 })
+    : await dstSend({ type: 'write', slave: dstSlave, addr: addr, data: arr });
   if (!r.ok) {
     dstLog('W  ' + dstAddrText(addr) + ' <- ' + dstHex(arr) + '  FAIL  status='
       + (r.status != null ? r.status : '?') + (r.err ? '  ' + r.err : ''), 'e');
@@ -3282,6 +3368,30 @@ async function dstMbusOpen() {
   dstLog(dstMbus.ok ? 'W* 0x7E:0xAB <- CD  (M-Bus to C-Bus)' : '!  M-Bus to C-Bus 0x7E:0xAB <- CD  FAIL  ' + dstMbus.err, dstMbus.ok ? 'w' : 'e');
   return dstMbus;
 }
+/* v2.9.0：NB 辨認 —— 只呼叫共用的 TconDetect.detect（不另寫 ID 表）。M-Bus 已由 dstMbusOpen 下過 ⇒ mbus:false；
+   B 段 0xFF00 本頁剛掃過 ⇒ icid:false。認不出／分不出（E503 與 EN01 撞值）一律回 null ⇒ 禁寫，不猜。 */
+var dstNbDet = null;
+async function dstNbIdentify() {
+  var io = {
+    read: async function (sl, aw, addr, len) {
+      try { var r = await dstSend({ type: 'read', slave: sl, addr: addr, len: len, awid: aw }); return (r && r.ok) ? (r.data || []) : null; }
+      catch (e) { return null; }
+    },
+    write: async function (sl, aw, addr, data) {
+      var r = await dstSend({ type: 'rawwrite', slave: sl, addr: addr, data: data, awid: aw });
+      return { ok: !!(r && r.ok), err: r && r.err };
+    }
+  };
+  var r = null;
+  try { r = await TconDetect.detect(io, { mbus: false, icid: false, log: function (s) { dstLog('   [NB] ' + s); } }); }
+  catch (e) { dstLog('!  NB detect failed: ' + dstErrMsg(e), 'e'); return null; }
+  dstNbDet = r;
+  if (!r || !r.family || r.unknown || r.ambiguous || r.conflict) {
+    dstLog('-- NB detect: ' + (r && r.name ? ((r.alts || [r.name]).join(' / ') + ' (ambiguous)') : 'none') + (r && r.rawText ? '  ' + r.rawText : ''), 'w');
+    return null;
+  }
+  return dstNbOf(r.family);
+}
 async function dstScanIdentify() {
   var chosen = null, chosenSlave = null, results = [];
   var mbus = dstMbus;
@@ -3296,6 +3406,33 @@ async function dstScanIdentify() {
   var sc = await TconDetect.scanIcId({ read: async function (sl, aw, addr, len) { dstSlave = sl; try { return await dstReadReg(addr, len); } catch (e) { return null; } } }, { slaves: order });
   results = sc.results; chosen = sc.first; chosenSlave = sc.firstSlave;
   dstLog('-- scan result: ' + results.join('   '));
+
+  /* v2.9.0：0xFF00 沒認到 MNT ⇒ 用共用 TconDetect（A 段 7C／7D／3E）認 NB。認到就用 NB 那一筆，slave 0x3E。
+     MNT 認到時一筆 NB 讀取都不做（MNT 原流程不變）。 */
+  dstNbDet = null;
+  if (!(chosen && dstMatchIc(chosen))) {
+    var nbIc = await dstNbIdentify();
+    if (nbIc) {
+      dstIc = nbIc; dstAltIdx = -1; dstIdRaw = null; dstSlave = nbIc.slave;
+      dstShow('dst-v-ic', dstIcName(), true);
+      dstSayInfo('dst-say-link', dstT('dst.nbNote'));
+      dstLog('== IC = ' + nbIc.key + ' (NB, TconDetect ' + (dstNbDet && dstNbDet.name) + ')  slave ' + dstSlaveLabel(nbIc.slave), 'o');
+      dstLut = null; dstLutErr = null;
+      dstTx = { bits: null, whyKey: 'dst.txWhyNoSpec', raw: null, via: '' };
+      dstRenderAlt(); dstRenderDg(); dstRenderLut(); dstRenderDgBits();
+      dstPostIcInfo();
+      return;
+    }
+    if (dstNbDet && dstNbDet.name && (dstNbDet.ambiguous || dstNbDet.conflict)) {
+      dstIdRaw = null; dstIc = null; dstAltIdx = -1;
+      dstShow('dst-v-ic', dstT('dst.nbAmbig', { alts: (dstNbDet.alts || []).join(' / ') }), false);
+      dstSay('dst-say-link', dstT('dst.nbAmbigSay', { alts: (dstNbDet.alts || []).join(' / '), raw: dstNbDet.rawText || '' }));
+      dstLut = null; dstLutErr = null;
+      dstTx = { bits: null, whyKey: 'dst.txWhyNoIc', raw: null, via: '' };
+      dstRenderAlt(); dstRenderDg(); dstRenderLut(); dstPostIcInfo();
+      return;
+    }
+  }
 
   /* 🔴 v1.4.0：0xFF00 的三個 byte 與 slave 標籤**不再顯示在畫面上**（Bruce：
      「0xFF IC 的 ID 不用列出來，沒有人會記得這個東西」）。兩者照舊全部進交易
@@ -3330,6 +3467,7 @@ async function dstScanIdentify() {
   dstRenderAlt();
   await dstReadDgEn();      // v1.4.0：認出 IC 之後立刻讀 DG_EN（讀而已，失敗靜默）
   await dstReadTx();        // v1.9.0：同上，Source driver（TX）bit 數
+  dstRenderDgBits();        // v2.9.0：上一塊若是 NB（12-bit 停用），換回 MNT 時恢復
   /* v1.9.0：三項一起送回 DG。🔴 放在兩個讀之後 —— 早一步送出去的話，
      送的是上一顆 IC 的深度與 bit 數，而畫面上不會有任何異常。 */
   dstPostIcInfo();
@@ -3738,6 +3876,13 @@ function dstSysResDecode(bytes, pack) {
   return null;
 }
 async function dstReadRes() {
+  /* v2.9.0：NB 的四份 model 都查不到解析度暫存器 ⇒ 不去讀 0xFF26（那是 MNT tm bank，NB 上是別的東西），如實標「讀不到」。 */
+  if (dstIc && dstIc.nb) {
+    dstLog('-- res: NB T-CON has no resolution register in the .model files -> not read', 'w');
+    dstRes = { w: DST_RES_FALLBACK.w, h: DST_RES_FALLBACK.h, from: 'none' };
+    dstRenderRes();
+    return null;
+  }
   // ① tm bank（七顆共用）
   try {
     var a = await dstReadReg(0xFF26, 2);
@@ -4898,6 +5043,7 @@ function dstDriveOf(idx, r12, g12, b12) {
 
 /* SetCursorOFF()：讀 0xFF20 → reg & 0xFD（清 bit1 reg_cursor_en）→ 寫回。七顆相同。 */
 async function dstCursorOff(ic) {
+  if (ic && ic.nb) return dstNbCursor(ic, false);
   var cu = ic && ic.cursor; if (!cu) return;
   var cur = await dstReadReg(cu.off.addr, 1);
   await dstWriteReg(cu.off.addr, [cur[0] & cu.off.and]);
@@ -4945,9 +5091,73 @@ function dstNoPatternText() {
   if (dstIc.noImpl) return dstIc.key + '：' + dstT('dst.noSeq');
   return dstT('dst.noPattern', { ic: dstIc.key });
 }
+/* ═══ v2.9.0：NB 出圖（順序與理由見 DST_NB_ICS 說明）══════════════════════
+   進入：存 AG_INV／AG_PGEN_EN／AG_PGEN_PAT 三個 byte 原值 → PGEN_PAT＝0 → Pattern 0 顏色 →
+         PGEN_EN＝1 → AG_INV＝1（最後才進 aging）。
+   換色：只改 Pattern 0 的 R／G／B（6 個 byte，lo byte RMW）。
+   離開：AG_INV → PGEN_EN → PGEN_PAT 依序寫回原值，再關十字。 */
+var dstNbInit = null;            // { inv, en, pat }：進入前的原值
+async function dstNbRmw(addr, mask, val) {
+  var cur = await dstReadReg(addr, 1);
+  if (cur[0] === 0xFF) throw new Error(dstT('dst.errFfReadback', { addr: dstAddrText(addr) }));
+  var nv = ((cur[0] & ~mask) | (val & mask)) & 0xFF;
+  await dstWriteReg(addr, [nv]);
+  return { was: cur[0], now: nv };
+}
+async function dstNbSetPat0(ic, r12, g12, b12) {
+  var los = {};
+  ['r', 'g', 'b'].forEach(function (c) { los[ic.pat0[c].lo] = true; });
+  var cur = {};
+  for (var a in los) { var b = await dstReadReg(+a, 1); cur[a] = b[0]; }
+  var p = dstNbPat0Writes(ic, r12, g12, b12, cur);
+  var addrs = Object.keys(p.w).map(Number).sort(function (x, y) { return x - y; });
+  for (var i = 0; i < addrs.length; i++) await dstWriteReg(addrs[i], [p.w[addrs[i]]]);
+  dstLog('== NB Pattern 0 = R' + p.v10.r + ' G' + p.v10.g + ' B' + p.v10.b + ' (10-bit)', 'o');
+  return p.v10;
+}
+async function dstNbEnter(ic, r12, g12, b12) {
+  var inv = await dstReadReg(ic.agInv.addr, 1);
+  if (inv[0] === 0xFF) throw new Error(dstT('dst.errFfReadback', { addr: dstAddrText(ic.agInv.addr) }));
+  var en = await dstReadReg(ic.pgenEn.addr, 1), pat = await dstReadReg(ic.pgenPat.addr, 1);
+  dstNbInit = { inv: inv[0], en: en[0], pat: pat[0] };
+  dstInitPtg = inv[0];            // 「已進出圖」旗標沿用 MNT 那一個（dstSetRgb12／dstLeavePattern 看它）
+  await dstNbRmw(ic.pgenPat.addr, ic.pgenPat.mask, ic.patNo);
+  await dstNbSetPat0(ic, r12, g12, b12);
+  await dstNbRmw(ic.pgenEn.addr, 1 << ic.pgenEn.bit, 1 << ic.pgenEn.bit);
+  var w = await dstNbRmw(ic.agInv.addr, 1 << ic.agInv.bit, 1 << ic.agInv.bit);
+  var back = await dstReadReg(ic.agInv.addr, 1);
+  dstLog('== enter pattern (' + ic.key + ', NB aging): PGEN_PAT ' + dstAddrText(ic.pgenPat.addr) + '=' + ic.patNo
+    + ', PGEN_EN ' + dstAddrText(ic.pgenEn.addr) + '[' + ic.pgenEn.bit + ']=1, AG_INV ' + dstAddrText(ic.agInv.addr)
+    + ' 0x' + w.was.toString(16).toUpperCase() + ' -> 0x' + w.now.toString(16).toUpperCase()
+    + ' readback 0x' + back[0].toString(16).toUpperCase() + (back[0] === w.now ? ' (match)' : ' (MISMATCH)'),
+    back[0] === w.now ? 'o' : 'w');
+  dstInPattern = true;
+  return back[0];
+}
+async function dstNbLeave(ic) {
+  if (!dstNbInit) return;
+  var bi = 1 << ic.agInv.bit, be = 1 << ic.pgenEn.bit;
+  await dstNbRmw(ic.agInv.addr, bi, dstNbInit.inv & bi);
+  await dstNbRmw(ic.pgenEn.addr, be, dstNbInit.en & be);
+  await dstNbRmw(ic.pgenPat.addr, ic.pgenPat.mask, dstNbInit.pat & ic.pgenPat.mask);
+  await dstNbCursor(ic, false);
+  dstLog('== leave pattern (' + ic.key + '): AG_INV／AG_PGEN_EN／AG_PGEN_PAT restored, cursor off', 'o');
+  dstNbInit = null;
+}
+/* NB 十字：CTL [1]＝REG_CURSOR_EN、[6]＝MODE（0＝cross line）、[5:3]＝COLOR（R[0] G[1] B[2] ⇒ 紅＝001）；
+   座標 12 bit：xyHi[3:0]＝X[11:8]、xyHi[7:4]＝Y[11:8]、xLo＝X[7:0]、yLo＝Y[7:0]。 */
+function dstNbCurXY(x, y) { return [((x >> 8) & 0x0F) | (((y >> 8) & 0x0F) << 4), x & 0xFF, y & 0xFF]; }
+async function dstNbCursor(ic, on, x, y) {
+  var cu = ic.nbCur;
+  if (!on) { await dstNbRmw(cu.ctl, 0x02, 0x00); return; }
+  var xy = dstNbCurXY(x, y);
+  await dstWriteReg(cu.xyHi, xy);
+  await dstNbRmw(cu.ctl, 0x7A, 0x0A);         // EN＝1、MODE＝0（cross line）、COLOR＝001（紅）
+}
 async function dstEnterPattern() {
   var ic = dstIc;
   if (!ic || !ic.patternOk) throw new Error(dstNoPatternText());
+  if (ic.nb) return dstNbEnter(ic, 0, 0, 0);
   await dstAgingMode(ic, true);
   await dstUserdefineMode(ic);
   dstInPattern = true;
@@ -4972,6 +5182,12 @@ async function dstSetRgb12(r12, g12, b12) {
      （enter ＝ aging(true) ＋ userdefine，再 userdefine ＋ inside）。
      🔴 不是新功能，是把「畫面測試」這張卡原本就該能做的事補起來；序列一個字
         都沒有自己發明。 */
+  if (ic.nb) {
+    if (dstInitPtg === null) await dstNbEnter(ic, r12, g12, b12);
+    else await dstNbSetPat0(ic, r12, g12, b12);
+    dstLastPaint = { r: r12, g: g12, b: b12 };
+    return;
+  }
   if (dstInitPtg === null) await dstEnterPattern();
   await dstUserdefineMode(ic);
   await dstWriteReg(ic.inside.addr, dstPackRgb12(r12, g12, b12));
@@ -4981,6 +5197,11 @@ async function dstLeavePattern() {
   var ic = dstIc;
   dstShowing = null;               // v1.3.0：離開了就沒有任何一顆是選取態
   if (!ic || !ic.patternOk || dstInitPtg === null) { dstInPattern = false; return; }
+  if (ic.nb) {
+    await dstNbLeave(ic);
+    dstInitPtg = null; dstInitAux = null; dstInPattern = false; dstLastPaint = null;
+    return;
+  }
   await dstAgingMode(ic, false);
   dstLog('== leave pattern: ' + dstAddrText(ic.soft.addr) + ' restored to 0x'
     + dstInitPtg.toString(16).toUpperCase() + ', cursor off', 'o');
@@ -5001,6 +5222,12 @@ function dstPackXY(x, y) {
 }
 async function dstCrossOn() {
   var ic = dstIc, cu = dstCursorOf(ic, dstAltIdx);
+  if (ic && ic.nb) {
+    var cn = dstCenter(dstRes.w, dstRes.h);
+    await dstNbCursor(ic, true, cn.x, cn.y);
+    dstLog('== cross ON at (' + cn.x + ', ' + cn.y + ')  res ' + dstRes.w + 'x' + dstRes.h + ' (NB cursor ' + dstAddrText(ic.nbCur.ctl) + ')');
+    return cn;
+  }
   if (!ic || !cu) throw new Error(ic ? dstT('dst.noCursorSeq', { ic: ic.key }) : dstT('dst.noIcNoWrite'));
   var c = dstCenter(dstRes.w, dstRes.h);
   var k = await dstReadReg(cu.clk.addr, 1);
@@ -5012,7 +5239,7 @@ async function dstCrossOn() {
   return c;
 }
 async function dstCrossOff() {
-  var ic = dstIc; if (!ic || !ic.cursor) return;
+  var ic = dstIc; if (!ic || !(ic.cursor || ic.nbCur)) return;
   await dstCursorOff(ic);
   dstLog('== cross OFF');
 }
@@ -6452,6 +6679,10 @@ function dstRenderDgBits() {
     dstSetBits(8);                     // 會再叫回這一支；那時 dstBits 已是 8，不會繞圈
     if (sel) sel.value = '8';
   }
+  /* v2.9.0：NB 的 Pattern 0 是 10-bit ⇒ 12-bit 選項停用（選著就退回 10-bit）。 */
+  var nb10 = !!(dstIc && dstIc.depth === 10);
+  if (nb10 && dstBits === 12 && !dstRunning) { dstSetBits(10); if (sel) sel.value = '10'; }
+  if (sel) { var o12 = sel.querySelector('option[value="12"]'); if (o12) o12.disabled = nb10; }
   if (sel) sel.disabled = lock || dstRunning;
   if (e) { e.textContent = ' '; e.style.color = ''; }
 }

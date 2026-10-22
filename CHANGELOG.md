@@ -2,6 +2,33 @@
 
 ---
 
+## TCON 自檢畫面量測 (dgself) v2.9.0 — 2026-10-22 ｜ MINOR ｜ 支援 NB T-CON（EN01／E503／E501A／E501B）：aging Pattern 0 打灰階／RGB、十字線
+
+判定依據：`docs/VERSIONING.md` §2 案例 1（新增一個完整功能：NB 型號可以出圖量測；MNT 既有畫面與操作不變）⇒ MINOR。
+
+### 需求（2026-10-22，經 Dispatch，派工 238998245779476480）
+- 研究 NB T-CON 進 aging 打不同灰階與 RGB（Pattern 0）、十字線 cursor 可不可以；可以就把 NB 加進自檢頁。
+- 同日補充：讓 NB 進 aging 不能只設 AG_INV，AG_PGEN（AG_PGEN_EN）也要設 1 畫面才會定住，否則會輪播黑白 RGB 這類 BIST pattern。
+
+### 做法（出處：WPF ModelFiles .model 暫存器表，行號在頁面 `DST_NB_ICS` 旁）
+1. 認 IC：0xFF00 沒有 MNT 命中時，才呼叫共用 `TconDetect.detect`（A 段 7C／7D／3E，mbus:false、icid:false）；EN01／E503／E501A／E501B 對到 `DST_NB_ICS` 的一筆，slave 0x3E、2-byte offset。E503 與 EN01 撞值分不出、或認不出 ⇒ 不猜、禁寫，畫面列出候選與讀值。MNT 認得出時一筆 NB 讀取都不做。
+2. 進出圖（四顆位址不同，逐顆列在表裡）：存 AG_INV／AG_PGEN_EN／AG_PGEN_PAT 原值 → AG_PGEN_PAT＝0（Pattern 0＝user define）→ PAT0_USER_R/G/B（10 bit，hi 8＋lo 2）→ AG_PGEN_EN＝1 → AG_INV＝1（最後才進 aging，不先閃一輪輪播）。換色只改 Pattern 0；離開把三個 byte 寫回原值並關十字。全部 RMW，只動自己的位元。
+   - EN01 0x226[0]／0x241[7]／0x239[6:0]；E503 0x1F8[0]／0x213[7]／0x20B[6:0]；E501A／B 0x2E0[0]／0x2FB[7]／0x2F3[6:0]。
+3. 十字：CURSOR 區塊（EN＝1、MODE＝0 cross line、COLOR 紅，X／Y 各 12 bit）。EN01 0x600–0x603（RM81008.model；RM81008_OTHERS.model 寫的 0x311 在主檔是別的暫存器，判定為舊檔）、E503 0x311–0x314、E501 0x3E2–0x3E5。
+4. 位元深度：NB Pattern 0 是 10 bit ⇒ 頁面 12-bit 選項在 NB 停用（12-bit 刻度值 ÷4 寫入）。
+5. 解析度：四份 model 查不到 NB 的解析度暫存器 ⇒ NB 不讀 MNT 的 0xFF26，標「讀不到」，十字以 1920x1080 置中。
+6. 寫入：NB 走 `rawwrite`（2-byte）。I2C Bridge 的 `write` 白名單只放 MNT 的 ptg／cursor 區段，NB 的 AG_INV（E503 0x1F8）與 cursor 不在其中；頁面 per-IC 白名單（`wr`）照舊是唯一寫入出口，只放上列位址。MNT 照舊走 `write`。
+7. 三語提示：`dst.nbNote`、`dst.nbAmbig`、`dst.nbAmbigSay`（common/i18n.js）。
+
+### 限制
+- 只有讀碼＋模擬 I2C，**沒有實機**。十字是否疊在 aging 畫面、線寬，文件沒寫，待實機確認。
+- NB 的 DG_EN／DG LUT／Source driver bit 數本頁沒有做（位址未查）。
+
+### 測試
+- 新情境 `tests/dgself/scenarios/NB_aging_pattern.js`（NB-EN01／E503／E501A／E501B／EM02）：認 IC、寫入順序（AG_INV 最後）、RMW 保留其他位元、10-bit 拆位、換色不碰 AG_INV／PGEN、十字座標與 CTL、白名單、離開還原、對位 L127、MNT 不受影響。
+- `tools/check_i2c_pages_sim.mjs`：dg-selftest × EN01 的預期由「認不出」改成「認成 EN01」。
+- 版號：common/version.js dgself v2.9.0；dg-selftest.html 的 version.js／i18n.js `?v=20261022dst290`。
+
 ## I2C (i2c) v1.34.6 — 2026-10-22 ｜ PATCH ｜ 全站 I2C 頁統一：連線後第一次讀寫前一律先下共用 M-Bus 導通（＋datamap v1.37.3、nbdebug v1.1.2、dgself v2.8.2）
 
 判定依據：`docs/VERSIONING.md` R1（修 bug：I2C 頁手動讀寫前沒有導通，不改操作流程）⇒ PATCH。⚠ 輸出變更（i2c）：同一個操作在 I2C 匯流排上多一筆 0x7E:0xAB ← CD（連線後第一次讀寫前，一次連線只一筆）。datamap／nbdebug／dgself 畫面與匯流排順序都不變（原本就在連線後先導通），只是改成同一支共用程式。

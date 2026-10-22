@@ -80,6 +80,12 @@ SCENARIOS = [
     ('DV-BLK',    'DV_measure_view.js',       '?task=7',              True,  {'__viewCase': 'BLK'},      False, 'dg-measure.html'),
     ('DGV',       'DGV_cmp_view.js',          '',                     False, {},                         False, 'dg.html'),
     ('ZM',        'ZM_chart_zoom_close.js',   '',                     False, {},                         False, 'dg.html'),
+    # v2.9.0：NB T-CON（EN01／E503／E501A／E501B）aging Pattern 0 出圖、AG_PGEN_EN＋AG_INV 順序、十字、還原；EM02 不受影響
+    ('NB-EN01', 'NB_aging_pattern.js', '', False, {'__nbCase': 'EN01'}, False),
+    ('NB-E503', 'NB_aging_pattern.js', '', False, {'__nbCase': 'E503'}, False),
+    ('NB-E501A', 'NB_aging_pattern.js', '', False, {'__nbCase': 'E501A'}, False),
+    ('NB-E501B', 'NB_aging_pattern.js', '', False, {'__nbCase': 'E501B'}, False),
+    ('NB-EM02', 'NB_aging_pattern.js', '', False, {'__nbCase': 'EM02'}, False),
     # v2.6.0：DG LUT（RGB）檢視「匯出 Excel」（格式與 DG 第 3 部分同一份 common/dglut-fmt.js）
     ('X-ON',      'X_lut_export.js',          '?round=2&job=main',    True,  {'__xCase': 'ON'},          False),
     ('X-OFF',     'X_lut_export.js',          '?round=2&job=main',    True,  {'__xCase': 'OFF'},         False),

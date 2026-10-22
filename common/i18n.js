@@ -3330,6 +3330,11 @@ var I18N = {
   'dst.noIcNoWrite':    { 'zh-TW': '還沒認出 IC，本頁一個位址都不寫', 'en': 'The IC has not been identified, so this page writes nothing at all', 'zh-CN': '还没认出 IC，本页一个地址都不写' },
   'dst.noSeq':          { 'zh-TW': '反組譯裡沒有這一顆的序列，本頁只認得出來、不出圖', 'en': 'the decompile contains no sequence for this chip, so this page can only identify it, not paint with it', 'zh-CN': '反编译里没有这一颗的序列，本页只认得出来、不出图' },
   'dst.noPattern':      { 'zh-TW': '{ic}：本版不支援出圖', 'en': '{ic}: pattern output is not supported in this version', 'zh-CN': '{ic}：本版不支持出图' },
+  'dst.nbNote':         { 'zh-TW': 'NB T-CON：以 aging 的 Pattern 0 出灰階／RGB（10-bit），同時開 AG_PGEN_EN 讓畫面定住、不輪播。十字線依 model 暫存器打，尚未實機確認；NB 讀不到解析度，十字以 1920x1080 置中。',
+                          'en': 'NB T-CON: grey / RGB come from aging Pattern 0 (10-bit), with AG_PGEN_EN on so the picture holds instead of cycling. The cross is written from the model registers and has not been checked on real hardware; NB resolution cannot be read, so the cross is centred on 1920x1080.',
+                          'zh-CN': 'NB T-CON：以 aging 的 Pattern 0 出灰阶／RGB（10-bit），同时开 AG_PGEN_EN 让画面定住、不轮播。十字线依 model 寄存器打，尚未实机确认；NB 读不到分辨率，十字以 1920x1080 置中。' },
+  'dst.nbAmbig':        { 'zh-TW': '分不出是哪一顆（{alts}）⇒ 只允許讀', 'en': 'cannot tell which chip it is ({alts}) ⇒ read-only', 'zh-CN': '分不出是哪一颗（{alts}）⇒ 只允许读' },
+  'dst.nbAmbigSay':     { 'zh-TW': 'NB 辨認分不出 {alts}，出圖與寫入停用（不猜）。讀值：{raw}', 'en': 'NB detection cannot tell {alts} apart, so pattern output and writes are disabled (no guessing). Values read: {raw}', 'zh-CN': 'NB 辨认分不出 {alts}，出图与写入停用（不猜）。读值：{raw}' },
   'dst.noCursorSeq':    { 'zh-TW': '{ic}：反組譯裡沒有這一顆的十字序列', 'en': '{ic}: the decompile contains no cross sequence for this chip', 'zh-CN': '{ic}：反编译里没有这一颗的十字序列' },
 
   /* ── 錯誤 ─────────────────────────────────────────────────────────── */

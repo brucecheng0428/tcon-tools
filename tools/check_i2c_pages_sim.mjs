@@ -5,7 +5,7 @@
      ② 板子是 EN01 ⇒ 頁面認成 EN01（不會是 DAZ6138／6139）；MNT 板子（沒有 0x7E，NACK）照常認得、照常讀寫
    Bruce 2026-10-22：「所有用到 I2C 的網頁都應該要修正喔，你有做到嗎？」（聊天室派工 238973630923444224）
    頁面：i2c.html（先手動讀一筆、再 Check T-CON；EEPROM 板）、datamap.html（連線＝自動 Check T-CON）、
-         nbdebug.html（連線＝自動認 IC）、dg-selftest.html（連線＝通訊自檢＋0xFF00 掃描；只支援 MNT，EN01 板應「認不出」）。
+         nbdebug.html（連線＝自動認 IC）、dg-selftest.html（連線＝通訊自檢＋0xFF00 掃描，沒有 MNT 命中再用 TconDetect 認 NB；EN01 板應認成 EN01）。
    需要：PLAYWRIGHT_CORE＝playwright-core 資料夾；CHROME＝Chrome 執行檔（預設 macOS 路徑）。
    用法：PLAYWRIGHT_CORE=… node tools/check_i2c_pages_sim.mjs [repo 目錄，預設本 repo]
    退出碼：0 通過／1 有失敗／2 跑不起來
@@ -166,7 +166,7 @@ async function testDgself(boardKey) {
   await sleep(500);
   const ident = await page.evaluate(() => ((document.getElementById('dst-v-ic') || {}).textContent || '').trim());
   if (boardKey === 'EM02') check('dg-selftest.html：MNT 板（0x7E NACK）認成 EM02', /EM02/.test(ident), ident.slice(0, 160));
-  if (boardKey === 'EN01') check('dg-selftest.html：EN01 板不會被認成 MNT／6138（本頁只支援 MNT）', ident.length > 0 && !/613|EM0|E512|V512|VM02|V007/.test(ident), ident.slice(0, 160));
+  if (boardKey === 'EN01') check('dg-selftest.html：EN01 板認成 EN01（v2.9.0 起支援 NB），不會被認成 MNT／6138', /EN01/.test(ident) && !/613|EM0|E512|V512|VM02|V007/.test(ident), ident.slice(0, 160));
   const a = analyze(await page.evaluate(() => window.__msgs));
   check(`dg-selftest.html：連線後第一筆 I2C 是 7E:AB←CD（實際：${fmt(a.first)}）`, a.firstOk);
   check('dg-selftest.html：第一筆前沒有重複送 7E', a.n7Ebefore === 1, `送了 ${a.n7Ebefore} 次`);
