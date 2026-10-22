@@ -26,6 +26,9 @@
     Offset 用 wfgNbOff 格式、值 '0x'+HEX）；.script 照 wfgNbBuildScript（write -m AAAA VV MM、// 註解、ASCII）。
   ・KOSC（EN01）：原廠腳本 Debug_OSC.i2cs＋EN01A1 osc calibration_1.i2cs（2026-10）；燒 eFuse（7C 0x01=01）預設不含，
     要勾「加入燒錄」＋兩個確認才會出現在表上／檔案裡；I2C 送出另外要求本次已讀 3E 0x20D0＝0。
+  ・v1.2.0 KOSC 一步一步引導（Bruce 2026-10-23：「在 debug 應用這個地方，可以多一個選項讓使用者選擇是否需要一步一步引導」）：
+    KOSC 項目多一個開關；① 讀 20D0 → ② Debug OSC → ③ 寫 trim 值 → ④ 只填量到的頻率、不合格自動算下一個值並預填、每輪留紀錄
+    → ⑤ 合格才出現燒錄（同一組三格確認、燒前再讀 20D0）→ ⑥ 上下電後只下 ②、量頻、讀 20D0 非 0。程式在 guideSuggest／renderGuide。
 -->
 <style>
   :root { --sub: var(--text-sub); --fh: 34px; }
@@ -78,6 +81,34 @@
   .nd-help ul { margin: 6px 0; padding-left: 20px; }
   .nd-help h4 { margin: 10px 0 4px; font-size: 13.5px; }
   .nd-log { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow: auto; margin: 6px 0 0; color: var(--sub); }
+  /* v1.2.0 KOSC 一步一步引導 */
+  .nd-gsw { margin-top: 10px; font-size: 13px; }
+  .nd-gsw label { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; font-weight: 600; color: var(--text); text-transform: none; letter-spacing: 0; }
+  .nd-gsw input { width: 16px; height: 16px; margin: 0; accent-color: #0ea5e9; }
+  .nd-gpanel { margin-top: 8px; border: 1px solid #0ea5e9; border-radius: 8px; padding: 2px 10px; background: rgba(14,165,233,.05); font-size: 13px; }
+  .nd-gst { padding: 8px 0; border-top: 1px solid var(--border); }
+  .nd-gst:first-child { border-top: 0; }
+  .nd-gst h5 { margin: 0 0 4px; font-size: 13.5px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .nd-gst.done h5 { color: #86efac; } .nd-gst.cur h5 { color: #7dd3fc; } .nd-gst.wait { opacity: .5; }
+  .nd-gst p { margin: 2px 0 6px; color: var(--sub); line-height: 1.6; }
+  .nd-gst p b { color: var(--text); }
+  .nd-gref { font-size: 11.5px; font-weight: 600; color: #7dd3fc; border: 1px solid #0ea5e9; border-radius: 9px; padding: 0 6px; }
+  .nd-grow { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; margin: 4px 0; }
+  .nd-gin { width: 84px; height: 30px; font-size: 14px; }
+  .nd-gres { font-weight: 600; } .nd-gres.ok { color: #86efac; } .nd-gres.ng { color: #fca5a5; } .nd-gres.mid { color: #fcd34d; }
+  table.nd-gtbl { border-collapse: collapse; font-size: 12.5px; margin: 6px 0 2px; }
+  .nd-gtbl th, .nd-gtbl td { border-top: 1px solid var(--border); padding: 3px 8px; text-align: left; white-space: nowrap; }
+  .nd-gtbl th { color: var(--sub); font-weight: 600; border-top: 0; }
+  .nd-tbl tr.gcur td { background: rgba(14,165,233,.18); }
+  .nd-tbl tr.gcur td:first-child { box-shadow: inset 3px 0 0 #0ea5e9; }
+  /* v1.2.0 每一列的說明（做什麼／怎麼判斷／下一步） */
+  .nd-tbl td.ds { white-space: normal; font-size: 12px; line-height: 1.55; color: var(--sub); min-width: 240px; max-width: 460px; vertical-align: top; }
+  .nd-tbl td.ds b { color: var(--text); font-weight: 600; }
+  .nd-tbl td.ds .dk { display: block; }
+  .nd-ktrim { margin-top: 10px; border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; font-size: 13px; line-height: 1.65; }
+  .nd-ktrim h4 { margin: 2px 0 6px; font-size: 13.5px; }
+  .nd-ktrim ol { margin: 4px 0; padding-left: 20px; }
+  .nd-ktrim .ex { margin: 6px 0 2px; color: var(--sub); }
   @media (max-width: 560px) {
     .nd-form { grid-template-columns: minmax(0, 1fr); }
     .nd-fl { padding-bottom: 0 !important; min-height: 0 !important; background: none; font-weight: 600; }
@@ -117,7 +148,11 @@
       <div class="nd-frow"><span class="nd-fl" data-i18n="nd.kGpio">輸出 GPIO</span><span class="nd-fc nd-pins" id="nd-gpios"><select id="nd-gpio" class="nd-sel"></select></span></div>
     </div>
     <div class="nd-warn" id="nd-warn"></div>
+    <div class="nd-gsw hidden" id="nd-gsw"><label><input type="checkbox" id="nd-guide"> <span data-i18n="nd.gSwitch">一步一步引導</span></label></div>
+    <div class="nd-gpanel hidden" id="nd-gpanel"></div>
     <div class="nd-tblwrap"><table class="nd-tbl" id="nd-tbl"></table></div>
+    <div class="nd-ktrim hidden" id="nd-ktrim"></div>
+    <div id="nd-burnhome"></div>
     <div class="nd-burnbox hidden" id="nd-burnbox">
       <label><input type="checkbox" id="nd-burn"> <span data-i18n="nd.burnAdd">加入燒 eFuse（7C 0x01 = 01，不可逆）</span></label>
       <div id="nd-burnc" class="hidden">
@@ -138,8 +173,8 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20261023nd114"></script>
-<script src="common/i18n.js?v=20261023nd114"></script>
+<script src="common/version.js?v=20261023nd120"></script>
+<script src="common/i18n.js?v=20261023nd120"></script>
 <script>
 /* 本頁字串（三語：zh-TW／en／zh-CN），併進共用 I18N（做法同 datamap.html） */
 (function () {
@@ -163,6 +198,7 @@
     'nd.thVal': ['值', 'Value', '值'],
     'nd.thRb': ['讀回', 'Read back', '读回'],
     'nd.thName': ['名稱', 'Name', '名称'],
+    'nd.thDesc': ['說明：做什麼／怎麼判斷／下一步', 'What it does / how to judge / next', '说明：做什么／怎么判断／下一步'],
     'nd.w': ['寫', 'W', '写'],
     'nd.r': ['讀', 'R', '读'],
     'nd.grpCommon': ['常用', 'Common', '常用'],
@@ -199,7 +235,56 @@
     'nd.burnNeed20d0': ['燒錄前要先在這次連線讀到 3E 0x20D0 = 0', 'Read 3E 0x20D0 = 0 in this session before burning', '烧录前要先在这次连接读到 3E 0x20D0 = 0'],
     'nd.codeBad': ['7C 0x00 要是 80～FF（bit7＝test_en）', '7C 0x00 must be 80–FF (bit7 = test_en)', '7C 0x00 要是 80～FF（bit7＝test_en）'],
     'nd.busy': ['執行中…', 'Running…', '执行中…'],
-    'nd.oldBridge': ['I2C Bridge 版本太舊，請更新', 'I2C Bridge too old; please update', 'I2C Bridge 版本太旧，请更新']
+    'nd.oldBridge': ['I2C Bridge 版本太舊，請更新', 'I2C Bridge too old; please update', 'I2C Bridge 版本太旧，请更新'],
+    /* v1.2.0 KOSC 一步一步引導 */
+    'nd.gSwitch': ['一步一步引導', 'Step-by-step guide', '一步一步引导'],
+    'nd.gRows': ['表 #{a}', 'table #{a}', '表 #{a}'],
+    'nd.gRead': ['讀取', 'Read', '读取'],
+    'nd.gWrite': ['寫入', 'Write', '写入'],
+    'nd.gOkBtn': ['確認', 'Check', '确认'],
+    'nd.gReset': ['重新開始', 'Start over', '重新开始'],
+    'nd.gCopy': ['複製紀錄', 'Copy log', '复制记录'],
+    'nd.gCopied': ['已複製紀錄', 'Log copied', '已复制记录'],
+    'nd.g1T': ['① 確認有沒有 trim 過', '① Check whether it is trimmed', '① 确认有没有 trim 过'],
+    'nd.g1P': ['讀 3E 0x20D0：= 0 沒燒過，繼續；非 0 已燒過，不要再燒（仍可量頻確認）。', 'Read 3E 0x20D0: 0 = not programmed, go on; non-zero = already programmed, do not burn again (you can still measure).', '读 3E 0x20D0：= 0 没烧过，继续；非 0 已烧过，不要再烧（仍可量频确认）。'],
+    'nd.g2T': ['② OSC 拉到 GPIO', '② Route OSC to a GPIO', '② OSC 拉到 GPIO'],
+    'nd.g2P': ['輸出腳用上面「輸出 GPIO」選（預設 GPIO7；GPIO6＝內部 GPIO_04）。按「寫入」後把示波器接 <b>{p}</b>。', 'Pick the pin in "Output GPIO" above (default GPIO7; GPIO6 = internal GPIO_04). After Write, probe <b>{p}</b>.', '输出脚用上面「输出 GPIO」选（默认 GPIO7；GPIO6＝内部 GPIO_04）。按「写入」后把示波器接 <b>{p}</b>。'],
+    'nd.g3T': ['③ 寫入 trim 值', '③ Write the trim code', '③ 写入 trim 值'],
+    'nd.g3P': ['7C 0x00 = <b>{v}</b>（bit7＝test_en，[6:0]＝trim 檔位，已填好）。按「寫入」。', '7C 0x00 = <b>{v}</b> (bit7 = test_en, [6:0] = trim code, prefilled). Press Write.', '7C 0x00 = <b>{v}</b>（bit7＝test_en，[6:0]＝trim 档位，已填好）。按「写入」。'],
+    'nd.g4T': ['④ 填量到的 OSC 頻率', '④ Enter the measured OSC frequency', '④ 填量到的 OSC 频率'],
+    'nd.g4P': ['目標 {t} MHz。只要填示波器量到的頻率，按「確認」；不合格會算出下一個值並填好，按「寫入」再量。', 'Target {t} MHz. Enter the frequency from the scope and press Check; if it is off, the next code is computed and filled in — press Write and measure again.', '目标 {t} MHz。只要填示波器量到的频率，按「确认」；不合格会算出下一个值并填好，按「写入」再量。'],
+    'nd.gTol': ['容許 ±', 'Tolerance ±', '容许 ±'],
+    'nd.gTolNote': ['EN01 沒有提供容許範圍；預設用 E503 trim 後的 ±1.5%，可改', 'No EN01 tolerance is given; default is the E503 post-trim ±1.5%, editable', 'EN01 没有提供容许范围；默认用 E503 trim 后的 ±1.5%，可改'],
+    'nd.gFreqBad': ['請填頻率（MHz，例 6.80）', 'Enter a frequency in MHz (e.g. 6.80)', '请填频率（MHz，例 6.80）'],
+    'nd.gNeedW': ['先按 ③「寫入」再量', 'Press ③ Write before measuring', '先按 ③「写入」再量'],
+    'nd.gPass': ['合格', 'Pass', '合格'],
+    'nd.gHigh': ['偏高', 'High', '偏高'],
+    'nd.gLow': ['偏低', 'Low', '偏低'],
+    'nd.gNext': ['下一個值 {v} 已填好，按「寫入」後再量', 'Next code {v} filled in — press Write, then measure again', '下一个值 {v} 已填好，按「写入」后再量'],
+    'nd.gNextBtn': ['寫入 {v}', 'Write {v}', '写入 {v}'],
+    'nd.gProbe': ['（code 與頻率的方向還不知道，先試 ±0x10）', '(direction of code vs. frequency not known yet: trying ±0x10)', '（code 与频率的方向还不知道，先试 ±0x10）'],
+    'nd.gDirUp': ['目前量到：code 變大 → 頻率變高', 'So far: larger code → higher frequency', '目前量到：code 变大 → 频率变高'],
+    'nd.gDirDn': ['目前量到：code 變大 → 頻率變低', 'So far: larger code → lower frequency', '目前量到：code 变大 → 频率变低'],
+    'nd.gBest': ['相鄰的值都試過，{v} 已是最接近 {t} MHz 的值，但仍超出容許範圍：先不要燒錄，確認容許範圍或量測後再決定。', 'Neighbouring codes are tried; {v} is the closest to {t} MHz but still out of tolerance: do not burn — recheck the tolerance or the measurement first.', '相邻的值都试过，{v} 已是最接近 {t} MHz 的值，但仍超出容许范围：先不要烧录，确认容许范围或量测后再决定。'],
+    'nd.gEdge': ['已到 7C 0x00 可調範圍的邊界（{v}）仍不合格：停，不要燒錄。', 'Reached the end of the 7C 0x00 range ({v}) and still out: stop, do not burn.', '已到 7C 0x00 可调范围的边界（{v}）仍不合格：停，不要烧录。'],
+    'nd.gFlat': ['改了 trim 值頻率都沒變：確認 ③ 有寫進去、量的是選的那支腳，先不要燒錄。', 'The frequency does not change with the trim code: check that ③ was written and the probe is on the selected pin; do not burn.', '改了 trim 值频率都没变：确认 ③ 有写进去、量的是选的那支脚，先不要烧录。'],
+    'nd.gWrote': ['已寫入 {v}，填量到的頻率', '{v} written — enter the measured frequency', '已写入 {v}，填量到的频率'],
+    'nd.gThN': ['輪', 'Round', '轮'],
+    'nd.gThCode': ['寫入 7C 0x00', '7C 0x00 written', '写入 7C 0x00'],
+    'nd.gThF': ['量到 (MHz)', 'Measured (MHz)', '量到 (MHz)'],
+    'nd.gThDev': ['偏差', 'Deviation', '偏差'],
+    'nd.gThRes': ['判定', 'Result', '判定'],
+    'nd.g5T': ['⑤ 燒錄 eFuse', '⑤ Program the eFuse', '⑤ 烧录 eFuse'],
+    'nd.g5Wait': ['頻率合格後才會出現。', 'Shown only after the frequency passes.', '频率合格后才会出现。'],
+    'nd.g5P': ['⚠ 不可逆：一次性燒錄，不能重燒。會把 7C 0x00 = <b>{v}</b> 燒進 osc_1。勾下面三格後按「燒錄 eFuse」；燒錄前會再讀一次 3E 0x20D0，必須 = 0 才送。', '⚠ Irreversible: one-time, cannot be redone. Burns 7C 0x00 = <b>{v}</b> into osc_1. Tick the three boxes below, then press Program eFuse; 3E 0x20D0 is read again first and must be 0.', '⚠ 不可逆：一次性烧录，不能重烧。会把 7C 0x00 = <b>{v}</b> 烧进 osc_1。勾下面三格后按「烧录 eFuse」；烧录前会再读一次 3E 0x20D0，必须 = 0 才送。'],
+    'nd.g5Btn': ['燒錄 eFuse', 'Program eFuse', '烧录 eFuse'],
+    'nd.g5Done': ['已送出燒錄（7C 0x01 = 01）', 'Programming sent (7C 0x01 = 01)', '已送出烧录（7C 0x01 = 01）'],
+    'nd.g5Skip': ['這顆已燒過（0x20D0 非 0），不要再燒。', 'This IC is already programmed (0x20D0 non-zero): do not burn again.', '这颗已烧过（0x20D0 非 0），不要再烧。'],
+    'nd.g5Need': ['先勾下面三格', 'Tick the three boxes below first', '先勾下面三格'],
+    'nd.g6T': ['⑥ 重新上下電再確認', '⑥ Power-cycle and confirm', '⑥ 重新上下电再确认'],
+    'nd.g6P': ['板子斷電再上電 → 按「寫入」（只下 ② 那幾列，不寫 trim 值）→ 填量到的頻率 → 按「讀取」0x20D0，非 0＝完成。', 'Power the board off and on → press Write (only the ② rows, no trim code) → enter the frequency → Read 0x20D0: non-zero = done.', '板子断电再上电 → 按「写入」（只下 ② 那几行，不写 trim 值）→ 填量到的频率 → 按「读取」0x20D0，非 0＝完成。'],
+    'nd.g6Done': ['KOSC 完成', 'KOSC done', 'KOSC 完成'],
+    'nd.g6Not': ['0x20D0 還是 0：燒錄沒有生效，停下確認', '0x20D0 is still 0: programming did not take effect — stop and check', '0x20D0 还是 0：烧录没有生效，停下确认']
   };
   Object.keys(D).forEach(function (k) { var o = {}; L.forEach(function (l, i) { o[l] = D[k][i]; }); I18N[k] = o; });
 })();
@@ -428,7 +513,7 @@ var NBD_GPIO = {"E503":{"model":"RM8100x_for_FAE_20240925_20250311.model","tcon"
 
   /* ── 狀態 ── */
   var S = { ws: null, seq: 0, pend: {}, linked: false, busy: false, miss: null, userClose: false, checked: null, manual: false, det: null,
-            rb: {}, orig: {}, r20d0: null, code: 0xAA,
+            rb: {}, orig: {}, r20d0: null, code: 0xAA, g: null,
             burnOk: function () { return !!($('nd-burn').checked && $('nd-burn1').checked && $('nd-burn2').checked); } };
   function pinsNow() { return [].slice.call(document.querySelectorAll('#nd-gpios select')).map(function (x) { return x.value; }); }
   function cur() { return build($('nd-icsel').value, $('nd-item').value, pinsNow(), { code: S.code, burn: S.burnOk() }); }
@@ -466,7 +551,92 @@ var NBD_GPIO = {"E503":{"model":"RM8100x_for_FAE_20240925_20250311.model","tcon"
     it.bits.forEach(function (bt, k) { var el = $(k ? 'nd-gpio-' + k : 'nd-gpio'); el.value = (keep && old[k] && gpioOf(ic, old[k])) ? old[k] : dps[k]; });
   }
   function li() { var l = document.documentElement.lang; return l === 'en' ? 1 : (l === 'zh-CN' ? 2 : 0); }
+  /* ── v1.2.0 每一列的說明（Bruce 2026-10-23：讀了以後要怎麼判斷要寫在表格上；不用引導也要看得懂）──
+     內容只用 assistant_kb debugmode／reference 既有資料；文件沒寫的寫「文件沒寫」，不自己編。 */
+  var BAD = {
+    de: ['少打或沒有：依原廠排查順序，先看 HPD／Lock 有沒有異常拉 low → 讀 eDP RX error count → 比對 RX DE、TX DE 哪一段少打。',
+         'Missing or short pulses: per the vendor flow, check whether HPD / Lock drops low → read the eDP RX error count → compare RX DE vs TX DE to see which side loses lines.',
+         '少打或没有：依原厂排查顺序，先看 HPD／Lock 有没有异常拉 low → 读 eDP RX error count → 比对 RX DE、TX DE 哪一段少打。'],
+    osc: ['偏離 6.75 MHz：OSC 沒 trim 或飄了（E503 trim 後規格 ±1.5%，加溫度／電壓飄移約 ±2%）；EN01 可改用「KOSC trim」項目校正。沒有輸出時怎麼判斷文件沒寫，與正常板比對。',
+          'Far from 6.75 MHz: OSC not trimmed or drifting (E503 post-trim spec ±1.5%, about ±2% with temperature/voltage); on EN01 use the "KOSC trim" item. No output: not covered by the documents — compare with a good board.',
+          '偏离 6.75 MHz：OSC 没 trim 或飘了（E503 trim 后规格 ±1.5%，加温度／电压飘移约 ±2%）；EN01 可改用「KOSC trim」项目校正。没有输出时怎么判断文件没写，与正常板比对。'],
+    kosc: ['不是 6.75 MHz：照表下方「頻率偏高／偏低怎麼調」改 7C 0x00 的 trim 值，按該列「寫入」再量。',
+           'Not 6.75 MHz: change the trim code in the 7C 0x00 row as described under the table ("frequency too high / too low"), press Write on that row and measure again.',
+           '不是 6.75 MHz：照表下方「频率偏高／偏低怎么调」改 7C 0x00 的 trim 值，按该行「写入」再量。'],
+    pll: ['準位代表 lock 或 unlock 文件沒寫：與正常板比對。', 'Which level means lock is not documented: compare with a good board.', '电平代表 lock 或 unlock 文件没写：与正常板比对。'],
+    rxclk: ['量到的頻率 × 8＝RX link clock；不對時怎麼判斷文件沒寫，與正常板比對。', 'Measured × 8 = RX link clock; how to judge a wrong value is not documented — compare with a good board.', '量到的频率 × 8＝RX link clock；不对时怎么判断文件没写，与正常板比对。'],
+    bsbe: ['不翻轉：原因文件沒寫，與正常板比對。', 'Not toggling: cause not documented — compare with a good board.', '不翻转：原因文件没写，与正常板比对。'],
+    core: ['[3]＝0（沒進正常顯示）：依原廠黑屏排查，用 I2C 讀 DP State／Core State／Error Count 再判斷；EEPROM 下載是否成功看 3E 0x000／0x001 的 Core State 都讀到 3。',
+           '[3] = 0 (not in normal video): per the vendor black-screen flow, read DP State / Core State / Error Count over I2C; EEPROM download OK shows Core State = 3 at both 3E 0x000 and 0x001.',
+           '[3]＝0（没进正常显示）：依原厂黑屏排查，用 I2C 读 DP State／Core State／Error Count 再判断；EEPROM 下载是否成功看 3E 0x000／0x001 的 Core State 都讀到 3。'],
+    grp: ['每個 bit 的意義見群組定義；異常怎麼判斷文件沒寫，與正常板比對。', 'Bit meaning per the group definition; how to judge an abnormal level is not documented — compare with a good board.', '每个 bit 的意义见群组定义；异常怎么判断文件没写，与正常板比对。']
+  };
+  var BAD_OF = { rxde: 'de', txde: 'de', txrt6: 'de', osc: 'osc', oscd: 'osc', kosc: 'kosc', pll0: 'pll', pll1: 'pll', rxclk: 'rxclk', bs: 'bsbe', be: 'bsbe', core: 'core' };
+  function rowHelp(b, r) {
+    var n = li(), it = b.item, x = function (v) { return '0x' + hex(v, 2); };
+    var P = function (a, b2, c) { return '<span class="dk"><b>' + esc([['做什麼', 'What', '做什么'], ['判斷', 'Judge', '判断'], ['下一步', 'Next', '下一步']][0][n]) + '</b>：' + a + '</span>' +
+      (b2 ? '<span class="dk"><b>' + esc(['判斷', 'Judge', '判断'][n]) + '</b>：' + b2 + '</span>' : '') +
+      (c ? '<span class="dk"><b>' + esc(['下一步', 'Next', '下一步'][n]) + '</b>：' + c + '</span>' : ''); };
+    var T = function (a) { return a[n]; };
+    var rbOk = T(['讀回 ✓＝寫進去了；✗＝沒寫進去。', 'Read-back ✓ = written; ✗ = not written.', '读回 ✓＝写进去了；✗＝没写进去。']);
+    var rbFix = T(['✗ 時確認 I2C 已連線、IC 選對，再按「寫入」。', 'On ✗: check the I2C link and the IC choice, then press Write again.', '✗ 时确认 I2C 已连接、IC 选对，再按「写入」。']);
+    var rbUnk = T(['讀回值不一定等於寫入值，記下即可。', 'The read-back may differ from the written value; just note it.', '读回值不一定等于写入值，记下即可。']);
+    if (r.kind === 'r') return P(
+      T(['只讀，看這顆 IC 的 OSC 有沒有 trim 過（eFuse 燒過沒）。', 'Read only: has this IC\'s OSC been trimmed (eFuse programmed)?', '只读，看这颗 IC 的 OSC 有没有 trim 过（eFuse 烧过没）。']),
+      T(['讀回 <b>0x00＝沒 trim 過</b>；<b>非 0＝已 trim 過</b>（非 0 的各個值代表什麼文件沒寫）。它只說燒過沒，不代表頻率準不準。', 'Read-back <b>0x00 = not trimmed</b>; <b>non-zero = already trimmed</b> (meaning of each non-zero value is not documented). It tells only whether it was programmed, not whether the frequency is right.', '读回 <b>0x00＝没 trim 过</b>；<b>非 0＝已 trim 过</b>（非 0 的各个值代表什么文件没写）。它只说烧过没，不代表频率准不准。']),
+      T(['0x00 → 照下面各列做 KOSC；非 0 → 不要再燒（eFuse 只能燒一次），只寫 TOP_DBG_SEL 與輸出腳那幾列量頻確認，不寫 trim 列。', '0x00 → do the KOSC rows below; non-zero → do not burn again (one-time eFuse); write only TOP_DBG_SEL and the pin rows to measure, skip the trim rows.', '0x00 → 照下面各行做 KOSC；非 0 → 不要再烧（eFuse 只能烧一次），只写 TOP_DBG_SEL 与输出脚那几行量频确认，不写 trim 行。']));
+    if (r.kind === 'burn') return P(
+      T(['⚠ 把目前的 trim 值燒進 eFuse（7C 0x01＝01）。<b>不可逆，一顆 IC 只能燒一次。</b>', '⚠ Burns the current trim code into the eFuse (7C 0x01 = 01). <b>Irreversible, one time per IC.</b>', '⚠ 把目前的 trim 值烧进 eFuse（7C 0x01＝01）。<b>不可逆，一颗 IC 只能烧一次。</b>']),
+      T(['送出後重新上下電，只下 debug 列量頻（要接近 6.75 MHz），再讀 3E 0x20D0 要變成非 0。', 'After sending, power-cycle, write only the debug rows and measure (about 6.75 MHz), then 3E 0x20D0 must read non-zero.', '送出后重新上下电，只下 debug 行量频（要接近 6.75 MHz），再读 3E 0x20D0 要变成非 0。']),
+      T(['0x20D0 還是 0 或頻率不對 → 燒錄沒生效，停下確認，不要再燒一次。', '0x20D0 still 0 or wrong frequency → programming did not take effect: stop and check, do not burn again.', '0x20D0 还是 0 或频率不对 → 烧录没生效，停下确认，不要再烧一次。']));
+    if (r.code) return P(
+      T(['寫 trim 值，OSC 頻率跟著變。寫入值＝<b>0x80</b>（bit7 test_en，固定要 1）＋<b>檔位</b>（bit6～0，0x00～0x7F）。目前 {v}＝檔位 {c}；0xAA 是原廠校正程序的起始值（檔位 0x2A）。', 'Writes the trim code; the OSC frequency follows it. Value = <b>0x80</b> (bit7 test_en, must stay 1) + <b>code</b> (bits 6–0, 0x00–0x7F). Now {v} = code {c}; 0xAA is the vendor starting value (code 0x2A).', '写 trim 值，OSC 频率跟着变。写入值＝<b>0x80</b>（bit7 test_en，固定要 1）＋<b>档位</b>（bit6～0，0x00～0x7F）。目前 {v}＝档位 {c}；0xAA 是原厂校正程序的起始值（档位 0x2A）。']).replace('{v}', x(S.code)).replace('{c}', x(S.code & 0x7F)) +
+      T(['<br>為什麼可以填：這一格就是 KOSC 要調的值（只能填 80～FF，bit7 鎖在 1）。', '<br>Why editable: this is the one value KOSC tunes (80–FF only; bit7 stays 1).', '<br>为什么可以填：这一格就是 KOSC 要调的值（只能填 80～FF，bit7 锁在 1）。']),
+      T(['寫入後量 OSC 腳，目標 6.75 MHz（＝內部 OSC 54 MHz ÷ 8）。', 'After writing, measure the OSC pin; target 6.75 MHz (= internal OSC 54 MHz ÷ 8).', '写入后量 OSC 脚，目标 6.75 MHz（＝内部 OSC 54 MHz ÷ 8）。']),
+      T(['偏高／偏低照表下方說明改檔位、再寫、再量；合格才燒錄。', 'Too high / too low: change the code as described under the table, write and measure again; burn only after it passes.', '偏高／偏低照表下方说明改档位、再写、再量；合格才烧录。']));
+    if (r.pin && r.sel) {
+      var bad = BAD[BAD_OF[it.id] || 'grp'] || BAD.grp;
+      return P(T(['這支腳改送出 <b>{s}</b>（TX_IN_SEL＝{x}）。', 'This pin now outputs <b>{s}</b> (TX_IN_SEL = {x}).', '这支脚改送出 <b>{s}</b>（TX_IN_SEL＝{x}）。']).replace('{s}', esc(r.sig || '')).replace('{x}', x(r.val)) +
+          (b.ic === 'EN01' ? '' : T(['（只改 [5:0]，同 byte 的 DRV 不動）', ' (only [5:0]; DRV in the same byte kept)', '（只改 [5:0]，同 byte 的 DRV 不动）'])),
+        rbOk + ' ' + T(['讀回 ✓ 後接示波器量這支腳，正常：', 'After ✓, probe this pin; normal: ', '读回 ✓ 后接示波器量这支脚，正常：']) + esc(it.meas[n]) + '。',
+        esc(T(bad)) + ' ' + T(['量完按「還原」。', 'Press Restore when done.', '量完按「还原」。']));
+    }
+    if (r.pin) return P(
+      b.ic === 'EN01' ? T(['打開這支腳的輸出：這支腳的 4 個 bit 寫成 0001（TX_EN＝1，其他 0）。', 'Enables output on this pin: its 4-bit field becomes 0001 (TX_EN = 1, others 0).', '打开这支脚的输出：这支脚的 4 个 bit 写成 0001（TX_EN＝1，其他 0）。'])
+                      : T(['打開這支腳的輸出（只改 TX_EN 這個 bit，其他 bit 不動）。', 'Enables output on this pin (only the TX_EN bit; other bits kept).', '打开这支脚的输出（只改 TX_EN 这个 bit，其他 bit 不动）。']),
+      rbOk, rbFix + ' ' + T(['量完按「還原」恢復原設定。', 'Press Restore when done.', '量完按「还原」恢复原设定。']) + (b.ic === 'E503' ? T(['（E503 WP pin 平常是 EEPROM 寫保護）', ' (on E503 the WP pin is normally EEPROM write-protect)', '（E503 WP pin 平常是 EEPROM 写保护）']) : ''));
+    var nm = r.name;
+    if (nm === 'TOP_DBG_SEL') return P(T(['選 DEBUG_OUT 要送出哪一組內部訊號（群組 {v}）。', 'Selects which internal group goes to DEBUG_OUT (group {v}).', '选 DEBUG_OUT 要送出哪一组内部信号（群组 {v}）。']).replace('{v}', x(r.val)), rbOk, rbFix);
+    if (nm === 'DBG_SEL3') return P(T(['選 DEBUG_OUT2 要送出哪一組內部訊號（群組 {v}）。', 'Selects which internal group goes to DEBUG_OUT2 (group {v}).', '选 DEBUG_OUT2 要送出哪一组内部信号（群组 {v}）。']).replace('{v}', x(r.val)), rbOk, rbFix);
+    if (nm === 'DBG_SEL') return P(T(['在群組裡再細選內部 IP（值 {v}）。', 'Sub-selects the internal IP inside the group (value {v}).', '在群组里再细选内部 IP（值 {v}）。']).replace('{v}', x(r.val)), rbOk,
+      rbFix + ' ' + T(['E503 這格平常要是 0x01（MCU patch 的 ESD TX skew 開關），量完一定按「還原」。', 'On E503 this byte must normally be 0x01 (MCU patch ESD TX skew switch): always Restore when done.', 'E503 这格平常要是 0x01（MCU patch 的 ESD TX skew 开关），量完一定按「还原」。']));
+    if (nm === 'DBG_SEL2') return P(T(['再細選 ISP 內部要看的訊號（值 {v}）。', 'Further sub-selects the ISP signal (value {v}).', '再细选 ISP 内部要看的信号（值 {v}）。']).replace('{v}', x(r.val)), rbOk, rbFix);
+    if (nm === 'KOSC_0E4') return P(T(['原廠校正程序的第一筆，固定寫 0x83（用途文件沒寫，照原廠值寫）。', 'First line of the vendor calibration script, fixed 0x83 (purpose not documented; use the vendor value).', '原厂校正程序的第一笔，固定写 0x83（用途文件没写，照原厂值写）。']), rbUnk,
+      T(['接著寫 7C 那幾列。', 'Then the 7C rows.', '接着写 7C 那几行。']));
+    if (nm === 'DAZ_REG_WEN') return P(T(['打開 7C 這組暫存器的寫入（bit7＝1）。', 'Enables writes to the 7C registers (bit7 = 1).', '打开 7C 这组寄存器的写入（bit7＝1）。']), rbOk,
+      T(['寫兩個解鎖金鑰。', 'Write the two unlock keys.', '写两个解锁金钥。']));
+    if (nm === 'PROGRAM_KEY1' || nm === 'PROGRAM_KEY2') return P(T(['燒錄解鎖金鑰（固定值 {v}，兩個一組，不能改）。', 'eFuse unlock key (fixed {v}, a pair; not editable).', '烧录解锁金钥（固定值 {v}，两个一组，不能改）。']).replace('{v}', x(r.val)), rbUnk,
+      nm === 'PROGRAM_KEY1' ? T(['寫第二個金鑰。', 'Write the second key.', '写第二个金钥。']) : T(['選 osc_1。', 'Select osc_1.', '选 osc_1。']));
+    if (nm === 'OSC_SELECT') return P(T(['選要校正的是 osc_1（寫 0x00）。', 'Selects osc_1 for calibration (write 0x00).', '选要校正的是 osc_1（写 0x00）。']), rbOk,
+      T(['寫 trim 值。', 'Write the trim code.', '写 trim 值。']));
+    return P(esc(nm), rbOk, rbFix);
+  }
+  /* KOSC：頻率偏高／偏低怎麼調（非引導模式也看得到）。方法照 assistant_kb reference/EN01_OSC_trim判斷 步驟 3：
+     方向文件沒寫 ⇒ 先試 ±0x10 找方向 → 逼近 → 最接近值 ±1 確認。範例數字只是示範。 */
+  function ktrimHtml() {
+    var T = function (a) { return a[li()]; };
+    return '<h4>' + esc(T(['頻率偏高／偏低怎麼調（trim 值＝7C 0x00）', 'Frequency too high / too low: how to adjust (trim code = 7C 0x00)', '频率偏高／偏低怎么调（trim 值＝7C 0x00）'])) + '</h4><ol>' +
+      '<li>' + T(['先用原廠起始值 <b>0xAA</b>（檔位 0x2A）寫入，量 OSC 腳。目標 <b>6.75 MHz</b>。', 'Start with the vendor value <b>0xAA</b> (code 0x2A) and measure the OSC pin. Target <b>6.75 MHz</b>.', '先用原厂起始值 <b>0xAA</b>（档位 0x2A）写入，量 OSC 脚。目标 <b>6.75 MHz</b>。']) + '</li>' +
+      '<li>' + T(['檔位變大時頻率變高還是變低，文件沒寫，要先試出來：檔位加 0x10（寫 0xBA）再量一次。頻率變高＝檔位越大越快；變低＝相反。', 'Whether a larger code raises or lowers the frequency is not documented, so find it first: add 0x10 to the code (write 0xBA) and measure. Higher = larger code is faster; lower = the opposite.', '档位变大时频率变高还是变低，文件没写，要先试出来：档位加 0x10（写 0xBA）再量一次。频率变高＝档位越大越快；变低＝相反。']) + '</li>' +
+      '<li>' + T(['用這兩次算「每一檔變多少 MHz」＝兩次頻率差 ÷ 兩次檔位差；要調幾檔＝（6.75 − 目前頻率）÷ 每一檔變化，四捨五入，一次最多調 0x20 檔。偏高就往頻率變低的方向調，偏低就往變高的方向調。', 'From these two points: MHz per step = frequency difference ÷ code difference; steps to move = (6.75 − current) ÷ MHz per step, rounded, at most 0x20 at a time. Too high → move toward lower frequency; too low → toward higher.', '用这两次算「每一档变多少 MHz」＝两次频率差 ÷ 两次档位差；要调几档＝（6.75 − 目前频率）÷ 每一档变化，四舍五入，一次最多调 0x20 档。偏高就往频率变低的方向调，偏低就往变高的方向调。']) + '</li>' +
+      '<li>' + T(['6.75 MHz 兩邊都量過後，在兩點之間照比例取值；最後在最接近的檔位前後各試 1 檔，取最接近 6.75 MHz 的那一個。', 'Once you have points on both sides of 6.75 MHz, interpolate between them; finally try ±1 code around the closest one and keep the closest to 6.75 MHz.', '6.75 MHz 两边都量过后，在两点之间照比例取值；最后在最接近的档位前后各试 1 档，取最接近 6.75 MHz 的那一个。']) + '</li>' +
+      '<li>' + T(['合格才燒錄。EN01 的容許範圍文件沒寫；引導模式預設 ±1.5%（E503 trim 後規格），可改。', 'Burn only after it passes. EN01 tolerance is not documented; the guide defaults to ±1.5% (E503 post-trim spec), editable.', '合格才烧录。EN01 的容许范围文件没写；引导模式默认 ±1.5%（E503 trim 后规格），可改。']) + '</li></ol>' +
+      '<div class="ex">' + T(['範例（數字只是示範）：寫 0xAA 量到 6.60 MHz（偏低 2.2%）→ 寫 0xBA 量到 6.92 MHz → 檔位變大頻率變高，每一檔約（6.92 − 6.60）÷ 16 = 0.02 MHz → 要升 0.15 MHz，約 0.15 ÷ 0.02 ≈ 8 檔 → 檔位 0x2A + 8 = 0x32 → 寫 <b>0xB2</b> 再量。', 'Example (illustrative numbers): 0xAA → 6.60 MHz (2.2% low) → 0xBA → 6.92 MHz ⇒ larger code is faster, about (6.92 − 6.60) ÷ 16 = 0.02 MHz per step ⇒ need +0.15 MHz ≈ 8 steps ⇒ code 0x2A + 8 = 0x32 ⇒ write <b>0xB2</b> and measure.', '范例（数字只是示范）：写 0xAA 量到 6.60 MHz（偏低 2.2%）→ 写 0xBA 量到 6.92 MHz → 档位变大频率变高，每一档约（6.92 − 6.60）÷ 16 = 0.02 MHz → 要升 0.15 MHz，约 0.15 ÷ 0.02 ≈ 8 档 → 档位 0x2A + 8 = 0x32 → 写 <b>0xB2</b> 再量。']) + '</div>' +
+      '<div class="ex">' + T(['勾上面的「一步一步引導」，填量到的頻率就會自動算出下一個值並填好，按「寫入」即可。', 'Tick "Step-by-step guide" above: enter the measured frequency and the next code is computed and filled in; just press Write.', '勾上面的「一步一步引导」，填量到的频率就会自动算出下一个值并填好，按「写入」即可。']) + '</div>';
+  }
   function render() {
+    /* 引導模式：頻率還沒合格（或 trim 值改過）就不能留著燒錄勾選 ⇒ 表上不會出現燒錄列 */
+    if (S.g.on && !gCanBurn() && $('nd-burn').checked) { $('nd-burn').checked = false; $('nd-burn1').checked = false; $('nd-burn2').checked = false; }
     var b = cur(); if (!b) return;
     var it = b.item;
     var w = [];
@@ -474,12 +644,14 @@ var NBD_GPIO = {"E503":{"model":"RM8100x_for_FAE_20240925_20250311.model","tcon"
     if (it.w08) w.push(tt('nd.w08'));
     if (it.kosc) w.push(tt('nd.wBurn'));
     $('nd-warn').textContent = w.join('　');
-    $('nd-burnbox').classList.toggle('hidden', !it.kosc);
+    var gOn = !!(it.kosc && S.g.on), gSet = gOn ? gRowSet(b) : null;
+    $('nd-gsw').classList.toggle('hidden', !it.kosc);
+    $('nd-burnbox').classList.toggle('hidden', !it.kosc || (gOn && !gCanBurn()));
     $('nd-burnc').classList.toggle('hidden', !$('nd-burn').checked);
     $('nd-burn2t').textContent = tt('nd.burnC2',{ v: '0x' + hex(S.code, 2) });
-    var h = '<thead><tr><th>#</th><th class="c-slave">' + esc(tt('nd.thSlave')) + '</th><th>' + esc(tt('nd.thAddr')) + '</th><th>' + esc(tt('nd.thVal')) + '</th><th>' + esc(tt('nd.thRb')) + '</th><th>' + esc(tt('nd.thName')) + '</th><th></th></tr></thead><tbody>';
+    var h = '<thead><tr><th>#</th><th class="c-slave">' + esc(tt('nd.thSlave')) + '</th><th>' + esc(tt('nd.thAddr')) + '</th><th>' + esc(tt('nd.thVal')) + '</th><th>' + esc(tt('nd.thRb')) + '</th><th>' + esc(tt('nd.thName')) + '</th><th></th><th>' + esc(tt('nd.thDesc')) + '</th></tr></thead><tbody>';
     b.rows.forEach(function (r, i) {
-      var part = r.mask !== 0xFF, cls = r.kind === 'burn' ? 'burn' : (r.kind === 'r' ? 'rd' : (r.pin ? 'pin' : ''));
+      var part = r.mask !== 0xFF, cls = (r.kind === 'burn' ? 'burn' : (r.kind === 'r' ? 'rd' : (r.pin ? 'pin' : ''))) + (gSet && gSet.indexOf(i) >= 0 ? ' gcur' : '');
       var addr = (r.ob === 2 ? '0x' + hex(r.addr, 3) : '0x' + hex(r.addr, 2)) + (part ? ' <span class="nd-bits">[' + r.msb + (r.msb === r.lsb ? '' : ':' + r.lsb) + ']</span>' : '');
       var val = r.kind === 'r' ? '—' : (r.code ? '<input class="nd-in" id="nd-code" value="' + hex(S.code, 2) + '" maxlength="2" aria-label="7C 0x00">' : '0x' + hex(r.val, 2));
       var rb = S.rb[i] || '';
@@ -487,15 +659,18 @@ var NBD_GPIO = {"E503":{"model":"RM8100x_for_FAE_20240925_20250311.model","tcon"
       h += '<tr class="' + cls + '" data-k="' + [r.kind, hex(r.slave, 2), hex(r.addr, 4), r.msb, r.lsb, r.val == null ? '' : hex(r.val, 2)].join(':') + '"><td>' + (i + 1) + '</td><td class="c-slave mono">' + hex(r.slave, 2) + '</td><td class="mono">' + addr + '</td><td class="mono">' + val + '</td>' +
         '<td class="mono nd-rb ' + (rb.cls || '') + '">' + esc(rb.t || '') + '</td><td class="nm" title="' + esc(tip) + '">' + esc(r.name) + (part ? ' <span class="nd-bits">· ' + esc(tt('nd.keep')) + '</span>' : '') + '</td>' +
         '<td>' + (r.kind === 'r' ? '' : '<button class="sbtn sm" data-w="' + i + '"' + (S.linked && !S.busy ? '' : ' disabled') + '>' + esc(tt('nd.w')) + '</button> ') +
-        '<button class="sbtn sm" data-r="' + i + '"' + (S.linked && !S.busy ? '' : ' disabled') + '>' + esc(tt('nd.r')) + '</button></td></tr>';
+        '<button class="sbtn sm" data-r="' + i + '"' + (S.linked && !S.busy ? '' : ' disabled') + '>' + esc(tt('nd.r')) + '</button></td><td class="ds">' + rowHelp(b, r) + '</td></tr>';
     });
     $('nd-tbl').innerHTML = h + '</tbody>';
+    $('nd-ktrim').classList.toggle('hidden', !it.kosc);
+    $('nd-ktrim').innerHTML = it.kosc ? ktrimHtml() : '';
     var ci = $('nd-code'); if (ci) ci.addEventListener('change', function () { var v = parseInt(ci.value, 16); if (!(v >= 0x80 && v <= 0xFF)) { status(tt('nd.codeBad'), 'err'); ci.value = hex(S.code, 2); return; } S.code = v; S.rb = {}; render(); });
     $('nd-run').disabled = !S.linked || S.busy || b.dup;
     $('nd-xlsx').disabled = b.dup; $('nd-script').disabled = b.dup;
     $('nd-run').title = S.linked ? '' : tt('nd.needLink');
     $('nd-undo').disabled = !S.linked || S.busy || !Object.keys(S.orig).length;
     $('nd-link').textContent = tt(S.linked ? 'nd.unlink' : 'nd.link');
+    renderGuide(b, gOn);
     renderI2c(); renderHelp(b);
   }
   function renderHelp(b) {
@@ -677,6 +852,237 @@ var NBD_GPIO = {"E503":{"model":"RM8100x_for_FAE_20240925_20250311.model","tcon"
     });
   }
 
+  /* ── v1.2.0 KOSC 一步一步引導（Bruce 2026-10-23：debug 應用多一個選項，讓使用者選是否要一步一步引導）──
+     步驟照 K OSC SOP（Debug_OSC.i2cs＋EN01A1 osc calibration_1.i2cs），每一步對應上面那張表的列：
+       ① 讀 3E 0x20D0（非 0＝已燒過）　② Debug_OSC：TOP_DBG_SEL＋輸出腳 TX_EN／TX_IN_SEL
+       ③ calibration：0x0E4、7C 解鎖、select osc_1、7C 0x00 trim 值（已預填）
+       ④ 使用者只填量到的頻率 → 判定 → 不合格就算下一個值並預填 → 寫入 → 再量（每輪留紀錄）
+       ⑤ 合格才出現燒錄（沿用三格確認；燒前再讀 0x20D0，＝0 才送）　⑥ 重新上下電 → 只下 ② → 量頻 → 讀 0x20D0 非 0。
+     目標 6.75 MHz＝OSC 54 MHz ÷ 8。容許範圍：EN01 沒有規格（assistant_kb debugmode/OSC_KOSC.md：容許誤差未知），
+     預設用 E503 trim 後 ±1.5%（同檔 E503 OSC 規格），畫面上可改。code 變大頻率變高或變低也未知 ⇒ 由量到的點推（guideSuggest）。 */
+  var G_TARGET = 6.75, G_TOL_DEF = 1.5, G_PROBE = 0x10, G_STEP_MAX = 0x20;
+  var G_POST = KOSC_POST.map(function (r) { return r.name; });
+  function gNew() { return { on: false, r0: null, s2: false, wcode: null, rounds: [], tol: String(G_TOL_DEF), fin: '', pfin: '', sug: null, burned: false, bcode: null, p2: false, pf: null, pok: null, pr: null }; }
+  S.g = gNew();
+  function gTol() { var v = parseFloat(S.g.tol); return v > 0 && v < 50 ? v : G_TOL_DEF; }
+  function gIn(f, tol) { return Math.abs(f - G_TARGET) <= G_TARGET * tol / 100 + 1e-9; }
+  /* 量到的點算 code↔頻率方向：最小平方斜率的正負（+1＝code 變大頻率變高、-1＝變低、0＝還不知道） */
+  function gDir(pts) {
+    if (pts.length < 2) return 0;
+    var n = pts.length, md = 0, mf = 0, sxy = 0, sxx = 0;
+    pts.forEach(function (p) { md += p.d / n; mf += p.f / n; });
+    pts.forEach(function (p) { sxy += (p.d - md) * (p.f - mf); sxx += (p.d - md) * (p.d - md); });
+    return (!sxx || !sxy) ? 0 : (sxy > 0 ? 1 : -1);
+  }
+  /* 純函式：rounds＝[{ code（7C 0x00 整 byte）, f（MHz）}]，回 { ok, code（下一個要寫的整 byte）, why, dir, best }。
+     why：pass 合格／probe 方向未知先試 ±0x10／interp 目標兩側都量過→內插／slope 只在一側→斜率外推（一次最多 0x20）／
+          best 相鄰值都試過、已是最接近／edge 到 0x00 或 0x7F 邊界仍不合格／flat 改了 code 頻率都沒變。trim 檔位＝[6:0]。 */
+  function guideSuggest(rounds, T, tolPct) {
+    if (!rounds || !rounds.length) return null;
+    var by = {}, order = [];
+    rounds.forEach(function (r) { if (r.f > 0) { var d = r.code & 0x7F; if (!(d in by)) order.push(d); by[d] = r.f; } });   /* 同一個 code 以最後一次為準 */
+    var last = rounds[rounds.length - 1], ld = last.code & 0x7F, tol = T * tolPct / 100 + 1e-9;
+    var pts = order.map(function (d) { return { d: d, f: by[d] }; });
+    if (!pts.length || !(last.f > 0)) return null;
+    var near = pts.slice().sort(function (a, b) { return Math.abs(a.f - T) - Math.abs(b.f - T); }), best = near[0];
+    var dir = gDir(pts), res = { dir: dir, best: { code: 0x80 | best.d, f: best.f } };
+    if (Math.abs(last.f - T) <= tol) return Object.assign(res, { ok: true, code: last.code, why: 'pass' });
+    if (pts.length >= 2 && !dir) return Object.assign(res, { ok: false, code: 0x80 | best.d, why: 'flat' });
+    var lo = null, hi = null, c, why;
+    pts.forEach(function (p) { if (p.f < T && (!lo || p.f > lo.f)) lo = p; if (p.f > T && (!hi || p.f < hi.f)) hi = p; });
+    if (lo && hi) { c = Math.round(lo.d + (T - lo.f) * (hi.d - lo.d) / (hi.f - lo.f)); why = 'interp'; }
+    else if (dir) {
+      var p1 = near[0], p2 = null;
+      for (var i = 1; i < near.length; i++) if (near[i].d !== p1.d && near[i].f !== p1.f) { p2 = near[i]; break; }
+      var s = p2 ? (p2.f - p1.f) / (p2.d - p1.d) : 0;
+      var step = (s && (s > 0) === (dir > 0)) ? Math.round((T - p1.f) / s) : (p1.f < T ? dir : -dir) * G_PROBE;
+      if (step > G_STEP_MAX) step = G_STEP_MAX; if (step < -G_STEP_MAX) step = -G_STEP_MAX;
+      c = p1.d + step; why = 'slope';
+    } else { c = ld + G_PROBE <= 0x7F ? ld + G_PROBE : ld - G_PROBE; why = 'probe'; }
+    var edge = c < 0 || c > 0x7F; c = Math.max(0, Math.min(0x7F, c));
+    if (c in by) {   /* 算出來的值量過了 ⇒ 往目標方向挪 1（不跑出兩側量過的範圍）；挪不動＝已是最接近 */
+      var mv = dir ? (best.f < T ? dir : -dir) : 0, n2 = best.d + mv;
+      var inside = !(lo && hi) || (n2 - lo.d) * (n2 - hi.d) < 0;
+      if (mv && n2 >= 0 && n2 <= 0x7F && !(n2 in by) && inside) c = n2;
+      else return Object.assign(res, { ok: false, code: 0x80 | best.d, why: (edge || n2 < 0 || n2 > 0x7F) ? 'edge' : 'best' });
+    }
+    return Object.assign(res, { ok: false, code: 0x80 | c, why: why });
+  }
+  function gIdx(b, fn) { var a = []; b.rows.forEach(function (r, i) { if (fn(r)) a.push(i); }); return a; }
+  function gRows(b) {
+    return {
+      r: gIdx(b, function (r) { return r.kind === 'r'; }),
+      dbg: gIdx(b, function (r) { return r.kind === 'w' && (r.pin || r.name === 'TOP_DBG_SEL'); }),
+      cal: gIdx(b, function (r) { return r.kind === 'w' && G_POST.indexOf(r.name) >= 0; }),
+      burn: gIdx(b, function (r) { return r.kind === 'burn'; })
+    };
+  }
+  function gPassed() { var g = S.g, l = g.rounds[g.rounds.length - 1]; return !!(l && l.ok && g.wcode != null && l.code === g.wcode && S.code === g.wcode); }
+  function gCanBurn() { return gPassed() && S.r20d0 === 0 && !S.g.burned; }
+  /* 目前在第幾步：1～6；7＝完成（已燒過的 IC 合格後停在 5，不燒） */
+  function gStep() {
+    var g = S.g;
+    if (S.r20d0 == null && !g.burned) return 1;
+    if (!g.s2) return 2;
+    if (g.wcode == null) return 3;
+    if (!g.burned && !gPassed()) return 4;
+    if (!g.burned) return 5;
+    return g.pr ? 7 : 6;
+  }
+  function gRowSet(b) {
+    var rs = gRows(b), st = gStep();
+    return st === 1 ? rs.r : st === 2 ? rs.dbg : (st === 3 || st === 4) ? rs.cal : st === 5 ? rs.r.concat(rs.burn) : st === 6 ? rs.dbg.concat(rs.r) : [];
+  }
+  /* 最後一輪重新判定（量完、或改了容許範圍）：合格 ⇒ trim 值留在量的那一個；不合格 ⇒ 下一個值預填到表上 7C 0x00 */
+  function gJudgeLast() {
+    var g = S.g, l = g.rounds[g.rounds.length - 1]; if (!l) return;
+    var tol = gTol(); l.tol = tol; l.ok = gIn(l.f, tol);
+    g.sug = guideSuggest(g.rounds, G_TARGET, tol);
+    if (l.ok) { if (g.wcode === l.code) S.code = l.code; }
+    else if (g.sug && /^(probe|interp|slope)$/.test(g.sug.why)) S.code = g.sug.code;
+    S.rb = {};
+  }
+  function gParseF(s) { var v = parseFloat(String(s == null ? '' : s).replace(',', '.').replace(/[^\d.]/g, '')); return v > 0 && v < 100 ? v : null; }
+  function gMeas() {
+    var g = S.g, f = gParseF($('nd-gf') ? $('nd-gf').value : g.fin);
+    if (g.wcode == null) { status(tt('nd.gNeedW'), 'err'); return; }
+    if (f == null) { status(tt('nd.gFreqBad'), 'err'); return; }
+    g.rounds.push({ n: g.rounds.length + 1, code: g.wcode, f: f });
+    g.fin = '';
+    gJudgeLast();
+    var l = g.rounds[g.rounds.length - 1];
+    log('KOSC #' + l.n + ' 7C 0x00 = ' + hex(l.code, 2) + ' -> ' + f + ' MHz (' + gDevTxt(f) + ') ' + (l.ok ? 'pass' : 'next ' + hex(S.code, 2) + ' (' + (g.sug && g.sug.why) + ')'));
+    status(''); render();
+  }
+  function gDevTxt(f) { var d = (f - G_TARGET) / G_TARGET * 100; return (d >= 0 ? '+' : '') + d.toFixed(2) + '%'; }
+  function gPMeas() {
+    var g = S.g, f = gParseF($('nd-gpf') ? $('nd-gpf').value : g.pfin);
+    if (f == null) { status(tt('nd.gFreqBad'), 'err'); return; }
+    g.pf = f; g.pok = gIn(f, gTol()); g.pfin = String(f);
+    log('KOSC power-cycle -> ' + f + ' MHz (' + gDevTxt(f) + ') ' + (g.pok ? 'pass' : 'out'));
+    status(''); render();
+  }
+  function gLogText() {
+    var g = S.g, L = ['EN01 KOSC ' + new Date().toISOString(), 'target ' + G_TARGET + ' MHz, tolerance +/-' + gTol() + '%'];
+    L.push('3E 0x20D0 (before) = ' + (g.r0 == null ? '-' : '0x' + hex(g.r0, 2)));
+    g.rounds.forEach(function (r) { L.push('#' + r.n + '  7C 0x00 = 0x' + hex(r.code, 2) + '  ' + r.f + ' MHz  ' + gDevTxt(r.f) + '  ' + (r.ok ? 'pass' : 'out')); });
+    if (g.burned) L.push('eFuse programmed with 7C 0x00 = 0x' + hex(g.bcode, 2));
+    if (g.pf != null) L.push('after power cycle: ' + g.pf + ' MHz  ' + gDevTxt(g.pf) + '  ' + (g.pok ? 'pass' : 'out'));
+    if (g.pr != null) L.push('3E 0x20D0 (after) = 0x' + hex(g.pr, 2));
+    return L.join('\n') + '\n';
+  }
+  function gCopy() {
+    var s = gLogText(), done = function () { status(tt('nd.gCopied'), 'ok'); };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(s).then(done, function () { log(s); done(); });
+    else { log(s); done(); }
+  }
+  async function gWriteRows(idx) {
+    var b = cur();
+    for (var k = 0; k < idx.length; k++) {
+      var ok = await doRow(b, idx[k], 'w'); render();
+      if (!ok) { status(tt('nd.runFail', { i: idx[k] + 1 }), 'err'); return false; }
+    }
+    return true;
+  }
+  function gAct(a) {
+    var g = S.g;
+    if (a === 'meas') return gMeas();
+    if (a === 'pmeas') return gPMeas();
+    if (a === 'copy') return gCopy();
+    if (a === 'reset') { S.g = gNew(); S.g.on = true; S.code = 0xAA; S.rb = {}; status(''); render(); return; }
+    return guard(async function () {
+      var rs = gRows(cur());
+      var mb = await TconMbus.open(rawWrite); if (!mb.ok) log(tt('tcon.mbusFail', { err: mb.err }));
+      if (a === 'read') { await doRow(cur(), rs.r[0], 'r'); if (!g.burned) g.r0 = S.r20d0; status(''); }
+      else if (a === 'dbg') { if (await gWriteRows(rs.dbg)) { g.s2 = true; status(''); } }
+      else if (a === 'cal') { var c = S.code; if (await gWriteRows(rs.cal)) { g.wcode = c; g.fin = ''; status(''); } }
+      else if (a === 'burn') {
+        if (!gCanBurn()) throw new Error(tt('nd.burnNeed20d0'));
+        if (!S.burnOk()) throw new Error(tt('nd.g5Need'));
+        await doRow(cur(), rs.r[0], 'r'); render();
+        if (S.r20d0 !== 0) throw new Error(tt('nd.burnNeed20d0'));
+        var b = cur(), bi = gRows(b).burn[0];
+        if (bi == null) throw new Error(tt('nd.g5Need'));
+        await doRow(b, bi, 'w');
+        g.burned = true; g.bcode = S.code; log('KOSC eFuse program sent, 7C 0x00 = ' + hex(S.code, 2)); status(tt('nd.g5Done'), 'ok');
+      }
+      else if (a === 'pdbg') { if (await gWriteRows(rs.dbg)) { g.p2 = true; status(''); } }
+      else if (a === 'pread') { await doRow(cur(), rs.r[0], 'r'); g.pr = S.r20d0; status(tt(S.r20d0 ? 'nd.g6Done' : 'nd.g6Not'), S.r20d0 ? 'ok' : 'err'); }
+    });
+  }
+  function renderGuide(b, gOn) {
+    var box = $('nd-burnbox'), home = $('nd-burnhome'), pan = $('nd-gpanel');
+    if (box.previousElementSibling !== home) home.parentNode.insertBefore(box, home.nextSibling);   /* 先放回原位；需要時再搬進第 ⑤ 步 */
+    $('nd-guide').checked = S.g.on;
+    pan.classList.toggle('hidden', !gOn);
+    $('nd-run').classList.toggle('hidden', gOn);   /* 引導模式由各步驟的按鈕下，不用整張表一次執行 */
+    if (!gOn) { pan.innerHTML = ''; return; }
+    var g = S.g, st = gStep(), rs = gRows(b), io = (S.linked && !S.busy) ? '' : ' disabled';
+    var ref = function (idx) {   /* 表列號（1 起算）；連號合成 a–z，例 #1、#2–4；傳陣列的陣列＝每組分開標（讀取列與 debug 列不合併） */
+      var groups = Array.isArray(idx[0]) ? idx : [idx], out = [];
+      groups.forEach(function (gi) {
+        if (!gi.length) return;
+        var n = gi.map(function (i) { return i + 1; }).sort(function (x, y) { return x - y; }), a = n[0], z = n[0];
+        for (var k = 1; k <= n.length; k++) { if (k < n.length && n[k] === z + 1) { z = n[k]; continue; } out.push(a === z ? String(a) : a + '–' + z); if (k < n.length) { a = z = n[k]; } }
+      });
+      if (!out.length) return '';
+      return ' <span class="nd-gref">' + esc(tt('nd.gRows', { a: out.join(li() === 1 ? ', #' : '、#') })) + '</span>';
+    };
+    var cls = function (n) { return 'nd-gst ' + (st > n ? 'done' : (st === n ? 'cur' : 'wait')); };
+    var mark = function (n) { return st > n ? ' ✓' : ''; };
+    var btn = function (act, label, opt) { return '<button class="sbtn sm' + (opt === 'pri' ? ' pri' : '') + '" data-g="' + act + '"' + (opt === 'free' ? '' : io) + '>' + esc(label) + '</button>'; };
+    var res = function (txt, c) { return '<span class="nd-gres ' + c + '">' + esc(txt) + '</span>'; };
+    var hx = function (v) { return '0x' + hex(v, 2); };
+    var h = '';
+    /* ① */
+    h += '<div class="' + cls(1) + '" data-gs="1"><h5>' + esc(tt('nd.g1T')) + mark(1) + ref(rs.r) + '</h5><p>' + esc(tt('nd.g1P')) + '</p><div class="nd-grow">' + btn('read', tt('nd.gRead'), st === 1 ? 'pri' : '') +
+      (g.r0 != null ? res(hx(g.r0) + ' ' + tt(g.r0 ? 'nd.burned' : 'nd.notBurned'), g.r0 ? 'ng' : 'ok') : '') + '</div></div>';
+    /* ② */
+    h += '<div class="' + cls(2) + '" data-gs="2"><h5>' + esc(tt('nd.g2T')) + mark(2) + ref(rs.dbg) + '</h5><p>' + tt('nd.g2P', { p: esc(pinText(b.gpios[0])) }) + '</p><div class="nd-grow">' + btn('dbg', tt('nd.gWrite'), st === 2 ? 'pri' : '') + '</div></div>';
+    /* ③ */
+    h += '<div class="' + cls(3) + '" data-gs="3"><h5>' + esc(tt('nd.g3T')) + mark(3) + ref(rs.cal) + '</h5><p>' + tt('nd.g3P', { v: hx(S.code) }) + '</p><div class="nd-grow">' + btn('cal', tt('nd.gWrite'), st === 3 ? 'pri' : '') + '</div></div>';
+    /* ④ */
+    var l = g.rounds[g.rounds.length - 1], s4 = '';
+    if (l) {
+      var d = (l.f - G_TARGET) / G_TARGET * 100;
+      s4 += '<div class="nd-grow">' + res('#' + l.n + '　' + hx(l.code) + ' → ' + l.f + ' MHz（' + gDevTxt(l.f) + '）' + (l.ok ? tt('nd.gPass') : tt(d > 0 ? 'nd.gHigh' : 'nd.gLow')), l.ok ? 'ok' : 'ng') + '</div>';
+      var sg = g.sug;
+      if (!l.ok && sg) {
+        if (/^(probe|interp|slope)$/.test(sg.why)) {
+          var wrote = g.wcode === S.code && l.code !== g.wcode;
+          s4 += '<div class="nd-grow">' + (wrote ? res(tt('nd.gWrote', { v: hx(S.code) }), 'mid') : res(tt('nd.gNext', { v: hx(S.code) }) + (sg.why === 'probe' ? tt('nd.gProbe') : ''), 'mid') + ' ' + btn('cal', tt('nd.gNextBtn', { v: hx(S.code) }), 'pri')) + '</div>';
+        } else if (sg.why === 'flat') s4 += '<div class="nd-grow">' + res(tt('nd.gFlat'), 'ng') + '</div>';
+        else s4 += '<div class="nd-grow">' + res(tt(sg.why === 'edge' ? 'nd.gEdge' : 'nd.gBest', { v: hx(sg.code), t: G_TARGET }), 'ng') + '</div>';
+      }
+      if (sg && sg.dir) s4 += '<div class="nd-grow" style="font-size:12px;color:var(--sub)">' + esc(tt(sg.dir > 0 ? 'nd.gDirUp' : 'nd.gDirDn')) + '</div>';
+      s4 += '<table class="nd-gtbl"><thead><tr><th>' + esc(tt('nd.gThN')) + '</th><th>' + esc(tt('nd.gThCode')) + '</th><th>' + esc(tt('nd.gThF')) + '</th><th>' + esc(tt('nd.gThDev')) + '</th><th>' + esc(tt('nd.gThRes')) + '</th></tr></thead><tbody>' +
+        g.rounds.map(function (r) { return '<tr><td>' + r.n + '</td><td class="nd-mono">' + hx(r.code) + '</td><td class="nd-mono">' + r.f + '</td><td class="nd-mono">' + gDevTxt(r.f) + '</td><td>' + res(r.ok ? tt('nd.gPass') : tt(r.f > G_TARGET ? 'nd.gHigh' : 'nd.gLow'), r.ok ? 'ok' : 'ng') + '</td></tr>'; }).join('') + '</tbody></table>';
+    }
+    h += '<div class="' + cls(4) + '" data-gs="4"><h5>' + esc(tt('nd.g4T')) + mark(4) + '</h5><p>' + esc(tt('nd.g4P', { t: G_TARGET })) + '</p>' +
+      '<div class="nd-grow"><input class="nd-in nd-gin" id="nd-gf" inputmode="decimal" placeholder="' + G_TARGET.toFixed(2) + '" value="' + esc(g.fin) + '" aria-label="MHz"> MHz ' + btn('meas', tt('nd.gOkBtn'), 'free') +
+      '<span style="margin-left:8px">' + esc(tt('nd.gTol')) + '<input class="nd-in" id="nd-gtol" inputmode="decimal" value="' + esc(g.tol) + '" style="width:48px" aria-label="%"> %</span></div>' +
+      '<div class="nd-grow" style="font-size:12px;color:var(--sub)">' + esc(tt('nd.gTolNote')) + '</div>' + s4 + '</div>';
+    /* ⑤ */
+    var s5;
+    if (g.burned) s5 = '<div class="nd-grow">' + res(tt('nd.g5Done') + '　' + hx(g.bcode), 'ok') + '</div>';
+    else if (S.r20d0 != null && S.r20d0 !== 0) s5 = '<p>' + esc(tt('nd.g5Skip')) + '</p>';
+    else if (!gCanBurn()) s5 = '<p>' + esc(tt('nd.g5Wait')) + '</p>';
+    else s5 = '<p>' + tt('nd.g5P', { v: hx(S.code) }) + '</p><div id="nd-g5slot"></div><div class="nd-grow">' + (S.burnOk() ? btn('burn', tt('nd.g5Btn'), 'pri') : '<button class="sbtn sm" disabled>' + esc(tt('nd.g5Btn')) + '</button> ' + res(tt('nd.g5Need'), 'mid')) + '</div>';
+    h += '<div class="' + cls(5) + '" data-gs="5"><h5>' + esc(tt('nd.g5T')) + mark(5) + ref(rs.burn) + '</h5>' + s5 + '</div>';
+    /* ⑥ */
+    var s6 = '<p>' + esc(tt('nd.g6P')) + '</p>';
+    if (g.burned) {
+      s6 += '<div class="nd-grow">' + btn('pdbg', tt('nd.gWrite'), st === 6 && !g.p2 ? 'pri' : '') + (g.p2 ? res('✓', 'ok') : '') + '</div>' +
+        '<div class="nd-grow"><input class="nd-in nd-gin" id="nd-gpf" inputmode="decimal" placeholder="' + G_TARGET.toFixed(2) + '" value="' + esc(g.pfin) + '" aria-label="MHz"> MHz ' + btn('pmeas', tt('nd.gOkBtn'), 'free') +
+        (g.pf != null ? ' ' + res(g.pf + ' MHz（' + gDevTxt(g.pf) + '）' + (g.pok ? tt('nd.gPass') : tt(g.pf > G_TARGET ? 'nd.gHigh' : 'nd.gLow')), g.pok ? 'ok' : 'ng') : '') + '</div>' +
+        '<div class="nd-grow">' + btn('pread', tt('nd.gRead') + ' 0x20D0', st === 6 && g.pf != null ? 'pri' : '') + (g.pr != null ? ' ' + res(hx(g.pr) + ' ' + tt(g.pr ? 'nd.g6Done' : 'nd.g6Not'), g.pr ? 'ok' : 'ng') : '') + '</div>';
+    }
+    h += '<div class="' + cls(6) + '" data-gs="6"><h5>' + esc(tt('nd.g6T')) + mark(6) + (g.burned ? ref([rs.r, rs.dbg]) : '') + '</h5>' + s6 + '</div>';
+    h += '<div class="nd-gst"><div class="nd-grow">' + btn('copy', tt('nd.gCopy'), 'free') + btn('reset', tt('nd.gReset'), 'free') + '</div></div>';
+    pan.innerHTML = h;
+    var slot = $('nd-g5slot'); if (slot) slot.appendChild(box);
+  }
+
   /* ── 事件 ── */
   function onIc() {
     fillItems(); fillGpio(false); S.rb = {};
@@ -691,6 +1097,11 @@ var NBD_GPIO = {"E503":{"model":"RM8100x_for_FAE_20240925_20250311.model","tcon"
   $('nd-link').addEventListener('click', connect);
   $('nd-run').addEventListener('click', runAll);
   $('nd-undo').addEventListener('click', undo);
+  $('nd-guide').addEventListener('change', function () { S.g.on = $('nd-guide').checked; render(); });
+  $('nd-gpanel').addEventListener('click', function (e) { var bt = e.target.closest('button[data-g]'); if (bt && !bt.disabled) gAct(bt.getAttribute('data-g')); });
+  $('nd-gpanel').addEventListener('input', function (e) { var id = e.target.id; if (id === 'nd-gf') S.g.fin = e.target.value; else if (id === 'nd-gpf') S.g.pfin = e.target.value; else if (id === 'nd-gtol') S.g.tol = e.target.value; });
+  $('nd-gpanel').addEventListener('change', function (e) { if (e.target.id === 'nd-gtol') { gJudgeLast(); render(); } });
+  $('nd-gpanel').addEventListener('keydown', function (e) { if (e.key !== 'Enter') return; if (e.target.id === 'nd-gf') gMeas(); else if (e.target.id === 'nd-gpf') gPMeas(); });
   ['nd-burn', 'nd-burn1', 'nd-burn2'].forEach(function (id) { $(id).addEventListener('change', function () { if (id === 'nd-burn' && !$('nd-burn').checked) { $('nd-burn1').checked = false; $('nd-burn2').checked = false; } S.rb = {}; render(); }); });
   $('nd-tbl').addEventListener('click', function (e) {
     var t0 = e.target.closest('button'); if (!t0) return;
@@ -713,7 +1124,7 @@ var NBD_GPIO = {"E503":{"model":"RM8100x_for_FAE_20240925_20250311.model","tcon"
   fillIc(); fillItems(); fillGpio(false);
   render();
   /* 測試／除錯入口（不在畫面上） */
-  window.NBD = { build: build, xlsxRows: xlsxRows, scriptText: scriptText, fname: fname, items: ITEMS, itemsFor: itemsFor, allItems: allItems, defPin: defPin, defPins: defPins, groups: NBD_GROUPS, XLSX_HEADER: XLSX_HEADER, S: S, render: render };
+  window.NBD = { build: build, xlsxRows: xlsxRows, scriptText: scriptText, fname: fname, items: ITEMS, itemsFor: itemsFor, allItems: allItems, defPin: defPin, defPins: defPins, groups: NBD_GROUPS, XLSX_HEADER: XLSX_HEADER, S: S, render: render, guideSuggest: guideSuggest, gStep: gStep, gLogText: gLogText };
 })();
 </script>
 </body>

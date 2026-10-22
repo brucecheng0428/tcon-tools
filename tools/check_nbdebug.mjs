@@ -18,6 +18,13 @@
      N  v1.0.1：頁面三語文字、tooltip、原始碼都不可有人名／信件出處（tools/name-guard.mjs 雜湊名單）。
         v1.1.3（Bruce 2026-10-23）：頁面三語文字、tooltip、說明、匯出檔都不可有驗證等級／來源標籤（tools/check_no_verif_labels.mjs 字樣）。
      U  點擊數：開頁 → 3 個下拉＋1 個按鈕到下載；預設組合 1 個按鈕；375 與桌機各一次，截圖。
+     K  v1.2.0 KOSC 一步一步引導（Bruce 2026-10-23）：
+        K0 建議值演算法 guideSuggest 矩陣（從 nbdebug.html 抽出純函式，用 OSC 模型代替示波器）：線性／二次／指數 × 斜率正負 ×
+           中心點（含非整數）× 容許範圍 × 起始值，另加量測雜訊；可達（某個 code 落在容許範圍）⇒ 一定收斂成合格；
+           不可達 ⇒ 目標在 0x00～0x7F 範圍內停在 best、範圍外停在 edge；不重複建議、bit7 一定 1、輪數上限。
+        K1 模擬 I2C 走完整流程：① 讀 20D0 → ② Debug OSC → ③ 寫 AA → ④ 填頻率（假 OSC 模型，含一次超過目標）→ 建議值預填 →
+           寫入 → 再量 … 合格 → ⑤ 燒錄（合格前沒有燒錄框、三格沒勾按鈕停用、燒前再讀 20D0）→ ⑥ 上下電後只下 ② → 量 → 20D0 非 0。
+           每步高亮的表列、記憶體寫入值、每輪紀錄表、三語文字（無 key、無等級字樣）；已燒過的板子合格後不出現燒錄。
    退出碼：0 通過／1 有失敗／2 跑不起來
    ═══════════════════════════════════════════════════════════════════════ */
 import { createServer } from 'node:http';
@@ -199,6 +206,37 @@ async function runEngine(name, browserType, opts, viewport, full) {
     }
   }
   check(`${tag} M 矩陣 ${okc}/${combos} 組合相符`, okc === combos);
+  /* H（v1.2.0）：每一列都有說明（做什麼／判斷／下一步），四顆 IC × 常用項目 × 三語；KOSC 表下有「偏高／偏低怎麼調」，其他項目沒有 */
+  {
+    const miss = []; let nrow = 0;
+    for (const lg of ['zh-TW', 'en', 'zh-CN']) {
+      await page.selectOption('#lang-select', lg);
+      for (const ic of ICS) for (const it of itemsFor(ic)) {
+        await sel(page, 'nd-icsel', ic); await sel(page, 'nd-item', it);
+        const r = await page.$$eval('#nd-tbl tbody tr', trs => trs.map(t => { const d = t.querySelector('td.ds'); return d ? d.querySelectorAll('.dk').length : 0; }));
+        nrow += r.length; r.forEach((k, i) => { if (k < 3) miss.push(`${lg}/${ic}/${it}#${i + 1}:${k}`); });
+        const kt = await page.$eval('#nd-ktrim', e => !e.classList.contains('hidden') && e.innerText.length > 50);
+        if (kt !== (it === 'kosc')) miss.push(`${lg}/${ic}/${it} ktrim=${kt}`);
+      }
+    }
+    check(`${tag} H 每一列都有三段說明（三語共 ${nrow} 列）、只有 KOSC 有調法說明`, miss.length === 0 && nrow > 0, miss.slice(0, 8).join(' '));
+    await page.selectOption('#lang-select', 'zh-TW');
+    await sel(page, 'nd-icsel', 'EN01'); await sel(page, 'nd-item', 'kosc');
+    const ds = await page.$$eval('#nd-tbl tbody tr', trs => trs.map(t => t.querySelector('td.ds').innerText));
+    check(`${tag} H KOSC 0x20D0 列寫明 0x00＝沒 trim、非 0＝已 trim、非 0 不要再燒`, /0x00＝沒 trim 過/.test(ds[0]) && /非 0＝已 trim 過/.test(ds[0]) && /不要再燒/.test(ds[0]), ds[0]);
+    const ci = ds.findIndex(t => /為什麼可以填/.test(t));
+    check(`${tag} H KOSC 7C 0x00（第 10 列）說明 0x80＋檔位、0xAA＝起始值、為什麼可填`, ci === 9 && /0x80/.test(ds[ci]) && /0xAA/.test(ds[ci]) && /檔位/.test(ds[ci]), ci + ' ' + ds[ci]);
+    check(`${tag} H KOSC 解鎖金鑰列寫明固定值、不能改`, ds.filter(t => /解鎖金鑰（固定值/.test(t) && /不能改/.test(t)).length === 2);
+    const kt = await page.$eval('#nd-ktrim', e => e.innerText);
+    check(`${tag} H 偏高／偏低調法：先試 +0x10、每一檔變多少、四捨五入、範例 0xB2，沒有 floor() 寫法`, /0x10/.test(kt) && /每一檔/.test(kt) && /四捨五入/.test(kt) && /0xB2/.test(kt) && !/floor|Math\.|round\(/.test(kt), kt.slice(0, 160));
+    /* 範例數字要跟引導模式算出來的一樣：0xAA→6.60、0xBA→6.92 ⇒ 下一個 0xB2 */
+    const nx = await page.evaluate(() => window.NBD.guideSuggest && window.NBD.guideSuggest([{ code: 0xAA, f: 6.60 }, { code: 0xBA, f: 6.92 }], 6.75, 1.5));
+    check(`${tag} H 調法範例＝引導模式算的值（0xB2）`, !!nx && nx.code === 0xB2 && nx.why === 'interp', JSON.stringify(nx));
+    /* E503 TX DE：0x008 列提醒平常要 0x01、量完還原 */
+    await sel(page, 'nd-icsel', 'E503'); await sel(page, 'nd-item', 'txde');
+    const d8 = await page.$$eval('#nd-tbl tbody tr', trs => trs.map(t => t.querySelector('td.ds').innerText).find(x => /MCU patch/.test(x)) || '');
+    check(`${tag} H E503 TX DE 的 0x008 列提醒平常要 0x01、量完還原`, /0x01/.test(d8) && /還原/.test(d8), d8);
+  }
   /* X：匯出（實際按鈕下載） */
   const XS = full ? [['E503', 'rxde', 'GPIO_ROM_WP'], ['E503', 'txde', 'GPIO_01'], ['E501B', 'osc', 'OPDIO_03'], ['EN01', 'rxde', 'GPIO_04'], ['EN01', 'kosc', 'GPIO_07'], ['E501A', 'bs', 'STV1_GPIO_13']] : [['E503', 'rxde', 'GPIO_ROM_WP'], ['EN01', 'kosc', 'GPIO_04']];
   for (const [ic, it, gid] of XS) {
@@ -278,6 +316,113 @@ async function runEngine(name, browserType, opts, viewport, full) {
     const wl = await p3.evaluate(() => window.__wlog);
     check(`${tag} I KOSC 燒錄是最後一筆`, JSON.stringify(wl[wl.length - 1]) === JSON.stringify([0x7C, 0x01, [0x01]]));
     await p3.close(); await p2.close();
+  }
+  /* K1：KOSC 一步一步引導（模擬 I2C＋假 OSC：f = 6.75·e^(0.03·(code[6:0]−71.3))，會有一次超過目標） */
+  {
+    const oscF = mem => +(6.75 * Math.exp(0.03 * (((mem['124:0'] ?? 0) & 0x7F) - 71.3))).toFixed(3);
+    const pk = await ctx.newPage(); await pk.addInitScript(FAKE); await pk.goto(URL0); await pk.waitForFunction(() => window.NBD);
+    pk.on('pageerror', e => errs.push('K1 ' + e));
+    await pk.evaluate(m => window.__setMem(Object.assign({ '62:8400': 0x00 }, m)), ID.EN01);
+    await pk.click('#nd-link'); await pk.waitForFunction(() => /EN01/.test(document.querySelector('#nd-ic').textContent));
+    await pk.selectOption('#nd-item', 'kosc');
+    check(`${tag} K1 KOSC 有「一步一步引導」開關、預設關`, await pk.$eval('#nd-gsw', e => !e.classList.contains('hidden')) && !(await pk.$eval('#nd-guide', e => e.checked)) && await pk.$eval('#nd-gpanel', e => e.classList.contains('hidden')));
+    await pk.selectOption('#nd-item', 'rxde');
+    check(`${tag} K1 非 KOSC 項目沒有引導開關`, await pk.$eval('#nd-gsw', e => e.classList.contains('hidden')));
+    await pk.selectOption('#nd-item', 'kosc');
+    await pk.check('#nd-guide');
+    const gkeys = () => pk.$$eval('#nd-tbl tr.gcur', a => a.map(t => t.getAttribute('data-k')));
+    const curStep = () => pk.$eval('#nd-gpanel .nd-gst.cur', e => e.getAttribute('data-gs')).catch(() => null);
+    const clickG = async (g) => { await pk.click(`#nd-gpanel button[data-g="${g}"]`); await pk.waitForFunction(() => !window.NBD.S.busy); };
+    check(`${tag} K1 開引導 ⇒ 面板出現、I2C 執行鈕收起、燒錄框不出現`, await pk.$eval('#nd-gpanel', e => !e.classList.contains('hidden')) && await pk.$eval('#nd-run', e => e.classList.contains('hidden')) && await pk.$eval('#nd-burnbox', e => e.classList.contains('hidden')));
+    let gk = await gkeys();
+    check(`${tag} K1 ① 高亮表上 #1（讀 3E 0x20D0）`, (await curStep()) === '1' && gk.length === 1 && gk[0] === 'r:3E:20D0:7:0:', gk.join(','));
+    await clickG('read');
+    gk = await gkeys();
+    check(`${tag} K1 ① 讀到 0 ⇒ 沒燒過、進到 ②（高亮 TOP_DBG_SEL＋GPIO7 TX_EN／TX_IN_SEL 三列）`, /沒燒過/.test(await pk.$eval('#nd-gpanel', e => e.innerText)) && (await curStep()) === '2' && gk.join(',') === ['w:3E:0007:7:0:01', 'w:3E:004D:7:4:01', 'w:3E:005B:6:0:24'].join(','), gk.join(','));
+    check(`${tag} K1 ② 提示量 GPIO7`, /GPIO7/.test(await pk.$eval('#nd-gpanel .nd-gst[data-gs="2"]', e => e.innerText)));
+    await clickG('dbg');
+    let m = await pk.evaluate(() => window.__mem);
+    check(`${tag} K1 ② 寫入：0x007=01、0x04D[7:4]=1、0x05B[6:0]=24`, m['62:7'] === 1 && ((m['62:77'] >> 4) & 0xF) === 1 && (m['62:91'] & 0x7F) === 0x24, [m['62:7'], m['62:77'], m['62:91']].map(v => H(v ?? 0)).join(','));
+    gk = await gkeys();
+    check(`${tag} K1 ③ 高亮 0x0E4、7C 解鎖、select、7C 0x00 六列，7C 0x00 已填 AA`, (await curStep()) === '3' && gk.length === 6 && gk[5] === 'w:7C:0000:7:0:AA' && (await pk.$eval('#nd-code', e => e.value)) === 'AA', gk.join(','));
+    await clickG('cal');
+    m = await pk.evaluate(() => window.__mem);
+    check(`${tag} K1 ③ 寫入 7C 0x0F=80、0A=5A、0B=C3、01=00、00=AA；3E 0x0E4=83`, m['124:15'] === 0x80 && m['124:10'] === 0x5A && m['124:11'] === 0xC3 && m['124:1'] === 0 && m['124:0'] === 0xAA && m['62:228'] === 0x83);
+    /* ④ 來回校正 */
+    const seenHi = [], seenLo = [], codes = []; let passed = false, round = 0, prefillOk = true, noBurnBeforePass = true;
+    for (round = 1; round <= 10; round++) {
+      m = await pk.evaluate(() => window.__mem); const f = oscF(m); codes.push(m['124:0']);
+      if (f > 6.75 * 1.015) seenHi.push(f); else if (f < 6.75 * 0.985) seenLo.push(f);
+      await pk.fill('#nd-gf', String(f)); await pk.click('#nd-gpanel button[data-g="meas"]');
+      const st = await pk.evaluate(() => ({ step: window.NBD.gStep(), code: window.NBD.S.code, sug: window.NBD.S.g.sug }));
+      if (st.step === 5) { passed = true; break; }
+      if (!(await pk.$eval('#nd-burnbox', e => e.classList.contains('hidden'))) || await pk.$('#nd-gpanel button[data-g="burn"]')) noBurnBeforePass = false;
+      const shown = await pk.$eval('#nd-code', e => e.value);
+      if (shown !== H(st.code) || !(await pk.$(`#nd-gpanel button[data-g="cal"]`))) prefillOk = false;
+      await pk.click(`#nd-gpanel .nd-gst[data-gs="4"] button[data-g="cal"]`); await pk.waitForFunction(() => !window.NBD.S.busy);
+      m = await pk.evaluate(() => window.__mem);
+      if (m['124:0'] !== st.code) prefillOk = false;
+    }
+    check(`${tag} K1 ④ 來回校正收斂（${round} 輪：${codes.map(c => H(c)).join('→')}）`, passed && round <= 8, codes.map(c => H(c)).join(','));
+    check(`${tag} K1 ④ 過程有偏低也有超過目標（超出→建議值→合格）`, seenHi.length >= 1 && seenLo.length >= 1, `hi ${seenHi} lo ${seenLo}`);
+    check(`${tag} K1 ④ 每輪建議值預填到表上 7C 0x00、按寫入就是那個值`, prefillOk);
+    check(`${tag} K1 ④ 合格前沒有燒錄框、沒有燒錄鈕`, noBurnBeforePass);
+    const rt = await pk.$$eval('#nd-gpanel .nd-gtbl tbody tr', a => a.map(t => t.innerText));
+    check(`${tag} K1 ④ 每一輪都有紀錄（輪次、寫入值、量測值）`, rt.length === round && rt.every((t, i) => t.includes(String(i + 1)) && t.includes(H(codes[i]))), rt.join(' | '));
+    /* ⑤ 燒錄 */
+    check(`${tag} K1 ⑤ 合格後燒錄框搬進第 ⑤ 步、表上還沒有燒錄列、按鈕停用`, await pk.$eval('#nd-burnbox', e => !e.classList.contains('hidden') && !!e.closest('#nd-gpanel')) && !(await tableKeys(pk)).some(k => k.startsWith('burn')) && !(await pk.$('#nd-gpanel button[data-g="burn"]')));
+    check(`${tag} K1 ⑤ 寫明不可逆、不能重燒`, /不可逆/.test(await pk.$eval('#nd-gpanel .nd-gst[data-gs="5"]', e => e.innerText)) && /不能重燒/.test(await pk.$eval('#nd-gpanel .nd-gst[data-gs="5"]', e => e.innerText)));
+    await pk.check('#nd-burn'); await pk.check('#nd-burn1'); await pk.check('#nd-burn2');
+    gk = await gkeys();
+    check(`${tag} K1 ⑤ 三格勾了 ⇒ 表上出現燒錄列並高亮（含 20D0）`, gk.includes('burn:7C:0001:7:0:01') && gk.includes('r:3E:20D0:7:0:'), gk.join(','));
+    const wl0 = (await pk.evaluate(() => window.__wlog)).length;
+    await clickG('burn');
+    m = await pk.evaluate(() => window.__mem); const wl = await pk.evaluate(() => window.__wlog);
+    check(`${tag} K1 ⑤ 燒錄：只多寫 7C 0x01=01 一筆（M-Bus 導通除外）且是最後一筆、7C 0x00 留在合格值`, m['124:1'] === 1 && JSON.stringify(wl[wl.length - 1]) === JSON.stringify([0x7C, 0x01, [0x01]]) && wl.slice(wl0).filter(w => w[0] !== 0x7E).length === 1 && m['124:0'] === codes[codes.length - 1], H(m['124:0']) + ' ' + JSON.stringify(wl.slice(wl0)));
+    check(`${tag} K1 ⑤ 燒完燒錄框收起、進到 ⑥`, (await curStep()) === '6' && await pk.$eval('#nd-burnbox', e => e.classList.contains('hidden')));
+    /* ⑥ 重新上下電：暫存器回預設（模擬），只下 Debug OSC 三列、量頻、讀 20D0 */
+    await pk.evaluate(() => window.__setMem({ '62:7': 0, '62:77': 0, '62:91': 0, '62:8400': 0x03 }));
+    const wl1 = (await pk.evaluate(() => window.__wlog)).length;
+    await clickG('pdbg');
+    const wl2 = await pk.evaluate(() => window.__wlog);
+    const after = wl2.slice(wl1);
+    check(`${tag} K1 ⑥ 上下電後先下 M-Bus 導通（7E:AB←CD），再只下 3E 那三列、不寫 7C`, JSON.stringify(after[0]) === JSON.stringify([0x7E, 0xAB, [0xCD]]) && after.length === 4 && after.slice(1).every(w => w[0] === 0x3E), JSON.stringify(after));
+    await pk.fill('#nd-gpf', '6.76'); await pk.click('#nd-gpanel button[data-g="pmeas"]');
+    await clickG('pread');
+    check(`${tag} K1 ⑥ 量到 6.76 合格、0x20D0=03 ⇒ KOSC 完成`, /KOSC 完成/.test(await pk.$eval('#nd-gpanel', e => e.innerText)) && (await pk.evaluate(() => window.NBD.gStep())) === 7);
+    check(`${tag} K1 ⑥ 標出對應表列 #1、#2–4`, (await pk.$eval('#nd-gpanel .nd-gst[data-gs="6"] .nd-gref', e => e.textContent)) === '表 #1、#2–4');
+    const lt = await pk.evaluate(() => window.NBD.gLogText());
+    check(`${tag} K1 複製紀錄內容含每一輪、燒錄值、上下電後結果`, codes.every(c => lt.includes('0x' + H(c))) && /eFuse programmed/.test(lt) && /after power cycle: 6.76/.test(lt) && /0x20D0 \(after\) = 0x03/.test(lt), lt);
+    /* 三語：引導面板沒有未翻譯 key、沒有等級／來源字樣、沒有人名 */
+    let gt = '';
+    for (const lg of ['en', 'zh-CN', 'zh-TW']) {
+      await pk.selectOption('#lang-select', lg);
+      const t = await pk.$eval('#nd-gpanel', e => e.innerText + '\n' + [...e.querySelectorAll('[title],[placeholder]')].map(x => x.title + x.placeholder).join('\n'));
+      gt += t;
+      check(`${tag} K1 ${lg} 引導面板沒有未翻譯的 key`, !/\bnd\.[A-Za-z0-9]+/.test(t), (t.match(/\bnd\.[A-Za-z0-9]+/) || [''])[0]);
+    }
+    check(`${tag} K1 引導面板三語沒有驗證等級／來源字樣、沒有人名`, findVerifLabels(gt).length === 0 && findNames(gt).length === 0, findVerifLabels(gt).map(h => h.word).join(','));
+    if (SHOT) await pk.screenshot({ path: join(SHOT, `nbdebug_kosc_guide_${name}_${viewport.width}.png`), fullPage: true });
+    const ovk = await pk.evaluate(() => { const w = document.documentElement.clientWidth; return [...document.querySelectorAll('#nd-gpanel *')].filter(e => { const r = e.getBoundingClientRect(); return r.width && r.right > w + 1; }).map(e => e.tagName + '.' + e.className).slice(0, 5); });
+    check(`${tag} K1 引導面板不超出畫面寬`, ovk.length === 0, ovk.join(','));
+    await pk.close();
+
+    /* 已燒過的板子（20D0≠0）：照樣可量頻，合格後不出現燒錄 */
+    const pb = await ctx.newPage(); await pb.addInitScript(FAKE); await pb.goto(URL0); await pb.waitForFunction(() => window.NBD);
+    await pb.evaluate(m => window.__setMem(Object.assign({ '62:8400': 0x05 }, m)), ID.EN01);
+    await pb.click('#nd-link'); await pb.waitForFunction(() => /EN01/.test(document.querySelector('#nd-ic').textContent));
+    await pb.selectOption('#nd-item', 'kosc'); await pb.check('#nd-guide');
+    for (const g of ['read', 'dbg', 'cal']) { await pb.click(`#nd-gpanel button[data-g="${g}"]`); await pb.waitForFunction(() => !window.NBD.S.busy); }
+    await pb.fill('#nd-gf', '6.75'); await pb.click('#nd-gpanel button[data-g="meas"]');
+    const t5 = await pb.$eval('#nd-gpanel .nd-gst[data-gs="5"]', e => e.innerText);
+    check(`${tag} K1 已燒過（20D0=05）⇒ 合格後寫「不要再燒」、沒有燒錄鈕／燒錄框`, /不要再燒/.test(t5) && !(await pb.$('#nd-gpanel button[data-g="burn"]')) && await pb.$eval('#nd-burnbox', e => e.classList.contains('hidden')) && (await pb.evaluate(() => window.__mem['124:1'])) === 0, t5);
+    /* 合格後又改了 trim 值 ⇒ 燒錄框收起、勾選清掉 */
+    await pb.evaluate(() => window.__setMem({ '62:8400': 0 }));
+    await pb.click('#nd-gpanel button[data-g="read"]'); await pb.waitForFunction(() => !window.NBD.S.busy);
+    const can1 = await pb.$eval('#nd-burnbox', e => !e.classList.contains('hidden'));
+    await pb.check('#nd-burn'); await pb.fill('#nd-code', 'B0'); await pb.$eval('#nd-code', e => e.dispatchEvent(new Event('change')));
+    check(`${tag} K1 合格後改 trim 值 ⇒ 燒錄框收起、勾選清掉`, can1 && await pb.$eval('#nd-burnbox', e => e.classList.contains('hidden')) && !(await pb.$eval('#nd-burn', e => e.checked)));
+    await pb.close();
   }
   /* N：人名／信件出處（畫面三語＋說明展開＋tooltip＋原始碼） */
   {
@@ -430,6 +575,56 @@ if (MODEL_DIR) {
   }
   check(`D GPIO 表 ${ok}/${n} 支對回 .model 原文`, ok === n);
 } else console.log('（D 略過：沒給 NBD_MODEL_DIR）');
+
+/* K0：建議值演算法矩陣（純函式，從頁面原始碼抽出；用 OSC 模型代替示波器） */
+{
+  const src = readFileSync(join(REPO, 'nbdebug.html'), 'utf8');
+  const grab = n => { const i = src.indexOf('  function ' + n + '('); if (i < 0) return ''; let d = 0; const j = src.indexOf('{', i); for (let k = j; k < src.length; k++) { if (src[k] === '{') d++; else if (src[k] === '}') { d--; if (!d) return src.slice(i, k + 1); } } return ''; };
+  const consts = /var G_TARGET = [^;]*;/.exec(src);
+  check('K0 頁面有 guideSuggest／gDir／常數', !!(grab('guideSuggest') && grab('gDir') && consts));
+  const gs = new Function(consts[0] + grab('gDir') + grab('guideSuggest') + ';return guideSuggest;')();
+  const T = 6.75;
+  const run = (model, tol, start, noisy) => {
+    const rounds = [], seen = new Set(); let code = start;
+    for (let n = 1; n <= 16; n++) {
+      const f = +model(code & 0x7F).toFixed(3); rounds.push({ code, f }); seen.add(code & 0x7F);
+      const r = gs(rounds, T, tol);
+      if (r.ok) return { ok: true, n };
+      if (!/^(probe|interp|slope)$/.test(r.why)) return { ok: false, why: r.why, n };
+      if (!(r.code & 0x80) || r.code > 0xFF) return { ok: false, why: 'badcode', n };
+      if (seen.has(r.code & 0x7F)) return { ok: false, why: 'repeat', n };
+      code = r.code;
+    }
+    return { ok: false, why: 'max', n: 16 };
+  };
+  let tot = 0, bad = 0, maxN = 0; const tally = {}, ex = [];
+  const judge = (model, clean, tol, start, noisy, info) => {
+    let reach = false; for (let d = 0; d < 128; d++) if (Math.abs(+clean(d).toFixed(3) - T) <= T * tol / 100 + 1e-9) reach = true;
+    const inR = Math.min(clean(0), clean(127)) <= T && T <= Math.max(clean(0), clean(127));
+    const r = run(model, tol, start, noisy); tot++; tally[r.ok ? 'ok' : r.why] = (tally[r.ok ? 'ok' : r.why] || 0) + 1; if (r.n > maxN) maxN = r.n;
+    const good = noisy ? (r.ok || /^(edge|best|flat)$/.test(r.why)) : (reach ? r.ok : (!r.ok && r.why === (inR ? 'best' : 'edge')));
+    if (!good) { bad++; if (ex.length < 5) ex.push(JSON.stringify(Object.assign({ reach, inR }, info, r))); }
+  };
+  /* 線性＋二次（單調、全程為正） */
+  for (const sg of [1, -1]) for (const k0 of [0.001, 0.002, 0.004, 0.008, 0.015, 0.03]) for (const q of [0, 0.00003, -0.00003]) for (let c = -20.3; c <= 147; c += 1.37) for (const tol of [0.5, 1.5, 3]) for (const start of [0xAA, 0x80, 0xFF, 0xC0]) {
+    const k = sg * k0, m = d => T * (1 + (d - c) * k + q * (d - c) * (d - c));
+    let ok = true; for (let d = 0; d < 128; d++) { if (m(d) < 0.5) ok = false; if (d && Math.sign(m(d) - m(d - 1)) !== sg) ok = false; }
+    if (ok) judge(m, m, tol, start, false, { sg, k0, q, c, tol, start });
+  }
+  /* 指數（陡斜率）＋量測雜訊 ±0.2% */
+  let seed = 7; const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+  for (const sg of [1, -1]) for (const k0 of [0.005, 0.01, 0.02, 0.03, 0.05]) for (let c = -10.4; c <= 137; c += 0.93) for (const tol of [0.5, 1.5]) for (const nz of [0, 0.002]) {
+    const k = sg * k0, clean = d => T * Math.exp(k * (d - c)), m = d => clean(d) * (1 + (nz ? (rnd() - 0.5) * 2 * nz : 0));
+    judge(m, clean, tol, 0xAA, !!nz, { sg, k0, c, tol, nz });
+  }
+  check(`K0 建議值矩陣 ${tot} 組：可達一定合格、不可達停在 best／edge、不重複、bit7＝1（最多 ${maxN} 輪；${JSON.stringify(tally)}）`, bad === 0 && tot > 30000 && maxN <= 12, ex.join(' | '));
+  /* 個案：只量一點 ⇒ 先試 +0x10；0x7F 附近改 -0x10；同一個 code 頻率都一樣 ⇒ flat */
+  const one = gs([{ code: 0xAA, f: 6.0 }], T, 1.5), top = gs([{ code: 0xFA, f: 6.0 }], T, 1.5), flat = gs([{ code: 0xAA, f: 6.0 }, { code: 0xBA, f: 6.0 }], T, 1.5);
+  check('K0 第一點不合格 ⇒ 先試 +0x10（0xAA→0xBA）', one.why === 'probe' && one.code === 0xBA, JSON.stringify(one));
+  check('K0 第一點在 0x7A 以上 ⇒ 改試 -0x10', top.why === 'probe' && top.code === 0xEA, JSON.stringify(top));
+  check('K0 改了 code 頻率不變 ⇒ flat（不建議燒錄）', flat.why === 'flat' && !flat.ok, JSON.stringify(flat));
+  check('K0 剛好在容許邊界 ±1.5% 算合格', gs([{ code: 0xAA, f: +(T * 1.015).toFixed(6) }], T, 1.5).ok && !gs([{ code: 0xAA, f: +(T * 1.0151).toFixed(6) }], T, 1.5).ok);
+}
 
 try {
   await runEngine('chrome', chromium, { executablePath: CHROME, headless: true }, { width: 1280, height: 900 }, true);
