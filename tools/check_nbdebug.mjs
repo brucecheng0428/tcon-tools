@@ -7,7 +7,8 @@
      D  頁面內 GPIO 表（NBD_GPIO）逐支對回 .model 原文（TX_EN／TX_IN_SEL 位址、bit、行號）。
      M  矩陣：每個 IC × 每個項目 × 每支 GPIO，用畫面下拉切換後讀表格（tr[data-k]）與獨立寫的期望表比對：
         選擇暫存器、TX_EN（該支的位址與 bit）、TX_IN_SEL（該支的位址、位元範圍、值）、列數（無殘留）、
-        預設腳；v1.1.3 起畫面沒有驗證等級列（#nd-info／.nd-tag 不存在），量測提示在「說明」#nd-probe。桌機 1280 ×（Chrome、WebKit）、375 ×（WebKit）。
+        預設腳；v1.1.3 起畫面沒有驗證等級列（#nd-info／.nd-tag 不存在）；v1.1.4 起量測提示也不在「說明」（#nd-probe 不存在），
+        封裝腳名看 GPIO 下拉（EN01 20 支＝pin 號＋腳上名稱，腳名≠暫存器名的 4 支加註）。桌機 1280 ×（Chrome、WebKit）、375 ×（WebKit）。
      X  匯出：按「匯出 Excel／匯出 .script」實際下載，Excel 解壓讀 sheet1（表頭＝wfg.html 的 WFG_NB_XLSX_HEADER、
         每列 Slave／Offset-Bytes／Offset／值），.script 照 write -m 語法逐行解析後套到記憶體，與期望表逐 byte 比對；
         KOSC 預設不含燒錄列，勾三格才有，檔內有 IRREVERSIBLE。
@@ -187,11 +188,13 @@ async function runEngine(name, browserType, opts, viewport, full) {
         const noLv = await page.evaluate(() => !document.getElementById('nd-info') && !document.querySelector('.nd-tag'));
         const ok = JSON.stringify(got) === JSON.stringify(want) && noLv;
         if (ok) okc++; else check(`${tag} M ${ic}/${it}/${gid}`, false, JSON.stringify(got) + ' vs ' + JSON.stringify(want) + ' 等級列殘留 ' + !noLv);
-        /* 量測位置：查不到封裝腳就要有「待確認」 */
+        /* v1.1.4：量測提示不顯示（#nd-probe 不存在）；封裝腳名看下拉：查不到封裝腳就要有「待確認」 */
         const g = G[ic].gpios.find(x => x.id === gid);
-        const meas = await page.$eval('#nd-probe', e => e.textContent);
+        if (await page.$('#nd-probe')) check(`${tag} M ${ic}/${gid} 說明不可再有量測提示`, false, '#nd-probe');
+        const meas = await page.$eval('#nd-gpio', (s, v) => s.querySelector(`option[value="${v}"]`).textContent, gid);
         if (!g.pst && !/待確認/.test(meas)) check(`${tag} M ${ic}/${gid} 待確認標示`, false, meas);
         if (g.pst === 'ok' && !meas.includes(g.pkg)) check(`${tag} M ${ic}/${gid} 封裝腳名`, false, meas);
+        if (ic === 'EN01' && !(meas.startsWith(g.pin + ' ' + g.pkg) && meas.includes(gid) && /待確認|沒拉出/.test(meas) === false && (!!g.diff) === /腳上名稱和暫存器名不同/.test(meas))) check(`${tag} M EN01/${gid} 下拉＝pin＋腳名（暫存器名${g.diff ? '，加註不同' : ''}）`, false, meas);
       }
     }
   }
@@ -302,6 +305,20 @@ async function runEngine(name, browserType, opts, viewport, full) {
     }
     const vh = findVerifLabels(vt);
     check(`${tag} N 畫面三語／說明／tooltip／下拉沒有驗證等級或來源標籤`, vh.length === 0, vh.slice(0, 5).map(h => h.word + '…' + vt.slice(Math.max(0, h.at - 20), h.at + 20)).join(' | '));
+    {
+      let bad = [];
+      for (const lg of ['zh-TW', 'en', 'zh-CN']) {
+        await pn.selectOption('#lang-select', lg);
+        for (const ic of ICS) for (const it of itemsFor(ic)) {
+          await pn.selectOption('#nd-icsel', ic); await pn.selectOption('#nd-item', it);
+          await pn.evaluate(() => { document.getElementById('nd-helpbox').open = true; });
+          const t = await pn.evaluate(() => [document.getElementById('nd-help').innerText, !!document.getElementById('nd-probe')]);
+          const first = (t[0].split('\n').map(x => x.trim()).filter(Boolean)[1] || '');
+          if (t[1] || /^(量 |Probe )/.test(first) || /每行一個脈衝|one pulse per line|每行一个脉冲/.test(t[0])) bad.push(`${lg}/${ic}/${it}:${first.slice(0, 40)}`);
+        }
+      }
+      check(`${tag} N 說明三語 × 每個 IC × 每個項目都沒有量測提示行`, bad.length === 0, bad.slice(0, 4).join(' | '));
+    }
     const lvKeys = await pn.evaluate(() => Object.keys(I18N).filter(k => /^nd\.(lv|pkgInf)/.test(k)));
     check(`${tag} N 沒有等級標籤的 i18n key（nd.lv*／nd.pkgInf）`, lvKeys.length === 0, lvKeys.join(','));
 
@@ -385,6 +402,16 @@ async function runEngine(name, browserType, opts, viewport, full) {
   check(`${tag} 工具頁沒有 page-credit（與其他工具頁一致，只有首頁與說明頁有）`, await p4.evaluate(() => !document.querySelector('.page-credit') && !/Designed by/.test(document.body.innerText)));
   check(`${tag} 無 JS 錯誤`, errs.length === 0, errs.join(' | '));
   await br.close();
+}
+
+/* P：v1.1.4 EN01 封裝腳對照（原廠 pin 腳分配表 EN01A1 Q5_QFN60_3.5x9 獨立抄一份）＋說明三語沒有量測提示 */
+{
+  const s = readFileSync(join(REPO, 'nbdebug.html'), 'utf8'); const G = JSON.parse(/var NBD_GPIO = (\{.*\});/.exec(s)[1]);
+  const PIN = { GPIO_COLOR_EN: [1, 'CM_EN'], GPIO_04: [2, 'SOLC / GPIO6', 1], HPD: [11, 'HPD'], ROM_SPI_WP: [19, 'ROM_WP / SPI_WP'], GPIO_07: [23, 'GPIO7'], GPIO_08: [24, 'GPIO8'], GPIO_09: [25, 'GPIO9 / ENBKL'], GPIO_10: [26, 'GPIO10 / PWMO'], ENBKLT: [29, 'ENBKLT / CSCL'], PWMO: [30, 'PWMO / CSDA'], TP: [31, 'SDLOCK', 1], POL: [32, 'XSTB', 1], GPIO_STV: [53, 'STV'], GPIO_CPV: [54, 'CPV'], GPIO_OE: [55, 'OE'], GPIO_00: [56, 'GPIO0'], GPIO_01: [57, 'GPIO1'], GPIO_02: [58, 'SDLOCK', 1], GPIO_03: [59, 'GPIO3'], GPIO_DBC_EN: [60, 'CABC_EN'] };
+  const gs = G.EN01.gpios; let ok = 0;
+  for (const g of gs) { const e = PIN[g.id]; if (e && g.pin === 'pin ' + e[0] && g.pkg === e[1] && g.pst === 'ok' && !!g.diff === !!e[2]) ok++; else check(`P EN01 ${g.id} 封裝腳`, false, JSON.stringify(g)); }
+  check(`P EN01 封裝腳 ${ok}/20 支與原廠 pin 腳分配表一致（含 GPIO_02＝pin 58 SDLOCK；腳名≠暫存器名 4 支）`, ok === 20 && gs.length === 20);
+  check('P 沒有 nd.meas／nd.meas2／nd.pkgNo、沒有 #nd-probe', !/'nd\.meas2?'|'nd\.pkgNo'|nd-probe/.test(s));
 }
 
 /* D：GPIO 表對回 .model 原文 */

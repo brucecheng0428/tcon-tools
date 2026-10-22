@@ -2,6 +2,27 @@
 
 ---
 
+## NB TCON Debug應用 (nbdebug) v1.1.4 — 2026-10-23 ｜ PATCH ｜ EN01 封裝腳名照原廠 pin 腳分配表更正；「說明」拿掉量測提示行
+
+判定依據：`docs/VERSIONING.md` §1「只是內部改善 → PATCH」。改的是 GPIO 下拉與「說明」的文字；暫存器序列、Excel 列與 .script 指令不變（.script 檔頭版號照常變成 v1.1.4）⇒ PATCH，不帶 ⚠ 輸出變更。
+
+### 需求（Bruce 2026-10-23）
+- 「發現問題就要去更正。」追加：照 EN01 pin 腳分配表更新 debug 網頁的 EN01 封裝腳名。
+- 「我說過那一列都要移除，所以不用移到說明」：v1.1.3 移到「說明」第一行的量測提示（例「量 WP · pin 17／19：每行一個脈衝」）整行拿掉，不搬到別處。
+
+### 做法
+1. EN01 GPIO 表（`NBD_GPIO.EN01`）20 支全部照原廠 pin 腳分配表（EN01A1，QFN60 3.5x9 封裝）填封裝 pin 號與腳上名稱，下拉顯示「pin 號 腳上名稱（暫存器名）」；拿掉「封裝腳位待確認」。
+2. 更正 GPIO_02：是 **pin 58（腳上印 SDLOCK）**，不是「Q5 封裝沒拉出」；`nd.pkgNo` 字串移除。
+3. 腳上名稱與暫存器名不同的 4 支加註「腳上名稱和暫存器名不同」（三語）：pin 2 SOLC／GPIO6 ↔ GPIO_04、pin 31 SDLOCK ↔ TP、pin 32 XSTB ↔ POL、pin 58 SDLOCK ↔ GPIO_02。「說明」的 GPIO 位址行也帶 pin 號＋腳名＋加註。
+4. 「說明」第一行量測提示（`#nd-probe`）拿掉，`nd.meas`／`nd.meas2` 移除；量測提示不在畫面任何地方顯示。
+5. 全站盤點：dg-selftest、i2c、datamap、KOSC 相關頁沒有 EN01 封裝腳名或待確認標示，不用改。
+
+### 測試
+- `tools/check_nbdebug.mjs`：新增 P 項（EN01 20 支與獨立抄寫的 pin 腳分配表逐支比對、沒有 `nd.meas*`／`nd.pkgNo`／`#nd-probe`）；M 矩陣的封裝腳檢查改讀 GPIO 下拉（EN01 每支＝pin＋腳名＋暫存器名，4 支有加註）；N 項新增「說明」三語 × 每個 IC × 每個項目都沒有量測提示行。
+- 版號：common/version.js nbdebug v1.1.4；nbdebug.html／index.html 的 version.js、i18n.js `?v=20261023nd114`。
+
+---
+
 ## NB TCON Debug應用 (nbdebug) v1.1.3 — 2026-10-23 ｜ PATCH ｜ 對外頁面不顯示驗證等級／來源（同一次：dgself v2.9.1，見下一條）
 
 判定依據：`docs/VERSIONING.md` §1「只是內部改善 → PATCH」。拿掉的是說明性標籤，選 IC／項目／GPIO、I2C 執行、還原、匯出的操作與輸出不變（暫存器序列、Excel 列與 .script 指令不變；.script 檔頭版號照常變成 v1.1.3）⇒ PATCH，不帶 ⚠ 輸出變更。
