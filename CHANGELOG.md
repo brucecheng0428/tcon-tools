@@ -2,6 +2,56 @@
 
 ---
 
+## NB TCON Debug應用 (nbdebug) v1.0.1 — 2026-10-22 ｜ PATCH ｜ 拿掉人名、EN01（RM81008）認不出、認不出時可手選
+
+判定依據：`docs/VERSIONING.md` R1（修 bug、文字修正；操作流程不變 ⇒ PATCH）。⚠ 輸出變更：畫面上驗證等級標籤與說明文字改寫；暫存器值、匯出檔內容不變。
+
+### 需求（Bruce 2026-10-22，經 Dispatch，派工 238929121141362688）
+- 網頁不可出現同事名字（v1.0.0 的驗證標籤與說明寫了人名與信件出處）。
+- 「為什麼你的 debug 網頁我 I2C打開以後，會有認不出 T-CON 的狀況？我 T-CON 明明是用 81008，怎麼會認不出來？」
+- 「認Tcon的方式全部都一樣啊，你管他是哪個分頁、哪個網頁？」
+
+### 內容
+1. 人名與信件出處全部拿掉（標籤、tooltip、說明、原始碼註解）。驗證等級改成「實測驗證／原廠腳本／推論，未實測」；來源改成「實測設定（2026-10）」「原廠腳本」「原廠 debug 文件」「原廠設定」。
+2. 認不出 RM81008 的原因（讀碼）：v1.0.0 只有在「7C:0x98＝0 且 7D:0x007D 在 E503 表內」時才讀 EN01 的 ID（3E:0x207E）；EN01 的 DP RX 在 3E:20xx、7D 可能不回，原廠程式預期 EN01 的 7C:0x95 是 0x20–0x24（不在 E501 表）——這幾種情況都在讀 207E 之前就判「認不出」。改成呼叫全站共用的 `TconDetect.detect`（common/tcon-detect.js）：E501 表沒命中就先讀 3E:207E，10／11 ⇒ EN01 A1／A2。
+3. 認不出時不擋：狀態列顯示讀到的原始值（7C:95、7C:98、7D:007D、3E:207E、各 slave 的 0xFF00），IC 改用畫面上選的型號執行（標示「手動選」）；認到了卻選別顆仍擋下並請改回。
+4. 本頁的辨認程式刪除（不再自己讀 7C／7D／3E）。
+
+### 測試（tools/check_nbdebug.mjs）
+新增 T（EN01 五種讀法都認得、認不出顯示原始值並可照選的 IC 執行、認到 EN01 選 E503 擋下）與 N（三語畫面＋說明＋tooltip＋原始碼沒有人名）。
+
+## I2C (i2c) v1.34.3 — 2026-10-22 ｜ PATCH
+
+判定依據：VERSIONING.md R1（修 bug：EN01 認不出；操作流程不變 ⇒ PATCH）。⚠ 輸出變更：Check T-CON 對 V007SX／V512S1／VM02S1 會報出型號（以前報認不出）。
+
+Check T-CON 改呼叫全站共用的 `TconDetect.detect`（common/tcon-detect.js），本頁的 I2CT_CK_* ID 表與辨認函式刪除；EN01 在 7C／7D 讀不到或不在表內時也認得。B 段改用完整 CheckICID 表。細節見下方「全站」說明。
+
+## Data Mapping (datamap) v1.37.1 — 2026-10-22 ｜ PATCH
+
+判定依據：VERSIONING.md R1（修 bug＋文字修正；操作流程不變 ⇒ PATCH）。
+
+Check T-CON 改呼叫 `TconDetect.detect`；畫面文字拿掉人名（6 處＋datamap-auto.js、datamap-lod.js 各 1 處）。⚠ 輸出變更：只有說明文字，資料與匯出不變。
+
+## TCON 自檢畫面量測 (dgself) v2.8.1 — 2026-10-22 ｜ PATCH
+
+判定依據：VERSIONING.md R1（內部重構改用共用辨認，行為不變 ⇒ PATCH）。
+
+0xFF00 ID 比對與 slave 掃描改呼叫 `TconDetect.matchIcId`／`scanIcId`（同一份 CheckICID 表）；DST_ICS 刪 id 欄。行為不變。
+
+### 全站：T-CON 辨認合併成 common/tcon-detect.js（上面三條的共同說明）
+
+判定依據：R1（辨認結果與流程不變，只修 EN01 在 7C／7D 讀不到或不在表內時認不出；ID 表數值一個都沒改）。
+
+- 新增 `common/tcon-detect.js`（TconDetect）：A 段（7C:95／98、7D:007D、DAZ613x）、SY 表（EN01 3E:207E、E501B 7D:007F、E501A 7D:001E）、B 段（0xFF00 CheckICID 表與 slave 順序）、M-Bus→C-Bus、合併規則（兩段衝突兩個都列）全部集中，出處行號逐條沿用。
+- i2c.html：刪掉 I2CT_CK_* ID 表、i2ctCkRomSeq／i2ctCkScanIcId／SY 函式，Check T-CON 改呼叫 TconDetect.detect；EN01 版本讀取改呼叫 TconDetect.readEn01Ver。B 段改用完整的 CheckICID 表（多認得 V007SX／V512S1／VM02S1，與 dg-selftest 同一份）。
+- datamap.html：checkTcon 改呼叫 TconDetect.detect；datamap-core.js 刪 MODELS.icId 與 modelByIcId。
+- dg-selftest.html：DST_ICS 刪 id 欄，比對改 TconDetect.matchIcId（用 key 對回本頁序列表）；slave 掃描改 TconDetect.scanIcId。
+- common/i2c-spiflash.js：E501 確認與 EN01 版本讀取改用 TconDetect.REG／e501ByRom／en01VerText。
+- datamap 畫面文字拿掉人名（「待某某確認」改「待原廠 RD 確認」等 6 處）；datamap-auto.js、datamap-lod.js 各 1 處。
+- 新檢查（Pages 發佈前）：`tools/check_tcon_detect_single.mjs`（頁面自己寫辨認或 ID 表就擋）、`tools/check_no_names.mjs`（對外頁面不可有人名／信件出處；雜湊名單 `tools/name-guard.json`，產生器 `tools/name_guard_gen.py`）。CLAUDE.md 加兩條規則。
+
+---
+
 ## NB TCON Debug應用 (nbdebug) v1.0.0 — 2026-10-22 ｜ MINOR ｜ 新分頁
 
 **全新分頁 `nbdebug.html`：NB T-CON（E503／E501A／E501B／EN01）把內部 debug 訊號拉到 GPIO 量測。選 IC、項目、輸出 GPIO 三個下拉 → 一張暫存器表 → I2C 執行（逐列寫入＋讀回比對、還原）或匯出 Excel／.script。** 初版。
@@ -9,16 +59,16 @@
 判定依據：`docs/VERSIONING.md` §2 案例 12（新增一個獨立的新分頁工具 ⇒ 該分頁 v1.0.0、首頁 `app` 進 MINOR）。`tools/version_bump_check.py` 對新工具不判級別，這裡標 MINOR 只是照 §1 判定表「新增獨立功能」那一格。
 
 ### 需求（Bruce 2026-10-22 原話）
-- 「同事F剛剛寄出E503要拉出RX DE與TX DE的mail，這是有驗證過的方式，要與你搜集的資料比對，如果有差異要以同事F的這份mail為主，然後現在可以開始製作網頁了，我要在tcon tools專案裡看到，標題是NB TCON Debug應用」
+- （需求：E503 拉出 RX DE／TX DE 以實測過的設定為準，與蒐集的資料有差異時以實測設定為主；在 tcon tools 專案做網頁，標題「NB TCON Debug應用」。原話含同事姓名，依 v1.0.1 規則不寫入公開檔）
 - 「所有的 debug 我不要只限定在某一 pin 輸出，都要有下拉選單，可以從不同的 GPIO pin 輸出。」
 - 「網頁版的還需要可以有 I2C 即時操作，或者是匯出 NB 版的 Script，可以選擇 Excel 或是 Script 檔案。」
 - 「步驟要越簡單越好，說明要越少越好。就跟之前的 DG網頁或者是 DataMap 網頁的目標是一樣的，簡單明瞭、易操作。」
 - 派工 238904982972174336（Dispatch 補充：KOSC 引導頁整合、驗證等級標籤、375px）。
 
 ### 內容
-1. 項目：RX DE、TX DE（同事F 2026-10-22 信，E503 WP pin 實測）、TX DE（RT6_DE，同事H 2026-10-02）、OSC ÷8、KOSC trim（EN01，同事K 2026-10-21 兩支腳本）、PLL lock Lane0／Lane1（同事H 2026-01-13；E501 不提供 Lane0：E501 的 TX_IN_SEL 27h 是 BS）、RX link clock ÷8、BS、BE（E503 debug 介紹 p8）、Core state[3]。
+1. 項目：RX DE、TX DE（實測設定 2026-10，E503 WP pin）、TX DE（RT6_DE，原廠設定 2026-10）、OSC ÷8、KOSC trim（EN01，原廠腳本 2026-10 兩支）、PLL lock Lane0／Lane1（原廠設定 2026-01；E501 不提供 Lane0：E501 的 TX_IN_SEL 27h 是 BS）、RX link clock ÷8、BS、BE（E503 debug 介紹 p8）、Core state[3]。
 2. 輸出 GPIO 下拉：.model 裡同一父節點同時有 *_TX_EN 與 *_TX_IN_SEL 的全部列出（E503 17 支、E501A／E501B 各 23 支、EN01 20 支，位址／bit／行號由程式從 .model 抽出）；來源用的腳是預設（★）。封裝腳名查得到就顯示「封裝腳名（內部名）」，查不到標「封裝腳位待確認，請對照線路圖」。
-3. 驗證等級跟著腳：預設腳＝來源等級（同事F已驗證／原廠腳本／文件推論未實測）；改選其他腳＝「依 model 位址推論，未實測」。
+3. 驗證等級跟著腳：預設腳＝來源等級（實測驗證／原廠腳本／推論，未實測（v1.0.1 起的寫法））；改選其他腳＝「依 model 位址推論，未實測」。
 4. 每一列只改標示的 bit（E503／E501 TX_IN_SEL 與 DRV 同 byte：只改 [5:0]）；I2C 是讀 → 改遮罩內 bit → 寫 → 讀回；第一次寫前的原值記下，「還原」逆序寫回。
 5. I2C 走 common/i2c-bridge.js（位址、徽章、下載提示）＋ common/i2c-mbus.js；WebSocket 協定與 IC 辨認照 datamap.html（認到的 IC 與選的不同 ⇒ 自動切換；認不出 ⇒ 不寫）。**不下** datamap 那筆 E503 3E:0059←1E（0x059 是 WP pin 的 TX_IN_SEL，會蓋掉 debug 輸出）。
 6. 匯出 Excel＝WFG NB 匯出格式（22 欄表頭同 `WFG_NB_XLSX_HEADER`、Check Item＝.model 區塊名、Offset 同 `wfgNbOff()`、值 `0x`+HEX）；.script＝`write -m AAAA VV MM    // note`（同 `wfgNbBuildScript()`，ASCII）。7C 與 0x0E4 不是 .model Register，.script 只寫成註解。檔名 `NBDebug_<IC>_<項目>_<GPIO>_<YYYYMMDD>`。

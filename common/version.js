@@ -13,14 +13,14 @@ var TOOL_VERSIONS = {
   wfg:     'v4.59.0',     // 面板訊號模擬與取樣
   pattern: 'v3.8.7',       // Pattern Generator 畫面產生器
   dg:      'v2.7.0',       // Digital Gamma 迭代校正（含量測頁 dg-measure.html）
-  i2c:     'v1.34.2',       // I2C（讀寫測試）
-  nbdebug: 'v1.0.0',        // NB TCON Debug應用（E503／E501A／E501B／EN01 debug 輸出：選 IC、項目、GPIO → I2C 執行或匯出 Excel／.script）
-  datamap: 'v1.37.0',       // Data Mapping（Python UI 的內容與規則、站內風格；DAZ／E501／E503／EN01／EM01／EM02／E512）// v1.20.0（Bruce 10/9）：新增 EN01（RM81008，依原廠 WPF RomCodeProcessUI）
+  i2c:     'v1.34.3',       // I2C（讀寫測試）
+  nbdebug: 'v1.0.1',        // NB TCON Debug應用（E503／E501A／E501B／EN01 debug 輸出：選 IC、項目、GPIO → I2C 執行或匯出 Excel／.script）
+  datamap: 'v1.37.1',       // Data Mapping（Python UI 的內容與規則、站內風格；DAZ／E501／E503／EN01／EM01／EM02／E512）// v1.20.0（Bruce 10/9）：新增 EN01（RM81008，依原廠 WPF RomCodeProcessUI）
   /* 🔴 TCON 自檢畫面量測（dg-selftest.html）。
      這一頁**還沒登記在首頁**（入口與 dg-measure 的拆除是下一階段），所以
      `app` 這一輪不動 —— 首頁上看不到任何新東西。等入口接上去再依
      docs/VERSIONING.md §2 案例 12 把 app 進一次 MINOR。 */
-  dgself:  'v2.8.0',        // TCON 自檢畫面量測（由 TCON 自己出圖）
+  dgself:  'v2.8.1',        // TCON 自檢畫面量測（由 TCON 自己出圖）
   // 🔴 臨時診斷頁（fstest.html），不在首頁登記、使用者看不到它的版號徽章。
   //    全螢幕 not granted 的根因定位完就會連同這一行一起刪除。
   fstest:  'v1.0.0'        // 全螢幕變因對照測試（臨時，測完即刪）

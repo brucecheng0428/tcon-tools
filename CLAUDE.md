@@ -12,6 +12,8 @@
 - 頁面與功能看 `index.html`、共用程式看 `common/`；各工具說明在 `<工具>-guide.html`。說明頁不納入工具版號。
 - UI 三語 `zh-TW / zh-CN / en` 同步，相關說明與匯出內容隨功能更新。
 - UI 只留常用操作；細節按需展開，診斷放 log/debug。明確要求的操作不再加重複確認；容易誤觸、非當前目的的不可逆清空保留確認。
+- 對外網頁（線上站的頁面文字、tooltip、說明、匯出內容、CHANGELOG）不寫同事／客戶人名、email 與信件出處（「某某信」「某某 10/14」）；來源寫中性說法（實測設定（2026-10）、原廠腳本、原廠 debug 文件、model 暫存器表）。人名只留在 assistant_kb 內部筆記。`tools/check_no_names.mjs` 在 Pages 發佈前擋（雜湊名單 `tools/name-guard.json`，由 `tools/name_guard_gen.py` 從 assistant_kb 通訊錄＋`reference/對外網頁人名檢查名單.md` 產生；依 Bruce 2026-10-22）。
+- 認 T-CON 全站只用共用函式 `TconDetect.detect`（`common/tcon-detect.js`，ID 表、讀取位址、M-Bus→C-Bus 都在裡面），新頁面一律呼叫，不另寫辨認流程或 ID 表；`tools/check_tcon_detect_single.mjs` 會擋（依 Bruce 2026-10-22「認Tcon的方式全部都一樣啊，你管他是哪個分頁、哪個網頁？」）。
 - 公開內容與程式碼使用中性代號，移除他家商標／型號；必要協定值可保留。依 Bruce 2026-09-29 決策，Raydium、自家 RM 型號、PQ Tools、AUX GUI、Raydium 檔名均保留；歸屬不明先確認。
 - DG 復刻依原廠實際程式；資料入口 `~/TCON/Share/DG/gamma_analysis_v150/`。不把交接文件中的建議當原廠規格。TCON 原始資料唯讀。
 

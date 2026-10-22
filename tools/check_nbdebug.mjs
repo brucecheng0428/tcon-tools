@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /* ═══════════════════════════════════════════════════════════════════════
-   nbdebug v1.0.0 自測（NB TCON Debug應用，Bruce 2026-10-22，派工 238904982972174336）
+   nbdebug 自測（NB TCON Debug應用，Bruce 2026-10-22，派工 238904982972174336；v1.0.1 派工 238929121141362688）
    ───────────────────────────────────────────────────────────────────────
    需要：PLAYWRIGHT_CORE＝playwright-core 套件資料夾（本機沒有就 exit 2）；Chrome 用系統的
          （CHROME 環境變數），WebKit 用 playwright 快取。NBD_MODEL_DIR＝WPF ModelFiles（選用，給 D 項）。
@@ -14,6 +14,9 @@
      I  模擬 I2C（假 WebSocket＋暫存器記憶體）：連線、認 IC、RX DE（E503／WP）I2C 執行 → 記憶體只改遮罩內 bit、
         讀回 ✓ → 還原回原值；EN01 KOSC：未勾燒錄不寫 7C:01=01；勾了但 20D0≠0 拒絕；20D0=0 才送；
         選 E503 但板子是 EN01 ⇒ 自動切 IC。
+     N  v1.0.1：頁面三語文字、tooltip、原始碼都不可有人名／信件出處（tools/name-guard.mjs 雜湊名單）。
+     T  v1.0.1：IC 辨認走共用 TconDetect：EN01 各種讀法（7C:95 不在 E501 表、7D 不回、A1／A2）都認得；
+        認不出時顯示原始值、照畫面選的 IC 執行（不擋）。
      U  點擊數：開頁 → 3 個下拉＋1 個按鈕到下載；預設組合 1 個按鈕；375 與桌機各一次，截圖。
    退出碼：0 通過／1 有失敗／2 跑不起來
    ═══════════════════════════════════════════════════════════════════════ */
@@ -24,6 +27,7 @@ import { join, extname, normalize, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { inflateRawSync } from 'node:zlib';
+import { findNames } from './name-guard.mjs';
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const PWC = process.env.PLAYWRIGHT_CORE;
@@ -39,8 +43,8 @@ const H = (v, n = 2) => v.toString(16).toUpperCase().padStart(n, '0');
 
 /* ── 期望表（由信件／腳本原文獨立重寫，不讀頁面程式）── */
 const EXP = {
-  rxde: { regs: [[0x007, 0x02], [0x00A, 0x02]], sel: 0x37, lv: { E503: 'peerf', E501A: 'doc', E501B: 'doc', EN01: 'doc' } },
-  txde: { regs: [[0x007, 0x12], [0x008, 0x01], [0x009, 0x07]], sel: 0x20, lv: { E503: 'peerf', E501A: 'doc', E501B: 'doc', EN01: 'doc' } },
+  rxde: { regs: [[0x007, 0x02], [0x00A, 0x02]], sel: 0x37, lv: { E503: 'meas', E501A: 'doc', E501B: 'doc', EN01: 'doc' } },
+  txde: { regs: [[0x007, 0x12], [0x008, 0x01], [0x009, 0x07]], sel: 0x20, lv: { E503: 'meas', E501A: 'doc', E501B: 'doc', EN01: 'doc' } },
   txrt6: { regs: [[0x00A, 0x02]], sel: 0x35, lv: { E503: 'vendor', E501A: 'doc', E501B: 'doc', EN01: 'doc' } },
   osc: { regs: [[0x007, 0x01]], sel: 0x24, lv: { E503: 'vendor', E501A: 'doc', E501B: 'doc', EN01: 'vendor' } },
   kosc: { only: ['EN01'], regs: [[0x007, 0x01]], sel: 0x24, lv: { EN01: 'vendor' },
@@ -53,7 +57,7 @@ const EXP = {
   core3: { regs: [[0x007, 0x02]], sel: 0x24, lv: { E503: 'doc', E501A: 'doc', E501B: 'doc', EN01: 'doc' } },
 };
 const DEF = { E503: 'GPIO_ROM_WP', E501A: 'FLASH_WP_GPIO_05', E501B: 'FLASH_WP_GPIO_05', EN01: 'GPIO_07' };
-const LVTXT = { peerf: '同事F已驗證', vendor: '原廠腳本', doc: '文件推論未實測', pin: '依 model 位址推論，未實測' };
+const LVTXT = { meas: '實測驗證', vendor: '原廠腳本', doc: '推論，未實測', pin: '依 model 位址推論，未實測' };
 const ICS = ['E503', 'E501A', 'E501B', 'EN01'];
 const itemsFor = ic => Object.keys(EXP).filter(k => (!EXP[k].only || EXP[k].only.includes(ic)) && (!EXP[k].not || !EXP[k].not.includes(ic)));
 function expRows(G, ic, item, gid, opt = {}) {
@@ -86,6 +90,7 @@ const FAKE = `(() => {
   function FakeWS(url) { const ws = this; ws.readyState = 0; window.__ws = ws;
     setTimeout(() => { ws.readyState = 1; ws.onopen && ws.onopen({}); }, 5);
     ws.send = s => { const m = JSON.parse(s); const r = { id: m.id, ok: true, type: m.type };
+      if ((m.type === 'read' || m.type === 'rawwrite') && (window.__nack || []).includes(m.slave)) { r.ok = false; r.err = 'NACK'; setTimeout(() => ws.onmessage && ws.onmessage({ data: JSON.stringify(r) }), 1); return; }
       if (m.type === 'ping') Object.assign(r, { helper: 'fake', proto: 6 });
       if (m.type === 'read') { r.data = []; for (let i = 0; i < (m.len || 1); i++) r.data.push(mem[k(m.slave, m.addr + i)] ?? 0); }
       if (m.type === 'rawwrite') { m.data.forEach((b, i) => { mem[k(m.slave, m.addr + i)] = b; }); window.__wlog.push([m.slave, m.addr, m.data.slice()]); }
@@ -95,6 +100,15 @@ const FAKE = `(() => {
   FakeWS.OPEN = 1; window.WebSocket = FakeWS;
 })();`;
 const ID = { E503: { '124:149': 0x22, '124:152': 0x00, '125:125': 0x03, '62:8318': 0x20 }, EN01: { '124:149': 0x22, '124:152': 0x00, '125:125': 0x03, '62:8318': 0x10 } };
+/* v1.0.1：RM81008（EN01）實際可能回的組合（SY 辨認表 3E:207E＝10／11；原廠預期 EN01 的 7C:0x95＝0x20–0x24；EN01 的 DP RX 在 3E:20xx，7D 可能不回）
+   ——v1.0.0 這幾組全部「認不出 T-CON」（只在 7C:98＝0 且 7D:007D≤4 才讀 207E）。 */
+const EN01_CASES = [
+  ['A1：7C:98≠0、7C:95＝20（不在 E501 表）、7D 不回', { '124:149': 0x20, '124:152': 0x01, '62:8318': 0x10 }, [0x7D], 'A1'],
+  ['A2：7C:98＝0、7D 不回', { '124:149': 0x22, '124:152': 0x00, '62:8318': 0x11 }, [0x7D], 'A2'],
+  ['A1：7C 與 7D 都不回，只有 3E', { '62:8318': 0x10 }, [0x7C, 0x7D], 'A1'],
+  ['A2：7D:007D＝08（不在 E503 表）', { '124:149': 0x22, '124:152': 0x00, '125:125': 0x08, '62:8318': 0x11 }, [], 'A2'],
+  ['A1：7D:007D＝03（與 E503 撞）', { '124:149': 0x22, '124:152': 0x00, '125:125': 0x03, '62:8318': 0x10 }, [], 'A1'],
+];
 
 /* ── 匯出檔解析 ── */
 function unzip(buf) {
@@ -262,6 +276,57 @@ async function runEngine(name, browserType, opts, viewport, full) {
     const wl = await p3.evaluate(() => window.__wlog);
     check(`${tag} I KOSC 燒錄是最後一筆`, JSON.stringify(wl[wl.length - 1]) === JSON.stringify([0x7C, 0x01, [0x01]]));
     await p3.close(); await p2.close();
+  }
+  /* T：IC 辨認（共用 TconDetect）——只在第一個桌機引擎跑 */
+  if (full) {
+    check(`${tag} T 本頁沒有自己的辨認程式`, !(await page.evaluate(() => /0x207E|0x007D|0x95\b/.test([...document.scripts].map(s => s.textContent).join('\n')))) && await page.evaluate(() => typeof TconDetect === 'object'));
+    for (const [nm, mem, nack, ver] of EN01_CASES) {
+      const pp = await ctx.newPage(); await pp.addInitScript(FAKE); await pp.goto(URL0); await pp.waitForFunction(() => window.NBD);
+      await pp.evaluate(([m, n]) => { window.__setMem(m); window.__nack = n; }, [mem, nack]);
+      await pp.click('#nd-link'); await pp.waitForFunction(() => !document.querySelector('#nd-run').disabled);
+      const ic = await pp.$eval('#nd-icsel', s => s.value), got = await pp.$eval('#nd-ic', e => e.textContent);
+      const lg = await pp.$eval('#nd-log', e => e.textContent);
+      check(`${tag} T EN01 ${nm} ⇒ 認到 EN01（${ver}）`, ic === 'EN01' && /EN01/.test(got) && new RegExp('EN01 ' + ver).test(lg), ic + ' / ' + got);
+      await pp.close();
+    }
+    /* 認不出：7C、7D 不回，3E:207E＝00、0xFF00 讀到 00 00 00 ⇒ 顯示原始值、照選的 IC 執行 */
+    const pu = await ctx.newPage(); await pu.addInitScript(FAKE); await pu.goto(URL0); await pu.waitForFunction(() => window.NBD);
+    await pu.evaluate(() => { window.__nack = [0x7C, 0x7D]; window.__setMem({ '62:89': 0xDE, '62:77': 0x11 }); });
+    await pu.click('#nd-link'); await pu.waitForFunction(() => !document.querySelector('#nd-run').disabled);
+    const st = await pu.$eval('#nd-st', e => e.textContent), icTxt = await pu.$eval('#nd-ic', e => e.textContent);
+    check(`${tag} T 認不出 ⇒ 顯示讀到的原始值`, /認不出/.test(st) && /7C:95 = —/.test(st) && /3E:207E = 00/.test(st) && /FF00 @60 = 00 00 00/.test(st), st);
+    check(`${tag} T 認不出 ⇒ 標示手動選（E503）`, /手動選 E503/.test(icTxt), icTxt);
+    await pu.click('#nd-run'); await pu.waitForFunction(() => /完成|不符|認不出/.test(document.querySelector('#nd-st').textContent) && !document.querySelector('#nd-run').disabled);
+    const mu = await pu.evaluate(() => window.__mem);
+    check(`${tag} T 認不出仍可照選的 E503 執行（0x059 DE→F7）`, mu['62:89'] === 0xF7 && /完成/.test(await pu.$eval('#nd-st', e => e.textContent)), (mu['62:89'] || 0).toString(16));
+    await pu.selectOption('#nd-icsel', 'EN01');
+    check(`${tag} T 認不出時改選 EN01 ⇒ 標示手動選 EN01`, /手動選 EN01/.test(await pu.$eval('#nd-ic', e => e.textContent)));
+    await pu.close();
+    /* 認到 EN01 但手動改選 E503 ⇒ 擋下並說明 */
+    const pm = await ctx.newPage(); await pm.addInitScript(FAKE); await pm.goto(URL0); await pm.waitForFunction(() => window.NBD);
+    await pm.evaluate(m => window.__setMem(m), ID.EN01);
+    await pm.click('#nd-link'); await pm.waitForFunction(() => !document.querySelector('#nd-run').disabled);
+    await pm.selectOption('#nd-icsel', 'E503'); await pm.click('#nd-run');
+    check(`${tag} T 認到 EN01 卻選 E503 ⇒ 不寫並請改回`, /改回 EN01/.test(await pm.$eval('#nd-st', e => e.textContent)));
+    await pm.close();
+  }
+  /* N：人名／信件出處（畫面三語＋說明展開＋tooltip＋原始碼） */
+  {
+    const pn = await ctx.newPage(); await pn.goto(URL0); await pn.waitForFunction(() => window.NBD);
+    let txt = readFileSync(join(REPO, 'nbdebug.html'), 'utf8');
+    for (const lg of ['zh-TW', 'en', 'zh-CN']) {
+      await pn.selectOption('#lang-select', lg);
+      for (const ic of ICS) for (const it of itemsFor(ic)) {
+        await pn.selectOption('#nd-icsel', ic); await pn.selectOption('#nd-item', it);
+        await pn.evaluate(() => { document.getElementById('nd-helpbox').open = true; });
+        txt += '\n' + await pn.evaluate(() => document.body.innerText + '\n' + [...document.querySelectorAll('[title]')].map(e => e.title).join('\n'));
+      }
+    }
+    const hits = findNames(txt);
+    check(`${tag} N 頁面三語文字／tooltip／原始碼沒有人名或信件出處`, hits.length === 0, hits.slice(0, 5).map(h => h.kind + ':' + h.masked).join(' '));
+    const lvs = await pn.evaluate(() => [I18N['nd.lvMeas']['zh-TW'], I18N['nd.lvVendor']['zh-TW'], I18N['nd.lvDoc']['zh-TW']].join('|'));
+    check(`${tag} N 驗證等級＝實測驗證／原廠腳本／推論，未實測`, lvs === '實測驗證|原廠腳本|推論，未實測', lvs);
+    await pn.close();
   }
   /* U：點擊數 */
   const p4 = await ctx.newPage(); await p4.goto(URL0); await p4.waitForFunction(() => window.NBD);
