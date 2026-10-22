@@ -2,6 +2,37 @@
 
 ---
 
+## NB TCON Debug應用 (nbdebug) v1.1.0 — 2026-10-22 ｜ MINOR ｜ 群組訊號全部列出、多 bit 同時輸出、EN01 依原廠文件
+
+判定依據：VERSIONING.md 判定表「多了新功能，原本的做法不變」⇒ MINOR（新增群組項目、多 bit 每 bit 一支 GPIO、搜尋；原有常用項目的操作流程不變）。⚠ 輸出變更：EN01 的 TX_EN 改照 EN01 Debug Mode 文件寫 nibble＝1（以前只改 TX_EN 一個 bit）；Core state[3] 改成 Core state[3:0]（4 列 GPIO）；驗證等級多「原廠文件」。
+
+### 需求（Bruce 2026-10-22，經 Dispatch，派工 238929121141362688）
+- 網頁不可出現同事名字（v1.0.0 的驗證標籤與說明寫了人名與信件出處）。
+- 「Corestate應該不只 bit 3 吧？我記得應該還有幾個 bit啊，那個可以拿出來一起看的。我怎麼看到你在項目裡面這麼少？還有項目為什麼只有這幾個，沒有其他的嗎？」
+- EN01 Debug Mode 說明文件下載、分析後加到網頁；投影片裡很多資訊是圖檔，要轉成文字看。
+
+### 內容
+0. 人名與信件出處全部拿掉（標籤、tooltip、說明、原始碼註解）；來源改成「實測設定（2026-10）」「原廠腳本」「原廠 debug 文件」「EN01 Debug Mode 文件（2026-10）」。IC 辨認本版不動（改共用函式由另一個派工處理）。
+1. 項目＝「常用」12 項＋ debug 群組 39 組（dbg_01–dbg_20、dbg2_00–dbg2_12：原廠文件有逐 bit 內容的全部群組）的每個訊號；下拉依群組分（顯示 TOP_DBG_SEL／DBG_SEL3 值），上方可搜尋。多 bit 訊號（RT0_CORESTATE[3:0]、DP_STATE、UNPK_STATE、P0_O…）合成一個項目。
+2. 多 bit：每個 bit 一列「輸出 GPIO」下拉，預設分到不同腳（第一個 bit＝原預設腳，其餘依序挑封裝腳已確認的），重複時警告並停用執行／匯出；暫存器表、I2C 執行、Excel、.script 都含全部 bit。
+3. 群組來源：EN01 Debug Mode 文件（2026-10）p7、p9–p12；E503A／E501B debug 投影片 p7、p9–p13（圖檔用 macOS Vision OCR 轉文字後逐張看圖核對）。EN01 與 E503 不同處：dbg_20[5]＝RING_OSC_OUTDIV8（E503／E501 為 0）、dbg2_09／0a[2]＝RG_FNPLL_RSTB（E503／E501 為 RG_GBPLL_EXT_RSTN）。dbg2_10–12 只有 EN01 文件有內容 ⇒ E503／E501 標「推論，未實測」。
+4. 驗證等級：實測驗證／原廠腳本／原廠文件／推論，未實測。EN01 原本「依 E503 推論」的 RX DE、TX DE（RT6_DE）、RX link clock、BS、BE、Core state 改為原廠文件；TX DE（ISP0_FIFO_IRDY0）、PLL lock 文件沒有 ⇒ 仍是推論。E501A 沒有自己的文件 ⇒ 推論。
+5. E503、EN01 沒有 PSR（文件註明 PSR 訊號內部 tie 0）⇒ 不列 PSR 相關訊號。E501 的 TX_IN_SEL 26h／27h 是 BE／BS ⇒ 群組項目用到 bit6／7 時改走 DBG_SEL3（DEBUG_OUT2）。
+6. 新增常用項目「OSC ÷8（直接選 3Dh）」（TX_IN_SEL 3Dh＝OSC_CLK_DIV8，不用選群組；三份文件都有）。
+7. E501B 的 GPIO 清單補上 model 沒有、投影片 p3 有的 GPIO_07–10、GPIO_12。
+8. 拿掉頁尾「Designed by Bruce」（工具頁都沒有，只有首頁與說明頁有）。
+
+### 測試（tools/check_nbdebug.mjs）
+新增 N（三語畫面＋說明＋tooltip＋原始碼沒有人名）、G：群組 39 組、Core state 4 bit（四顆 IC 預設 4 支不同腳、暫存器＝TOP 02＋TX_IN_SEL 24/23/22/21、Excel 4 列、.script 套用結果）、重複腳停用、11 個群組訊號抽查（EN01 DP_STATE、UNPK_STATE、dbg_08 DP_STATE[3:0]、RING_OSC_OUTDIV8、BS、RG_FNPLL_RSTB；E503 RG_GBPLL_EXT_RSTN、dbg2_10 推論；E501B 走 DBG_SEL3、PSR_STATE；E501A 推論）、E503／EN01 無 PSR、E501 不用 26h／27h、搜尋；以及「工具頁沒有 page-credit」。
+
+## Data Mapping (datamap) v1.37.1 — 2026-10-22 ｜ PATCH
+
+判定依據：VERSIONING.md R1（文字修正；操作流程與資料不變 ⇒ PATCH）。⚠ 輸出變更：只有說明文字。
+
+- 對外頁面不寫同事／客戶人名（Bruce 2026-10-22，派工 238929121141362688）：「待某某確認」改「待原廠 RD 確認」（dm.en01PvLg、dm.hMuxTy、dm.tySrcMan 三語）、force_sel 表出處拿掉人名（dm.muxZzMnt），datamap-auto.js（XL_SRC 出處）、datamap-lod.js（客戶案例結論）各 1 處。
+- 新增全站檢查 `tools/check_no_names.mjs`（Pages 發佈前；雜湊名單 `tools/name-guard.json`，產生器 `tools/name_guard_gen.py` 讀 assistant_kb 通訊錄），CLAUDE.md 加規則。
+- S/D 快照基準重拍：只因上述說明文字（TFT 卡片提示）改變；改文字前的版本對舊基準全過（見派工回報）。
+
 ## NB TCON Debug應用 (nbdebug) v1.0.0 — 2026-10-22 ｜ MINOR ｜ 新分頁
 
 **全新分頁 `nbdebug.html`：NB T-CON（E503／E501A／E501B／EN01）把內部 debug 訊號拉到 GPIO 量測。選 IC、項目、輸出 GPIO 三個下拉 → 一張暫存器表 → I2C 執行（逐列寫入＋讀回比對、還原）或匯出 Excel／.script。** 初版。
@@ -9,16 +40,16 @@
 判定依據：`docs/VERSIONING.md` §2 案例 12（新增一個獨立的新分頁工具 ⇒ 該分頁 v1.0.0、首頁 `app` 進 MINOR）。`tools/version_bump_check.py` 對新工具不判級別，這裡標 MINOR 只是照 §1 判定表「新增獨立功能」那一格。
 
 ### 需求（Bruce 2026-10-22 原話）
-- 「同事F剛剛寄出E503要拉出RX DE與TX DE的mail，這是有驗證過的方式，要與你搜集的資料比對，如果有差異要以同事F的這份mail為主，然後現在可以開始製作網頁了，我要在tcon tools專案裡看到，標題是NB TCON Debug應用」
+- （需求：E503 拉出 RX DE／TX DE 以實測過的設定為準，與蒐集的資料有差異時以實測設定為主；在 tcon tools 專案做網頁，標題「NB TCON Debug應用」。原話含同事姓名，依 v1.1.0 規則不寫入公開檔）
 - 「所有的 debug 我不要只限定在某一 pin 輸出，都要有下拉選單，可以從不同的 GPIO pin 輸出。」
 - 「網頁版的還需要可以有 I2C 即時操作，或者是匯出 NB 版的 Script，可以選擇 Excel 或是 Script 檔案。」
 - 「步驟要越簡單越好，說明要越少越好。就跟之前的 DG網頁或者是 DataMap 網頁的目標是一樣的，簡單明瞭、易操作。」
 - 派工 238904982972174336（Dispatch 補充：KOSC 引導頁整合、驗證等級標籤、375px）。
 
 ### 內容
-1. 項目：RX DE、TX DE（同事F 2026-10-22 信，E503 WP pin 實測）、TX DE（RT6_DE，同事H 2026-10-02）、OSC ÷8、KOSC trim（EN01，同事K 2026-10-21 兩支腳本）、PLL lock Lane0／Lane1（同事H 2026-01-13；E501 不提供 Lane0：E501 的 TX_IN_SEL 27h 是 BS）、RX link clock ÷8、BS、BE（E503 debug 介紹 p8）、Core state[3]。
+1. 項目：RX DE、TX DE（實測設定 2026-10，E503 WP pin）、TX DE（RT6_DE，原廠設定 2026-10）、OSC ÷8、KOSC trim（EN01，原廠腳本 2026-10 兩支）、PLL lock Lane0／Lane1（原廠設定 2026-01；E501 不提供 Lane0：E501 的 TX_IN_SEL 27h 是 BS）、RX link clock ÷8、BS、BE（E503 debug 介紹 p8）、Core state[3]。
 2. 輸出 GPIO 下拉：.model 裡同一父節點同時有 *_TX_EN 與 *_TX_IN_SEL 的全部列出（E503 17 支、E501A／E501B 各 23 支、EN01 20 支，位址／bit／行號由程式從 .model 抽出）；來源用的腳是預設（★）。封裝腳名查得到就顯示「封裝腳名（內部名）」，查不到標「封裝腳位待確認，請對照線路圖」。
-3. 驗證等級跟著腳：預設腳＝來源等級（同事F已驗證／原廠腳本／文件推論未實測）；改選其他腳＝「依 model 位址推論，未實測」。
+3. 驗證等級跟著腳：預設腳＝來源等級（實測驗證／原廠腳本／推論，未實測（v1.1.0 起的寫法））；改選其他腳＝「依 model 位址推論，未實測」。
 4. 每一列只改標示的 bit（E503／E501 TX_IN_SEL 與 DRV 同 byte：只改 [5:0]）；I2C 是讀 → 改遮罩內 bit → 寫 → 讀回；第一次寫前的原值記下，「還原」逆序寫回。
 5. I2C 走 common/i2c-bridge.js（位址、徽章、下載提示）＋ common/i2c-mbus.js；WebSocket 協定與 IC 辨認照 datamap.html（認到的 IC 與選的不同 ⇒ 自動切換；認不出 ⇒ 不寫）。**不下** datamap 那筆 E503 3E:0059←1E（0x059 是 WP pin 的 TX_IN_SEL，會蓋掉 debug 輸出）。
 6. 匯出 Excel＝WFG NB 匯出格式（22 欄表頭同 `WFG_NB_XLSX_HEADER`、Check Item＝.model 區塊名、Offset 同 `wfgNbOff()`、值 `0x`+HEX）；.script＝`write -m AAAA VV MM    // note`（同 `wfgNbBuildScript()`，ASCII）。7C 與 0x0E4 不是 .model Register，.script 只寫成註解。檔名 `NBDebug_<IC>_<項目>_<GPIO>_<YYYYMMDD>`。

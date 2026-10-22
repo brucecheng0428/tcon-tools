@@ -408,7 +408,7 @@
      欄位：[分頁, 名稱, panel, sub（null＝Excel 寫 x：任何 sub）, Excel Auto setting 有列這組（1）／只有 Manual（0，推定）, gate 覆寫, c0..c23, x0..x23]
      交叉驗證（tools/check_datamap_tft_all.js）：與 RT7＋Line OD 已有圖的 14 組 24 條 Data 線完全相同；HSD 8pixel＝Line OD 29、4line-4pixel＝Line OD 30；
      LTPS 8 組中 7 組＝NB 隱藏表解碼（mux2 normal type2 不同 ⇒ 以 Excel 為準）。LTPS mux2 是 Dual（2 條 gate，Excel 只有 24 個 force_sel）。 */
-  var XL_SRC = 'EM01A1_rt7_register_force_mapping.xlsx（瑞鼎 同事A 10/14）';
+  var XL_SRC = 'EM01A1_rt7_register_force_mapping.xlsx（瑞鼎 RD 提供，2026-10）';
   var XL_MNT = [
     ['1D1G', '1D1G', 0, null, 1, '', '0 1 2 3 4 5 0 1 2 3 4 5 0 1 2 3 4 5 0 1 2 3 4 5', '0 1 2 3 4 5 0 1 2 3 4 5 0 1 2 3 4 5 0 1 2 3 4 5'],
     ['Zigzag', 'Zigzag type1', 1, 0, 1, '', '6 7 8 9 10 11 17 6 7 8 9 10 6 7 8 9 10 11 17 6 7 8 9 10', '6 7 8 9 10 11 17 6 7 8 9 10 6 7 8 9 10 11 17 6 7 8 9 10'],

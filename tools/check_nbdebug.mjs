@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /* ═══════════════════════════════════════════════════════════════════════
-   nbdebug v1.0.0 自測（NB TCON Debug應用，Bruce 2026-10-22，派工 238904982972174336）
+   nbdebug 自測（NB TCON Debug應用，Bruce 2026-10-22，派工 238904982972174336；v1.0.1 派工 238929121141362688）
    ───────────────────────────────────────────────────────────────────────
    需要：PLAYWRIGHT_CORE＝playwright-core 套件資料夾（本機沒有就 exit 2）；Chrome 用系統的
          （CHROME 環境變數），WebKit 用 playwright 快取。NBD_MODEL_DIR＝WPF ModelFiles（選用，給 D 項）。
@@ -14,6 +14,7 @@
      I  模擬 I2C（假 WebSocket＋暫存器記憶體）：連線、認 IC、RX DE（E503／WP）I2C 執行 → 記憶體只改遮罩內 bit、
         讀回 ✓ → 還原回原值；EN01 KOSC：未勾燒錄不寫 7C:01=01；勾了但 20D0≠0 拒絕；20D0=0 才送；
         選 E503 但板子是 EN01 ⇒ 自動切 IC。
+     N  v1.0.1：頁面三語文字、tooltip、原始碼都不可有人名／信件出處（tools/name-guard.mjs 雜湊名單）。
      U  點擊數：開頁 → 3 個下拉＋1 個按鈕到下載；預設組合 1 個按鈕；375 與桌機各一次，截圖。
    退出碼：0 通過／1 有失敗／2 跑不起來
    ═══════════════════════════════════════════════════════════════════════ */
@@ -24,6 +25,7 @@ import { join, extname, normalize, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { inflateRawSync } from 'node:zlib';
+import { findNames } from './name-guard.mjs';
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const PWC = process.env.PLAYWRIGHT_CORE;
@@ -39,29 +41,35 @@ const H = (v, n = 2) => v.toString(16).toUpperCase().padStart(n, '0');
 
 /* ── 期望表（由信件／腳本原文獨立重寫，不讀頁面程式）── */
 const EXP = {
-  rxde: { regs: [[0x007, 0x02], [0x00A, 0x02]], sel: 0x37, lv: { E503: 'peerf', E501A: 'doc', E501B: 'doc', EN01: 'doc' } },
-  txde: { regs: [[0x007, 0x12], [0x008, 0x01], [0x009, 0x07]], sel: 0x20, lv: { E503: 'peerf', E501A: 'doc', E501B: 'doc', EN01: 'doc' } },
-  txrt6: { regs: [[0x00A, 0x02]], sel: 0x35, lv: { E503: 'vendor', E501A: 'doc', E501B: 'doc', EN01: 'doc' } },
-  osc: { regs: [[0x007, 0x01]], sel: 0x24, lv: { E503: 'vendor', E501A: 'doc', E501B: 'doc', EN01: 'vendor' } },
-  kosc: { only: ['EN01'], regs: [[0x007, 0x01]], sel: 0x24, lv: { EN01: 'vendor' },
+  rxde: { regs: [[0x007, 0x02], [0x00A, 0x02]], sel: [0x37], lv: { E503: 'meas', E501A: 'inf', E501B: 'vdoc', EN01: 'vdoc' } },
+  txde: { regs: [[0x007, 0x12], [0x008, 0x01], [0x009, 0x07]], sel: [0x20], lv: { E503: 'meas', E501A: 'inf', E501B: 'inf', EN01: 'inf' } },
+  txrt6: { regs: [[0x00A, 0x02]], sel: [0x35], lv: { E503: 'vendor', E501A: 'inf', E501B: 'vdoc', EN01: 'vdoc' } },
+  osc: { regs: [[0x007, 0x01]], sel: [0x24], lv: { E503: 'vendor', E501A: 'inf', E501B: 'vdoc', EN01: 'vendor' } },
+  oscd: { regs: [], sel: [0x3D], lv: { E503: 'vdoc', E501A: 'inf', E501B: 'vdoc', EN01: 'vdoc' } },
+  kosc: { only: ['EN01'], regs: [[0x007, 0x01]], sel: [0x24], lv: { EN01: 'vendor' },
           post: [[0x3E, 0x0E4, 0x83], [0x7C, 0x0F, 0x80], [0x7C, 0x0A, 0x5A], [0x7C, 0x0B, 0xC3], [0x7C, 0x01, 0x00], [0x7C, 0x00, 0xAA]] },
-  pll0: { not: ['E501A', 'E501B'], regs: [[0x007, 0x13], [0x008, 0x01]], sel: 0x27, lv: { E503: 'vendor', EN01: 'doc' } },
-  pll1: { regs: [[0x007, 0x13], [0x008, 0x01]], sel: 0x22, lv: { E503: 'vendor', E501A: 'doc', E501B: 'doc', EN01: 'doc' } },
-  rxclk: { regs: [[0x007, 0x01]], sel: 0x22, lv: { E503: 'doc', E501A: 'doc', E501B: 'doc', EN01: 'doc' } },
-  bs: { regs: [[0x00A, 0x16]], sel: 0x36, def: { E503: 'GPIO_04' }, lv: { E503: 'vendor', E501A: 'doc', E501B: 'doc', EN01: 'doc' } },
-  be: { regs: [[0x00A, 0x16]], sel: 0x35, def: { E503: 'GPIO_BLEN' }, lv: { E503: 'vendor', E501A: 'doc', E501B: 'doc', EN01: 'doc' } },
-  core3: { regs: [[0x007, 0x02]], sel: 0x24, lv: { E503: 'doc', E501A: 'doc', E501B: 'doc', EN01: 'doc' } },
+  pll0: { not: ['E501A', 'E501B'], regs: [[0x007, 0x13], [0x008, 0x01]], sel: [0x27], lv: { E503: 'vendor', EN01: 'inf' } },
+  pll1: { regs: [[0x007, 0x13], [0x008, 0x01]], sel: [0x22], lv: { E503: 'vendor', E501A: 'inf', E501B: 'inf', EN01: 'inf' } },
+  rxclk: { regs: [[0x007, 0x01]], sel: [0x22], lv: { E503: 'vdoc', E501A: 'inf', E501B: 'vdoc', EN01: 'vdoc' } },
+  bs: { regs: [[0x00A, 0x16]], sel: [0x36], def: { E503: 'GPIO_04' }, lv: { E503: 'vendor', E501A: 'inf', E501B: 'vdoc', EN01: 'vdoc' } },
+  be: { regs: [[0x00A, 0x16]], sel: [0x35], def: { E503: 'GPIO_BLEN' }, lv: { E503: 'vendor', E501A: 'inf', E501B: 'vdoc', EN01: 'vdoc' } },
+  /* v1.1.0：Core state[3:0]＝dbg_02 [4:1]（TOP_DBG_SEL 02，TX_IN_SEL 24／23／22／21） */
+  core: { regs: [[0x007, 0x02]], sel: [0x24, 0x23, 0x22, 0x21], lv: { E503: 'vdoc', E501A: 'inf', E501B: 'vdoc', EN01: 'vdoc' } },
 };
 const DEF = { E503: 'GPIO_ROM_WP', E501A: 'FLASH_WP_GPIO_05', E501B: 'FLASH_WP_GPIO_05', EN01: 'GPIO_07' };
-const LVTXT = { peerf: '同事F已驗證', vendor: '原廠腳本', doc: '文件推論未實測', pin: '依 model 位址推論，未實測' };
+const LVTXT = { meas: '實測驗證', vendor: '原廠腳本', vdoc: '原廠文件', inf: '推論，未實測', pin: '依 model 位址推論，未實測' };
 const ICS = ['E503', 'E501A', 'E501B', 'EN01'];
 const itemsFor = ic => Object.keys(EXP).filter(k => (!EXP[k].only || EXP[k].only.includes(ic)) && (!EXP[k].not || !EXP[k].not.includes(ic)));
-function expRows(G, ic, item, gid, opt = {}) {
-  const e = EXP[item], g = G[ic].gpios.find(x => x.id === gid), rows = [];
+/* gids：每個 bit 一支腳（字串＝單 bit）。EN01 的 TX_EN 照 EN01 Debug Mode 文件 p2 寫 nibble＝1；E503／E501 只改 TX_EN 一個 bit */
+function expRows(G, ic, item, gids, opt = {}) {
+  const e = EXP[item], list = Array.isArray(gids) ? gids : [gids], rows = [];
   if (e.post) rows.push(['r', 0x3E, 0x20D0, 7, 0, null]);
   e.regs.forEach(([a, v]) => rows.push(['w', 0x3E, a, 7, 0, v]));
-  rows.push(['w', 0x3E, g.tx[0], g.tx[1], g.tx[1], 1]);
-  rows.push(['w', 0x3E, g.sel[0], g.sel[1], g.sel[2], e.sel]);
+  e.sel.forEach((sv, k) => {
+    const g = G[ic].gpios.find(x => x.id === list[k]);
+    rows.push(['w', 0x3E, g.tx[0], ic === 'EN01' ? g.tx[1] + 3 : g.tx[1], g.tx[1], 1]);
+    rows.push(['w', 0x3E, g.sel[0], g.sel[1], g.sel[2], sv]);
+  });
   if (e.post) { e.post.forEach(([s, a, v]) => rows.push(['w', s, a, 7, 0, (s === 0x7C && a === 0 && opt.code != null) ? opt.code : v])); if (opt.burn) rows.push(['burn', 0x7C, 0x01, 7, 0, 0x01]); }
   return rows;
 }
@@ -86,6 +94,7 @@ const FAKE = `(() => {
   function FakeWS(url) { const ws = this; ws.readyState = 0; window.__ws = ws;
     setTimeout(() => { ws.readyState = 1; ws.onopen && ws.onopen({}); }, 5);
     ws.send = s => { const m = JSON.parse(s); const r = { id: m.id, ok: true, type: m.type };
+      if ((m.type === 'read' || m.type === 'rawwrite') && (window.__nack || []).includes(m.slave)) { r.ok = false; r.err = 'NACK'; setTimeout(() => ws.onmessage && ws.onmessage({ data: JSON.stringify(r) }), 1); return; }
       if (m.type === 'ping') Object.assign(r, { helper: 'fake', proto: 6 });
       if (m.type === 'read') { r.data = []; for (let i = 0; i < (m.len || 1); i++) r.data.push(mem[k(m.slave, m.addr + i)] ?? 0); }
       if (m.type === 'rawwrite') { m.data.forEach((b, i) => { mem[k(m.slave, m.addr + i)] = b; }); window.__wlog.push([m.slave, m.addr, m.data.slice()]); }
@@ -160,8 +169,8 @@ async function runEngine(name, browserType, opts, viewport, full) {
   let combos = 0, okc = 0;
   for (const ic of (process.env.NBD_DEBUG ? ['E503'] : ICS)) {
     await sel(page, 'nd-icsel', ic);
-    const opts = await page.$$eval('#nd-item option', o => o.map(x => x.value));
-    check(`${tag} M ${ic} 項目清單`, JSON.stringify(opts) === JSON.stringify(itemsFor(ic)), opts.join(','));
+    const opts = await page.$$eval('#nd-item optgroup:first-child option', o => o.map(x => x.value));
+    check(`${tag} M ${ic} 項目清單（常用）`, JSON.stringify(opts) === JSON.stringify(itemsFor(ic)), opts.join(','));
     for (const it of itemsFor(ic)) {
       await sel(page, 'nd-item', it);
       const gopts = await page.$$eval('#nd-gpio option', o => o.map(x => x.value));
@@ -171,7 +180,8 @@ async function runEngine(name, browserType, opts, viewport, full) {
       const list = full ? gopts : [dp, gopts[0], gopts[gopts.length - 1], gopts[Math.floor(gopts.length / 2)]];
       for (const gid of list) {
         await sel(page, 'nd-gpio', gid); combos++;
-        const got = await tableKeys(page), want = expRows(G, ic, it, gid).map(rowKey);
+        const pins = await page.$$eval('#nd-gpios select', a => a.map(x => x.value));
+        const got = await tableKeys(page), want = expRows(G, ic, it, pins).map(rowKey);
         const lv = await page.$eval('#nd-info .nd-tag', e => e.textContent);
         const wantLv = LVTXT[gid === dp ? EXP[it].lv[ic] : 'pin'];
         const ok = JSON.stringify(got) === JSON.stringify(want) && lv === wantLv;
@@ -263,6 +273,80 @@ async function runEngine(name, browserType, opts, viewport, full) {
     check(`${tag} I KOSC 燒錄是最後一筆`, JSON.stringify(wl[wl.length - 1]) === JSON.stringify([0x7C, 0x01, [0x01]]));
     await p3.close(); await p2.close();
   }
+  /* N：人名／信件出處（畫面三語＋說明展開＋tooltip＋原始碼） */
+  {
+    const pn = await ctx.newPage(); await pn.goto(URL0); await pn.waitForFunction(() => window.NBD);
+    let txt = readFileSync(join(REPO, 'nbdebug.html'), 'utf8');
+    for (const lg of ['zh-TW', 'en', 'zh-CN']) {
+      await pn.selectOption('#lang-select', lg);
+      for (const ic of ICS) for (const it of itemsFor(ic)) {
+        await pn.selectOption('#nd-icsel', ic); await pn.selectOption('#nd-item', it);
+        await pn.evaluate(() => { document.getElementById('nd-helpbox').open = true; });
+        txt += '\n' + await pn.evaluate(() => document.body.innerText + '\n' + [...document.querySelectorAll('[title]')].map(e => e.title).join('\n'));
+      }
+    }
+    const hits = findNames(txt);
+    check(`${tag} N 頁面三語文字／tooltip／原始碼沒有人名或信件出處`, hits.length === 0, hits.slice(0, 5).map(h => h.kind + ':' + h.masked).join(' '));
+    const lvs = await pn.evaluate(() => [I18N['nd.lvMeas']['zh-TW'], I18N['nd.lvVendor']['zh-TW'], I18N['nd.lvVdoc']['zh-TW'], I18N['nd.lvInf']['zh-TW']].join('|'));
+    check(`${tag} N 驗證等級＝實測驗證／原廠腳本／原廠文件／推論，未實測`, lvs === '實測驗證|原廠腳本|原廠文件|推論，未實測', lvs);
+    await pn.close();
+  }
+  /* G：v1.1.0 多 bit 與群組項目 */
+  if (full) {
+    const pg = await ctx.newPage(); await pg.goto(URL0); await pg.waitForFunction(() => window.NBD);
+    await pg.selectOption('#lang-select', 'zh-TW');
+    const gi = await pg.evaluate(() => ({ n: NBD.groups.length, cnt: ['E503', 'E501A', 'E501B', 'EN01'].map(ic => NBD.allItems(ic).length) }));
+    check(`G 群組 39 組（文件有 bit 內容的 dbg_01–20、dbg2_00–12）`, gi.n === 39, String(gi.n));
+    console.log('   項目數（E503／E501A／E501B／EN01）＝' + gi.cnt.join('／'));
+    /* Core state 4 bit：預設 4 支不同腳、暫存器＝期望、匯出含全部 */
+    for (const ic of ICS) {
+      await pg.selectOption('#nd-icsel', ic); await pg.selectOption('#nd-item', 'core');
+      const pins = await pg.$$eval('#nd-gpios select', a => a.map(x => x.value));
+      check(`${tag} G ${ic} Core state 4 列 GPIO、預設不重複`, pins.length === 4 && new Set(pins).size === 4 && pins[0] === DEF[ic], pins.join(','));
+      const got = await tableKeys(pg), want = expRows(G, ic, 'core', pins).map(rowKey);
+      check(`${tag} G ${ic} Core state 暫存器＝TOP 02＋4×(TX_EN、TX_IN_SEL 24/23/22/21)`, JSON.stringify(got) === JSON.stringify(want), JSON.stringify(got) + ' vs ' + JSON.stringify(want));
+      if (ic === 'E503' || ic === 'EN01') {
+        const dx = await grab(pg, '#nd-xlsx'), rows = sheetRows(unzip(dx.buf)['xl/worksheets/sheet1.xml'].toString());
+        const sels = rows.slice(1).filter(r => /TX_IN_SEL|IN_SEL/.test(r[1])).map(r => r[6]);
+        check(`${tag} G ${ic} Core state 匯出 Excel 含 4 個 TX_IN_SEL（0x24/0x23/0x22/0x21）、檔名 _x4`, JSON.stringify(sels) === JSON.stringify(['0x24', '0x23', '0x22', '0x21']) && /_x4_\d{8}\.xlsx$/.test(dx.name), JSON.stringify(sels) + ' ' + dx.name);
+        const st = (await grab(pg, '#nd-script')).buf.toString('utf8');
+        parseScript(st, expRows(G, ic, 'core', pins), `${tag} G ${ic} Core state`);
+      }
+    }
+    /* 選到同一支腳 ⇒ 警告、不能執行／匯出 */
+    await pg.selectOption('#nd-icsel', 'E503'); await pg.selectOption('#nd-item', 'core');
+    const p0 = await pg.$eval('#nd-gpio', s => s.value); await pg.selectOption('#nd-gpio-1', p0);
+    check(`${tag} G 重複腳 ⇒ 警告且匯出停用`, /同一支 GPIO/.test(await pg.$eval('#nd-warn', e => e.textContent)) && await pg.$eval('#nd-xlsx', b => b.disabled) && await pg.$eval('#nd-script', b => b.disabled));
+    /* 群組項目抽查（依 EN01 Debug Mode 文件／E503A、E501B 投影片） */
+    const spot = async (ic, id, wantRegs, wantSels, wantLv) => {
+      await pg.selectOption('#nd-icsel', ic); await pg.selectOption('#nd-item', id);
+      const ks = await tableKeys(pg), lv = await pg.$eval('#nd-info .nd-tag', e => e.textContent);
+      const regs = ks.filter(k => /^w:3E:000[0-9A]:7:0:/.test(k)).map(k => k.split(':').slice(2, 3)[0] + '=' + k.split(':')[5]);
+      const sels = ks.filter((k, i) => i % 2 === 1 && false);
+      const selv = (await pg.evaluate(() => NBD.build(document.getElementById('nd-icsel').value, document.getElementById('nd-item').value, [].slice.call(document.querySelectorAll('#nd-gpios select')).map(x => x.value)).rows.filter(r => r.sel).map(r => r.val)));
+      check(`${tag} G 抽查 ${ic} ${id}`, JSON.stringify(regs) === JSON.stringify(wantRegs) && JSON.stringify(selv) === JSON.stringify(wantSels) && lv === wantLv, regs.join(',') + ' / ' + selv.map(v => v.toString(16)).join(',') + ' / ' + lv);
+    };
+    await spot('EN01', 'g:dbg_07:DP_STATE', ['0007=07'], [0x29, 0x28, 0x27], '原廠文件');
+    await spot('EN01', 'g:dbg_07:UNPK_STATE', ['0007=07'], [0x26, 0x25, 0x24], '原廠文件');
+    await spot('EN01', 'g:dbg_08:DP_STATE', ['0007=08'], [0x28, 0x27, 0x26, 0x25], '原廠文件');
+    await spot('EN01', 'g:dbg_20:RING_OSC_OUTDIV8', ['0007=4A'], [0x25], '原廠文件');
+    await spot('EN01', 'g:dbg2_06:DP_2_FIFO_BS_TOG', ['0007=36'], [0x26], '原廠文件');
+    await spot('EN01', 'g:dbg2_09:RG_FNPLL_RSTB', ['0007=39'], [0x22], '原廠文件');
+    await spot('E503', 'g:dbg2_09:RG_GBPLL_EXT_RSTN', ['0007=39'], [0x22], '原廠文件');
+    await spot('E503', 'g:dbg2_10:DPCD_204H_IAD', ['0007=40'], [0x21], '推論，未實測');
+    await spot('E501B', 'g:dbg_02:DPFIFO_2_RTLOG_DE', ['000A=02'], [0x37], '原廠文件');
+    await spot('E501B', 'g:dbg_16:PSR_STATE', ['000A=26'], [0x38, 0x37, 0x36], '原廠文件');
+    await spot('E501A', 'g:dbg_01:OSC_CLK_DIV8', ['0007=01'], [0x24], '推論，未實測');
+    const noPsr = await pg.evaluate(() => ['E503', 'EN01'].every(ic => !NBD.allItems(ic).some(it => /PSR/.test(it.label) && !/VSC_SDP/.test(it.label))));
+    check(`${tag} G E503／EN01 不列 PSR 訊號（文件：沒有 PSR，tie 0）`, noPsr);
+    const e501bit67 = await pg.evaluate(() => ['E501A', 'E501B'].every(ic => NBD.allItems(ic).filter(it => it.group).every(it => it.regs[0].addr === 0x00A || it.bits.every(b => b.sel !== 0x26 && b.sel !== 0x27))));
+    check(`${tag} G E501 群組項目不用 TX_IN_SEL 26h／27h（E501 是 BE／BS）`, e501bit67);
+    /* 搜尋 */
+    await pg.selectOption('#nd-icsel', 'EN01'); await pg.fill('#nd-q', 'CORESTATE');
+    const qs = await pg.$$eval('#nd-item option', o => o.map(x => x.textContent));
+    check(`${tag} G 搜尋 CORESTATE ⇒ 只剩含 CORESTATE 的項目`, qs.length >= 4 && qs.every(t => /CORE ?STATE/i.test(t)), qs.join('|'));
+    await pg.fill('#nd-q', ''); await pg.close();
+  }
   /* U：點擊數 */
   const p4 = await ctx.newPage(); await p4.goto(URL0); await p4.waitForFunction(() => window.NBD);
   let clicks = 0;
@@ -282,6 +366,7 @@ async function runEngine(name, browserType, opts, viewport, full) {
   }
   await p4.selectOption('#lang-select', 'zh-TW');
   if (SHOT) { await p4.screenshot({ path: join(SHOT, `nbdebug_${name}_${viewport.width}.png`), fullPage: true }); }
+  check(`${tag} 工具頁沒有 page-credit（與其他工具頁一致，只有首頁與說明頁有）`, await p4.evaluate(() => !document.querySelector('.page-credit') && !/Designed by/.test(document.body.innerText)));
   check(`${tag} 無 JS 錯誤`, errs.length === 0, errs.join(' | '));
   await br.close();
 }
@@ -294,6 +379,7 @@ if (MODEL_DIR) {
     const lines = readFileSync(join(MODEL_DIR, G[ic].model), 'utf8').split('\n');
     const blockAt = (L, name) => { if (!new RegExp('\\[\\s*' + name.replace(/[()]/g, '\\$&') + '\\s*\\]').test(lines[L - 1])) return null; const o = {}; for (let i = L; i < L + 8 && i < lines.length; i++) { const m = /^\s*(RegAddr0|RegMsb0|RegBits0)\s*=\s*(\S+)/.exec(lines[i]); if (m) o[m[1]] = m[2]; } return o; };
     for (const g of G[ic].gpios) {
+      if (g.doc) continue;   /* v1.1.0：model 沒有、依 E501B 投影片 p3 補的腳（GPIO_07–10、12），D 項不對 model */
       n++; const t = blockAt(g.txL, g.txN), q = blockAt(g.selL, g.selN);
       const good = t && q && parseInt(t.RegAddr0, 16) === g.tx[0] && +t.RegMsb0 === g.tx[1] && +t.RegBits0 === 1 && parseInt(q.RegAddr0, 16) === g.sel[0] && +q.RegMsb0 === g.sel[1] && +q.RegMsb0 - +q.RegBits0 + 1 === g.sel[2];
       if (good) ok++; else check(`D ${ic} ${g.id} 對回 .model`, false, JSON.stringify({ t, q, g }));

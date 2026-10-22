@@ -7,9 +7,8 @@
 <link rel="stylesheet" href="common/common.css?v=20261022nd100">
 <link rel="stylesheet" href="common/site-ui.css?v=20261022nd100">
 <!--
-  NB TCON Debug應用 v1.0.0（Bruce 2026-10-22，派工 238904982972174336）
-  ・Bruce 原話：「同事F剛剛寄出E503要拉出RX DE與TX DE的mail，這是有驗證過的方式…如果有差異要以同事F的這份mail為主，
-    然後現在可以開始製作網頁了，我要在tcon tools專案裡看到，標題是NB TCON Debug應用」；
+  NB TCON Debug應用（Bruce 2026-10-22，派工 238904982972174336）
+  ・需求：E503 拉出 RX DE／TX DE 以實測過的設定為準（與其他資料有差異時以實測設定為主）；標題「NB TCON Debug應用」；
     「所有的 debug 我不要只限定在某一 pin 輸出，都要有下拉選單，可以從不同的 GPIO pin 輸出」；
     「網頁版的還需要可以有 I2C 即時操作，或者是匯出 NB 版的 Script，可以選擇 Excel 或是 Script 檔案」；
     「步驟要越簡單越好，說明要越少越好。就跟之前的 DG網頁或者是 DataMap 網頁的目標是一樣的，簡單明瞭、易操作」。
@@ -20,11 +19,12 @@
     reference/NB_TCON_debug_TCON資料夾整理_20261022.md §5（datasheet Pin List）；查不到的標「封裝腳位待確認」。
   ・I2C：I2C Bridge（common/i2c-bridge.js 連線位址／徽章／下載提示；common/i2c-mbus.js M-Bus 導通 C-Bus），
     WebSocket 協定（ping／open／read／rawwrite／close）與 IC 辨認（7C:95／7C:98／7D:007D／3E:207E）照 datamap.html。
-    🔴 不下 datamap 那一筆 E503 3E:0059←1E —— 0x059 正是 WP pin 的 TX_IN_SEL（同事F的輸出腳），下了會把 debug 輸出蓋掉。
+    （2026-10-22：IC 辨認改共用函式由另一個派工處理，本版不動辨認。）
+    🔴 不下 datamap 那一筆 E503 3E:0059←1E —— 0x059 正是 WP pin 的 TX_IN_SEL（實測用的輸出腳），下了會把 debug 輸出蓋掉。
     每一列都是「讀 → 只改遮罩內的 bit → 寫 → 讀回比對」；第一次寫前的原值記下來給「還原」。
   ・匯出：Excel 照 WFG NB 匯出（wfg.html wfgNbBuildXlsx：WFG_NB_XLSX_HEADER 22 欄、Check Item＝.model 區塊名、
     Offset 用 wfgNbOff 格式、值 '0x'+HEX）；.script 照 wfgNbBuildScript（write -m AAAA VV MM、// 註解、ASCII）。
-  ・KOSC（EN01）：同事K 2026-10-21 Debug_OSC.i2cs＋EN01A1 osc calibration_1.i2cs；燒 eFuse（7C 0x01=01）預設不含，
+  ・KOSC（EN01）：原廠腳本 Debug_OSC.i2cs＋EN01A1 osc calibration_1.i2cs（2026-10）；燒 eFuse（7C 0x01=01）預設不含，
     要勾「加入燒錄」＋兩個確認才會出現在表上／檔案裡；I2C 送出另外要求本次已讀 3E 0x20D0＝0。
 -->
 <style>
@@ -49,9 +49,15 @@
   .nd-in { background: #0b1424; color: var(--text); border: 1px solid var(--border); border-radius: 6px; height: 28px; padding: 0 6px; font-size: 13px; width: 58px; font-family: ui-monospace, Menlo, Consolas, monospace; }
   .nd-line { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; margin: 10px 0 0; font-size: 13px; color: var(--sub); }
   .nd-tag { display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: 11px; font-size: 12px; font-weight: 700; border: 1px solid transparent; white-space: nowrap; cursor: default; }
-  .lv-peerf { background: #064e3b; color: #6ee7b7; border-color: #10b981; }
+  .lv-meas { background: #064e3b; color: #6ee7b7; border-color: #10b981; }
   .lv-ven { background: #0c4a6e; color: #7dd3fc; border-color: #0ea5e9; }
   .lv-doc { background: #451a03; color: #fcd34d; border-color: #f59e0b; }
+  .lv-vdoc { background: #1e1b4b; color: #c4b5fd; border-color: #8b5cf6; }
+  .nd-q { background: #0b1424; color: var(--text); border: 1px solid var(--border); border-radius: 6px; height: 30px; padding: 0 8px; font-size: 13px; box-sizing: border-box; width: 100%; max-width: 420px; }
+  .nd-qn { font-size: 12px; color: var(--sub); }
+  .nd-pins { flex-direction: column; align-items: stretch !important; }
+  .nd-pin { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .nd-pinlab { font-size: 12px; color: var(--sub); min-width: 140px; }
   .nd-meas b { color: var(--text); }
   .nd-pkgq { color: #fcd34d; }
   .nd-warn { margin: 8px 0 0; padding: 6px 10px; border-radius: 6px; border: 1px solid #b45309; background: #2a1606; color: #fde68a; font-size: 13px; }
@@ -113,8 +119,8 @@
   <div class="card stp" id="nd-card">
     <div class="nd-form">
       <div class="nd-frow"><span class="nd-fl" data-i18n="nd.kIc">IC</span><span class="nd-fc"><select id="nd-icsel" class="nd-sel"></select></span></div>
-      <div class="nd-frow"><span class="nd-fl" data-i18n="nd.kItem">項目</span><span class="nd-fc"><select id="nd-item" class="nd-sel"></select></span></div>
-      <div class="nd-frow"><span class="nd-fl" data-i18n="nd.kGpio">輸出 GPIO</span><span class="nd-fc"><select id="nd-gpio" class="nd-sel"></select></span></div>
+      <div class="nd-frow"><span class="nd-fl" data-i18n="nd.kItem">項目</span><span class="nd-fc"><input id="nd-q" class="nd-q" type="search" placeholder="搜尋訊號（例 CORESTATE、DE、OSC）" autocomplete="off"><span id="nd-qn" class="nd-qn"></span><select id="nd-item" class="nd-sel"></select></span></div>
+      <div class="nd-frow"><span class="nd-fl" data-i18n="nd.kGpio">輸出 GPIO</span><span class="nd-fc nd-pins" id="nd-gpios"><select id="nd-gpio" class="nd-sel"></select></span></div>
     </div>
     <div class="nd-line" id="nd-info"></div>
     <div class="nd-warn" id="nd-warn"></div>
@@ -137,10 +143,9 @@
     <details class="stp-more" id="nd-helpbox"><summary data-i18n="nd.help">說明</summary><div class="nd-help" id="nd-help"></div></details>
     <details class="stp-more"><summary data-i18n="nd.logT">記錄</summary><pre class="nd-log" id="nd-log"></pre></details>
   </div>
-  <div class="page-credit">Designed by Bruce</div>
 </div>
 
-<script src="common/version.js?v=20261022nd100"></script>
+<script src="common/version.js?v=20261022nd110"></script>
 <script src="common/i18n.js?v=20261021wfg4590"></script>
 <script>
 /* 本頁字串（三語：zh-TW／en／zh-CN），併進共用 I18N（做法同 datamap.html） */
@@ -167,9 +172,16 @@
     'nd.thName': ['名稱', 'Name', '名称'],
     'nd.w': ['寫', 'W', '写'],
     'nd.r': ['讀', 'R', '读'],
-    'nd.lvPeerf': ['同事F已驗證', 'Verified (同事F)', '同事F已验证'],
+    'nd.lvMeas': ['實測驗證', 'Measured', '实测验证'],
     'nd.lvVendor': ['原廠腳本', 'Vendor script', '原厂脚本'],
-    'nd.lvDoc': ['文件推論未實測', 'From docs, not measured', '文件推论未实测'],
+    'nd.lvInf': ['推論，未實測', 'Inferred, not measured', '推论，未实测'],
+    'nd.lvVdoc': ['原廠文件', 'Vendor document', '原厂文件'],
+    'nd.grpCommon': ['常用', 'Common', '常用'],
+    'nd.qPh': ['搜尋訊號（例 CORESTATE、DE、OSC）', 'Search signal (e.g. CORESTATE, DE, OSC)', '搜索信号（例 CORESTATE、DE、OSC）'],
+    'nd.qNone': ['沒有符合的項目', 'No matching item', '没有符合的项目'],
+    'nd.qCount': ['{n} 項', '{n} items', '{n} 项'],
+    'nd.meas2': ['量 {p}：{m}', 'Probe {p}: {m}', '量 {p}：{m}'],
+    'nd.dupPin': ['⚠ 有兩個 bit 選到同一支 GPIO，請改成不同腳（不執行、不匯出）', '⚠ Two bits use the same GPIO: pick different pins (run/export disabled)', '⚠ 有两个 bit 选到同一支 GPIO，请改成不同脚（不执行、不导出）'],
     'nd.lvPin': ['依 model 位址推論，未實測', 'From model address, not measured', '依 model 地址推论，未实测'],
     'nd.lvTip': ['來源：{s}', 'Source: {s}', '来源：{s}'],
     'nd.meas': ['量 <b>{p}</b>：{m}', 'Probe <b>{p}</b>: {m}', '量 <b>{p}</b>：{m}'],
@@ -211,7 +223,8 @@
 <script>
 /* ═══ GPIO 位址表：由 WPF ModelFiles 的 .model 程式抽出（id＝.model 父節點名；tx＝[位址, bit]；sel＝[位址, msb, lsb]；
        txN／selN＝.model 區塊名＝匯出 Excel 的 Check Item；txL／selL＝.model 行號；pkg／pin／pst＝封裝腳名、腳號、狀態 ok／inf／nobond／''）═══ */
-var NBD_GPIO = {"E503":{"model":"RM8100x_for_FAE_20240925_20250311.model","tcon":"E503A","gpios":[{"id":"GPIO_00","tx":[75,0],"txN":"GPIO_00_TX_EN","txL":267,"sel":[84,5,0],"selN":"GPIO_00_TX_IN_SEL","selL":302,"pkg":"GPO0","pin":"pin 54 (RM81003) / 56 (RM81004)","pst":"ok"},{"id":"GPIO_01","tx":[75,4],"txN":"GPIO_01_TX_EN","txL":326,"sel":[85,5,0],"selN":"GPIO_01_TX_IN_SEL","selL":361,"pkg":"GPO1","pin":"pin 55 / 57","pst":"ok"},{"id":"GPIO_02","tx":[76,0],"txN":"GPIO_02_TX_EN","txL":385,"sel":[86,5,0],"selN":"GPIO_02_TX_IN_SEL","selL":420,"pkg":"GPO2","pin":"pin 56 / 58","pst":"ok"},{"id":"GPIO_03","tx":[76,4],"txN":"GPIO_03_TX_EN","txL":444,"sel":[87,5,0],"selN":"GPIO_03_TX_IN_SEL","selL":479,"pkg":"GPO3","pin":"pin 57 / 59","pst":"ok"},{"id":"GPIO_04","tx":[77,0],"txN":"GPIO_04_TX_EN","txL":503,"sel":[88,5,0],"selN":"GPIO_04_TX_IN_SEL","selL":538,"pkg":"GPO4","pin":"pin 60 / 2","pst":"ok"},{"id":"GPIO_ROM_WP","tx":[77,4],"txN":"GPIO_ROM_WP_TX_EN","txL":562,"sel":[89,5,0],"selN":"GPIO_ROM_WP_TX_IN_SEL","selL":590,"pkg":"WP","pin":"pin 17 / 19","pst":"ok"},{"id":"GPIO_BLEN","tx":[78,0],"txN":"GPIO_BLEN_TX_EN","txL":614,"sel":[90,5,0],"selN":"GPIO_BLEN_TX_IN_SEL","selL":642,"pkg":"ENBKLT","pin":"pin 27 / 29","pst":"inf"},{"id":"GPIO_STV","tx":[78,4],"txN":"GPIO_STV_TX_EN","txL":666,"sel":[91,5,0],"selN":"GPIO_STV_TX_IN_SEL","selL":701,"pkg":"STV","pin":"pin 51 / 53","pst":"ok"},{"id":"GPIO_CPV","tx":[79,0],"txN":"GPIO_CPV_TX_EN","txL":725,"sel":[92,5,0],"selN":"GPIO_CPV_TX_IN_SEL","selL":760,"pkg":"CPV","pin":"pin 52 / 54","pst":"ok"},{"id":"GPIO_OE(Initial_High)","tx":[79,4],"txN":"GPIO_OE_TX_EN","txL":784,"sel":[93,5,0],"selN":"GPIO_OE_TX_IN_SEL","selL":819,"pkg":"OE","pin":"pin 53 / 55","pst":"ok"},{"id":"EESEL","tx":[80,0],"txN":"EESEL_TX_EN","txL":843,"sel":[94,5,0],"selN":"EESEL_TX_IN_SEL","selL":871,"pkg":"EESEL","pin":"pin 11 / 13","pst":"ok"},{"id":"GPIO_DBC_EN","tx":[80,4],"txN":"GPIO_DBC_EN_TX_EN","txL":895,"sel":[95,5,0],"selN":"GPIO_DBC_EN_TX_IN_SEL","selL":923,"pkg":"DBC_EN","pin":"pin 58 / 60","pst":"ok"},{"id":"GPIO_COLOR_EN","tx":[81,0],"txN":"GPIO_COLOR_EN_TX_EN","txL":947,"sel":[96,5,0],"selN":"GPIO_COLOR_EN_TX_IN_SEL","selL":975,"pkg":"COLOR_EN","pin":"pin 59 / 1","pst":"ok"},{"id":"PWMO","tx":[81,4],"txN":"PWMO_TX_EN","txL":999,"sel":[97,5,0],"selN":"PWMO_TX_IN_SEL","selL":1034,"pkg":"PWMO","pin":"pin 28 / 30","pst":"ok"},{"id":"HPD","tx":[109,4],"txN":"HPD_TX_EN","txL":1058,"sel":[110,5,0],"selN":"HPD_TX_IN_SEL","selL":1093,"pkg":"HPD","pin":"pin 9 / 11","pst":"ok"},{"id":"TP","tx":[121,0],"txN":"TP_TX_EN","txL":1117,"sel":[122,5,0],"selN":"TP_TX_IN_SEL","selL":1159,"pkg":"GPO5","pin":"pin 29 / 31","pst":"inf"},{"id":"POL","tx":[121,4],"txN":"POL_TX_EN","txL":1183,"sel":[123,5,0],"selN":"POL_TX_IN_SEL","selL":1225,"pkg":"GPO6","pin":"pin 30 / 32","pst":"inf"}],"dbg":{"TOP_DBG_SEL":10707,"DBG_SEL":10714,"DBG_SEL2":10721,"DBG_SEL3":10728}},"E501A":{"model":"RM81010_for_FAE_20240509_20241127.model","tcon":"E501A6","gpios":[{"id":"GPIO_01","tx":[77,0],"txN":"GPIO_01_TX_EN","txL":234,"sel":[86,5,0],"selN":"GPIO_01_TX_IN_SEL","selL":262,"pkg":"","pin":"","pst":""},{"id":"GPIO_02","tx":[77,4],"txN":"GPIO_02_TX_EN","txL":284,"sel":[87,5,0],"selN":"GPIO_02_TX_IN_SEL","selL":312,"pkg":"GPIO_02","pin":"pin 2","pst":"ok"},{"id":"GPIO_03","tx":[78,0],"txN":"GPIO_03_TX_EN","txL":334,"sel":[88,5,0],"selN":"GPIO_03_TX_IN_SEL","selL":362,"pkg":"GPIO_03","pin":"pin 3","pst":"ok"},{"id":"GPIO_04","tx":[78,4],"txN":"GPIO_04_TX_EN","txL":384,"sel":[89,5,0],"selN":"GPIO_04_TX_IN_SEL","selL":412,"pkg":"GPIO_04","pin":"pin 7","pst":"ok"},{"id":"FLASH_WP_GPIO_05","tx":[79,0],"txN":"GPIO_05_TX_EN","txL":434,"sel":[90,5,0],"selN":"GPIO_05_TX_IN_SEL","selL":462,"pkg":"FLASH_WP","pin":"pin 8","pst":"ok"},{"id":"GPIO_06","tx":[79,4],"txN":"GPIO_06_TX_EN","txL":484,"sel":[91,5,0],"selN":"GPIO_06_TX_IN_SEL","selL":512,"pkg":"GPIO_06","pin":"pin 9","pst":"ok"},{"id":"STV1_GPIO_13","tx":[83,0],"txN":"GPIO_13_TX_EN","txL":534,"sel":[98,5,0],"selN":"GPIO_13_TX_IN_SEL","selL":562,"pkg":"STV1","pin":"pin 53","pst":"ok"},{"id":"CPV_GPIO_14","tx":[83,4],"txN":"GPIO_14_TX_EN","txL":584,"sel":[99,5,0],"selN":"GPIO_14_TX_IN_SEL","selL":612,"pkg":"CPV","pin":"pin 54","pst":"ok"},{"id":"OE1_GPIO_15","tx":[84,0],"txN":"GPIO_15_TX_EN","txL":634,"sel":[100,5,0],"selN":"GPIO_15_TX_IN_SEL","selL":662,"pkg":"OE1","pin":"pin 57","pst":"ok"},{"id":"OE2_GPIO_16","tx":[84,4],"txN":"GPIO_16_TX_EN","txL":684,"sel":[101,5,0],"selN":"GPIO_16_TX_IN_SEL","selL":712,"pkg":"OE2","pin":"pin 58","pst":"ok"},{"id":"STV2_GPIO_17","tx":[85,0],"txN":"GPIO_17_TX_EN","txL":734,"sel":[102,5,0],"selN":"GPIO_17_TX_IN_SEL","selL":762,"pkg":"STV2","pin":"pin 59","pst":"ok"},{"id":"DYNAMIC_VCOM_GPIO_18","tx":[85,4],"txN":"GPIO_18_TX_EN","txL":784,"sel":[120,5,0],"selN":"GPIO_18_TX_IN_SEL","selL":812,"pkg":"","pin":"","pst":""},{"id":"GPI_2_GPIO_19","tx":[103,0],"txN":"GPIO_19_TX_EN","txL":834,"sel":[121,5,0],"selN":"GPIO_19_TX_IN_SEL","selL":862,"pkg":"","pin":"","pst":""},{"id":"PSR_EN_GPIO_20","tx":[103,4],"txN":"GPIO_20_TX_EN","txL":884,"sel":[96,5,0],"selN":"GPIO_20_TX_IN_SEL","selL":912,"pkg":"","pin":"","pst":""},{"id":"SDLOCK_GPIO_EOS_01","tx":[185,0],"txN":"GPIO_EOS_01_TX_EN","txL":934,"sel":[186,5,0],"selN":"GPIO_EOS_01_TX_IN_SEL","selL":969,"pkg":"","pin":"","pst":""},{"id":"XSTB_GPIO_EOS_02","tx":[185,4],"txN":"GPIO_EOS_02_TX_EN","txL":991,"sel":[187,5,0],"selN":"GPIO_EOS_02_TX_IN_SEL","selL":1026,"pkg":"","pin":"","pst":""},{"id":"OPDIO_01","tx":[112,6],"txN":"OPDIO_01_TX_EN","txL":1066,"sel":[112,5,0],"selN":"OPDIO_01_TX_IN_SEL","selL":1073,"pkg":"","pin":"","pst":""},{"id":"OPDIO_02","tx":[113,6],"txN":"OPDIO_02_TX_EN","txL":1109,"sel":[113,5,0],"selN":"OPDIO_02_TX_IN_SEL","selL":1116,"pkg":"","pin":"","pst":""},{"id":"OPDIO_03","tx":[114,6],"txN":"OPDIO_03_TX_EN","txL":1152,"sel":[114,5,0],"selN":"OPDIO_03_TX_IN_SEL","selL":1159,"pkg":"","pin":"","pst":""},{"id":"OPDIO_04","tx":[115,6],"txN":"OPDIO_04_TX_EN","txL":1195,"sel":[115,5,0],"selN":"OPDIO_04_TX_IN_SEL","selL":1202,"pkg":"","pin":"","pst":""},{"id":"OPDIO_05","tx":[116,6],"txN":"OPDIO_05_TX_EN","txL":1238,"sel":[116,5,0],"selN":"OPDIO_05_TX_IN_SEL","selL":1245,"pkg":"","pin":"","pst":""},{"id":"OPDIO_06","tx":[117,6],"txN":"OPDIO_06_TX_EN","txL":1281,"sel":[117,5,0],"selN":"OPDIO_06_TX_IN_SEL","selL":1288,"pkg":"","pin":"","pst":""},{"id":"OPDIO_07","tx":[122,6],"txN":"OPDIO_07_TX_EN","txL":1324,"sel":[122,5,0],"selN":"OPDIO_07_TX_IN_SEL","selL":1331,"pkg":"","pin":"","pst":""}],"dbg":{"TOP_DBG_SEL":11982,"DBG_SEL":11990,"DBG_SEL2":11998,"DBG_SEL3":12007}},"E501B":{"model":"RM81011_for_FAE_20231025_20240509.model","tcon":"E501B2","gpios":[{"id":"GPIO_01","tx":[77,0],"txN":"GPIO_01_TX_EN","txL":232,"sel":[86,5,0],"selN":"GPIO_01_TX_IN_SEL","selL":260,"pkg":"","pin":"","pst":""},{"id":"GPIO_02","tx":[77,4],"txN":"GPIO_02_TX_EN","txL":282,"sel":[87,5,0],"selN":"GPIO_02_TX_IN_SEL","selL":310,"pkg":"GPIO_02","pin":"pin 2","pst":"ok"},{"id":"GPIO_03","tx":[78,0],"txN":"GPIO_03_TX_EN","txL":332,"sel":[88,5,0],"selN":"GPIO_03_TX_IN_SEL","selL":360,"pkg":"GPIO_03","pin":"pin 3","pst":"ok"},{"id":"GPIO_04","tx":[78,4],"txN":"GPIO_04_TX_EN","txL":382,"sel":[89,5,0],"selN":"GPIO_04_TX_IN_SEL","selL":410,"pkg":"GPIO_04","pin":"pin 7","pst":"ok"},{"id":"FLASH_WP_GPIO_05","tx":[79,0],"txN":"GPIO_05_TX_EN","txL":432,"sel":[90,5,0],"selN":"GPIO_05_TX_IN_SEL","selL":460,"pkg":"FLASH_WP","pin":"pin 8","pst":"ok"},{"id":"GPIO_06","tx":[79,4],"txN":"GPIO_06_TX_EN","txL":482,"sel":[91,5,0],"selN":"GPIO_06_TX_IN_SEL","selL":510,"pkg":"GPIO_06","pin":"pin 9","pst":"ok"},{"id":"STV1_GPIO_13","tx":[83,0],"txN":"GPIO_13_TX_EN","txL":532,"sel":[98,5,0],"selN":"GPIO_13_TX_IN_SEL","selL":560,"pkg":"STV1","pin":"pin 53","pst":"ok"},{"id":"CPV_GPIO_14","tx":[83,4],"txN":"GPIO_14_TX_EN","txL":582,"sel":[99,5,0],"selN":"GPIO_14_TX_IN_SEL","selL":610,"pkg":"CPV","pin":"pin 54","pst":"ok"},{"id":"OE1_GPIO_15","tx":[84,0],"txN":"GPIO_15_TX_EN","txL":632,"sel":[100,5,0],"selN":"GPIO_15_TX_IN_SEL","selL":660,"pkg":"OE1","pin":"pin 57","pst":"ok"},{"id":"OE2_GPIO_16","tx":[84,4],"txN":"GPIO_16_TX_EN","txL":682,"sel":[101,5,0],"selN":"GPIO_16_TX_IN_SEL","selL":710,"pkg":"OE2","pin":"pin 58","pst":"ok"},{"id":"STV2_GPIO_17","tx":[85,0],"txN":"GPIO_17_TX_EN","txL":732,"sel":[102,5,0],"selN":"GPIO_17_TX_IN_SEL","selL":760,"pkg":"STV2","pin":"pin 59","pst":"ok"},{"id":"DYNAMIC_VCOM_GPIO_18","tx":[85,4],"txN":"GPIO_18_TX_EN","txL":782,"sel":[120,5,0],"selN":"GPIO_18_TX_IN_SEL","selL":810,"pkg":"","pin":"","pst":""},{"id":"GPI_2_GPIO_19","tx":[103,0],"txN":"GPIO_19_TX_EN","txL":832,"sel":[121,5,0],"selN":"GPIO_19_TX_IN_SEL","selL":860,"pkg":"","pin":"","pst":""},{"id":"PSR_EN_GPIO_20","tx":[103,4],"txN":"GPIO_20_TX_EN","txL":882,"sel":[96,5,0],"selN":"GPIO_20_TX_IN_SEL","selL":910,"pkg":"","pin":"","pst":""},{"id":"SDLOCK_GPIO_EOS_01","tx":[185,0],"txN":"GPIO_EOS_01_TX_EN","txL":932,"sel":[186,5,0],"selN":"GPIO_EOS_01_TX_IN_SEL","selL":967,"pkg":"","pin":"","pst":""},{"id":"XSTB_GPIO_EOS_02","tx":[185,4],"txN":"GPIO_EOS_02_TX_EN","txL":989,"sel":[187,5,0],"selN":"GPIO_EOS_02_TX_IN_SEL","selL":1024,"pkg":"","pin":"","pst":""},{"id":"OPDIO_01","tx":[112,6],"txN":"OPDIO_01_TX_EN","txL":1064,"sel":[112,5,0],"selN":"OPDIO_01_TX_IN_SEL","selL":1071,"pkg":"","pin":"","pst":""},{"id":"OPDIO_02","tx":[113,6],"txN":"OPDIO_02_TX_EN","txL":1107,"sel":[113,5,0],"selN":"OPDIO_02_TX_IN_SEL","selL":1114,"pkg":"","pin":"","pst":""},{"id":"OPDIO_03","tx":[114,6],"txN":"OPDIO_03_TX_EN","txL":1150,"sel":[114,5,0],"selN":"OPDIO_03_TX_IN_SEL","selL":1157,"pkg":"","pin":"","pst":""},{"id":"OPDIO_04","tx":[115,6],"txN":"OPDIO_04_TX_EN","txL":1193,"sel":[115,5,0],"selN":"OPDIO_04_TX_IN_SEL","selL":1200,"pkg":"","pin":"","pst":""},{"id":"OPDIO_05","tx":[116,6],"txN":"OPDIO_05_TX_EN","txL":1236,"sel":[116,5,0],"selN":"OPDIO_05_TX_IN_SEL","selL":1243,"pkg":"","pin":"","pst":""},{"id":"OPDIO_06","tx":[117,6],"txN":"OPDIO_06_TX_EN","txL":1279,"sel":[117,5,0],"selN":"OPDIO_06_TX_IN_SEL","selL":1286,"pkg":"","pin":"","pst":""},{"id":"OPDIO_07","tx":[122,6],"txN":"OPDIO_07_TX_EN","txL":1322,"sel":[122,5,0],"selN":"OPDIO_07_TX_IN_SEL","selL":1329,"pkg":"","pin":"","pst":""}],"dbg":{"TOP_DBG_SEL":11788,"DBG_SEL":11795,"DBG_SEL2":11802,"DBG_SEL3":11809}},"EN01":{"model":"RM81008.model","tcon":"EN01","gpios":[{"id":"GPIO_00","tx":[75,0],"txN":"GPIO_00_TX_EN","txL":149,"sel":[86,6,0],"selN":"GPIO_00_TX_IN_SEL","selL":184,"pkg":"","pin":"","pst":""},{"id":"GPIO_01","tx":[75,4],"txN":"GPIO_01_TX_EN","txL":217,"sel":[87,6,0],"selN":"GPIO_01_TX_IN_SEL","selL":252,"pkg":"","pin":"","pst":""},{"id":"GPIO_02","tx":[76,0],"txN":"GPIO_02_TX_EN","txL":285,"sel":[88,6,0],"selN":"GPIO_02_TX_IN_SEL","selL":320,"pkg":"","pin":"Q5 datasheet 沒列 GPIO2","pst":"nobond"},{"id":"GPIO_03","tx":[76,4],"txN":"GPIO_03_TX_EN","txL":353,"sel":[89,6,0],"selN":"GPIO_03_TX_IN_SEL","selL":388,"pkg":"","pin":"","pst":""},{"id":"GPIO_04","tx":[77,0],"txN":"GPIO_04_TX_EN","txL":421,"sel":[90,6,0],"selN":"GPIO_04_TX_IN_SEL","selL":456,"pkg":"GPIO6","pin":"pin 2","pst":"ok"},{"id":"GPIO_07","tx":[77,4],"txN":"GPIO_07_TX_EN","txL":489,"sel":[91,6,0],"selN":"GPIO_07_TX_IN_SEL","selL":517,"pkg":"GPIO7","pin":"pin 23","pst":"ok"},{"id":"GPIO_08","tx":[78,0],"txN":"GPIO_08_TX_EN","txL":550,"sel":[92,6,0],"selN":"GPIO_08_TX_IN_SEL","selL":578,"pkg":"","pin":"","pst":""},{"id":"GPIO_09","tx":[78,4],"txN":"GPIO_09_TX_EN","txL":611,"sel":[93,6,0],"selN":"GPIO_09_TX_IN_SEL","selL":646,"pkg":"","pin":"","pst":""},{"id":"GPIO_10","tx":[79,0],"txN":"GPIO_10_TX_EN","txL":679,"sel":[94,6,0],"selN":"GPIO_10_TX_IN_SEL","selL":714,"pkg":"","pin":"","pst":""},{"id":"GPIO_STV","tx":[79,4],"txN":"GPIO_STV_TX_EN","txL":747,"sel":[95,6,0],"selN":"GPIO_STV_TX_IN_SEL","selL":782,"pkg":"STV","pin":"pin 53","pst":"ok"},{"id":"GPIO_CPV","tx":[80,0],"txN":"GPIO_CPV_TX_EN","txL":815,"sel":[96,6,0],"selN":"GPIO_CPV_IN_SEL","selL":850,"pkg":"CPV","pin":"pin 54","pst":"ok"},{"id":"GPIO_OE","tx":[80,4],"txN":"GPIO_OE_TX_EN","txL":883,"sel":[97,6,0],"selN":"GPIO_OE_TX_IN_SEL","selL":918,"pkg":"OE","pin":"pin 55","pst":"ok"},{"id":"GPIO_DBC_EN","tx":[81,0],"txN":"GPIO_DBC_EN_TX_EN","txL":951,"sel":[98,6,0],"selN":"GPIO_DBC_EN_TX_IN_SEL","selL":986,"pkg":"DBC_EN","pin":"pin 60","pst":"ok"},{"id":"GPIO_COLOR_EN","tx":[81,4],"txN":"GPIO_COLOR_EN_TX_EN","txL":1020,"sel":[99,6,0],"selN":"GPIO_COLOR_EN_TX_IN_SEL","selL":1055,"pkg":"","pin":"","pst":""},{"id":"HPD","tx":[82,0],"txN":"HPD_TX_EN","txL":1088,"sel":[100,6,0],"selN":"HPD_TX_IN_SEL","selL":1123,"pkg":"HPD","pin":"pin 11","pst":"ok"},{"id":"ROM_SPI_WP","tx":[82,4],"txN":"ROM_SPI_WP_TX_EN","txL":1156,"sel":[101,6,0],"selN":"ROM_SPI_WP_TX_IN_SEL","selL":1191,"pkg":"ROM_WP","pin":"pin 19","pst":"ok"},{"id":"POL","tx":[83,0],"txN":"POL_TX_EN","txL":1224,"sel":[102,6,0],"selN":"POL_TX_IN_SEL","selL":1259,"pkg":"","pin":"","pst":""},{"id":"PWMO","tx":[83,4],"txN":"PWMO_TX_EN","txL":1292,"sel":[103,6,0],"selN":"PWMO_TX_IN_SEL","selL":1327,"pkg":"PWMO","pin":"pin 30","pst":"ok"},{"id":"ENBKLT","tx":[84,0],"txN":"ENBKLT_TX_EN","txL":1360,"sel":[104,6,0],"selN":"ENBKLT_TX_IN_SEL","selL":1395,"pkg":"ENBKLT","pin":"pin 29","pst":"ok"},{"id":"TP","tx":[84,4],"txN":"TP_TX_EN","txL":1428,"sel":[105,6,0],"selN":"TP_TX_IN_SEL","selL":1463,"pkg":"","pin":"","pst":""}],"dbg":{"TOP_DBG_SEL":15903,"DBG_SEL":15910,"DBG_SEL2":15917,"DBG_SEL3":15924}}};
+var NBD_GROUPS = [{"id":"dbg_01","top":1,"sel3":1,"bits":["RX_LS0_CLK_DIV2","RX_LS1_CLK_DIV8","RX_LS0_CLK_DIV8","ISP_CLK_DIV8","OSC_CLK_DIV8","DCLK_DIV8","DSC_CLK_DIV8","RFB_INFX_CLK_DIV8","PIX_OSC_CLK_DIV8","MCC_OSC54M_DIV8"]},{"id":"dbg_02","top":2,"sel3":2,"bits":["RT0_STATE_CHG","RT0_CORESTATE[0]","RT0_CORESTATE[1]","RT0_CORESTATE[2]","RT0_CORESTATE[3]","RT6_DE","RT5_DE","DPFIFO_2_RTLOG_DE","DP_2_FIFO_DE","RT3_AGBS_DE"]},{"id":"dbg_03","top":3,"sel3":3,"bits":["P0_O[0]","P0_O[1]","P0_O[2]","P0_O[3]","P0_O[4]","P0_O[5]","P0_O[6]","P0_O[7]","0","0"]},{"id":"dbg_04","top":4,"sel3":4,"bits":["P1_O[0]","P1_O[1]","P1_O[2]","P1_O[3]","P1_O[4]","P1_O[5]","P1_O[6]","P1_O[7]","0","0"]},{"id":"dbg_05","top":5,"sel3":5,"bits":["P2_O[0]","P2_O[1]","P2_O[2]","P2_O[3]","P2_O[4]","P2_O[5]","P2_O[6]","P2_O[7]","0","0"]},{"id":"dbg_06","top":6,"sel3":6,"bits":["P3_O[0]","P3_O[1]","P3_O[2]","P3_O[3]","P3_O[4]","P3_O[5]","P3_O[6]","P3_O[7]","0","0"]},{"id":"dbg_07","top":7,"sel3":7,"bits":["RT0_CORESTATE[0]","RT0_CORESTATE[1]","RT0_CORESTATE[2]","RT0_CORESTATE[3]","UNPK_STATE[0]","UNPK_STATE[1]","UNPK_STATE[2]","DP_STATE[0]","DP_STATE[1]","DP_STATE[2]"]},{"id":"dbg_08","top":8,"sel3":8,"bits":["AUX_P_OEN","AUX_REQUEST","RT6_DE","DPFIFO_2_RTLOG_DE","DP_2_FIFO_DE","DP_STATE[0]","DP_STATE[1]","DP_STATE[2]","DP_STATE[3]","MLGLUE_DSCM_KOUT_SR"]},{"id":"dbg_09","top":9,"sel3":9,"bits":["AUX_P_OEN","AUX_REQUEST","RT6_DE","DPFIFO_2_RTLOG_DE","DP_2_FIFO_DE","UNPK_STATE[0]","UNPK_STATE[1]","UNPK_STATE[2]","DP_TSR_DETECT_FLAG","MLGLUE_DSCM_KOUT_SR"]},{"id":"dbg_10","top":10,"sel3":10,"bits":["AUX_P_OEN","AUX_REQUEST","RT6_DE","DPFIFO_2_RTLOG_DE","DP_2_FIFO_DE","RT0_CORESTATE[0]","RT0_CORESTATE[1]","RT0_CORESTATE[2]","RT0_CORESTATE[3]","MLGLUE_DSCM_KOUT_SR"]},{"id":"dbg_11","top":11,"sel3":11,"bits":["DSC_DEC_OUT_DE","DSC_TO_FIFO32_DE","DSCDEC_2_DPFIFO_DE","DSC_ENC_OUT_DE","FIFO_2TO3_DE","DPFIFO_2_DSCENC_DE","dbg_state[0]","dbg_state[1]","dbg_state[2]","dbg_state[3]"]},{"id":"dbg_12","top":12,"sel3":12,"bits":["DSC_DEC_OUT_DE","DSC_ENC_OUT_DE","DPFIFO_2_RTLOG_DE","DP_2_FIFO_DE","RT6_DE","RT3_AGBS_DE","dbg_state[0]","dbg_state[1]","dbg_state[2]","dbg_state[3]"]},{"id":"dbg_13","top":13,"sel3":13,"bits":["RX_LS0_CLK_DIV8","ISP_CLK_DIV8","DCLK_DIV8","OSC_CLK_DIV8","DP_2_FIFO_DE","DPFIFO_2_RTLOG_DE","dbg_state[0]","dbg_state[1]","dbg_state[2]","dbg_state[3]"]},{"id":"dbg_14","top":14,"sel3":14,"bits":["RX_LS0_CLK_DIV8","ISP_CLK_DIV8","DCLK_DIV8","DP_2_FIFO_DE","DSCDEC_2_DPFIFO_DE","DPFIFO_2_DSCENC_DE","dbg_state[0]","dbg_state[1]","dbg_state[2]","dbg_state[3]"]},{"id":"dbg_15","top":15,"sel3":15,"bits":["RX_LS0_CLK_DIV8","DCLK_DIV8","MLV_FIFO_CLR_N","DP_FIFO_CLR_N","DP_2_FIFO_DE","DPFIFO_2_RTLOG_DE","dbg_state[0]","dbg_state[1]","dbg_state[2]","DPFIFO_2_DSCENC_DE"]},{"id":"dbg_16","top":70,"sel3":38,"bits":["RT0_STATE_CHG","UNPK_STATE_CHG_OSC","PSR_STATE_CHG_OSC_CK","DP_STATE_CHANGE_OSC","DP_2_FIFO_DE","DPFIFO_2_RTLOG_DE","PSR_STATE[0]","PSR_STATE[1]","PSR_STATE[2]","dbg_de"]},{"id":"dbg_17","top":71,"sel3":39,"bits":["RT0_STATE_CHG","UNPK_STATE_CHG_OSC","PSR_STATE_CHG_OSC_CK","DP_STATE_CHANGE_OSC","DP_2_FIFO_DE","DPFIFO_2_RTLOG_DE","UNPK_STATE[0]","UNPK_STATE[1]","UNPK_STATE[2]","dbg_de"]},{"id":"dbg_18","top":72,"sel3":40,"bits":["RT0_STATE_CHG","UNPK_STATE_CHG_OSC","PSR_STATE_CHG_OSC_CK","DP_STATE_CHANGE_OSC","DP_2_FIFO_DE","DPFIFO_2_RTLOG_DE","DP_STATE[0]","DP_STATE[1]","DP_STATE[2]","dbg_de"]},{"id":"dbg_19","top":73,"sel3":41,"bits":["RT0_STATE_CHG","UNPK_STATE_CHG_OSC","PSR_STATE_CHG_OSC_CK","DP_STATE_CHANGE_OSC","DP_2_FIFO_DE","DPFIFO_2_RTLOG_DE","RT0_CORESTATE[0]","RT0_CORESTATE[1]","RT0_CORESTATE[2]","RT0_CORESTATE[3]"]},{"id":"dbg_20","top":74,"sel3":null,"bits":["0","0","0","0","0","0","OSC_CLK_DIV8","MCC_OSC54M_DIV8","EFUSE_MCCOSC_SEL","0"],"en01":["0","0","0","0","0","RING_OSC_OUTDIV8","OSC_CLK_DIV8","MCC_OSC54M_DIV8","EFUSE_MCCOSC_SEL","0"]},{"id":"dbg2_00","top":48,"sel3":16,"bits":["RT8_VS_HI","TG_2_RT8_BS_TG","TG_2_RT8_BE_TG","RT8_VB_XPOL_REGION","RT8_FRAME_END","RT8_DE_STOP","RT8_VS_HI","I2C_DOWNLOAD_FINISH2","I2C_DOWNLOAD_FINISH1","RT6_DE"]},{"id":"dbg2_01","top":49,"sel3":17,"bits":["SRAM_INFX_2_TG_W_STAR","SRAM_INFX_2_TG_W_SLICE_END","TG_RESYNC_DONE","TG_DELAY_WT","TG_DE","TG_SET_Y","TG_RD_PS","TG_RD_FRM_PS","TG_TO_SRAM_RD_FRM_PS","RT6_DE"]},{"id":"dbg2_02","top":50,"sel3":18,"bits":["SRAM_TO_DE_MLTP_IRDY","DE_MLTP_TO_SRAM_TRDY","DEC_CTL_SLICE_START","DEC_CTL_SLICE_END","SSM_TO_SRAM_SLICE_STR","SSM_TO_SRAM_SLICE_END","SSM_TO_SRAM_IRDY","SRAM_TO_SSM_TRDY","DSCDEC_2_DPFIFO_DE","DPFIFO_2_DSCENC_DE"]},{"id":"dbg2_03","top":51,"sel3":19,"bits":["TG_DELAY_WT","RFB_SRAM_INFX_CAPTURE_DONE","RFB_W_PRE_ACT","RFB_W_SU_END","RFB_SRAMINFX_W_TRDY","RFB_W_IRDY","DPFIFO_2_DSCENC_SU_END","DSCDEC_2_DPFIFO_DE","DPFIFO_2_DSCENC_DE","VSC_SDP_CHG_FLAG"]},{"id":"dbg2_04","top":52,"sel3":20,"bits":["RFB_SRAMINFX_R_IRDY","RFB_R_TRDY","RFB_SRAM_INFX_LENGTH_FAIL","RFB_R_SLICE_END_CLR","RFB_R_PRE_FETCH","DP_2_FIFO_BE_TOG","DPFIFO_2_DSCENC_SU_END","DSCDEC_2_DPFIFO_DE","DPFIFO_2_DSCENC_DE","VSC_SDP_CHG_FLAG"]},{"id":"dbg2_05","top":53,"sel3":21,"bits":["RFB_CAPTURE_DONE_FAIL","RFB_CAPTURE_DONE","SSM_TO_SRAM_SLICE_END","SSM_TO_SRAM_SLICE_STR","SRAM_TO_SSM_TRDY","SSM_TO_SRAM_IRDY","TG_SET_Y","DPFIFO_2_DSCENC_SU_END","DP_2_FIFO_BE_TOG","DP_2_FIFO_BS_TOG"]},{"id":"dbg2_06","top":54,"sel3":22,"bits":["DEC_CTL_SLICE_END","DEC_CTL_SLICE_START","SRAM_TO_DE_MLTP_IRDY","DE_MLTP_TO_SRAM_TRDY","TG_RD_PS","DP_2_FIFO_BE_TOG","DP_2_FIFO_BS_TOG","DSCDEC_2_DPFIFO_DE","DPFIFO_2_DSCENC_DE","VSC_SDP_CHG_FLAG"]},{"id":"dbg2_07","top":55,"sel3":23,"bits":["VSC_SDP_SU_VAILD","VSC_SDP_LST_SCAN_LINE","VSC_SDP_FRT_SCAN_LINE","VSC_SDP_CRC_VALID","VSC_SDP_PSR2_EN","VSC_SDP_PSR_STATE","VSC_SDP_CHG_FLAG","PSR_STATE[0]","PSR_STATE[1]","PSR_STATE[2]"]},{"id":"dbg2_08","top":56,"sel3":24,"bits":["VSC_SDP_SU_VAILD","VSC_SDP_LST_SCAN_LINE","VSC_SDP_FRT_SCAN_LINE","VSC_SDP_CRC_VALID","TO_MCU_2006H_2_PSR2_SDP_ERR","VSC_SDP_UPDATE_RFB","VSC_SDP_CHG_FLAG","PSR_STATE[0]","PSR_STATE[1]","PSR_STATE[2]"]},{"id":"dbg2_09","top":57,"sel3":25,"bits":["REG_TXPLL_RSTB","0","RG_GBPLL_EXT_RSTN","PLCTL2RG_TX_PLL_CHG","PLCTL2RG_OSC_PLL_CHG","PLCTL_ANA_MN_CHG","dbg_state[0]","dbg_state[1]","dbg_state[2]","dbg_state[3]"],"en01":["REG_TXPLL_RSTB","0","RG_FNPLL_RSTB","PLCTL2RG_TX_PLL_CHG","PLCTL2RG_OSC_PLL_CHG","PLCTL_ANA_MN_CHG","dbg_state[0]","dbg_state[1]","dbg_state[2]","dbg_state[3]"]},{"id":"dbg2_0a","top":58,"sel3":26,"bits":["REG_TXPLL_RSTB","DP_MN_TOGGLE","RG_GBPLL_EXT_RSTN","PLCTL2RG_TX_PLL_CHG","PLCTL_ANA_MN_CHG","PLCTL2DP_MN2ID_DONE","dbg_state[0]","dbg_state[1]","dbg_state[2]","dbg_state[3]"],"en01":["REG_TXPLL_RSTB","DP_MN_TOGGLE","RG_FNPLL_RSTB","PLCTL2RG_TX_PLL_CHG","PLCTL_ANA_MN_CHG","PLCTL2DP_MN2ID_DONE","dbg_state[0]","dbg_state[1]","dbg_state[2]","dbg_state[3]"]},{"id":"dbg2_0b","top":59,"sel3":27,"bits":["DPFIFO_2_DSCENC_SU_END","DSCDEC_2_DPFIFO_DE","DPFIFO_2_DSCENC_DE","DP_TSR_DETECT_FLAG","DP_2_FIFO_DE","VSC_SDP_CHG_FLAG","dbg_state[0]","dbg_state[1]","dbg_state[2]","dbg_state[3]"]},{"id":"dbg2_0c","top":60,"sel3":28,"bits":["DBGO2_UNPK_0_VBID[0]","DBGO2_UNPK_0_VBID[1]","DBGO2_UNPK_0_VBID[2]","DBGO2_UNPK_0_VBID[3]","DBGO2_UNPK_0_VBID[4]","DBGO2_UNPK_0_VBID[5]","DBGO2_UNPK_0_VBID[6]","DBGO2_UNPK_0_VBID[7]","PSR_STATE[0]","PSR_STATE[1]"]},{"id":"dbg2_0d","top":61,"sel3":29,"bits":["DBGO2_UNPK_1_MISC[0]","DBGO2_UNPK_1_MISC[1]","DBGO2_UNPK_1_MISC[2]","DBGO2_UNPK_1_MISC[3]","DBGO2_UNPK_1_MISC[4]","DBGO2_UNPK_1_MISC[5]","DBGO2_UNPK_1_MISC[6]","DBGO2_UNPK_1_MISC[7]","PSR_STATE[0]","PSR_STATE[1]"]},{"id":"dbg2_0e","top":62,"sel3":30,"bits":["dp_vbid3_no_video","dp_vbid0_vblank","DP_2_FIFO_BE_TOG","DP_2_FIFO_BS_TOG","DPFIFO_2_DSCENC_DE","VSC_SDP_CHG_FLAG","dbg_state[0]","dbg_state[1]","dbg_state[2]","dbg_state[3]"]},{"id":"dbg2_0f","top":63,"sel3":31,"bits":["RX_LS0_CLK_DIV8","HPD_O","ROM_WP","AUX_P_OEN","AUX_REQUEST","TXD0","dbg_state[0]","dbg_state[1]","dbg_state[2]","dbg_state[3]"]},{"id":"dbg2_10","top":64,"sel3":32,"bits":["dp_crd_sl_iad","DPCD_204H_IAD","DPCD_202H_L1SL","DPCD_202H_L0SL","DPCD_202H_L1CRD","DPCD_202H_L0CRD","dbg_state[0]","dbg_state[1]","dbg_state[2]","dbg_state[3]"],"en01only":true},{"id":"dbg2_11","top":65,"sel3":33,"bits":["RX_LS0_CLK_DIV8","DP_TSR_DETECT_FLAG","DP_2_FIFO_DE","dp_crd_sl_iad","dpcd_202h_sl","dpcd_202h_crd","dbg_state[0]","dbg_state[1]","dbg_state[2]","dbg_state[3]"],"en01only":true},{"id":"dbg2_12","top":66,"sel3":34,"bits":["RX_LS0_CLK_DIV8","DP_2_FIFO_BE_TOG","DP_2_FIFO_BS_TOG","RFB_CAPTURE_DONE_FAIL","DPFIFO_DSCENC_DE_ERR","DP_2_FIFO_OVER_PXL","dbg_state[0]","dbg_state[1]","dbg_state[2]","dbg_state[3]"],"en01only":true}];
+var NBD_GPIO = {"E503":{"model":"RM8100x_for_FAE_20240925_20250311.model","tcon":"E503A","gpios":[{"id":"GPIO_00","tx":[75,0],"txN":"GPIO_00_TX_EN","txL":267,"sel":[84,5,0],"selN":"GPIO_00_TX_IN_SEL","selL":302,"pkg":"GPO0","pin":"pin 54 (RM81003) / 56 (RM81004)","pst":"ok"},{"id":"GPIO_01","tx":[75,4],"txN":"GPIO_01_TX_EN","txL":326,"sel":[85,5,0],"selN":"GPIO_01_TX_IN_SEL","selL":361,"pkg":"GPO1","pin":"pin 55 / 57","pst":"ok"},{"id":"GPIO_02","tx":[76,0],"txN":"GPIO_02_TX_EN","txL":385,"sel":[86,5,0],"selN":"GPIO_02_TX_IN_SEL","selL":420,"pkg":"GPO2","pin":"pin 56 / 58","pst":"ok"},{"id":"GPIO_03","tx":[76,4],"txN":"GPIO_03_TX_EN","txL":444,"sel":[87,5,0],"selN":"GPIO_03_TX_IN_SEL","selL":479,"pkg":"GPO3","pin":"pin 57 / 59","pst":"ok"},{"id":"GPIO_04","tx":[77,0],"txN":"GPIO_04_TX_EN","txL":503,"sel":[88,5,0],"selN":"GPIO_04_TX_IN_SEL","selL":538,"pkg":"GPO4","pin":"pin 60 / 2","pst":"ok"},{"id":"GPIO_ROM_WP","tx":[77,4],"txN":"GPIO_ROM_WP_TX_EN","txL":562,"sel":[89,5,0],"selN":"GPIO_ROM_WP_TX_IN_SEL","selL":590,"pkg":"WP","pin":"pin 17 / 19","pst":"ok"},{"id":"GPIO_BLEN","tx":[78,0],"txN":"GPIO_BLEN_TX_EN","txL":614,"sel":[90,5,0],"selN":"GPIO_BLEN_TX_IN_SEL","selL":642,"pkg":"ENBKLT","pin":"pin 27 / 29","pst":"inf"},{"id":"GPIO_STV","tx":[78,4],"txN":"GPIO_STV_TX_EN","txL":666,"sel":[91,5,0],"selN":"GPIO_STV_TX_IN_SEL","selL":701,"pkg":"STV","pin":"pin 51 / 53","pst":"ok"},{"id":"GPIO_CPV","tx":[79,0],"txN":"GPIO_CPV_TX_EN","txL":725,"sel":[92,5,0],"selN":"GPIO_CPV_TX_IN_SEL","selL":760,"pkg":"CPV","pin":"pin 52 / 54","pst":"ok"},{"id":"GPIO_OE(Initial_High)","tx":[79,4],"txN":"GPIO_OE_TX_EN","txL":784,"sel":[93,5,0],"selN":"GPIO_OE_TX_IN_SEL","selL":819,"pkg":"OE","pin":"pin 53 / 55","pst":"ok"},{"id":"EESEL","tx":[80,0],"txN":"EESEL_TX_EN","txL":843,"sel":[94,5,0],"selN":"EESEL_TX_IN_SEL","selL":871,"pkg":"EESEL","pin":"pin 11 / 13","pst":"ok"},{"id":"GPIO_DBC_EN","tx":[80,4],"txN":"GPIO_DBC_EN_TX_EN","txL":895,"sel":[95,5,0],"selN":"GPIO_DBC_EN_TX_IN_SEL","selL":923,"pkg":"DBC_EN","pin":"pin 58 / 60","pst":"ok"},{"id":"GPIO_COLOR_EN","tx":[81,0],"txN":"GPIO_COLOR_EN_TX_EN","txL":947,"sel":[96,5,0],"selN":"GPIO_COLOR_EN_TX_IN_SEL","selL":975,"pkg":"COLOR_EN","pin":"pin 59 / 1","pst":"ok"},{"id":"PWMO","tx":[81,4],"txN":"PWMO_TX_EN","txL":999,"sel":[97,5,0],"selN":"PWMO_TX_IN_SEL","selL":1034,"pkg":"PWMO","pin":"pin 28 / 30","pst":"ok"},{"id":"HPD","tx":[109,4],"txN":"HPD_TX_EN","txL":1058,"sel":[110,5,0],"selN":"HPD_TX_IN_SEL","selL":1093,"pkg":"HPD","pin":"pin 9 / 11","pst":"ok"},{"id":"TP","tx":[121,0],"txN":"TP_TX_EN","txL":1117,"sel":[122,5,0],"selN":"TP_TX_IN_SEL","selL":1159,"pkg":"GPO5","pin":"pin 29 / 31","pst":"inf"},{"id":"POL","tx":[121,4],"txN":"POL_TX_EN","txL":1183,"sel":[123,5,0],"selN":"POL_TX_IN_SEL","selL":1225,"pkg":"GPO6","pin":"pin 30 / 32","pst":"inf"}],"dbg":{"TOP_DBG_SEL":10707,"DBG_SEL":10714,"DBG_SEL2":10721,"DBG_SEL3":10728}},"E501A":{"model":"RM81010_for_FAE_20240509_20241127.model","tcon":"E501A6","gpios":[{"id":"GPIO_01","tx":[77,0],"txN":"GPIO_01_TX_EN","txL":234,"sel":[86,5,0],"selN":"GPIO_01_TX_IN_SEL","selL":262,"pkg":"","pin":"","pst":""},{"id":"GPIO_02","tx":[77,4],"txN":"GPIO_02_TX_EN","txL":284,"sel":[87,5,0],"selN":"GPIO_02_TX_IN_SEL","selL":312,"pkg":"GPIO_02","pin":"pin 2","pst":"ok"},{"id":"GPIO_03","tx":[78,0],"txN":"GPIO_03_TX_EN","txL":334,"sel":[88,5,0],"selN":"GPIO_03_TX_IN_SEL","selL":362,"pkg":"GPIO_03","pin":"pin 3","pst":"ok"},{"id":"GPIO_04","tx":[78,4],"txN":"GPIO_04_TX_EN","txL":384,"sel":[89,5,0],"selN":"GPIO_04_TX_IN_SEL","selL":412,"pkg":"GPIO_04","pin":"pin 7","pst":"ok"},{"id":"FLASH_WP_GPIO_05","tx":[79,0],"txN":"GPIO_05_TX_EN","txL":434,"sel":[90,5,0],"selN":"GPIO_05_TX_IN_SEL","selL":462,"pkg":"FLASH_WP","pin":"pin 8","pst":"ok"},{"id":"GPIO_06","tx":[79,4],"txN":"GPIO_06_TX_EN","txL":484,"sel":[91,5,0],"selN":"GPIO_06_TX_IN_SEL","selL":512,"pkg":"GPIO_06","pin":"pin 9","pst":"ok"},{"id":"STV1_GPIO_13","tx":[83,0],"txN":"GPIO_13_TX_EN","txL":534,"sel":[98,5,0],"selN":"GPIO_13_TX_IN_SEL","selL":562,"pkg":"STV1","pin":"pin 53","pst":"ok"},{"id":"CPV_GPIO_14","tx":[83,4],"txN":"GPIO_14_TX_EN","txL":584,"sel":[99,5,0],"selN":"GPIO_14_TX_IN_SEL","selL":612,"pkg":"CPV","pin":"pin 54","pst":"ok"},{"id":"OE1_GPIO_15","tx":[84,0],"txN":"GPIO_15_TX_EN","txL":634,"sel":[100,5,0],"selN":"GPIO_15_TX_IN_SEL","selL":662,"pkg":"OE1","pin":"pin 57","pst":"ok"},{"id":"OE2_GPIO_16","tx":[84,4],"txN":"GPIO_16_TX_EN","txL":684,"sel":[101,5,0],"selN":"GPIO_16_TX_IN_SEL","selL":712,"pkg":"OE2","pin":"pin 58","pst":"ok"},{"id":"STV2_GPIO_17","tx":[85,0],"txN":"GPIO_17_TX_EN","txL":734,"sel":[102,5,0],"selN":"GPIO_17_TX_IN_SEL","selL":762,"pkg":"STV2","pin":"pin 59","pst":"ok"},{"id":"DYNAMIC_VCOM_GPIO_18","tx":[85,4],"txN":"GPIO_18_TX_EN","txL":784,"sel":[120,5,0],"selN":"GPIO_18_TX_IN_SEL","selL":812,"pkg":"","pin":"","pst":""},{"id":"GPI_2_GPIO_19","tx":[103,0],"txN":"GPIO_19_TX_EN","txL":834,"sel":[121,5,0],"selN":"GPIO_19_TX_IN_SEL","selL":862,"pkg":"","pin":"","pst":""},{"id":"PSR_EN_GPIO_20","tx":[103,4],"txN":"GPIO_20_TX_EN","txL":884,"sel":[96,5,0],"selN":"GPIO_20_TX_IN_SEL","selL":912,"pkg":"","pin":"","pst":""},{"id":"SDLOCK_GPIO_EOS_01","tx":[185,0],"txN":"GPIO_EOS_01_TX_EN","txL":934,"sel":[186,5,0],"selN":"GPIO_EOS_01_TX_IN_SEL","selL":969,"pkg":"","pin":"","pst":""},{"id":"XSTB_GPIO_EOS_02","tx":[185,4],"txN":"GPIO_EOS_02_TX_EN","txL":991,"sel":[187,5,0],"selN":"GPIO_EOS_02_TX_IN_SEL","selL":1026,"pkg":"","pin":"","pst":""},{"id":"OPDIO_01","tx":[112,6],"txN":"OPDIO_01_TX_EN","txL":1066,"sel":[112,5,0],"selN":"OPDIO_01_TX_IN_SEL","selL":1073,"pkg":"","pin":"","pst":""},{"id":"OPDIO_02","tx":[113,6],"txN":"OPDIO_02_TX_EN","txL":1109,"sel":[113,5,0],"selN":"OPDIO_02_TX_IN_SEL","selL":1116,"pkg":"","pin":"","pst":""},{"id":"OPDIO_03","tx":[114,6],"txN":"OPDIO_03_TX_EN","txL":1152,"sel":[114,5,0],"selN":"OPDIO_03_TX_IN_SEL","selL":1159,"pkg":"","pin":"","pst":""},{"id":"OPDIO_04","tx":[115,6],"txN":"OPDIO_04_TX_EN","txL":1195,"sel":[115,5,0],"selN":"OPDIO_04_TX_IN_SEL","selL":1202,"pkg":"","pin":"","pst":""},{"id":"OPDIO_05","tx":[116,6],"txN":"OPDIO_05_TX_EN","txL":1238,"sel":[116,5,0],"selN":"OPDIO_05_TX_IN_SEL","selL":1245,"pkg":"","pin":"","pst":""},{"id":"OPDIO_06","tx":[117,6],"txN":"OPDIO_06_TX_EN","txL":1281,"sel":[117,5,0],"selN":"OPDIO_06_TX_IN_SEL","selL":1288,"pkg":"","pin":"","pst":""},{"id":"OPDIO_07","tx":[122,6],"txN":"OPDIO_07_TX_EN","txL":1324,"sel":[122,5,0],"selN":"OPDIO_07_TX_IN_SEL","selL":1331,"pkg":"","pin":"","pst":""}],"dbg":{"TOP_DBG_SEL":11982,"DBG_SEL":11990,"DBG_SEL2":11998,"DBG_SEL3":12007}},"E501B":{"model":"RM81011_for_FAE_20231025_20240509.model","tcon":"E501B2","gpios":[{"id":"GPIO_01","tx":[77,0],"txN":"GPIO_01_TX_EN","txL":232,"sel":[86,5,0],"selN":"GPIO_01_TX_IN_SEL","selL":260,"pkg":"","pin":"","pst":""},{"id":"GPIO_02","tx":[77,4],"txN":"GPIO_02_TX_EN","txL":282,"sel":[87,5,0],"selN":"GPIO_02_TX_IN_SEL","selL":310,"pkg":"GPIO_02","pin":"pin 2","pst":"ok"},{"id":"GPIO_03","tx":[78,0],"txN":"GPIO_03_TX_EN","txL":332,"sel":[88,5,0],"selN":"GPIO_03_TX_IN_SEL","selL":360,"pkg":"GPIO_03","pin":"pin 3","pst":"ok"},{"id":"GPIO_04","tx":[78,4],"txN":"GPIO_04_TX_EN","txL":382,"sel":[89,5,0],"selN":"GPIO_04_TX_IN_SEL","selL":410,"pkg":"GPIO_04","pin":"pin 7","pst":"ok"},{"id":"FLASH_WP_GPIO_05","tx":[79,0],"txN":"GPIO_05_TX_EN","txL":432,"sel":[90,5,0],"selN":"GPIO_05_TX_IN_SEL","selL":460,"pkg":"FLASH_WP","pin":"pin 8","pst":"ok"},{"id":"GPIO_06","tx":[79,4],"txN":"GPIO_06_TX_EN","txL":482,"sel":[91,5,0],"selN":"GPIO_06_TX_IN_SEL","selL":510,"pkg":"GPIO_06","pin":"pin 9","pst":"ok"},{"id":"GPIO_07","tx":[80,0],"txN":"GPIO_07_TX_EN","txL":0,"sel":[92,5,0],"selN":"GPIO_07_TX_IN_SEL","selL":0,"pkg":"","pin":"","pst":"","doc":1},{"id":"GPIO_08","tx":[80,4],"txN":"GPIO_08_TX_EN","txL":0,"sel":[93,5,0],"selN":"GPIO_08_TX_IN_SEL","selL":0,"pkg":"","pin":"","pst":"","doc":1},{"id":"GPIO_09","tx":[81,0],"txN":"GPIO_09_TX_EN","txL":0,"sel":[94,5,0],"selN":"GPIO_09_TX_IN_SEL","selL":0,"pkg":"","pin":"","pst":"","doc":1},{"id":"GPIO_10","tx":[81,4],"txN":"GPIO_10_TX_EN","txL":0,"sel":[95,5,0],"selN":"GPIO_10_TX_IN_SEL","selL":0,"pkg":"","pin":"","pst":"","doc":1},{"id":"GPIO_12","tx":[82,4],"txN":"GPIO_12_TX_EN","txL":0,"sel":[97,5,0],"selN":"GPIO_12_TX_IN_SEL","selL":0,"pkg":"","pin":"","pst":"","doc":1},{"id":"STV1_GPIO_13","tx":[83,0],"txN":"GPIO_13_TX_EN","txL":532,"sel":[98,5,0],"selN":"GPIO_13_TX_IN_SEL","selL":560,"pkg":"STV1","pin":"pin 53","pst":"ok"},{"id":"CPV_GPIO_14","tx":[83,4],"txN":"GPIO_14_TX_EN","txL":582,"sel":[99,5,0],"selN":"GPIO_14_TX_IN_SEL","selL":610,"pkg":"CPV","pin":"pin 54","pst":"ok"},{"id":"OE1_GPIO_15","tx":[84,0],"txN":"GPIO_15_TX_EN","txL":632,"sel":[100,5,0],"selN":"GPIO_15_TX_IN_SEL","selL":660,"pkg":"OE1","pin":"pin 57","pst":"ok"},{"id":"OE2_GPIO_16","tx":[84,4],"txN":"GPIO_16_TX_EN","txL":682,"sel":[101,5,0],"selN":"GPIO_16_TX_IN_SEL","selL":710,"pkg":"OE2","pin":"pin 58","pst":"ok"},{"id":"STV2_GPIO_17","tx":[85,0],"txN":"GPIO_17_TX_EN","txL":732,"sel":[102,5,0],"selN":"GPIO_17_TX_IN_SEL","selL":760,"pkg":"STV2","pin":"pin 59","pst":"ok"},{"id":"DYNAMIC_VCOM_GPIO_18","tx":[85,4],"txN":"GPIO_18_TX_EN","txL":782,"sel":[120,5,0],"selN":"GPIO_18_TX_IN_SEL","selL":810,"pkg":"","pin":"","pst":""},{"id":"GPI_2_GPIO_19","tx":[103,0],"txN":"GPIO_19_TX_EN","txL":832,"sel":[121,5,0],"selN":"GPIO_19_TX_IN_SEL","selL":860,"pkg":"","pin":"","pst":""},{"id":"PSR_EN_GPIO_20","tx":[103,4],"txN":"GPIO_20_TX_EN","txL":882,"sel":[96,5,0],"selN":"GPIO_20_TX_IN_SEL","selL":910,"pkg":"","pin":"","pst":""},{"id":"SDLOCK_GPIO_EOS_01","tx":[185,0],"txN":"GPIO_EOS_01_TX_EN","txL":932,"sel":[186,5,0],"selN":"GPIO_EOS_01_TX_IN_SEL","selL":967,"pkg":"","pin":"","pst":""},{"id":"XSTB_GPIO_EOS_02","tx":[185,4],"txN":"GPIO_EOS_02_TX_EN","txL":989,"sel":[187,5,0],"selN":"GPIO_EOS_02_TX_IN_SEL","selL":1024,"pkg":"","pin":"","pst":""},{"id":"OPDIO_01","tx":[112,6],"txN":"OPDIO_01_TX_EN","txL":1064,"sel":[112,5,0],"selN":"OPDIO_01_TX_IN_SEL","selL":1071,"pkg":"","pin":"","pst":""},{"id":"OPDIO_02","tx":[113,6],"txN":"OPDIO_02_TX_EN","txL":1107,"sel":[113,5,0],"selN":"OPDIO_02_TX_IN_SEL","selL":1114,"pkg":"","pin":"","pst":""},{"id":"OPDIO_03","tx":[114,6],"txN":"OPDIO_03_TX_EN","txL":1150,"sel":[114,5,0],"selN":"OPDIO_03_TX_IN_SEL","selL":1157,"pkg":"","pin":"","pst":""},{"id":"OPDIO_04","tx":[115,6],"txN":"OPDIO_04_TX_EN","txL":1193,"sel":[115,5,0],"selN":"OPDIO_04_TX_IN_SEL","selL":1200,"pkg":"","pin":"","pst":""},{"id":"OPDIO_05","tx":[116,6],"txN":"OPDIO_05_TX_EN","txL":1236,"sel":[116,5,0],"selN":"OPDIO_05_TX_IN_SEL","selL":1243,"pkg":"","pin":"","pst":""},{"id":"OPDIO_06","tx":[117,6],"txN":"OPDIO_06_TX_EN","txL":1279,"sel":[117,5,0],"selN":"OPDIO_06_TX_IN_SEL","selL":1286,"pkg":"","pin":"","pst":""},{"id":"OPDIO_07","tx":[122,6],"txN":"OPDIO_07_TX_EN","txL":1322,"sel":[122,5,0],"selN":"OPDIO_07_TX_IN_SEL","selL":1329,"pkg":"","pin":"","pst":""}],"dbg":{"TOP_DBG_SEL":11788,"DBG_SEL":11795,"DBG_SEL2":11802,"DBG_SEL3":11809}},"EN01":{"model":"RM81008.model","tcon":"EN01","gpios":[{"id":"GPIO_00","tx":[75,0],"txN":"GPIO_00_TX_EN","txL":149,"sel":[86,6,0],"selN":"GPIO_00_TX_IN_SEL","selL":184,"pkg":"","pin":"","pst":""},{"id":"GPIO_01","tx":[75,4],"txN":"GPIO_01_TX_EN","txL":217,"sel":[87,6,0],"selN":"GPIO_01_TX_IN_SEL","selL":252,"pkg":"","pin":"","pst":""},{"id":"GPIO_02","tx":[76,0],"txN":"GPIO_02_TX_EN","txL":285,"sel":[88,6,0],"selN":"GPIO_02_TX_IN_SEL","selL":320,"pkg":"","pin":"Q5 datasheet 沒列 GPIO2","pst":"nobond"},{"id":"GPIO_03","tx":[76,4],"txN":"GPIO_03_TX_EN","txL":353,"sel":[89,6,0],"selN":"GPIO_03_TX_IN_SEL","selL":388,"pkg":"","pin":"","pst":""},{"id":"GPIO_04","tx":[77,0],"txN":"GPIO_04_TX_EN","txL":421,"sel":[90,6,0],"selN":"GPIO_04_TX_IN_SEL","selL":456,"pkg":"GPIO6","pin":"pin 2","pst":"ok"},{"id":"GPIO_07","tx":[77,4],"txN":"GPIO_07_TX_EN","txL":489,"sel":[91,6,0],"selN":"GPIO_07_TX_IN_SEL","selL":517,"pkg":"GPIO7","pin":"pin 23","pst":"ok"},{"id":"GPIO_08","tx":[78,0],"txN":"GPIO_08_TX_EN","txL":550,"sel":[92,6,0],"selN":"GPIO_08_TX_IN_SEL","selL":578,"pkg":"","pin":"","pst":""},{"id":"GPIO_09","tx":[78,4],"txN":"GPIO_09_TX_EN","txL":611,"sel":[93,6,0],"selN":"GPIO_09_TX_IN_SEL","selL":646,"pkg":"","pin":"","pst":""},{"id":"GPIO_10","tx":[79,0],"txN":"GPIO_10_TX_EN","txL":679,"sel":[94,6,0],"selN":"GPIO_10_TX_IN_SEL","selL":714,"pkg":"","pin":"","pst":""},{"id":"GPIO_STV","tx":[79,4],"txN":"GPIO_STV_TX_EN","txL":747,"sel":[95,6,0],"selN":"GPIO_STV_TX_IN_SEL","selL":782,"pkg":"STV","pin":"pin 53","pst":"ok"},{"id":"GPIO_CPV","tx":[80,0],"txN":"GPIO_CPV_TX_EN","txL":815,"sel":[96,6,0],"selN":"GPIO_CPV_IN_SEL","selL":850,"pkg":"CPV","pin":"pin 54","pst":"ok"},{"id":"GPIO_OE","tx":[80,4],"txN":"GPIO_OE_TX_EN","txL":883,"sel":[97,6,0],"selN":"GPIO_OE_TX_IN_SEL","selL":918,"pkg":"OE","pin":"pin 55","pst":"ok"},{"id":"GPIO_DBC_EN","tx":[81,0],"txN":"GPIO_DBC_EN_TX_EN","txL":951,"sel":[98,6,0],"selN":"GPIO_DBC_EN_TX_IN_SEL","selL":986,"pkg":"DBC_EN","pin":"pin 60","pst":"ok"},{"id":"GPIO_COLOR_EN","tx":[81,4],"txN":"GPIO_COLOR_EN_TX_EN","txL":1020,"sel":[99,6,0],"selN":"GPIO_COLOR_EN_TX_IN_SEL","selL":1055,"pkg":"","pin":"","pst":""},{"id":"HPD","tx":[82,0],"txN":"HPD_TX_EN","txL":1088,"sel":[100,6,0],"selN":"HPD_TX_IN_SEL","selL":1123,"pkg":"HPD","pin":"pin 11","pst":"ok"},{"id":"ROM_SPI_WP","tx":[82,4],"txN":"ROM_SPI_WP_TX_EN","txL":1156,"sel":[101,6,0],"selN":"ROM_SPI_WP_TX_IN_SEL","selL":1191,"pkg":"ROM_WP","pin":"pin 19","pst":"ok"},{"id":"POL","tx":[83,0],"txN":"POL_TX_EN","txL":1224,"sel":[102,6,0],"selN":"POL_TX_IN_SEL","selL":1259,"pkg":"","pin":"","pst":""},{"id":"PWMO","tx":[83,4],"txN":"PWMO_TX_EN","txL":1292,"sel":[103,6,0],"selN":"PWMO_TX_IN_SEL","selL":1327,"pkg":"PWMO","pin":"pin 30","pst":"ok"},{"id":"ENBKLT","tx":[84,0],"txN":"ENBKLT_TX_EN","txL":1360,"sel":[104,6,0],"selN":"ENBKLT_TX_IN_SEL","selL":1395,"pkg":"ENBKLT","pin":"pin 29","pst":"ok"},{"id":"TP","tx":[84,4],"txN":"TP_TX_EN","txL":1428,"sel":[105,6,0],"selN":"TP_TX_IN_SEL","selL":1463,"pkg":"","pin":"","pst":""}],"dbg":{"TOP_DBG_SEL":15903,"DBG_SEL":15910,"DBG_SEL2":15917,"DBG_SEL3":15924}}};
 </script>
 <script>
 (function () {
@@ -224,48 +237,104 @@ var NBD_GPIO = {"E503":{"model":"RM8100x_for_FAE_20240925_20250311.model","tcon"
   var IC_LABEL = { E503: 'E503（RM8100x）', E501A: 'E501A（RM81010）', E501B: 'E501B（RM81011）', EN01: 'EN01（RM81008）' };
   var IC_ORDER = ['E503', 'E501A', 'E501B', 'EN01'];
 
-  /* ── 來源（說明區與標籤 tooltip 用；人名／日期／檔名不翻譯）── */
+  /* ── 來源（說明區與標籤 tooltip 用；對外頁面不寫人名、不寫信件出處；日期／檔名不翻譯）── */
   var SRC = {
-    peerf: '同事F 2026-10-22〈DE 量測reg.設定〉（E503，WP pin 實測）',
-    peerm: '同事M 2026-10-06（ISP0_FIFO_IRDY0 設定）',
-    peerhTx: '同事H 2026-10-02（RX_DE 0A=02/59=37；TX_DE(RT6_DE) 59=35）',
-    osc503: '同事L／同事P 2024-03-21〜26（RM81003：07=01、59=24 量到 6.75 MHz）',
-    oscEn01: '同事K 2026-10-21 Debug_OSC.i2cs（07=01、4D=11、5B=24）',
-    kosc: '同事K 2026-10-21 EN01A1 osc calibration_1.i2cs＋K OSC SOP',
-    pll: '同事H 2026-01-13（RM81003：07=13、08=01，Lane0=27h／Lane1=22h）',
-    slide: 'E503A／E501B debug 介紹投影片（同事J 2022-11-11／同事M 2022-04-12）',
-    slideP8: 'E503A debug 介紹 p8 範例（0A=16、58=36 BS、5A=35 BE）',
-    core3: '同事M 2026-03-11（E503 用 CORESTATE[3] 代替 MCU_ST0）＋投影片 dbg_02'
+    meas: '實測設定（2026-10，E503 WP pin 量測）',
+    irdy: '原廠設定（2026-10，ISP0_FIFO_IRDY0）',
+    tx: '原廠設定（2026-10：RX_DE 0A=02/59=37；TX_DE(RT6_DE) 59=35）',
+    osc503: '原廠實測（2024-03，RM81003：07=01、59=24 量到 6.75 MHz）',
+    oscEn01: '原廠腳本 Debug_OSC.i2cs（2026-10：07=01、4D=11、5B=24）',
+    kosc: '原廠腳本 EN01A1 osc calibration_1.i2cs（2026-10）＋K OSC SOP',
+    pll: '原廠設定（2026-01，RM81003：07=13、08=01，Lane0=27h／Lane1=22h）',
+    slideP8: '原廠 debug 文件（E503A debug 介紹 p8 範例：0A=16、58=36 BS、5A=35 BE）',
+    core3: '原廠設定（2026-03，E503 用 CORESTATE 代替 MCU_ST0）',
+    en01doc: 'EN01 Debug Mode 文件（2026-10）',
+    e503doc: '原廠 debug 文件（E503A debug 介紹投影片）',
+    e501doc: '原廠 debug 文件（E501B debug 介紹投影片）',
+    e501a: 'E501A 沒有自己的文件：依 E501B 文件推論',
+    en01only: 'E503／E501 文件沒有這一組的 bit 內容：依 EN01 Debug Mode 文件推論',
+    e503inf: 'EN01 文件沒有這一項：依 E503 做法推論'
   };
-  /* ── debug 項目 ──
-     regs：先下的選擇暫存器（3E、2-byte offset；整 byte）；sel＝輸出腳 TX_IN_SEL 的值；
-     lv：各 IC 用預設腳時的驗證等級 peerf／vendor／doc；def：各 IC 的預設腳（＝來源用的腳）；not：不提供的 IC */
+  /* 各 IC 的「原廠文件」來源（群組 bit 內容）。E501A 沒有自己的文件 ⇒ 推論 */
+  var DOC_SRC = { E503: 'e503doc', E501A: 'e501a', E501B: 'e501doc', EN01: 'en01doc' };
+  /* ── 常用項目 ──
+     regs：先下的選擇暫存器（3E、2-byte offset；整 byte）；bits：每個 bit 一列 { sel＝TX_IN_SEL 值, n＝訊號名 }；
+     lv：各 IC 的驗證等級 meas（實測驗證）／vendor（原廠腳本）／vdoc（原廠文件）／inf（推論，未實測）；
+     src：各 IC 的來源 key；def：各 IC 第一個 bit 的預設腳（＝來源用的腳）；not／only：不提供／只提供的 IC */
   function R(addr, val, name) { return { slave: 0x3E, ob: 2, addr: addr, msb: 7, lsb: 0, val: val, name: name }; }
+  function B1(sel, n) { return [{ sel: sel, n: n }]; }
   var DEF = { E503: 'GPIO_ROM_WP', E501A: 'FLASH_WP_GPIO_05', E501B: 'FLASH_WP_GPIO_05', EN01: 'GPIO_07' };
+  var LV_DOC = { E503: 'vdoc', E501A: 'inf', E501B: 'vdoc', EN01: 'vdoc' };
+  var SRC_DOC = { E503: ['e503doc'], E501A: ['e501a'], E501B: ['e501doc'], EN01: ['en01doc'] };
   var ITEMS = [
-    { id: 'rxde', label: 'RX DE', regs: [R(0x007, 0x02, 'TOP_DBG_SEL'), R(0x00A, 0x02, 'DBG_SEL3')], sel: 0x37, sig: 'DEBUG_OUT2[7] = DPFIFO_2_RTLOG_DE',
-      lv: { E503: 'peerf', E501A: 'doc', E501B: 'doc', EN01: 'doc' }, src: ['peerf', 'peerhTx'], meas: ['每行一個脈衝', 'one pulse per line', '每行一个脉冲'] },
-    { id: 'txde', label: 'TX DE', regs: [R(0x007, 0x12, 'TOP_DBG_SEL'), R(0x008, 0x01, 'DBG_SEL'), R(0x009, 0x07, 'DBG_SEL2')], sel: 0x20, sig: 'DEBUG_OUT[0] = ISP0_FIFO_IRDY0',
-      lv: { E503: 'peerf', E501A: 'doc', E501B: 'doc', EN01: 'doc' }, src: ['peerf', 'peerm'], w08: true, meas: ['每行一段 High（ISP FIFO IRDY）', 'one high period per line (ISP FIFO IRDY)', '每行一段 High（ISP FIFO IRDY）'] },
-    { id: 'txrt6', label: 'TX DE（RT6_DE）', regs: [R(0x00A, 0x02, 'DBG_SEL3')], sel: 0x35, sig: 'DEBUG_OUT2[5] = RT6_DE',
-      lv: { E503: 'vendor', E501A: 'doc', E501B: 'doc', EN01: 'doc' }, src: ['peerhTx'], meas: ['每行一個脈衝', 'one pulse per line', '每行一个脉冲'] },
-    { id: 'osc', label: 'OSC ÷8', regs: [R(0x007, 0x01, 'TOP_DBG_SEL')], sel: 0x24, sig: 'DEBUG_OUT[4] = OSC_CLK_DIV8',
-      lv: { E503: 'vendor', E501A: 'doc', E501B: 'doc', EN01: 'vendor' }, src: ['osc503', 'oscEn01', 'slide'], meas: ['約 6.75 MHz（54 MHz ÷ 8）', 'about 6.75 MHz (54 MHz ÷ 8)', '约 6.75 MHz（54 MHz ÷ 8）'] },
-    { id: 'kosc', label: 'KOSC trim（EN01）', only: ['EN01'], kosc: true, regs: [R(0x007, 0x01, 'TOP_DBG_SEL')], sel: 0x24, sig: 'DEBUG_OUT[4] = OSC_CLK_DIV8',
-      lv: { EN01: 'vendor' }, src: ['kosc', 'oscEn01'], meas: ['調 7C 0x00 到 6.75 MHz', 'tune 7C 0x00 to 6.75 MHz', '调 7C 0x00 到 6.75 MHz'] },
-    { id: 'pll0', label: 'PLL lock（Lane0）', not: ['E501A', 'E501B'], regs: [R(0x007, 0x13, 'TOP_DBG_SEL'), R(0x008, 0x01, 'DBG_SEL')], sel: 0x27, sig: 'DEBUG_OUT[7]',
-      lv: { E503: 'vendor', EN01: 'doc' }, src: ['pll'], w08: true, meas: ['準位意義未記載，與正常板比對', 'level meaning undocumented: compare with a good board', '电平意义未记载，与正常板比对'] },
-    { id: 'pll1', label: 'PLL lock（Lane1）', regs: [R(0x007, 0x13, 'TOP_DBG_SEL'), R(0x008, 0x01, 'DBG_SEL')], sel: 0x22, sig: 'DEBUG_OUT[2]',
-      lv: { E503: 'vendor', E501A: 'doc', E501B: 'doc', EN01: 'doc' }, src: ['pll'], w08: true, meas: ['準位意義未記載，與正常板比對', 'level meaning undocumented: compare with a good board', '电平意义未记载，与正常板比对'] },
-    { id: 'rxclk', label: 'RX link clock ÷8', regs: [R(0x007, 0x01, 'TOP_DBG_SEL')], sel: 0x22, sig: 'DEBUG_OUT[2] = RX_LS0_CLK_DIV8',
-      lv: { E503: 'doc', E501A: 'doc', E501B: 'doc', EN01: 'doc' }, src: ['slide'], meas: ['量到的頻率 × 8', 'measured frequency × 8', '量到的频率 × 8'] },
-    { id: 'bs', label: 'BS', regs: [R(0x00A, 0x16, 'DBG_SEL3')], sel: 0x36, sig: 'DEBUG_OUT2[6] = DP_2_FIFO_BS_TOG', def: { E503: 'GPIO_04' },
-      lv: { E503: 'vendor', E501A: 'doc', E501B: 'doc', EN01: 'doc' }, src: ['slideP8'], meas: ['每行翻轉一次', 'toggles once per line', '每行翻转一次'] },
-    { id: 'be', label: 'BE', regs: [R(0x00A, 0x16, 'DBG_SEL3')], sel: 0x35, sig: 'DEBUG_OUT2[5] = DP_2_FIFO_BE_TOG', def: { E503: 'GPIO_BLEN' },
-      lv: { E503: 'vendor', E501A: 'doc', E501B: 'doc', EN01: 'doc' }, src: ['slideP8'], meas: ['每行翻轉一次', 'toggles once per line', '每行翻转一次'] },
-    { id: 'core3', label: 'Core state[3]', regs: [R(0x007, 0x02, 'TOP_DBG_SEL')], sel: 0x24, sig: 'DEBUG_OUT[4] = RT0_CORESTATE[3]',
-      lv: { E503: 'doc', E501A: 'doc', E501B: 'doc', EN01: 'doc' }, src: ['core3'], meas: ['1＝正常顯示（Normal video）', '1 = normal video', '1＝正常显示（Normal video）'] }
+    { id: 'rxde', label: 'RX DE', regs: [R(0x007, 0x02, 'TOP_DBG_SEL'), R(0x00A, 0x02, 'DBG_SEL3')], bits: B1(0x37, 'DPFIFO_2_RTLOG_DE'), sig: 'DEBUG_OUT2[7] = DPFIFO_2_RTLOG_DE',
+      lv: { E503: 'meas', E501A: 'inf', E501B: 'vdoc', EN01: 'vdoc' }, src: { E503: ['meas', 'tx'], E501A: ['e501a'], E501B: ['e501doc'], EN01: ['en01doc'] }, meas: ['每行一個脈衝', 'one pulse per line', '每行一个脉冲'] },
+    { id: 'txde', label: 'TX DE', regs: [R(0x007, 0x12, 'TOP_DBG_SEL'), R(0x008, 0x01, 'DBG_SEL'), R(0x009, 0x07, 'DBG_SEL2')], bits: B1(0x20, 'ISP0_FIFO_IRDY0'), sig: 'DEBUG_OUT[0] = ISP0_FIFO_IRDY0',
+      lv: { E503: 'meas', E501A: 'inf', E501B: 'inf', EN01: 'inf' }, src: { E503: ['meas', 'irdy'], E501A: ['e503inf'], E501B: ['e503inf'], EN01: ['e503inf'] }, w08: true, meas: ['每行一段 High（ISP FIFO IRDY）', 'one high period per line (ISP FIFO IRDY)', '每行一段 High（ISP FIFO IRDY）'] },
+    { id: 'txrt6', label: 'TX DE（RT6_DE）', regs: [R(0x00A, 0x02, 'DBG_SEL3')], bits: B1(0x35, 'RT6_DE'), sig: 'DEBUG_OUT2[5] = RT6_DE',
+      lv: { E503: 'vendor', E501A: 'inf', E501B: 'vdoc', EN01: 'vdoc' }, src: { E503: ['tx'], E501A: ['e501a'], E501B: ['e501doc'], EN01: ['en01doc'] }, meas: ['每行一個脈衝', 'one pulse per line', '每行一个脉冲'] },
+    { id: 'osc', label: 'OSC ÷8', regs: [R(0x007, 0x01, 'TOP_DBG_SEL')], bits: B1(0x24, 'OSC_CLK_DIV8'), sig: 'DEBUG_OUT[4] = OSC_CLK_DIV8',
+      lv: { E503: 'vendor', E501A: 'inf', E501B: 'vdoc', EN01: 'vendor' }, src: { E503: ['osc503', 'e503doc'], E501A: ['e501a'], E501B: ['e501doc'], EN01: ['oscEn01', 'en01doc'] }, meas: ['約 6.75 MHz（54 MHz ÷ 8）', 'about 6.75 MHz (54 MHz ÷ 8)', '约 6.75 MHz（54 MHz ÷ 8）'] },
+    { id: 'oscd', label: 'OSC ÷8（直接選 3Dh）', regs: [], bits: B1(0x3D, 'OSC_CLK_DIV8'), sig: 'TX_IN_SEL 3Dh = OSC_CLK_DIV8',
+      lv: { E503: 'vdoc', E501A: 'inf', E501B: 'vdoc', EN01: 'vdoc' }, src: SRC_DOC, meas: ['約 6.75 MHz（54 MHz ÷ 8），不用選 debug 群組', 'about 6.75 MHz (54 MHz ÷ 8), no debug group needed', '约 6.75 MHz（54 MHz ÷ 8），不用选 debug 群组'] },
+    { id: 'kosc', label: 'KOSC trim（EN01）', only: ['EN01'], kosc: true, regs: [R(0x007, 0x01, 'TOP_DBG_SEL')], bits: B1(0x24, 'OSC_CLK_DIV8'), sig: 'DEBUG_OUT[4] = OSC_CLK_DIV8',
+      lv: { EN01: 'vendor' }, src: { EN01: ['kosc', 'oscEn01'] }, meas: ['調 7C 0x00 到 6.75 MHz', 'tune 7C 0x00 to 6.75 MHz', '调 7C 0x00 到 6.75 MHz'] },
+    { id: 'pll0', label: 'PLL lock（Lane0）', not: ['E501A', 'E501B'], regs: [R(0x007, 0x13, 'TOP_DBG_SEL'), R(0x008, 0x01, 'DBG_SEL')], bits: B1(0x27, 'DEBUG_OUT[7]'), sig: 'DEBUG_OUT[7]',
+      lv: { E503: 'vendor', EN01: 'inf' }, src: { E503: ['pll'], EN01: ['e503inf'] }, w08: true, meas: ['準位意義未記載，與正常板比對', 'level meaning undocumented: compare with a good board', '电平意义未记载，与正常板比对'] },
+    { id: 'pll1', label: 'PLL lock（Lane1）', regs: [R(0x007, 0x13, 'TOP_DBG_SEL'), R(0x008, 0x01, 'DBG_SEL')], bits: B1(0x22, 'DEBUG_OUT[2]'), sig: 'DEBUG_OUT[2]',
+      lv: { E503: 'vendor', E501A: 'inf', E501B: 'inf', EN01: 'inf' }, src: { E503: ['pll'], E501A: ['e503inf'], E501B: ['e503inf'], EN01: ['e503inf'] }, w08: true, meas: ['準位意義未記載，與正常板比對', 'level meaning undocumented: compare with a good board', '电平意义未记载，与正常板比对'] },
+    { id: 'rxclk', label: 'RX link clock ÷8', regs: [R(0x007, 0x01, 'TOP_DBG_SEL')], bits: B1(0x22, 'RX_LS0_CLK_DIV8'), sig: 'DEBUG_OUT[2] = RX_LS0_CLK_DIV8',
+      lv: LV_DOC, src: SRC_DOC, meas: ['量到的頻率 × 8', 'measured frequency × 8', '量到的频率 × 8'] },
+    { id: 'bs', label: 'BS', regs: [R(0x00A, 0x16, 'DBG_SEL3')], bits: B1(0x36, 'DP_2_FIFO_BS_TOG'), sig: 'DEBUG_OUT2[6] = DP_2_FIFO_BS_TOG', def: { E503: 'GPIO_04' },
+      lv: { E503: 'vendor', E501A: 'inf', E501B: 'vdoc', EN01: 'vdoc' }, src: { E503: ['slideP8'], E501A: ['e501a'], E501B: ['e501doc'], EN01: ['en01doc'] }, meas: ['每行翻轉一次', 'toggles once per line', '每行翻转一次'] },
+    { id: 'be', label: 'BE', regs: [R(0x00A, 0x16, 'DBG_SEL3')], bits: B1(0x35, 'DP_2_FIFO_BE_TOG'), sig: 'DEBUG_OUT2[5] = DP_2_FIFO_BE_TOG', def: { E503: 'GPIO_BLEN' },
+      lv: { E503: 'vendor', E501A: 'inf', E501B: 'vdoc', EN01: 'vdoc' }, src: { E503: ['slideP8'], E501A: ['e501a'], E501B: ['e501doc'], EN01: ['en01doc'] }, meas: ['每行翻轉一次', 'toggles once per line', '每行翻转一次'] },
+    /* v1.1.0（Bruce 10/22「Corestate應該不只 bit 3 吧？」）：Core state 一次看 [3]～[0]，每個 bit 一支 GPIO（dbg_02 [4:1]） */
+    { id: 'core', label: 'Core state[3:0]', regs: [R(0x007, 0x02, 'TOP_DBG_SEL')],
+      bits: [{ sel: 0x24, n: 'RT0_CORESTATE[3]' }, { sel: 0x23, n: 'RT0_CORESTATE[2]' }, { sel: 0x22, n: 'RT0_CORESTATE[1]' }, { sel: 0x21, n: 'RT0_CORESTATE[0]' }],
+      sig: 'dbg_02：DEBUG_OUT[4:1] = RT0_CORESTATE[3:0]',
+      lv: LV_DOC, src: { E503: ['e503doc', 'core3'], E501A: ['e501a'], E501B: ['e501doc'], EN01: ['en01doc'] }, meas: ['4 bit 一起看：[3]＝1 為正常顯示（Normal video）', 'read the 4 bits together: [3] = 1 means normal video', '4 bit 一起看：[3]＝1 为正常显示（Normal video）'] }
   ];
+  ITEMS.forEach(function (it) { it.grp = 'common'; });
+
+  /* ── v1.1.0：debug 群組（39 組 × 10 bit）全部列成項目 ──
+     來源：EN01 Debug Mode 文件（2026-10）p7、p9–p12；E503A／E501B debug 投影片 p7、p9–p13（圖檔 OCR 後逐張看圖核對）。
+     NBD_GROUPS[i]＝{ id, top＝TOP_DBG_SEL 值, sel3＝DBG_SEL3 值（dbg_20 沒有）, bits[0..9]（bits[0]＝bit0）,
+                     en01＝EN01 版本不同時的 bits, en01only＝只有 EN01 文件有這組的 bit 內容 }
+     多 bit 訊號（RT0_CORESTATE[3:0]、DP_STATE、UNPK_STATE、P0_O… ）合成一個項目，每個 bit 一列 GPIO。
+     走法：TOP_DBG_SEL＝群組值 ⇒ DEBUG_OUT[k]（TX_IN_SEL 20h＋k）。E501 的 26h／27h 是 BE／BS（不是 DEBUG_OUT[6]／[7]），
+     用到 bit6／bit7 時改走 DBG_SEL3 ⇒ DEBUG_OUT2[k]（30h＋k）；dbg_20 不在 DBG_SEL3 ⇒ E501 不提供它的 bit6／7。
+     E503、EN01 沒有 PSR（文件註明 PSR 相關訊號內部 tie 0）⇒ 不列 PSR_* 訊號；dbg_de（由 DBG_SEL3[7:6] 另選）不列。 */
+  var NBD_GROUPS = window.NBD_GROUPS || [];
+  function noPsr(ic) { return ic === 'E503' || ic === 'EN01'; }
+  function grpItems(ic) {
+    var out = [];
+    NBD_GROUPS.forEach(function (g) {
+      var bits = (ic === 'EN01' && g.en01) ? g.en01 : g.bits, sig = {};
+      bits.forEach(function (nm, pos) {
+        if (nm === '0' || nm === '1' || nm === 'dbg_de') return;
+        if (noPsr(ic) && /PSR/.test(nm)) return;
+        var m = /^(.*)\[(\d+)\]$/.exec(nm), base = m ? m[1] : nm, idx = m ? +m[2] : 0;
+        (sig[base] = sig[base] || []).push({ pos: pos, idx: idx, n: nm });
+      });
+      Object.keys(sig).forEach(function (base) {
+        var list = sig[base].sort(function (a, b) { return b.idx - a.idx; });   /* 高位在前（[3]、[2]、[1]、[0]） */
+        var e501 = ic === 'E501A' || ic === 'E501B', useOut2 = e501 && list.some(function (b) { return b.pos === 6 || b.pos === 7; });
+        if (useOut2 && g.sel3 == null) return;
+        var lbl = list.length > 1 ? base + '[' + list[0].idx + ':' + list[list.length - 1].idx + ']' : list[0].n;
+        var inf = (ic === 'E501A') || (g.en01only && ic !== 'EN01');
+        out.push({
+          id: 'g:' + g.id + ':' + base, grp: g.id, label: lbl, group: g,
+          regs: useOut2 ? [R(0x00A, g.sel3, 'DBG_SEL3')] : [R(0x007, g.top, 'TOP_DBG_SEL')],
+          bits: list.map(function (b) { return { sel: (useOut2 ? 0x30 : 0x20) + b.pos, n: b.n }; }),
+          sig: g.id + '：' + list.map(function (b) { return (useOut2 ? 'DEBUG_OUT2[' : 'DEBUG_OUT[') + b.pos + '] = ' + b.n; }).join('、'),
+          lvFix: inf ? 'inf' : 'vdoc', srcFix: inf ? (ic === 'E501A' ? ['e501a'] : ['en01only']) : [DOC_SRC[ic]],
+          meas: ['依原廠文件；準位意義看文件', 'per the vendor document', '依原厂文件；电平意义看文件']
+        });
+      });
+    });
+    return out;
+  }
   /* KOSC 後段（calibration_1.i2cs 第 2、5～9 行；第 10 行燒錄另外處理） */
   var KOSC_POST = [
     { slave: 0x3E, ob: 2, addr: 0x0E4, msb: 7, lsb: 0, val: 0x83, name: 'KOSC_0E4', rbUnk: true },
@@ -278,10 +347,24 @@ var NBD_GPIO = {"E503":{"model":"RM8100x_for_FAE_20240925_20250311.model","tcon"
   var BURN = { slave: 0x7C, ob: 1, addr: 0x01, msb: 7, lsb: 0, val: 0x01, name: 'OSC_PROGRAM_EFUSE', kind: 'burn' };
   var READ_20D0 = { slave: 0x3E, ob: 2, addr: 0x20D0, msb: 7, lsb: 0, val: null, name: 'OSC_1_PROGRAMMED', kind: 'r' };
 
-  function itemOf(id) { for (var i = 0; i < ITEMS.length; i++) if (ITEMS[i].id === id) return ITEMS[i]; return null; }
-  function itemsFor(ic) { return ITEMS.filter(function (it) { return (!it.only || it.only.indexOf(ic) >= 0) && (!it.not || it.not.indexOf(ic) < 0); }); }
+  var GRP_CACHE = {};
+  function allItems(ic) { return GRP_CACHE[ic] || (GRP_CACHE[ic] = ITEMS.filter(function (it) { return (!it.only || it.only.indexOf(ic) >= 0) && (!it.not || it.not.indexOf(ic) < 0); }).concat(grpItems(ic))); }
+  function itemOf(id, ic) {
+    var list = allItems(ic || (window.NBD_IC_DEFAULT || 'E503'));
+    for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i];
+    for (var j = 0; j < ITEMS.length; j++) if (ITEMS[j].id === id) return ITEMS[j];
+    return null;
+  }
+  function itemsFor(ic) { return allItems(ic).filter(function (it) { return it.grp === 'common'; }).map(function (it) { return it; }); }
   function defPin(ic, it) { return (it.def && it.def[ic]) || DEF[ic]; }
   function gpioOf(ic, id) { var a = G[ic].gpios; for (var i = 0; i < a.length; i++) if (a[i].id === id) return a[i]; return null; }
+  /* 每個 bit 的預設腳：第一個 bit＝項目預設腳；其餘依序挑還沒用過的腳（封裝腳已確認的優先），不重複 */
+  function defPins(ic, it) {
+    var n = it.bits.length, first = defPin(ic, it), used = [first], gs = G[ic].gpios;
+    var pref = gs.filter(function (g) { return g.pst === 'ok'; }).concat(gs.filter(function (g) { return g.pst !== 'ok'; }));
+    for (var k = 1; k < n; k++) { var g = pref.filter(function (x) { return used.indexOf(x.id) < 0; })[0]; used.push(g ? g.id : first); }
+    return used;
+  }
   function maskOf(r) { return (((1 << (r.msb - r.lsb + 1)) - 1) << r.lsb) & 0xFF; }
   function offStr(r) { var h = hex(r.addr, 3); return '0x' + h + '[' + r.msb + (r.msb === r.lsb ? '' : ':' + r.lsb) + ']'; }   /* = wfg.html wfgNbOff() */
   function pinText(g) {
@@ -292,24 +375,34 @@ var NBD_GPIO = {"E503":{"model":"RM8100x_for_FAE_20240925_20250311.model","tcon"
     return g.id + '（' + tt('nd.pkgQ') + '）';
   }
 
-  /* ── 核心：依 IC／項目／GPIO 產生暫存器序列（純函式，測試與匯出都用這一支）── */
-  function build(ic, itemId, gid, opt) {
+  /* ── 核心：依 IC／項目／每個 bit 的 GPIO 產生暫存器序列（純函式，測試與匯出都用這一支）──
+     gids：字串（單 bit）或陣列（每個 bit 一支）。重複的腳 ⇒ dup＝true（畫面擋下、不執行、不匯出）。
+     EN01 的 TX_EN：照 EN01 Debug Mode 文件 p2，把該腳 nibble 寫成 1（TX_EN＝1、RX_EN／EN_PL／OPDIO_SEL＝0）；
+     E503／E501 照舊只改 TX_EN 一個 bit（E503 實測設定的寫法）。 */
+  function build(ic, itemId, gids, opt) {
     opt = opt || {};
-    var it = itemOf(itemId); if (!G[ic] || !it) return null;
-    var dp = defPin(ic, it), g = gpioOf(ic, gid) || gpioOf(ic, dp);
+    var it = itemOf(itemId, ic); if (!G[ic] || !it) return null;
+    var dps = defPins(ic, it), list = Array.isArray(gids) ? gids.slice() : [gids];
+    var gs = it.bits.map(function (b, k) { return gpioOf(ic, list[k]) || gpioOf(ic, dps[k]); });
     var rows = [];
     if (it.kosc) rows.push(Object.assign({}, READ_20D0));
     it.regs.forEach(function (r) { rows.push(Object.assign({ kind: 'w' }, r)); });
-    rows.push({ kind: 'w', pin: true, slave: 0x3E, ob: 2, addr: g.tx[0], msb: g.tx[1], lsb: g.tx[1], val: 1, name: g.txN });
-    rows.push({ kind: 'w', pin: true, slave: 0x3E, ob: 2, addr: g.sel[0], msb: g.sel[1], lsb: g.sel[2], val: it.sel, name: g.selN });
+    it.bits.forEach(function (bt, k) {
+      var g = gs[k], en01 = ic === 'EN01';
+      rows.push({ kind: 'w', pin: true, bit: k, slave: 0x3E, ob: 2, addr: g.tx[0], msb: en01 ? g.tx[1] + 3 : g.tx[1], lsb: g.tx[1], val: 1, name: g.txN });
+      rows.push({ kind: 'w', pin: true, bit: k, sel: true, slave: 0x3E, ob: 2, addr: g.sel[0], msb: g.sel[1], lsb: g.sel[2], val: bt.sel, name: g.selN, sig: bt.n });
+    });
     if (it.kosc) {
       KOSC_POST.forEach(function (r) { var o = Object.assign({ kind: 'w' }, r); if (r.code && opt.code != null) o.val = opt.code & 0xFF; rows.push(o); });
       if (opt.burn) rows.push(Object.assign({}, BURN));
     }
     rows.forEach(function (r) { r.mask = maskOf(r); });
-    var lvl = (g.id === dp) ? it.lv[ic] : 'pin';
-    return { ic: ic, item: it, gpio: g, isDef: g.id === dp, level: lvl, rows: rows, tcon: G[ic].tcon, model: G[ic].model };
+    var ids = gs.map(function (g) { return g.id; });
+    var dup = ids.some(function (x, i) { return ids.indexOf(x) !== i; });
+    var lvl = it.lvFix || ((gs[0].id === dps[0]) ? it.lv[ic] : 'pin');
+    return { ic: ic, item: it, gpio: gs[0], gpios: gs, isDef: gs[0].id === dps[0], level: lvl, dup: dup, rows: rows, tcon: G[ic].tcon, model: G[ic].model };
   }
+  function srcOf(b) { return b.item.srcFix || (b.item.src && (Array.isArray(b.item.src) ? b.item.src : b.item.src[b.ic])) || []; }
 
   /* ── 匯出：Excel（WFG NB 匯出同格式）── */
   var XLSX_HEADER = [   /* = wfg.html WFG_NB_XLSX_HEADER（22 欄，欄序與字串不可改） */
@@ -322,7 +415,7 @@ var NBD_GPIO = {"E503":{"model":"RM8100x_for_FAE_20240925_20250311.model","tcon"
   ];
   function rowDesc(b, r) {
     if (r.kind === 'burn') return 'IRREVERSIBLE eFuse program (one-time) / 不可逆：燒 eFuse';
-    if (r.pin && r.name === b.gpio.selN) return b.item.label + ': ' + b.item.sig;
+    if (r.pin && r.sel) return b.item.label + ': ' + (r.sig || '') + ' (TX_IN_SEL ' + hex(r.val, 2) + 'h)';
     if (r.pin) return 'TX enable';
     return '';
   }
@@ -341,7 +434,7 @@ var NBD_GPIO = {"E503":{"model":"RM8100x_for_FAE_20240925_20250311.model","tcon"
   function asciiOnly(s) { return String(s).replace(/（/g, '(').replace(/）/g, ')').replace(/[^\x20-\x7E]/g, ''); }
   function scriptText(b) {
     var L = [], ver = (window.TOOL_VERSIONS && TOOL_VERSIONS.nbdebug) || '';
-    L.push('// NB TCON Debug ' + ver + ' - ' + b.ic + ' ' + asciiOnly(b.item.label) + ' -> ' + asciiOnly(b.gpio.id) + (b.gpio.pst ? ' (' + asciiOnly(b.gpio.pkg || b.gpio.id) + ')' : ''));
+    L.push('// NB TCON Debug ' + ver + ' - ' + b.ic + ' ' + asciiOnly(b.item.label) + ' -> ' + b.gpios.map(function (g, k) { return asciiOnly(b.item.bits[k].n) + ':' + asciiOnly(g.id) + (g.pst ? ' (' + asciiOnly(g.pkg || g.id) + ')' : ''); }).join(', '));
     L.push('// Load this file from the Script page of the EN01 UI, Address Type = Register.');
     L.push('// write -m changes only the bits in MASK; other bits keep their value.');
     L.push('// ' + new Date().toISOString());
@@ -363,7 +456,7 @@ var NBD_GPIO = {"E503":{"model":"RM8100x_for_FAE_20240925_20250311.model","tcon"
   }
   function fname(b, ext) {
     var d = new Date(), ds = d.getFullYear() + ('0' + (d.getMonth() + 1)).slice(-2) + ('0' + d.getDate()).slice(-2);
-    var it = asciiOnly(b.item.id), gp = asciiOnly(b.gpio.id).replace(/[^A-Za-z0-9_]+/g, '_').replace(/_+$/, '');
+    var it = asciiOnly(b.item.id).replace(/^g:/, '').replace(/[^A-Za-z0-9_]+/g, '_'), gp = asciiOnly(b.gpio.id).replace(/[^A-Za-z0-9_]+/g, '_').replace(/_+$/, '') + (b.gpios.length > 1 ? '_x' + b.gpios.length : '');
     return 'NBDebug_' + b.ic + '_' + it + '_' + gp + (S.burnOk() && b.item.kosc ? '_BURN' : '') + '_' + ds + '.' + ext;
   }
   function download(name, data, mime) {
@@ -376,7 +469,8 @@ var NBD_GPIO = {"E503":{"model":"RM8100x_for_FAE_20240925_20250311.model","tcon"
   var S = { ws: null, seq: 0, pend: {}, linked: false, busy: false, miss: null, userClose: false, checked: null,
             rb: {}, orig: {}, r20d0: null, code: 0xAA,
             burnOk: function () { return !!($('nd-burn').checked && $('nd-burn1').checked && $('nd-burn2').checked); } };
-  function cur() { return build($('nd-icsel').value, $('nd-item').value, $('nd-gpio').value, { code: S.code, burn: S.burnOk() }); }
+  function pinsNow() { return [].slice.call(document.querySelectorAll('#nd-gpios select')).map(function (x) { return x.value; }); }
+  function cur() { return build($('nd-icsel').value, $('nd-item').value, pinsNow(), { code: S.code, burn: S.burnOk() }); }
   function key(r) { return r.slave + ':' + r.addr; }
   function log(s) { var el = $('nd-log'); el.textContent += s + '\n'; el.scrollTop = el.scrollHeight; }
   function status(msg, cls) { var el = $('nd-st'); el.textContent = msg || ''; el.className = 'nd-st' + (cls ? ' ' + cls : ''); }
@@ -388,31 +482,47 @@ var NBD_GPIO = {"E503":{"model":"RM8100x_for_FAE_20240925_20250311.model","tcon"
     s.value = v;
   }
   function fillItems() {
-    var ic = $('nd-icsel').value, s = $('nd-item'), v = s.value, list = itemsFor(ic);
-    s.innerHTML = list.map(function (it) { return '<option value="' + it.id + '">' + esc(it.label) + '</option>'; }).join('');
+    var ic = $('nd-icsel').value, s = $('nd-item'), v = s.value, q = ($('nd-q').value || '').trim().toUpperCase();
+    var list = allItems(ic).filter(function (it) { return !q || (it.label + ' ' + it.grp + ' ' + (it.sig || '')).toUpperCase().indexOf(q) >= 0; });
+    var by = {}, order = [];
+    list.forEach(function (it) { if (!by[it.grp]) { by[it.grp] = []; order.push(it.grp); } by[it.grp].push(it); });
+    s.innerHTML = order.map(function (gk) {
+      var g = by[gk][0].group, lab = gk === 'common' ? tt('nd.grpCommon') : gk + '（TOP_DBG_SEL ' + hex(g.top, 2) + 'h' + (g.sel3 != null ? '／DBG_SEL3 ' + hex(g.sel3, 2) + 'h' : '') + '）';
+      return '<optgroup label="' + esc(lab) + '">' + by[gk].map(function (it) { return '<option value="' + esc(it.id) + '">' + esc(it.label) + (it.bits.length > 1 ? '（' + it.bits.length + ' bit）' : '') + '</option>'; }).join('') + '</optgroup>';
+    }).join('');
+    if (!list.length) { s.innerHTML = '<option value="">' + esc(tt('nd.qNone')) + '</option>'; return; }
     s.value = list.some(function (it) { return it.id === v; }) ? v : list[0].id;
+    $('nd-qn').textContent = q ? tt('nd.qCount', { n: list.length }) : '';
   }
   function fillGpio(keep) {
-    var ic = $('nd-icsel').value, it = itemOf($('nd-item').value), s = $('nd-gpio'), v = s.value, dp = defPin(ic, it);
-    s.innerHTML = G[ic].gpios.map(function (g) {
-      return '<option value="' + esc(g.id) + '">' + esc(pinText(g)) + (g.id === dp ? ' ★' + esc(tt('nd.def')) : '') + '</option>';
+    var ic = $('nd-icsel').value, it = itemOf($('nd-item').value, ic); if (!it) return;
+    var box = $('nd-gpios'), old = keep ? pinsNow() : [], dps = defPins(ic, it), dp = dps[0];
+    var opts = G[ic].gpios.map(function (g) { return '<option value="' + esc(g.id) + '">' + esc(pinText(g)) + (g.id === dp ? ' ★' + esc(tt('nd.def')) : '') + '</option>'; }).join('');
+    box.innerHTML = it.bits.map(function (bt, k) {
+      var id = k ? 'nd-gpio-' + k : 'nd-gpio';
+      return '<span class="nd-pin">' + (it.bits.length > 1 ? '<span class="nd-pinlab mono">' + esc(bt.n) + '</span>' : '') + '<select id="' + id + '" class="nd-sel" data-bit="' + k + '">' + opts + '</select></span>';
     }).join('');
-    s.value = (keep && gpioOf(ic, v)) ? v : dp;
+    it.bits.forEach(function (bt, k) { var el = $(k ? 'nd-gpio-' + k : 'nd-gpio'); el.value = (keep && old[k] && gpioOf(ic, old[k])) ? old[k] : dps[k]; });
   }
   function lvTag(lv, srcKeys) {
-    var cls = lv === 'peerf' ? 'lv-peerf' : (lv === 'vendor' ? 'lv-ven' : 'lv-doc');
-    var k = lv === 'peerf' ? 'nd.lvPeerf' : (lv === 'vendor' ? 'nd.lvVendor' : (lv === 'pin' ? 'nd.lvPin' : 'nd.lvDoc'));
+    var cls = { meas: 'lv-meas', vendor: 'lv-ven', vdoc: 'lv-vdoc' }[lv] || 'lv-doc';
+    var k = { meas: 'nd.lvMeas', vendor: 'nd.lvVendor', vdoc: 'nd.lvVdoc', pin: 'nd.lvPin' }[lv] || 'nd.lvInf';
     var src = (srcKeys || []).map(function (s) { return SRC[s]; }).join('；');
     return '<span class="nd-tag ' + cls + '" title="' + esc(tt('nd.lvTip', { s: src })) + '">' + esc(tt(k)) + '</span>';
   }
   function li() { var l = document.documentElement.lang; return l === 'en' ? 1 : (l === 'zh-CN' ? 2 : 0); }
   function render() {
     var b = cur(); if (!b) return;
-    var g = b.gpio, it = b.item;
-    var pinLbl = g.pst === 'ok' || g.pst === 'inf' ? (g.pkg + (g.pin ? ' · ' + g.pin : '')) : g.id;
-    var pq = (g.pst === 'ok') ? '' : (g.pst === 'inf' ? '（' + tt('nd.pkgInf') + '）' : '<span class="nd-pkgq">（' + esc(g.pst === 'nobond' ? tt('nd.pkgNo') : tt('nd.pkgQ')) + '）</span>');
-    $('nd-info').innerHTML = lvTag(b.level, it.src) + '<span class="nd-meas">' + tt('nd.meas', { p: esc(pinLbl), m: esc(it.meas[li()]) }) + pq + '</span>';
+    var it = b.item;
+    var pinOne = function (g) {
+      var lbl = g.pst === 'ok' || g.pst === 'inf' ? (g.pkg + (g.pin ? ' · ' + g.pin : '')) : g.id;
+      var pq = (g.pst === 'ok') ? '' : (g.pst === 'inf' ? '（' + tt('nd.pkgInf') + '）' : '<span class="nd-pkgq">（' + esc(g.pst === 'nobond' ? tt('nd.pkgNo') : tt('nd.pkgQ')) + '）</span>');
+      return '<b>' + esc(lbl) + '</b>' + pq;
+    };
+    var pins = b.gpios.map(function (g, k) { return (b.gpios.length > 1 ? esc(it.bits[k].n) + '＝' : '') + pinOne(g); }).join('、');
+    $('nd-info').innerHTML = lvTag(b.level, srcOf(b)) + '<span class="nd-meas">' + tt('nd.meas2', { p: pins, m: esc(it.meas[li()]) }) + '</span>';
     var w = [];
+    if (b.dup) w.push(tt('nd.dupPin'));
     if (it.w08) w.push(tt('nd.w08'));
     if (it.kosc) w.push(tt('nd.wBurn'));
     $('nd-warn').textContent = w.join('　');
@@ -433,7 +543,8 @@ var NBD_GPIO = {"E503":{"model":"RM8100x_for_FAE_20240925_20250311.model","tcon"
     });
     $('nd-tbl').innerHTML = h + '</tbody>';
     var ci = $('nd-code'); if (ci) ci.addEventListener('change', function () { var v = parseInt(ci.value, 16); if (!(v >= 0x80 && v <= 0xFF)) { status(tt('nd.codeBad'), 'err'); ci.value = hex(S.code, 2); return; } S.code = v; S.rb = {}; render(); });
-    $('nd-run').disabled = !S.linked || S.busy;
+    $('nd-run').disabled = !S.linked || S.busy || b.dup;
+    $('nd-xlsx').disabled = b.dup; $('nd-script').disabled = b.dup;
     $('nd-run').title = S.linked ? '' : tt('nd.needLink');
     $('nd-undo').disabled = !S.linked || S.busy || !Object.keys(S.orig).length;
     $('nd-link').textContent = tt(S.linked ? 'nd.unlink' : 'nd.link');
@@ -442,20 +553,21 @@ var NBD_GPIO = {"E503":{"model":"RM8100x_for_FAE_20240925_20250311.model","tcon"
   function renderHelp(b) {
     var it = b.item, n = li();
     var T3 = function (a) { return a[n]; };
-    var src = it.src.map(function (s) { return '<li>' + esc(SRC[s]) + '</li>'; }).join('');
+    var src = srcOf(b).map(function (s) { return '<li>' + esc(SRC[s]) + '</li>'; }).join('');
     var h = '<h4>' + esc(it.label) + '：' + esc(it.sig) + '</h4><ul>' + src +
-      '<li>' + esc(T3(['GPIO 位址：', 'GPIO addresses: ', 'GPIO 地址：'])) + esc(b.model) + ' ' + esc(b.gpio.txN) + '（L' + b.gpio.txL + '）／' + esc(b.gpio.selN) + '（L' + b.gpio.selL + '）' + (b.gpio.pin ? '；' + esc(b.gpio.pin) : '') + '</li></ul>';
+      b.gpios.map(function (g) { return '<li>' + esc(T3(['GPIO 位址：', 'GPIO addresses: ', 'GPIO 地址：'])) + esc(b.model) + ' ' + esc(g.txN) + (g.doc ? '' : '（L' + g.txL + '）') + '／' + esc(g.selN) + (g.doc ? '（model 沒有，依 E501B 投影片 p3）' : '（L' + g.selL + '）') + (g.pin ? '；' + esc(g.pin) : '') + '</li>'; }).join('') + '</ul>';
     h += '<h4>' + esc(T3(['驗證等級', 'Verification level', '验证等级'])) + '</h4><ul>' +
-      '<li>' + esc(T3(['同事F已驗證＝E503 實機量過（WP pin）；原廠腳本＝原廠腳本或 RD 信件給的設定；文件推論未實測＝依 debug 投影片／其他 IC 推過來，沒量過。',
-        'Verified (同事F) = measured on E503 (WP pin); Vendor script = script or RD-mail settings; From docs = derived from the debug slides / another IC, not measured.',
-        '同事F已验证＝E503 实机量过（WP pin）；原厂脚本＝原厂脚本或 RD 信件给的设定；文件推论未实测＝依 debug 投影片／其他 IC 推过来，没量过。'])) + '</li>' +
-      '<li>' + esc(T3(['改選非預設腳＝依 model 位址推論，未實測（訊號選擇相同，只換輸出腳的 TX_EN／TX_IN_SEL）。', 'A non-default pin = from model address, not measured (same signal, only the pin TX_EN / TX_IN_SEL change).', '改选非默认脚＝依 model 地址推论，未实测（信号选择相同，只换输出脚的 TX_EN／TX_IN_SEL）。'])) + '</li></ul>';
+      '<li>' + esc(T3(['實測驗證＝E503 實機量過（WP pin）；原廠腳本＝原廠提供的腳本或設定；原廠文件＝原廠 debug 文件寫明的群組與 bit；推論，未實測＝依其他 IC 的文件推過來，沒量過。',
+        'Measured = measured on E503 (WP pin); Vendor script = script or settings from the vendor; Vendor document = group and bit written in the vendor debug document; Inferred = derived from another IC, not measured.',
+        '实测验证＝E503 实机量过（WP pin）；原厂脚本＝原厂提供的脚本或设定；原厂文件＝原厂 debug 文件写明的群组与 bit；推论，未实测＝依其他 IC 的文件推过来，没量过。'])) + '</li>' +
+      '<li>' + esc(T3(['常用項目改選非預設腳＝依 model 位址推論，未實測（訊號選擇相同，只換輸出腳的 TX_EN／TX_IN_SEL）。', 'Common items on a non-default pin = from model address, not measured (same signal, only the pin TX_EN / TX_IN_SEL change).', '常用项目改选非默认脚＝依 model 地址推论，未实测（信号选择相同，只换输出脚的 TX_EN／TX_IN_SEL）。'])) + '</li>' +
+      '<li>' + esc(T3(['一次只能看一個群組（DEBUG_OUT）＋另一個群組（DEBUG_OUT2）；本頁一個項目只用一個群組，要同時看兩組請分兩次下、注意第二次會改掉第一次的 TOP_DBG_SEL／DBG_SEL3。', 'Only one group on DEBUG_OUT plus one on DEBUG_OUT2 at a time; each item here uses one group — a second item rewrites TOP_DBG_SEL / DBG_SEL3.', '一次只能看一个群组（DEBUG_OUT）＋另一个群组（DEBUG_OUT2）；本页一个项目只用一个群组，要同时看两组请分两次下、注意第二次会改掉第一次的 TOP_DBG_SEL／DBG_SEL3。'])) + '</li></ul>';
     h += '<h4>' + esc(T3(['注意', 'Notes', '注意'])) + '</h4><ul>' +
       '<li>' + esc(T3(['每一列只改標示的 bit（E503／E501 的 TX_IN_SEL 與 DRV 同一個 byte：只改 [5:0]，[7:6] DRV 不動）。', 'Each row changes only the marked bits (on E503/E501 TX_IN_SEL shares the byte with DRV: only [5:0] changes, [7:6] DRV kept).', '每一行只改标示的 bit（E503／E501 的 TX_IN_SEL 与 DRV 同一个 byte：只改 [5:0]，[7:6] DRV 不动）。'])) + '</li>' +
       '<li>' + esc(T3(['E503 WP pin 平常是 EEPROM 寫保護（0x059＝1E）；拿來量 debug 時 EEPROM 寫保護暫時沒有，量完按「還原」。', 'On E503 the WP pin is normally EEPROM write-protect (0x059 = 1E); while it outputs debug the EEPROM is unprotected — press Restore when done.', 'E503 WP pin 平常是 EEPROM 写保护（0x059＝1E）；拿来量 debug 时 EEPROM 写保护暂时没有，量完按「还原」。'])) + '</li>' +
-      '<li>' + esc(T3(['同事F信的 RX DE 是 DEBUG_OUT2[7]（DPFIFO_2_RTLOG_DE），不是舊整理的 DP_2_FIFO_DE（28h）；TX DE 是 ISP0_FIFO_IRDY0，RT6_DE 另列一項。', '同事F’s RX DE is DEBUG_OUT2[7] (DPFIFO_2_RTLOG_DE), not DP_2_FIFO_DE (28h) from older notes; TX DE is ISP0_FIFO_IRDY0, RT6_DE is listed separately.', '同事F信的 RX DE 是 DEBUG_OUT2[7]（DPFIFO_2_RTLOG_DE），不是旧整理的 DP_2_FIFO_DE（28h）；TX DE 是 ISP0_FIFO_IRDY0，RT6_DE 另列一项。'])) + '</li>' +
-      '<li>' + esc(T3(['EN01 的內部 debug 群組沒有文件，只有 OSC（dbg_01 bit4）有實例對上；其他項目套 E503 做法＝推論。', 'EN01 internal debug groups are undocumented; only OSC (dbg_01 bit4) is confirmed; other items reuse the E503 method (inferred).', 'EN01 的内部 debug 群组没有文件，只有 OSC（dbg_01 bit4）有实例对上；其他项目套 E503 做法＝推论。'])) + '</li>' +
-      '<li>' + esc(T3(['E501 的 TX_IN_SEL 26h／27h 是 BE／BS，不是 DEBUG_OUT[6]／[7]，所以 E501 沒有 PLL lock（Lane0）。', 'On E501 TX_IN_SEL 26h/27h are BE/BS, not DEBUG_OUT[6]/[7], so PLL lock (Lane0) is not offered.', 'E501 的 TX_IN_SEL 26h／27h 是 BE／BS，不是 DEBUG_OUT[6]／[7]，所以 E501 没有 PLL lock（Lane0）。'])) + '</li>' +
+      '<li>' + esc(T3(['實測設定的 RX DE 是 DEBUG_OUT2[7]（DPFIFO_2_RTLOG_DE），不是舊整理的 DP_2_FIFO_DE（28h）；TX DE 是 ISP0_FIFO_IRDY0，RT6_DE 另列一項。', 'The measured RX DE setting is DEBUG_OUT2[7] (DPFIFO_2_RTLOG_DE), not DP_2_FIFO_DE (28h) from older notes; TX DE is ISP0_FIFO_IRDY0, RT6_DE is listed separately.', '实测设定的 RX DE 是 DEBUG_OUT2[7]（DPFIFO_2_RTLOG_DE），不是旧整理的 DP_2_FIFO_DE（28h）；TX DE 是 ISP0_FIFO_IRDY0，RT6_DE 另列一项。'])) + '</li>' +
+      '<li>' + esc(T3(['EN01 的群組與 bit 依 EN01 Debug Mode 文件（2026-10）；EN01 的 TX_EN 照文件把該腳 4 個 bit 寫成 0001（TX_EN＝1，其餘 0）。EN01、E503 沒有 PSR（PSR 訊號內部 tie 0，不列）。', 'EN01 groups and bits follow the EN01 Debug Mode document (2026-10); EN01 TX_EN writes the pin nibble as 0001 per the document. EN01 and E503 have no PSR (PSR signals tied 0, not listed).', 'EN01 的群组与 bit 依 EN01 Debug Mode 文件（2026-10）；EN01 的 TX_EN 照文件把该脚 4 个 bit 写成 0001（TX_EN＝1，其余 0）。EN01、E503 没有 PSR（PSR 信号内部 tie 0，不列）。'])) + '</li>' +
+      '<li>' + esc(T3(['E501 的 TX_IN_SEL 26h／27h 是 BE／BS，不是 DEBUG_OUT[6]／[7]：E501 沒有 PLL lock（Lane0）；群組項目用到 bit6／7 時改走 DBG_SEL3（DEBUG_OUT2）。', 'On E501 TX_IN_SEL 26h/27h are BE/BS, not DEBUG_OUT[6]/[7]: no PLL lock (Lane0); group items using bit 6/7 go through DBG_SEL3 (DEBUG_OUT2).', 'E501 的 TX_IN_SEL 26h／27h 是 BE／BS，不是 DEBUG_OUT[6]／[7]：E501 没有 PLL lock（Lane0）；群组项目用到 bit6／7 时改走 DBG_SEL3（DEBUG_OUT2）。'])) + '</li>' +
       '<li>' + esc(T3(['匯出 Excel／.script 是給 EN01 UI 載入（Excel＝Import CheckList；.script＝Script 分頁、Address Type＝Register）；7C 的列與 0x0E4 不是 .model 的 Register，.script 只寫成註解，要用 I2C 下。', 'Exports are for the EN01 UI (Excel = Import CheckList; .script = Script page, Address Type = Register); 7C rows and 0x0E4 are not .model registers, so .script keeps them as comments — send them by I2C.', '导出 Excel／.script 是给 EN01 UI 载入（Excel＝Import CheckList；.script＝Script 分页、Address Type＝Register）；7C 的行与 0x0E4 不是 .model 的 Register，.script 只写成注释，要用 I2C 下。'])) + '</li></ul>';
     $('nd-help').innerHTML = h;
   }
@@ -613,7 +725,8 @@ var NBD_GPIO = {"E503":{"model":"RM8100x_for_FAE_20240925_20250311.model","tcon"
   function onIc() { fillItems(); fillGpio(false); S.rb = {}; if (S.linked && S.checked && S.checked !== $('nd-icsel').value) $('nd-ic').textContent = tt('nd.icGot', { ic: S.checked }); render(); }
   $('nd-icsel').addEventListener('change', onIc);
   $('nd-item').addEventListener('change', function () { fillGpio(false); S.rb = {}; render(); });
-  $('nd-gpio').addEventListener('change', function () { S.rb = {}; render(); });
+  $('nd-q').addEventListener('input', function () { fillItems(); fillGpio(false); S.rb = {}; render(); });
+  $('nd-gpios').addEventListener('change', function () { S.rb = {}; render(); });
   $('nd-link').addEventListener('click', connect);
   $('nd-run').addEventListener('click', runAll);
   $('nd-undo').addEventListener('click', undo);
@@ -633,12 +746,13 @@ var NBD_GPIO = {"E503":{"model":"RM8100x_for_FAE_20240925_20250311.model","tcon"
     download(f, scriptText(b), 'text/plain');
     status(tt('nd.exported', { f: f }), 'ok'); log('export ' + f);
   });
-  window._onLangChange = function () { fillGpio(true); render(); };
+  window._onLangChange = function () { $('nd-q').placeholder = tt('nd.qPh'); fillItems(); fillGpio(true); render(); };
 
+  $('nd-q').placeholder = tt('nd.qPh');
   fillIc(); fillItems(); fillGpio(false);
   render();
   /* 測試／除錯入口（不在畫面上） */
-  window.NBD = { build: build, xlsxRows: xlsxRows, scriptText: scriptText, fname: fname, items: ITEMS, itemsFor: itemsFor, defPin: defPin, XLSX_HEADER: XLSX_HEADER, S: S, render: render };
+  window.NBD = { build: build, xlsxRows: xlsxRows, scriptText: scriptText, fname: fname, items: ITEMS, itemsFor: itemsFor, allItems: allItems, defPin: defPin, defPins: defPins, groups: NBD_GROUPS, XLSX_HEADER: XLSX_HEADER, S: S, render: render };
 })();
 </script>
 </body>

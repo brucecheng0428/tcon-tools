@@ -107,7 +107,7 @@
       d: 'BOE HSD（原廠圖標題「HSD RGB 4pix 4 line」）：每條 Data 線固定一個顏色（R G B R G B），上下 gate 接同色但隔一個 pixel；4N+2、4N+3 上下對換。',
       warn: '週期是 6 條 Data 線（Dual 每條 2 顆 ⇒ 6 條＝12 顆＝4 pixel），不是 12 條：D7~D12＝D1~D6 往右 4 pixel。照 ② 的 RGB 條紋位置畫，drain 會跨 1~2 顆；實際面板可能不是 RGB 條紋排列。與瑞鼎 UI「預設樣式」(30) 兩組相同（見 30 的說明）。' },
     { name: '32.HSD BOE+GBG/RRB+LR', img: '32.HSD BOE_GBGRRB_LR', g: 'dual', P: 3, A: 2, L: [['G1 B1 G2', 'R1 R2 B2'], ['G-1 G1 B1', 'B-1 R1 R2']], d: 'BOE HSD GBG／RRB：上 gate G1 B1 G2…、下 gate R1 R2 B2…；2N+1 往右一條。',
-      warn: '瑞鼎 UI「預設樣式」(32) 的 ② 值＝這張圖再做 D1↔D3、D4↔D6 對調：用 (32) 的 code 時要勾「模擬 Source Driver 輸出對調」才對得上這張圖（與同事C BOE B4 27" 的結論相同）。' }
+      warn: '瑞鼎 UI「預設樣式」(32) 的 ② 值＝這張圖再做 D1↔D3、D4↔D6 對調：用 (32) 的 code 時要勾「模擬 Source Driver 輸出對調」才對得上這張圖（與先前實際案例的結論相同）。' }
   ];
   var CH = ['R', 'G', 'B'];
   function lin(n) { var m = /^([RGB])(-?\d+)$/.exec(n || ''); if (!m) return null; var p = +m[2]; return (p > 0 ? p - 1 : p) * 3 + CH.indexOf(m[1]); }
