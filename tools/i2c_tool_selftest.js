@@ -4947,7 +4947,8 @@ function baseScript(f) {
       }));
       await A.checkTcon(); await quiesce();
       EQ(!!A.ckResult().unknown && !/DAZ613/.test(String(A.ckResult().name)), true, '④ 0x007D 不在 0x00–0x04 ⇒ 認不出（不再自動判 DAZ613x）');
-      EQ(A.ckResult().alts.indexOf('DAZ6138') >= 0 && A.ckResult().alts.indexOf('DAZ6139') >= 0 && A.ckResult().alts.indexOf('EN01') >= 0, true, '④ 下拉含 EN01、DAZ6138、DAZ6139（手選）');
+      EQ(A.ckResult().alts.indexOf('DAZ6138') < 0 && A.ckResult().alts.indexOf('DAZ6139') < 0 && A.ckResult().alts.indexOf('EN01') >= 0, true, '④ 下拉含 EN01、不含 DAZ6138／6139（v1.34.5）');
+      EQ([].slice.call(doc.getElementById('tcon-pick').options).some(function (o) { return /6138|6139/.test(o.value + o.textContent); }), false, '④ 畫面下拉沒有 6138／6139');
       EQ(doc.getElementById('tcon-pick').style.display, '', '④ 有歧義 ⇒ 下拉出現');
     }
     /* ── ⑤ 0xFF00 的高 nibble 比對（PQ Tool CheckICID L419）─────────────────

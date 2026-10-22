@@ -55,7 +55,7 @@ const C = [
 for (const [nm, mem, nack, ff, fam, name] of C) {
   const x = io(mem, nack, ff);
   const r = await TD.detect(x, {});
-  if (fam === null) ok(r.family === null && r.unknown && !/DAZ613/.test(String(r.name)) && r.alts.includes('DAZ6138') && /7D:007D/.test(r.rawText), nm + ' ⇒ 認不出（手選清單仍有 DAZ6138）', JSON.stringify({ family: r.family, name: r.name, raw: r.rawText }));
+  if (fam === null) ok(r.family === null && r.unknown && !/DAZ613/.test(String(r.name)) && !r.alts.includes('DAZ6138') && !r.alts.includes('DAZ6139') && r.alts.includes('EN01') && /7D:007D/.test(r.rawText), nm + ' ⇒ 認不出（清單有 EN01、沒有 DAZ6138／6139）', JSON.stringify({ family: r.family, name: r.name, raw: r.rawText }));
   else ok(r.family === fam && String(r.name).includes(name) && !(fam === 'EN01' && r.ambiguous), nm + ' ⇒ ' + fam, JSON.stringify({ family: r.family, name: r.name, amb: r.ambiguous, raw: r.rawText }));
   ok(x.log[0] === 'W 7E:AB', '  └ 先下 M-Bus→C-Bus（0x7E:0xAB←CD，同 RCP2 ICDefine.cs:578–579 MbusToCbus）再辨認', x.log.slice(0, 3).join(','));
   if (fam === 'E501A' || fam === 'E501B' || fam === 'DAZ6111') ok(!x.log.some(l => /^R 3E:207E/.test(l)), '  └ E501 系列不碰 3E:207E');
@@ -67,6 +67,7 @@ for (const [nm, mem, nack, ff, fam, name] of C) {
     if (r.family === 'DAZ613x' || /DAZ613/.test(String(r.name))) bad++; }
   ok(bad === 0, `隨機 ${n} 組 7C／7D／3E 讀值 ⇒ 0 組判成 DAZ613x`, 'bad=' + bad); }
 const u = await TD.detect(io({}, [0x7C, 0x7D, 0x3E, 0x60, 0x61, 0x68, 0x69]), {});
-ok(u.unknown && u.alts.includes('EN01') && u.alts.includes('DAZ6138'), '全部不回 ⇒ 認不出、手選清單有 EN01 與 DAZ6138');
+ok(u.unknown && u.alts.includes('EN01') && !u.alts.some(a => /6138|6139/.test(a)), '全部不回 ⇒ 認不出、清單有 EN01、沒有 DAZ6138／6139');
+ok(!TD.ALL_NAMES.some(a => /6138|6139/.test(a)), 'TconDetect.ALL_NAMES 沒有 DAZ6138／6139');
 console.log(`\n${fail ? '✗' : '✓'} check_tcon_detect：${pass} 通過、${fail} 失敗`);
 process.exit(fail ? 1 : 0);

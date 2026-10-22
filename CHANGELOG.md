@@ -2,6 +2,13 @@
 
 ---
 
+## I2C (i2c) v1.34.5 — 2026-10-22 ｜ PATCH ｜ 認不出時的型號清單也拿掉 DAZ6138／6139
+
+判定依據：R1（修 bug）。Bruce 2026-10-22 實測：「I2C頁面怎麼還沒改，還是6138」（經 Dispatch）。
+- v1.34.4 已讓自動辨認不回 DAZ613x，但認不出時下拉給的全部型號（TconDetect.ALL_NAMES）仍含 DAZ6138／6139。common/tcon-detect.js v1.2 從清單拿掉 ⇒ I2C 頁任何情況都不出現 6138／6139。
+- I2C 頁沒有用 localStorage 記型號（grep 0 筆），不需清除。Check T-CON 仍是先下 0x7E:0xAB←CD（TconMbus.open）再辨認。
+- 測試：check_tcon_detect（ALL_NAMES 無 6138／6139）、i2c_tool_selftest ④（畫面下拉無 6138／6139）。
+
 ## Pattern Generator (pattern) v3.9.0 — 2026-10-22 ｜ MINOR ｜ 全畫面左上角資訊框（XY 座標等）可拖曳
 
 判定依據：VERSIONING.md §1 判定表「多了新功能，原本的做法不變」⇒ MINOR（預設位置、內容、鍵盤操作都不變；只是多了拖曳）。輸出到面板的 pattern 像素不變（資訊框是疊在畫布上的 DOM，本來就會出現在全畫面/面板上，與原程式相同；這版只改它的位置）。

@@ -30,7 +30,9 @@
       Bruce 2026-10-22：「I2C check TCON 明明是 EN01 的，卻會跑出 6138」「6138 一直被污染，最好先把它移掉吧。
       把所有 6138 的 T-CON check 方式都移掉」。原廠 i2c_check_e503_ver（PY L31711–31712）的 else 分支沒有讀任何
       6138 專屬暫存器——「7D:007D 不在 E503 表內」就判 DAZ613x，所以任何 7D 回了怪值的板子（EN01 也會）都會被
-      誤判成 6138。現在這種情況回「認不出」（unknown，附原始值），DAZ6138／DAZ6139 只留在手選清單 ALL_NAMES。
+      誤判成 6138。現在這種情況回「認不出」（unknown，附原始值）。
+      v1.2（同日，Bruce 實測「I2C頁面怎麼還沒改，還是6138」）：認不出時給的清單 ALL_NAMES 也拿掉 DAZ6138／DAZ6139
+      ⇒ I2C 頁任何情況都不會出現 6138／6139（Data Mapping 的型號下拉是對照表選擇，不屬辨認，保留）。
       EN01 辨認不變：先下 M-Bus→C-Bus（7E:AB←CD，WPF ICDefine.cs:578-581 MbusToCbus），再讀 3E:207E＝10／11。
    用法：
      var r = await TconDetect.detect(io, { log: fn });
@@ -88,7 +90,7 @@
   ];
   /* 認不出時給使用者手選的全部型號 */
   var ALL_NAMES = ['EM01A1', 'EM02A1', 'E503A1 T1', 'E503A1 T2', 'E503A1 T3', 'E503A2', 'E503A3',
-                   'E501A', 'E501B1', 'E501B2', 'E512A1', 'EN01', 'DAZ6111', 'DAZ6138', 'DAZ6139'];
+                   'E501A', 'E501B1', 'E501B2', 'E512A1', 'EN01', 'DAZ6111'];   /* v1.2：DAZ6138／6139 從認不出時的清單也拿掉（Bruce 10/22 I2C 頁仍見 6138） */
 
   function hx(v, n) { var s = (v >>> 0).toString(16).toUpperCase(); while (s.length < (n || 2)) s = '0' + s; return s; }
   function allFF(b) { if (!b || !b.length) return false; for (var i = 0; i < b.length; i++) if ((b[i] & 0xFF) !== 0xFF) return false; return true; }
