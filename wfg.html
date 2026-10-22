@@ -12,6 +12,7 @@
 <meta name="twitter:card" content="summary_large_image">
 <title>面板訊號模擬與取樣 — TCON FAE專用工具箱</title>
 <link rel="stylesheet" href="common/common.css?v=20260903help">
+<link rel="stylesheet" href="common/step-status.css?v=20261023wfg4591">
 <script>
 // Anti-flash: 根據 sessionStorage 預先顯示正確的 WFG mode tab
 (function(){
@@ -398,6 +399,8 @@
   .wfg-la-guide-close { width: 44px; height: 44px; border: 1px solid #111827; border-radius: 3px; background: #4b5563; color: #f9fafb; cursor: pointer; font-size: 20px; flex-shrink: 0; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
   .wfg-la-guide-body { padding: 14px; display: grid; gap: 12px; }
   .wfg-la-guide-steps { margin: 0; padding-left: 22px; color: #cbd5e1; line-height: 1.65; }
+  /* v4.59.1 LA 取樣三步的步驟列（Bruce 2026-10-23 選 C：只改 LA 取樣子流程；主畫面不動）。共用 common/step-status.* */
+  .wfg-la-guide-stepbar.tc-stepbar { margin: 0; background: #111827; }
   .wfg-la-guide-note { padding: 9px 10px; background: #111827; border: 1px solid #374151; border-radius: 4px; color: #facc15; font-size: 12px; line-height: 1.55; }
   .wfg-la-guide-actions { display: flex; flex-wrap: wrap; gap: 8px; }
   .wfg-la-guide-actions [data-step="import"] { display: none; }
@@ -3688,10 +3691,11 @@
     </div>
   </div>
 
-<script src="common/version.js?v=20261022i2c1346"></script>
-<script src="common/i18n.js?v=20261022pat390"></script>
+<script src="common/version.js?v=20261023wfg4591"></script>
+<script src="common/i18n.js?v=20261023wfg4591"></script>
 <script src="common/syscrc.js?v=20261022nm2"></script>
 <script src="common/common.js?v=20260523"></script>
+<script src="common/step-status.js?v=20261023wfg4591"></script>
 <script>
 // ═══════════ WFG — 面板訊號模擬與取樣 ═══════════
 (function(){
@@ -9302,6 +9306,11 @@ var wfgLaChannelDescriptions = [];
 var wfgLaChannelOrder = [];
 var wfgLaLastEdgeCounts = [];
 var wfgLaHardwareReady = false;
+/* v4.59.1：LA 取樣三步（裝置支援包 → 連線裝置 → 取樣）的完成狀態，只給步驟列看，不參與任何流程判斷。
+   wfgLaPkgStored：瀏覽器內有沒有已匯入的支援包（wfgLaHasStoredFirmwarePackage 的結果；null＝還沒查過）。
+   wfgLaCapOk：這個分頁真的取樣到一筆（wfgLaApplyCapturedWaveform 收到非 demo 的資料）。 */
+var wfgLaPkgStored = null;
+var wfgLaCapOk = false;
 var wfgLaCaptureState = 'stopped';
 var wfgLaFirmwareDbPromise = null;
 var wfgLaPendingRenumeration = false;
@@ -13512,6 +13521,11 @@ window.wfgLaClrShow = wfgLaClrShow;
    而後者才是這個功能的全部。做法與 `i2c.html` 的 `window.__i2ct` 相同。
    🔴 產品程式碼不讀它，刪掉不影響任何使用者行為。 */
 window.__wfgLaProbe = {
+  /* v4.59.1：LA 取樣三步步驟列的測試入口（走真的 wfgLaSetStatus，和硬體回報同一支） */
+  setDeviceStatus: function (state) { wfgLaSetStatus('wfg-la-status-device', state, 'probe'); },
+  stepState:      function () { return { pkg: wfgLaPkgStored, hw: !!wfgLaHardwareReady, linked: wfgLaStepLinked(), cap: !!wfgLaCapOk }; },
+  /* 只給步驟列測試用：headless 沒有 USB 裝置，用一個「opened」的假物件代表裝置開著；測完一定要 false 還原成 null */
+  setUsbOpenedForTest: function (on) { wfgLaUsbDevice = on ? { opened: true, __probe: true } : null; },
   cleared:        function () { return wfgLaCleared; },
   hasWaveform:    function () { return wfgLaCapturedWaveform !== null; },
   cursorActive:   function () { return wfgLaCursorActive.slice(); },
@@ -13765,6 +13779,7 @@ function wfgLaSetStatus(id, state, text) {
   }
   if (id === 'wfg-la-status-device') {
     wfgLaHardwareReady = state === 'ok';
+    if (document.getElementById('wfg-la-guide-stepbar')) wfgLaStepRender();   /* v4.59.1 */
     var bar = document.getElementById('wfg-la-device-bar');
     if (bar) bar.textContent = wfgLaHardwareReady ? t('wfg.laDeviceConnected') : (state === 'err' ? t('wfg.laDeviceError') : t('wfg.laDeviceDisconnected'));
     try { wfgLaUpdateToolbarState(wfgLaBuildConfig()); } catch (e) {}
@@ -14181,6 +14196,7 @@ function wfgLaOpenPackageGuide(mode) {
         '<button class="wfg-la-guide-close" type="button" onclick="wfgLaClosePackageGuide()">×</button>',
       '</div>',
       '<div class="wfg-la-guide-body">',
+        '<div class="wfg-la-guide-stepbar" id="wfg-la-guide-stepbar"></div>',
         '<div class="wfg-la-guide-note">' + note + '</div>',
         '<ol class="wfg-la-guide-steps">',
           '<li>' + t('wfg.laGuideStep1') + '</li>',
@@ -14200,6 +14216,7 @@ function wfgLaOpenPackageGuide(mode) {
   wfgLaBindBackdropClose(modal, wfgLaClosePackageGuide);
   document.body.appendChild(modal);
   wfgLaSyncBackdropHeight(modal);
+  wfgLaStepRender();   /* v4.59.1 */
   wfgLaBindCloseButton(modal, wfgLaClosePackageGuide);
   /* v4.47.0: 引導一打開就自動去取得裝置支援包（使用者零操作）。
      只在「瀏覽器內確實沒有韌體」時才抓 —— 手動叫出這個引導來重新匯入的情況不重抓。
@@ -14219,7 +14236,31 @@ function wfgLaSetFetchStatus(state, text) {
   el.style.display = '';
   el.textContent = text;
   el.style.color = state === 'err' ? '#f87171' : (state === 'ok' ? '#22c55e' : '');
+  if (state === 'ok') wfgLaStepRender();   /* v4.59.1：支援包到位 ⇒ 第 1 步打勾 */
 }
+
+/* v4.59.1：LA 取樣三步的步驟列（只畫在 LA 的引導對話框裡；主畫面不動）。
+   ① 裝置支援包＝瀏覽器內已存有支援包（wfgLaHasStoredFirmwarePackage）；② 連線裝置＝USB 裝置真的開著（wfgLaUsbDevice.opened）
+   而且裝置狀態 ok（wfgLaHardwareReady）—— 只看 wfgLaHardwareReady 不夠：匯入支援包成功時也會把裝置狀態寫成 ok；
+   ③ 取樣＝這個分頁真的取樣到一筆（wfgLaCapOk）。第一個還沒完成的就是「目前這一步」。
+   🔴 只讀既有狀態，按過鈕不算；不改任何流程。 */
+function wfgLaStepRender() {
+  var el = document.getElementById('wfg-la-guide-stepbar');
+  if (!el || typeof TCONStepStatus === 'undefined') return;
+  var draw = function () {
+    var el2 = document.getElementById('wfg-la-guide-stepbar');
+    if (!el2) return;
+    var done = [wfgLaPkgStored === true, wfgLaStepLinked(), !!wfgLaCapOk];
+    var keys = ['wfg.laSbPkg', 'wfg.laSbLink', 'wfg.laSbCap'], cur = done.indexOf(false);
+    TCONStepStatus.bar(el2, keys.map(function (k, i) {
+      return { name: t(k), short: t(k + 'S'), state: done[i] ? 'done' : (i === cur ? 'cur' : 'todo') };
+    }));
+  };
+  draw();
+  wfgLaHasStoredFirmwarePackage().then(function (has) { if (wfgLaPkgStored !== !!has) { wfgLaPkgStored = !!has; draw(); } }).catch(function () {});
+}
+window.wfgLaStepRender = wfgLaStepRender;
+function wfgLaStepLinked() { return !!(wfgLaHardwareReady && wfgLaUsbDevice && wfgLaUsbDevice.opened); }
 
 /* v4.47.0: 從同源相對路徑取得裝置支援包，走既有 zip 驗證/存入路徑。
    🔴 退路：任何一步失敗（離線／404／檔案損壞／SHA256 不符）都只是把狀態列轉紅，
@@ -14378,6 +14419,7 @@ function wfgLaOpenSecondStageGuide(mode) {
         '<button class="wfg-la-guide-close" type="button" onclick="wfgLaClosePackageGuide()">×</button>',
       '</div>',
       '<div class="wfg-la-guide-body">',
+        '<div class="wfg-la-guide-stepbar" id="wfg-la-guide-stepbar"></div>',
         '<div class="wfg-la-guide-note">' + t('wfg.laSecondStageNote') + '</div>',
         '<div class="wfg-la-guide-actions">',
           '<button class="wfg-btn wfg-btn-primary" type="button" onclick="wfgLaResumeAfterSecondStageDevice()">' + continueText + '</button>',
@@ -14389,6 +14431,7 @@ function wfgLaOpenSecondStageGuide(mode) {
   wfgLaBindBackdropClose(modal, wfgLaClosePackageGuide);
   document.body.appendChild(modal);
   wfgLaSyncBackdropHeight(modal);
+  wfgLaStepRender();   /* v4.59.1 */
   wfgLaBindCloseButton(modal, wfgLaClosePackageGuide);
 }
 window.wfgLaOpenSecondStageGuide = wfgLaOpenSecondStageGuide;
@@ -14410,6 +14453,7 @@ function wfgLaOpenReconnectSelectGuide(mode) {
         '<button class="wfg-la-guide-close" type="button" onclick="wfgLaClosePackageGuide()">×</button>',
       '</div>',
       '<div class="wfg-la-guide-body">',
+        '<div class="wfg-la-guide-stepbar" id="wfg-la-guide-stepbar"></div>',
         '<div class="wfg-la-guide-note">' + t('wfg.laReconnectSelectNote') + '</div>',
         '<div class="wfg-la-guide-actions">',
           '<button class="wfg-btn wfg-btn-primary" type="button" onclick="wfgLaResumeAfterReconnectDevice()">' + buttonText + '</button>',
@@ -14421,6 +14465,7 @@ function wfgLaOpenReconnectSelectGuide(mode) {
   wfgLaBindBackdropClose(modal, wfgLaClosePackageGuide);
   document.body.appendChild(modal);
   wfgLaSyncBackdropHeight(modal);
+  wfgLaStepRender();   /* v4.59.1 */
   wfgLaBindCloseButton(modal, wfgLaClosePackageGuide);
 }
 window.wfgLaOpenReconnectSelectGuide = wfgLaOpenReconnectSelectGuide;
@@ -16002,6 +16047,7 @@ function wfgLaAssignTriggerZero(decoded, cfg, actualTriggerTimeSec) {
 
 function wfgLaApplyCapturedWaveform(decoded, options) {
   options = options || {};
+  if (decoded && !decoded.demo) { wfgLaCapOk = true; try { wfgLaStepRender(); } catch (e) {} }
   var oldDuration = wfgLaCaptureDuration();
   var oldStart = wfgLaViewStart;
   var oldEnd = wfgLaViewEnd;

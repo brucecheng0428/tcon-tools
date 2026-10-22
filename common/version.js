@@ -10,11 +10,11 @@ var TOOL_VERSIONS = {
   calc:    'v1.9.3',       // mLVDS Skew 計算工具
   isp:     'v1.20.0',      // iSP 波形產生器
   aux:     'v2.10.1',     // eDP AUX / DPCD 查詢工具
-  wfg:     'v4.59.0',     // 面板訊號模擬與取樣
+  wfg:     'v4.59.1',     // 面板訊號模擬與取樣
   pattern: 'v3.9.0',       // Pattern Generator 畫面產生器
   dg:      'v2.8.1',       // Digital Gamma 迭代校正（含量測頁 dg-measure.html）
-  i2c:     'v1.34.6',       // I2C（讀寫測試）
-  nbdebug: 'v1.2.0',        // NB TCON Debug應用（E503／E501A／E501B／EN01 debug 輸出：選 IC、項目、GPIO → I2C 執行或匯出 Excel／.script）
+  i2c:     'v1.34.7',       // I2C（讀寫測試）
+  nbdebug: 'v1.2.1',        // NB TCON Debug應用（E503／E501A／E501B／EN01 debug 輸出：選 IC、項目、GPIO → I2C 執行或匯出 Excel／.script）
   datamap: 'v1.37.3',       // Data Mapping（Python UI 的內容與規則、站內風格；DAZ／E501／E503／EN01／EM01／EM02／E512）// v1.20.0（Bruce 10/9）：新增 EN01（RM81008，依原廠 WPF RomCodeProcessUI）
   /* 🔴 TCON 自檢畫面量測（dg-selftest.html）。
      這一頁**還沒登記在首頁**（入口與 dg-measure 的拆除是下一階段），所以

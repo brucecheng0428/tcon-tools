@@ -1206,7 +1206,7 @@ function en01Header(maps, flags) {
       CHECK(/TCON 型號/.test($('stp-why-run').textContent) || /型號/.test($('stp-next').textContent), '外部 Flash 沒選型號 ⇒ ④ 或下一步提示選型號：' + $('stp-next').textContent);
       win.applyLang('en'); await sleep(10);
       EQ(Array.from(doc.querySelectorAll('.stp .stp-t')).map(x => x.textContent),
-         ['① Connect the I2C adapter', '② Identify the T-CON', '③ Choose what to do', '④ Set up and run', '⑤ Results and log'], '切英文 ⇒ 五步標題英文');
+         ['① Connect the I2C adapter', '② Identify the T-CON', 'Choose what to do', '③ Set up and run', 'Results and log'], '切英文 ⇒ 五個外框標題英文（i2c v1.34.7：只算三步，選功能／結果與紀錄不編號）');
       CHECK(/^Next: /.test($('stp-next').textContent) && /External Flash/.test(seg('sf').textContent), '下一步與分段鈕英文：' + $('stp-next').textContent);
       win.applyLang('zh-CN'); await sleep(10);
       CHECK(/^下一步：/.test($('stp-next').textContent) && /设置并执行/.test($('stp-run').textContent), '切簡體');

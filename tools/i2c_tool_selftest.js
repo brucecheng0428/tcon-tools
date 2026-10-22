@@ -4570,7 +4570,7 @@ function baseScript(f) {
        ['Slave 位址', 'EEPROM', 'Offset', '總 byte 數', '對裝置'], 'group card 的標籤（v1.26.0 起多了 EEPROM 組；v1.32.0 拿掉 ①～④，編號留給外面的五個步驟）');
     /* v1.32.0：步驟式版面 —— 五個步驟外框都在、順序是 ①→⑤，原本的控制項各自落在對的那一步 */
     EQ(Array.from(doc.querySelectorAll('.stp .stp-t')).map(x => x.textContent),
-       ['① 連線 I2C 治具', '② 認出 T-CON', '③ 選功能', '④ 設定並執行', '⑤ 結果與紀錄'], '🔴 五個步驟的標題與順序');
+       ['① 連線 I2C 治具', '② 認出 T-CON', '選功能', '③ 設定並執行', '結果與紀錄'], '🔴 五個外框的標題與順序（v1.34.7：只算三步，選功能／結果與紀錄不編號）');
     const inStep = (id, sid) => !!doc.getElementById(id) && doc.getElementById(id).closest('.stp') === doc.getElementById(sid);
     CHECK(inStep('btn-link', 'card-conn') && inStep('in-clk', 'card-conn') && inStep('dl', 'card-conn'), '🔴 ① 有連線開關、時脈（收在進階）、下載鈕');
     CHECK(inStep('btn-checktcon', 'stp-ck') && inStep('tcon-name', 'stp-ck') && inStep('tcon-pick', 'stp-ck'), '🔴 ② 有 Check T-CON、型號、手選下拉');

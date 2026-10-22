@@ -20,8 +20,10 @@
    API（window.TCONStepStatus）
      lang()                         目前語言（common.js 的 currentLang → 存的 tcon-lang → zh-TW）
      txt(key, vars)                 本支自己的三語字串（stepOf／cur／done／allDone／barLabel）
-     bar(el, steps)                 把步驟列畫進 el；steps ＝ [{ name, short, state:'done'|'cur'|'todo' }]，
+     bar(el, steps)                 把步驟列畫進 el；steps ＝ [{ name, short, state:'done'|'cur'|'todo'|'skip'|'err' }]，
                                     空陣列或 null ⇒ el 整個不顯示
+                                    skip ＝ 這顆 IC／這次不需要做（灰虛線圈「—」＋「不需要」），算進「全部完成」；
+                                    err  ＝ 做了但沒成功（紅 ✕）。2026-10-23 nbdebug／i2c 加的，DG 三頁不用這兩種
      cur(box, info)                 info ＝ { no, total } ⇒ box 標成目前這一步（外框＋「第 N 步（共 M 步）」）；
                                     info ＝ null ⇒ 拿掉標記
      number(steps)                  依 steps 算出 { no, total, curIdx }（給 cur() 用；全部完成 ⇒ curIdx = -1）
@@ -31,6 +33,8 @@
     stepOf:   { 'zh-TW': '第 {n} 步（共 {m} 步）', 'zh-CN': '第 {n} 步（共 {m} 步）', 'en': 'Step {n} of {m}' },
     cur:      { 'zh-TW': '目前這一步', 'zh-CN': '当前这一步', 'en': 'Current step' },
     done:     { 'zh-TW': '已完成', 'zh-CN': '已完成', 'en': 'Done' },
+    skip:     { 'zh-TW': '不需要', 'zh-CN': '不需要', 'en': 'Not needed' },
+    err:      { 'zh-TW': '沒有成功', 'zh-CN': '没有成功', 'en': 'Failed' },
     allDone:  { 'zh-TW': '全部 {m} 步已完成', 'zh-CN': '全部 {m} 步已完成', 'en': 'All {m} steps done' },
     barLabel: { 'zh-TW': '步驟進度', 'zh-CN': '步骤进度', 'en': 'Step progress' }
   };
@@ -55,7 +59,7 @@
     var on = !!(steps && steps.length);
     el.classList.toggle('tc-sb-off', !on);
     if (!on) { el.innerHTML = ''; return; }
-    var n = number(steps), allDone = steps.every(function (s) { return s.state === 'done'; });
+    var n = number(steps), allDone = steps.every(function (s) { return s.state === 'done' || s.state === 'skip'; });
     el.classList.add('tc-stepbar');
     el.setAttribute('role', 'group');
     el.setAttribute('aria-label', txt('barLabel'));
@@ -75,9 +79,9 @@
     steps.forEach(function (s, i) {
       var li = document.createElement('li');
       li.className = 'tc-sb-i tc-sb-' + s.state;
-      li.title = (i + 1) + '. ' + (s.name || '') + ' — ' + (s.state === 'done' ? txt('done') : s.state === 'cur' ? txt('cur') : '');
+      li.title = (i + 1) + '. ' + (s.name || '') + ' — ' + (s.state === 'done' ? txt('done') : s.state === 'cur' ? txt('cur') : s.state === 'skip' ? txt('skip') : s.state === 'err' ? txt('err') : '');
       var dot = document.createElement('span'); dot.className = 'tc-sb-dot';
-      dot.textContent = s.state === 'done' ? '✓' : String(i + 1);
+      dot.textContent = s.state === 'done' ? '✓' : s.state === 'skip' ? '—' : s.state === 'err' ? '✕' : String(i + 1);
       var sh = document.createElement('span'); sh.className = 'tc-sb-short';
       sh.textContent = s.short || s.name || '';
       li.appendChild(dot); li.appendChild(sh);
