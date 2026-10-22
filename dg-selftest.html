@@ -14,8 +14,9 @@
 <title>TCON 自檢畫面量測 — TCON FAE專用工具箱</title>
 <link rel="stylesheet" href="common/common.css?v=20260903help">
 <link rel="stylesheet" href="common/done-step.css?v=20261001dst275">
+<link rel="stylesheet" href="common/step-status.css?v=20261023dst292">
 <!-- 🔴 version.js 必須最先載入（common/version.js 開頭那條規則）。 -->
-<script src="common/version.js?v=20261023dst291"></script>
+<script src="common/version.js?v=20261023dst292"></script>
 <script src="common/i2c-bridge.js?v=20261012ib100"></script>
 <style>
   /* ═══ 本頁專屬樣式 ════════════════════════════════════════════════════════
@@ -767,6 +768,8 @@
           （`dst.sayIcUnknown`）與 DG 強制寫入失敗（`dst.dgWriteFail`）也寫這裡，
           塞進任何一組都會變成名不副實。 -->
   <!-- v2.7.4：中途斷線（I2C／量測儀）時的「目前這一步」（dstRenderPage 填）。已經出現的區塊不再藏回去。 -->
+  <!-- v2.9.2：步驟列（第 N 步／共 M 步、每一步 ✓／目前／還沒做），只在從 DG 開啟時出現；由 dstStepStatusSync() 畫 -->
+  <div id="dst-stepbar" class="tc-stepbar tc-sb-off"></div>
   <div class="dst-pg-alert dst-hidden" id="dst-pg-alert" role="alert"></div>
   <div class="card" id="dst-hw-card">
     <div class="card-header dst-hd-act"><span class="icon">🔌</span><span data-i18n="dst.hdHw">外接硬體連線</span></div>
@@ -1483,6 +1486,7 @@
 <script src="common/xlsx.js?v=20260930dst260"></script>
 <script src="common/dglut-fmt.js?v=20261013dst279"></script>
 <script src="common/done-step.js?v=20261001dst275"></script>
+<script src="common/step-status.js?v=20261023dst292"></script>
 <script>
 /* ═════════════════════════════════════════════════════════════════════════
    TCON 自檢畫面量測 — dg-selftest.html
@@ -1949,6 +1953,12 @@ if (typeof I18N === 'object' && I18N) {
      ⇒ 「資料回傳 DG」聽起來還是一個**要人去做**的動作，加「自動」兩個字才說得出
        「你不用按」。這是「按鈕名稱必須等於它實際會發生的事」的同一條原則。
      🔴 `dst.sendBackDg`（那顆鈕上的字）**已刪除**：鈕沒了，留著就是死碼。 */
+  /* v2.9.2：頁面上方步驟列的短名（點下面那一行字） */
+  I18N['dst.sbHw']   = { 'zh-TW': '連線', 'en': 'Connect', 'zh-CN': '连线' };
+  I18N['dst.sbTest'] = { 'zh-TW': '對位', 'en': 'Align', 'zh-CN': '对位' };
+  I18N['dst.sbLut']  = { 'zh-TW': '讀 LUT', 'en': 'Read LUT', 'zh-CN': '读 LUT' };
+  I18N['dst.sbMeas'] = { 'zh-TW': '量測', 'en': 'Measure', 'zh-CN': '量测' };
+  I18N['dst.sbBack'] = { 'zh-TW': '回傳 DG', 'en': 'Back to DG', 'zh-CN': '回传 DG' };
   I18N['dst.stepBack']    = { 'zh-TW': '④ 資料自動回傳 DG', 'en': '④ The data goes back to DG automatically', 'zh-CN': '④ 资料自动回传 DG' };
   /* 這一頁不是從 DG 開的 ⇒ ④ 永遠不會打勾，要講清楚為什麼、以及那條路怎麼走。
      🔴 **不含任何「可能」「應該」**：沒有 opener 就是送不出去，這是事實不是風險。
@@ -7577,6 +7587,11 @@ function dstPgCard(id, key, state) {    // state：'hide' | 'full' | 'done'
   var ico = hd.querySelector('.dst-pg-ico');
   if (!ico) { ico = document.createElement('span'); ico.className = 'dst-pg-ico'; hd.insertBefore(ico, hd.firstChild); }
   ico.textContent = (state !== 'done') ? '' : peek ? '▾' : '✓';
+  /* v2.9.2：做完的卡片＝綠色圓勾＋「已完成」、字放大（common/step-status.css 的 .tc-card-done，DG 三頁同一套） */
+  ico.classList.toggle('tc-done-ico', state === 'done');
+  c.classList.toggle('tc-card-done', state === 'done');
+  c.classList.toggle('tc-card-peek', peek);
+  if (state === 'done' && typeof TCONStepStatus !== 'undefined') hd.setAttribute('data-tc-done', TCONStepStatus.txt('done'));
 }
 function dstRenderPage() {
   var on = dstPgOn();
@@ -7610,6 +7625,7 @@ function dstRenderPage() {
   Object.keys(DST_FOLD_CARDS).forEach(function (k) {
     var c = $(DST_FOLD_CARDS[k]); if (c) c.classList.toggle('dst-pg-hide', st3 === 'hide');
   });
+  dstStepStatusSync();   // v2.9.2：硬體連上／斷線、對位完成也要更新步驟列（這幾條路只叫 dstRenderPage）
 }
 /* 按了「對位畫面」而且真的出了對位圖 ⇒ 對位完成：步驟卡出現、上面收成 ✓、捲到步驟卡。 */
 function dstPgOnAligned() {
@@ -7705,12 +7721,48 @@ function dstRenderFocus() {
     b.classList.toggle('dst-fs-future', on && !isCur && !it.done);
     b.classList.toggle('dst-fs-hot', isCur && it.key === 'back');
   });
+  dstStepStatusSync();   // v2.9.2：步驟列＋目前這一步的「第 N 步（共 M 步）」
   /* 進度條：只在量測中出現（按「開始量測」之前，當下這一步下面不顯示東西）。 */
   var po = $('dst-steps-prog'), pt = $('dst-steps-progtxt');
   var hideProg = on && !dstRunning;
   if (po && po.parentNode) po.parentNode.classList.toggle('dst-fs-off', hideProg);
   if (pt) pt.classList.toggle('dst-fs-off', hideProg);
   dstRenderFold();
+}
+/* ═══ v2.9.2：步驟完成狀態一眼看得出來（Bruce 2026-10-23，common/step-status.*，DG 三頁共用）═══════════════
+   Bruce：「第一步驟做完以後要做第二步驟，但是第一步驟實在是太不清楚、字太小了，有時候根本就不知道它已經做完了…
+   打勾用綠色、字稍微大一點…不只電腦畫面，量測、自檢這些也都確認一遍…用這個邏輯再去套用全部的步驟」。
+   · 頁面最上方的步驟列：每一步一個點（綠 ✓＝已完成、藍＝目前這一步、灰＝還沒做），上面寫「第 N 步（共 M 步）」。
+   · 目前這一步的框／卡片：外框加粗＋「▶ 第 N 步（共 M 步）· 目前這一步」。做完的：綠色圓勾＋「已完成」。
+   🔴 只在**從 DG 開啟**時（與「只看當下這一步」同一個條件）；直接開這一頁沒有流程，步驟列不出現。
+   🔴 只改顯示，不動流程：「目前是哪一步」照舊是 dstPgCur()／dstFsCurKey()；完成條件沿用既有的事實 ——
+        硬體＝I2C 治具、T-CON 認到、量測儀三樣都連上（dstPgLive() ≥ 2）；畫面測試＝真的出過對位圖（dstPgAligned()）；
+        ①＝dstStepIsDone('lut')（真的讀到並送到 DG）；②③＝兩項都量完；④＝資料真的送回 DG（dstBackSent()）。
+      ① 這份工作用不到（dstStepNeeded）就不列。按過鈕但條件沒成立不打勾；中途斷線 ⇒ 硬體那一步回到「目前這一步」。 */
+function dstStepStatusSync() {
+  if (typeof TCONStepStatus === 'undefined') return;
+  var on = dstPgOn(), bar = $('dst-stepbar');
+  var gt = $('dst-step-gray-t');
+  var L = [
+    { key: 'hw',   el: $('dst-hw-card'),   short: dstT('dst.sbHw'),   name: dstT('dst.hdHw'),   done: dstPgLive() >= 2 },
+    { key: 'test', el: $('dst-test-card'), short: dstT('dst.sbTest'), name: dstT('dst.hdTest'), done: dstPgAligned() },
+    { key: 'lut',  el: $('dst-box-lut'),   short: dstT('dst.sbLut'),  name: dstT('dst.stepLut'), done: dstStepIsDone('lut') },
+    { key: 'g23',  el: $('dst-group23'),   short: dstT('dst.sbMeas'), name: gt ? String(gt.textContent || '') : '',
+      done: dstStepIsDone('gray') && dstStepIsDone('prim') },
+    { key: 'back', el: $('dst-box-back'),  short: dstT('dst.sbBack'), name: dstT('dst.stepBack'), done: dstBackSent() }
+  ];
+  if (!on) {
+    TCONStepStatus.bar(bar, null);
+    L.forEach(function (it) { TCONStepStatus.cur(it.el, null); });
+    return;
+  }
+  L = L.filter(function (it) { return it.key !== 'lut' || dstStepNeeded('lut'); });
+  var pc = dstPgCur(), curKey = (pc === 'steps') ? dstFsCurKey() : pc;
+  L.forEach(function (it) { it.state = it.done ? 'done' : (it.key === curKey ? 'cur' : 'todo'); });
+  TCONStepStatus.bar(bar, L);
+  var n = TCONStepStatus.number(L);
+  L.forEach(function (it, i) { TCONStepStatus.cur(it.el, i === n.curIdx ? n : null); });
+  var lu = $('dst-box-lut'); if (lu && !dstStepNeeded('lut')) TCONStepStatus.cur(lu, null);
 }
 function dstRenderFold() {
   var on = dstDgAlive(), auto = !on || dstFlowDone();

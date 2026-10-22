@@ -25,7 +25,7 @@ REPO = os.path.abspath(os.path.join(HERE, '..', '..'))
 PAGE = 'dg-selftest.html'
 CHROME = os.environ.get('CHROME', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome')
 
-# 名稱, 情境檔, 網址查詢字串, 是否假裝由 DG 開啟, 額外的 pre 變數, reduced-motion[, 頁面（預設 dg-selftest.html）]
+# 名稱, 情境檔, 網址查詢字串, 是否假裝由 DG 開啟, 額外的 pre 變數, reduced-motion[, 頁面（預設 dg-selftest.html）[, 視窗 (寬, 高)]]
 SCENARIOS = [
     ('PEERB', 'PEERB_target_ui.js', '', False, {}, False, 'dg.html'),
     ('PEERB-METER', 'PEERB_meter.js', '', False, {}, False),
@@ -175,9 +175,28 @@ SCENARIOS = [
     # dgself v2.7.10：畫面測試階段不自動讀 DG LUT（對位後才讀）⇒ 重新識別／畫面測試鈕識別完就能按（同事B 10/14 第 2 點）
     ('TS',        'TS_test_stage_free.js',    '?round=1&job=main',    True,  {}, False),
     ('WP-SHOT',   'WP_white_point.js',        '',                     False, {'__wpCase': 'NEW', '__wpShot': True}, False, 'dg.html'),
+    # dg v2.7.1／dgself v2.9.2：步驟完成狀態（common/step-status.*）—— 三頁，手機寬 375／390 與桌機；ST-SHOT-* 截圖用
+    ('ST-DG',       'ST_step_status.js', '',                  False, {'__stCase': 'DG'},   False, 'dg.html'),
+    ('ST-DG-390',   'ST_step_status.js', '',                  False, {'__stCase': 'DG'},   False, 'dg.html', (390, 844)),
+    ('ST-DG-375',   'ST_step_status.js', '',                  False, {'__stCase': 'DG'},   False, 'dg.html', (375, 812)),
+    ('ST-CONV',     'ST_step_status.js', '',                  False, {'__stCase': 'CONV'}, False, 'dg.html', (390, 844)),
+    ('ST-DM',       'ST_step_status.js', '?task=7',           True,  {'__stCase': 'DM'},   False, 'dg-measure.html'),
+    ('ST-DM-390',   'ST_step_status.js', '?task=7',           True,  {'__stCase': 'DM'},   False, 'dg-measure.html', (390, 844)),
+    ('ST-DM-375',   'ST_step_status.js', '?task=7',           True,  {'__stCase': 'DM'},   False, 'dg-measure.html', (375, 812)),
+    ('ST-DM-EN',    'ST_step_status.js', '?task=7',           True,  {'__stCase': 'DM-EN'}, False, 'dg-measure.html'),
+    ('ST-DST',      'ST_step_status.js', '?round=1&job=main', True,  {'__stCase': 'DST'},  False),
+    ('ST-DST-390',  'ST_step_status.js', '?round=1&job=main', True,  {'__stCase': 'DST'},  False, PAGE, (390, 844)),
+    ('ST-DST-375',  'ST_step_status.js', '?round=1&job=main', True,  {'__stCase': 'DST'},  False, PAGE, (375, 812)),
+    ('ST-DST-NODG', 'ST_step_status.js', '',                  False, {'__stCase': 'DST-NODG'}, False),
+    ('ST-SHOT-DG',  'ST_step_status.js', '',                  False, {'__stCase': 'DG', '__stShot': True},  False, 'dg.html', (390, 1800)),
+    ('ST-SHOT-DM',  'ST_step_status.js', '?task=7',           True,  {'__stCase': 'DM', '__stShot': True},  False, 'dg-measure.html', (390, 844)),
+    ('ST-SHOT-DST', 'ST_step_status.js', '?round=1&job=main', True,  {'__stCase': 'DST', '__stShot': True}, False, PAGE, (390, 1000)),
 ]
 TIMEOUT = 120   # 秒；最長的 H 約 40 秒
 CPU_SLOW = float(os.environ.get('DGSELF_CPU_SLOW') or 0)   # 設了（例如 6）＝每頁 CPU 降速 N 倍，用來驗「慢機器也不偶發」
+VIEWPORT = (1280, 900)   # 預設桌機視窗；情境第 8 欄可指定 (寬, 高)，例如手機 (390, 844)
+if os.environ.get('DGSELF_VW'):   # 例 DGSELF_VW=390x844：沒指定視窗的情境一律用這個大小（截手機畫面用）
+    VIEWPORT = tuple(int(v) for v in os.environ['DGSELF_VW'].lower().split('x'))
 SHOTS = os.environ.get('DGSELF_SHOTS')   # 設了就在每個情境跑完時截一張 <名稱>.png 到這個資料夾（停在情境最後的畫面）
 
 
@@ -325,7 +344,8 @@ def run_one(tmp, sc, ver):
             raise RuntimeError('Chrome did not open DevTools port (tried twice)')
         ws = CDP(page_ws)
         ws.call('Page.enable'); ws.call('Runtime.enable')
-        ws.call('Emulation.setDeviceMetricsOverride', width=1280, height=900, deviceScaleFactor=1, mobile=False)
+        vw = sc[7] if len(sc) > 7 else VIEWPORT   # 第 8 欄（可省略）＝視窗 (寬, 高)；寬 < 600 視為手機
+        ws.call('Emulation.setDeviceMetricsOverride', width=vw[0], height=vw[1], deviceScaleFactor=1, mobile=vw[0] < 600)
         if CPU_SLOW > 1:   # 模擬慢 runner：Chrome 自己把這一頁的 CPU 降速 N 倍（不會拖慢整台機器）
             ws.call('Emulation.setCPUThrottlingRate', rate=CPU_SLOW)
         if rm:

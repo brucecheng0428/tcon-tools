@@ -16,6 +16,7 @@
 <title>DG — Digital Gamma 迭代校正 — TCON FAE專用工具箱</title>
 <link rel="stylesheet" href="common/common.css?v=20260907dg1130">
 <link rel="stylesheet" href="common/done-step.css?v=20261001dg247">
+<link rel="stylesheet" href="common/step-status.css?v=20261023dg281">
 <style>
   /* ─── DG PAGE 專屬 CSS ─────────────────────────── */
   .dg-setup  .card-header { background: #6d28d9; }
@@ -1193,6 +1194,8 @@
 
 <!-- ══════════ 分頁一：Digital Gamma 校正（原本的計算流程）══════════ -->
 <div id="dg-main-content">
+  <!-- v2.8.1：步驟列（第 N 步／共 M 步、每一步 ✓／目前／還沒做），由 dgStepStatusSync() 畫（common/step-status.js） -->
+  <div id="dg-stepbar" class="tc-stepbar tc-sb-off"></div>
 
   <!-- ══ 🔴 v1.71.0：最上方先選工作模式 ═══════════════════════════════════════
        Bruce 2026-09-21：「在 DG 網頁迭代校正，其實可以在一開始預設的最上方，先讓
@@ -2095,6 +2098,7 @@
      🔴 解析走既有的 dgDetectLut()、換算走既有的 dgScaleDepth()、輸出走既有的
         dgLutRowsForFmt()／dgBuildXlsx()，一套都沒有另寫。 -->
 <div id="dg-conv-content" style="display:none">
+  <div id="dg-conv-stepbar" class="tc-stepbar tc-sb-off"></div>
 
   <div class="card dg-input" id="dg-card-conv">
     <div class="card-header"><span class="icon">🔁</span><span>RGB LUT 深度轉換</span></div>
@@ -2837,9 +2841,10 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20261023dg280"></script>
+<script src="common/version.js?v=20261023dg281"></script>
 <script src="common/i2c-bridge.js?v=20261012ib100"></script>
 <script src="common/done-step.js?v=20261001dg247"></script>
+<script src="common/step-status.js?v=20261023dg281"></script>
 <script src="common/i18n.js?v=20261022pat390"></script>
 <!-- v1.68.1：xlsx 產生器（原本在本頁，現在與 dg-selftest.html 共用）。
      🔴 必須在本頁的 inline script 之前載入。 -->
@@ -2954,6 +2959,17 @@
       /* v2.4.4：「RGB LUT 深度轉換」分頁的兩個步驟名（框內標題＋做完那一行共用） */
       'dg.convStepImp': { 'zh-TW': '① 匯入 RGB LUT 檔', 'en': '① Import an RGB LUT file', 'zh-CN': '① 汇入 RGB LUT 档' },
       'dg.convStepDl':  { 'zh-TW': '② 選目標深度並下載', 'en': '② Choose the target depth and download', 'zh-CN': '② 选目标深度并下载' },
+      /* v2.8.1：頁面上方步驟列的短名（點下面那一行字）與「下載」這一步的完整名稱 */
+      'dg.sbWmode':   { 'zh-TW': '選畫面', 'en': 'Screen', 'zh-CN': '选画面' },
+      'dg.sbP1':      { 'zh-TW': '第1部分', 'en': 'Part 1', 'zh-CN': '第1部分' },
+      'dg.sbP2':      { 'zh-TW': '第2部分', 'en': 'Part 2', 'zh-CN': '第2部分' },
+      'dg.sbP3':      { 'zh-TW': '第3部分', 'en': 'Part 3', 'zh-CN': '第3部分' },
+      'dg.sbP4':      { 'zh-TW': '第4部分', 'en': 'Part 4', 'zh-CN': '第4部分' },
+      'dg.sbCalc':    { 'zh-TW': '計算', 'en': 'Calculate', 'zh-CN': '计算' },
+      'dg.sbOut':     { 'zh-TW': '下載', 'en': 'Download', 'zh-CN': '下载' },
+      'dg.sbOutName': { 'zh-TW': '下載新產出的 RGB LUT 檔', 'en': 'Download the new RGB LUT file', 'zh-CN': '下载新产出的 RGB LUT 档' },
+      'dg.sbConvImp': { 'zh-TW': '匯入', 'en': 'Import', 'zh-CN': '汇入' },
+      'dg.sbConvDl':  { 'zh-TW': '下載', 'en': 'Download', 'zh-CN': '下载' },
       'dg.toneGammaGo': { 'zh-TW': '不調色溫並產生新的 RGB LUT', 'en': 'Generate the new RGB LUT without colour-temperature tuning',
                           'zh-CN': '不调色温并产生新的 RGB LUT' },
       'dg.toneCctGo':   { 'zh-TW': '調色溫並產生新的 RGB LUT', 'en': 'Tune colour temperature and generate the new RGB LUT',
@@ -12213,9 +12229,42 @@
     /* v2.4.7：下載鈕只在「輪到輸出」或流程跑完時是實心；④ 在輪到輸出時讓位成線框 */
     var lf = $('dg-btn-lutfile'); if (lf) lf.classList.toggle('primary', cur === 'out' || fin);
     var s4 = $('dg-btn-conf-setup'); if (s4) s4.classList.toggle('dg-btn-imp', !dgHasConf() && cur !== 'out');
+    dgStepStatusSync(cur);   // v2.8.1：步驟列＋目前這一步的「第 N 步（共 M 步）」
     var prev = DG_FS_CUR_WAS; DG_FS_CUR_WAS = cur;
     if (DG_DONE_READY && !typing && DG_MODE === 'main' && prev && prev !== cur
         && DG_FS_ORDER.indexOf(cur) > DG_FS_ORDER.indexOf(prev)) dgGuideScrollTo(dgFsCurEl(cur));
+  }
+
+  /* ═══ v2.8.1：步驟完成狀態一眼看得出來（Bruce 2026-10-23，common/step-status.*，三頁共用）═══════════════
+     Bruce：「第一步驟做完以後要做第二步驟，但是第一步驟實在是太不清楚、字太小了，有時候根本就不知道它已經做完了…
+     打勾用綠色、字稍微大一點…不要讓我覺得完全不知道現在在第幾步驟、之前的到底有沒有做完」。
+     · 頁面最上方的步驟列：每一步一個點（綠 ✓＝已完成、藍＝目前這一步、灰＝還沒做），上面寫「第 N 步（共 M 步）」。
+     · 目前這一步的框：外框加粗＋「▶ 第 N 步（共 M 步）· 目前這一步」。做完的那一行：綠色圓勾＋「已完成」（step-status.js 接手）。
+     🔴 只改顯示，不動流程：「目前是哪一步」照舊是 dgFsCur()；每一步做完了沒，沿用既有的完成條件 ——
+        工作模式選了、第 1／2／3 部分 dgPartFilled()（與計算鈕的閘門同一支）、計算＝有結果（lastLut）、
+        下載＝這一份結果下載或複製過（DG_LUT_TAKEN，只有要自己帶表回 T-CON 的模式才有這一步）、
+        第 4 部分＝確認量測回來了（dgHasConf()）。按過鈕但條件沒成立就不會打勾。 */
+  function dgStepStatusSync(cur) {
+    if (typeof TCONStepStatus === 'undefined') return;
+    cur = cur || dgFsCur();
+    var need = DG_PARTS_BY_TONE[dgToneMode()];
+    var shortKey = { lut: 'dg.sbP1', gray: 'dg.sbP2', prim: 'dg.sbP3' };
+    var L = [{ key: 'wmode', el: $('dg-card-wmode'), done: !!(DG_WMODE || DG_PQ), short: dgT('dg.sbWmode'),
+               name: (DG_WMODE || DG_PQ) ? dgWmodeDoneName() : dgT('dg.wmodeTitle') }];
+    need.forEach(function (p) {
+      L.push({ key: p, el: dgPartEl(p), done: dgPartFilled(p), short: dgT(shortKey[p]), name: dgPartShortName(p) });
+    });
+    var cb = $('dg-btn-calc');
+    L.push({ key: 'calc', el: $('dg-calc-act'), done: !!lastLut, short: dgT('dg.sbCalc'), name: cb ? cb.textContent.trim() : '' });
+    if (dgLutByFile()) L.push({ key: 'out', el: $('dg-card-result'), done: !!lastLut && (DG_LUT_TAKEN === lastLut || dgHasConf()),
+                                short: dgT('dg.sbOut'), name: dgT('dg.sbOutName') });
+    var cf = $('dg-part-conf'), cfNo = cf && cf.querySelector('.dg-part-no'), cfTi = cf && cf.querySelector('.dg-part-title');
+    L.push({ key: 'conf', el: $('dg-card-p4'), done: dgHasConf(), short: dgT('dg.sbP4'),
+             name: ((cfNo ? cfNo.textContent : '') + '　' + (cfTi ? cfTi.textContent : '')).trim() });
+    L.forEach(function (it) { it.state = it.done ? 'done' : (it.key === cur ? 'cur' : 'todo'); });
+    TCONStepStatus.bar($('dg-stepbar'), L);
+    var n = TCONStepStatus.number(L);
+    L.forEach(function (it, i) { TCONStepStatus.cur(it.el, i === n.curIdx ? n : null); });
   }
 
   function dgSetSrc(part, src) { DG_SRC[part] = src || null; dgRefreshReady(); }
@@ -14748,6 +14797,14 @@
      🔴 ① 剛做完 ⇒ 捲到 ②（焦點移到目前要做的那一步）。
      v2.4.5：還沒匯入 ⇒ ② 整個不顯示（連標題都沒有；Bruce 2026-10-01「還沒走到的一定要隱藏」）。 */
   var DG_CV_DL = false, DG_CV_WAS = false;
+  /* v2.8.1：換語言 ⇒ 步驟列、「第 N 步」與「已完成」字樣跟著換（本頁原本沒有 _onLangChange；若別處先掛了就一起叫）。 */
+  (function () {
+    var prevLC = window._onLangChange;
+    window._onLangChange = function (l) {
+      if (typeof prevLC === 'function') { try { prevLC(l); } catch (e) {} }
+      try { dgDoneStepsSync(); dgConvStepsSync(); } catch (e) {}
+    };
+  })();
   function dgConvStepsSync() {
     if (typeof TCONDoneStep === 'undefined') return;
     var imp = !!DG_CV;
@@ -14756,6 +14813,16 @@
     TCONDoneStep.set($('dg-conv-step-dl'), { key: 'dg-conv-dl', done: imp && DG_CV_DL, lineId: 'dg-done-conv-dl',
       name: dgT('dg.convStepDl'), onToggle: dgConvStepsSync });
     $('dg-conv-step-dl').classList.toggle('dg-fs-hide', !imp);   // v2.4.5：還沒匯入 ⇒ ② 整個不顯示
+    /* v2.8.1：步驟列＋目前這一步（common/step-status.*）。完成條件沿用上面兩行：① 有表、② 這張表下載過。 */
+    if (typeof TCONStepStatus !== 'undefined') {
+      var cvL = [{ el: $('dg-conv-step-imp'), done: imp, short: dgT('dg.sbConvImp'), name: dgT('dg.convStepImp') },
+                 { el: $('dg-conv-step-dl'), done: imp && DG_CV_DL, short: dgT('dg.sbConvDl'), name: dgT('dg.convStepDl') }];
+      var cvCur = -1;
+      cvL.forEach(function (it, i) { it.state = it.done ? 'done' : (cvCur < 0 ? (cvCur = i, 'cur') : 'todo'); });
+      TCONStepStatus.bar($('dg-conv-stepbar'), cvL);
+      var cvN = TCONStepStatus.number(cvL);
+      cvL.forEach(function (it, i) { TCONStepStatus.cur(it.el, i === cvN.curIdx ? cvN : null); });
+    }
     if (imp && !DG_CV_WAS && DG_MODE === 'conv') {
       TCONDoneStep.peek('dg-conv-imp', false); TCONDoneStep.peek('dg-conv-dl', false);
       TCONDoneStep.set($('dg-conv-step-imp'), { key: 'dg-conv-imp', done: true, lineId: 'dg-done-conv-imp',

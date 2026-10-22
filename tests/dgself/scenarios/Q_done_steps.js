@@ -159,8 +159,11 @@
       && $('dg-done-gray').textContent.indexOf('✓ 第 2 部分') === 0 && $('dg-done-prim').textContent.indexOf('✓ 第 3 部分') === 0,
       $('dg-done-gray').textContent + ' | ' + $('dg-done-prim').textContent);
     var ln = $('dg-done-gray'), cs = getComputedStyle(ln), pc = getComputedStyle($('dg-part-gray'));
-    __ok('Q1 same look as the self-test: small, pale, no frame', cs.fontSize === '13px' && parseFloat(cs.opacity) < 0.8
-      && pc.borderTopColor === 'rgba(0, 0, 0, 0)' && pc.backgroundColor === 'rgba(0, 0, 0, 0)', cs.fontSize + ' ' + cs.opacity + ' ' + pc.borderTopColor);
+    /* dg v2.7.1（Bruce 2026-10-23「打勾用綠色、字稍微大一點」）：綠色圓勾＋「已完成」、16px、不透明、淡綠框（與自檢頁同一套 common/step-status.css） */
+    var ico = ln.querySelector('.tc-done-ico');
+    __ok('Q1 same look as the self-test: green tick + 已完成, 16px, not faded, green frame', cs.fontSize === '16px' && parseFloat(cs.opacity) === 1
+      && !!ico && getComputedStyle(ico).backgroundColor === 'rgb(22, 163, 74)' && getComputedStyle(ln, '::after').content === '"已完成"'
+      && pc.borderTopColor === 'rgba(74, 222, 128, 0.38)', cs.fontSize + ' ' + cs.opacity + ' ' + pc.borderTopColor);
     __ok('Q1 part 1 still the current one (full); 計算 still hidden', !has('dg-part-lut', 'tc-step-done') && vis($('dg-part-lut').querySelector('.dg-part-head'))
       && !vis('dg-calc-act'));
     scrolled.length = 0;

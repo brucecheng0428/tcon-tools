@@ -69,9 +69,13 @@
     await dstStepLut();
     await __untilIdle(function () { return !!dstStepDone.lut && __cls('dst-box-lut', 'tc-step-done') && __cls('dst-group23', 'dst-fs-cur') && __vis('dst-go-gray'); });
     __ok('Z2 ① done (sent to DG)', !!dstStepDone.lut);
-    __ok('Z2 ① collapsed to a pale "✓ ①" line', __cls('dst-box-lut', 'tc-step-done') && __vis('dst-fs-line-lut') && !__vis('dst-go-lut')
+    /* dgself v2.9.2（Bruce 2026-10-23「打勾用綠色、字稍微大一點」）：做完那一行改成綠色圓勾＋「已完成」、16px、不透明 */
+    var lnZ = document.getElementById('dst-fs-line-lut'), icoZ = lnZ && lnZ.querySelector('.tc-done-ico');
+    __ok('Z2 ① collapsed to a "✓ ①" line: green tick + Done, 16px, not faded', __cls('dst-box-lut', 'tc-step-done') && __vis('dst-fs-line-lut') && !__vis('dst-go-lut')
       && (C === 'EN' ? tx('dst-fs-line-lut') === '✓ ' + I18N['dst.stepLut'].en : tx('dst-fs-line-lut') === '✓ ① 讀回目前的 RGB LUT')
-      && parseFloat(getComputedStyle(document.getElementById('dst-fs-line-lut')).opacity) < 0.8, tx('dst-fs-line-lut'));
+      && parseFloat(getComputedStyle(lnZ).opacity) === 1 && getComputedStyle(lnZ).fontSize === '16px'
+      && !!icoZ && getComputedStyle(icoZ).backgroundColor === 'rgb(22, 163, 74)'
+      && getComputedStyle(lnZ, '::after').content === (C === 'EN' ? '"Done"' : '"已完成"'), tx('dst-fs-line-lut'));
     __ok('Z2 ②③ now current and shown', __cls('dst-group23', 'dst-fs-cur') && __vis('dst-go-gray'));
     __ok('Z2 ④ still hidden', !__vis('dst-box-back'));
     __ok('Z2 only one solid button = 開始量測', blues().length === 1 && blues()[0] === 'dst-go-gray', blues().join(','));

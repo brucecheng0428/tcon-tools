@@ -17,7 +17,10 @@
      🔴 版號一律從 common/version.js 讀（TOOL_VERSIONS.dg），不在這裡硬編字串 ——
         硬編就是第二個來源，遲早跟 dg.html 各講各的，正好是本次要修的那個病。
      🔴 本頁其餘部分仍是自給自足的單檔（不載 i18n/common.js），只多這一個相依。 -->
-<script src="common/version.js?v=20261023dg280"></script>
+<script src="common/version.js?v=20261023dg281"></script>
+<!-- dg v2.8.1：步驟完成狀態（DG 三頁共用的步驟列；樣式排在本頁 <style> 之前，本頁只調字級） -->
+<link rel="stylesheet" href="common/step-status.css?v=20261023dg281">
+<script src="common/step-status.js?v=20261023dg281"></script>
 <style>
   /* ═══════════════════════════════════════════════════════════════════════
      即時量測分頁（DG 第 2 部分的第二個輸入管道）
@@ -699,6 +702,20 @@
     text-align: center;
   }
   #dgm-hint.dgm-hidden { display: none; }
+  /* dg v2.8.1：底部步驟列（common/step-status.css）。這一區是暗色半透明底，步驟列本身不再加框；
+     字級吃本頁的基準單位，但手機上不小於 14px（Bruce：「字稍微大一點」）。 */
+  #dgm-hint-sw:empty { display: none; }
+  #dgm-hint-sw { margin-bottom: calc(6 * var(--dgm-u)); }
+  #dgm-steps {
+    margin: 0; padding: 0; border: 0; background: transparent; text-align: left;
+    width: min(66vw, max(320px, calc(560 * var(--dgm-u))));
+    --tc-step-fs: max(15px, calc(17 * var(--dgm-u)));
+    --tc-dot: max(26px, calc(30 * var(--dgm-u)));
+    --tc-short-fs: max(13px, calc(14 * var(--dgm-u)));
+  }
+  #dgm-steps .tc-sb-dot { background: #111827; }
+  #dgm-steps .tc-sb-done .tc-sb-dot { background: #16a34a; }
+  #dgm-steps .tc-sb-cur .tc-sb-dot { background: #2563eb; }
 
   /* v1.38.0：寬高各放大一級（30vw/26vh → 38vw/34vh）。理由只有一個 ——
      連線行的字級從 11px 變成 15px，同樣的行數需要更多空間；量測那些 11px 的行
@@ -899,7 +916,11 @@
        與按鈕上的字一致（「連線」），不再提那顆已經不存在的 ⏻。 -->
   <!-- v2.2.0：量完之後重新打開「加入光學資料比較」視窗（取消之後補加、或改名）。有結果才出現。 -->
   <div id="dgm-cmp-row" class="dgm-hidden"><button id="dgm-cmp-open" type="button"></button><span id="dgm-cmp-state"></span></div>
-  <div id="dgm-hint">拖到要量的螢幕 → 按「連線」 → 按「全螢幕」 → 探頭對準紅圈中心 → 按「開始量測」</div>
+  <!-- dg v2.8.1：原本這一行是「拖到要量的螢幕 → 按「連線」 → 按「全螢幕」 → 探頭對準紅圈中心 → 按「開始量測」」，
+       看不出哪一步做完了。改成步驟列（common/step-status.js）：每一步綠 ✓＝已完成、藍＝目前這一步、灰＝還沒做，
+       上面寫「第 N 步（共 4 步）」與該做的事。狀態由 dgmStepStatusSync() 依實際狀態算（連線、全螢幕、量測、送回 DG）。
+       #dgm-hint-sw 是主控頁換任務時的「已切到…」那一行（dgmSetTask）。 -->
+  <div id="dgm-hint"><div id="dgm-hint-sw"></div><div id="dgm-steps" class="tc-stepbar tc-sb-off"></div></div>
 </div>
 
 <!-- v1.30.0：警示層。呼吸燈一條、視窗一個，兩種狀況共用（見 CSS 那段說明） -->
@@ -2447,6 +2468,37 @@
           消失要慢一點才安全，出現不需要。 */
     $('dgm-ring').classList.toggle('dgm-hidden', !!running);
     $('dgm-hint').classList.toggle('dgm-hidden', !!running);
+    dgmStepStatusSync();   // dg v2.8.1：底部步驟列（同一個 running／連線／全螢幕狀態推出來，不另存）
+  }
+
+  /* ═══ dg v2.8.1：步驟完成狀態一眼看得出來（Bruce 2026-10-23，common/step-status.*，DG 三頁共用）═══════
+     Bruce：「第一步驟做完以後要做第二步驟，但是第一步驟實在是太不清楚、字太小了，有時候根本就不知道它已經做完了…
+     打勾用綠色、字稍微大一點…不只電腦畫面，量測、自檢這些也都確認一遍」。
+     四步（原本底部那一行的順序）；每一步「做完了沒」只看實際狀態，按過鈕但沒成立不打勾：
+       ① 連線        ＝ 儀器連線中（dgmSerialLinkActive）
+       ② 全螢幕      ＝ 真的在全螢幕（isFs()，F11 也算）
+       ③ 對準＋開始量測 ＝ 這一輪正在量（running）
+       ④ 量完送回 DG ＝ 這一輪 256 階（純色模式三筆）全部量到、真的 postMessage 給 DG（dgmSentOk）
+     ④ 成立 ⇒ 這一輪 ①～③ 都確實做過（量完會關埠、可能也離開了全螢幕），一起顯示 ✓。
+     換任務（dgmSetTask）或重新開始量測 ⇒ dgmSentOk 歸零，回到實際狀態。 */
+  var dgmSentOk = false;
+  var DGM_STEP_TXT = {
+    s1: { 'zh-TW': ['連線', '拖到要量的螢幕，按「連線」'], 'zh-CN': ['连线', '拖到要量的屏幕，按「连线」'], 'en': ['Connect', 'Drag to the screen to measure, press 連線 (Connect)'] },
+    s2: { 'zh-TW': ['全螢幕', '按「全螢幕」或 F11'], 'zh-CN': ['全屏', '按「全螢幕」或 F11'], 'en': ['Full screen', 'Press 全螢幕 (Full screen) or F11'] },
+    s3: { 'zh-TW': ['開始量測', '探頭對準紅圈中心，按「開始量測」'], 'zh-CN': ['开始量测', '探头对准红圈中心，按「開始量測」'], 'en': ['Measure', 'Aim the probe at the red ring, press 開始量測 (Start)'] },
+    s4: { 'zh-TW': ['量完', '量完，資料自動送回 DG'], 'zh-CN': ['量完', '量完，资料自动送回 DG'], 'en': ['Done', 'Measured — data sent back to DG'] }
+  };
+  function dgmStepStatusSync() {
+    if (typeof TCONStepStatus === 'undefined' || !DGM_STEP_TXT) return;   // 載入初期（下面的 var 還沒賦值）先跳過
+    var l = TCONStepStatus.lang();
+    var done = [dgmSerialLinkActive || dgmSentOk, isFs() || dgmSentOk, running || dgmSentOk, dgmSentOk];
+    var L = ['s1', 's2', 's3', 's4'].map(function (k, i) {
+      var t = DGM_STEP_TXT[k][l] || DGM_STEP_TXT[k]['zh-TW'];
+      return { short: t[0], name: t[1], done: done[i] };
+    });
+    var c = -1;
+    L.forEach(function (it, i) { it.state = it.done ? 'done' : (c < 0 ? (c = i, 'cur') : 'todo'); });
+    TCONStepStatus.bar($('dgm-steps'), L);
   }
 
   function syncFs() {
@@ -3160,6 +3212,7 @@
        開頭的 `if (running) return;` 也擋不住重複啟動。放回原位（閘門之後、latch 之前）。 */
     running = true;
     aborted = null; lastStep = 0; lastGray = null; finished = false;
+    dgmSentOk = false;                   // dg v2.8.1：新的一輪 ⇒ ④ 重新等這一輪真的送回
     dgmRunStartedAt = Date.now();        // v1.34.0：忽略窗從這一刻起算
     dgmFirstTxAt = 0; dgmFirstMesAt = 0; dgmRingGoneAt = 0;   // v1.35.0：時序證據歸零
     /* 🔴 v1.42.0：latch 切換後等待時間。這一刻之後選單怎麼動都與這一輪無關。
@@ -3770,6 +3823,8 @@
            舊版 DG 不認得這個欄位 ⇒ 照舊自動加。 */
         cmpAsk: (DGM_MODE === 'gray') },
       DGM_TARGET_ORIGIN);
+    dgmSentOk = true;   // dg v2.8.1：④ 量完送回 DG（上面那一行沒丟例外才算；步驟列由收尾的 syncFs() 重畫）
+    dgmStepStatusSync();
     var span = (DGM_MODE === 'prim')
       ? 'R／G／B 三個純色端點'
       : ('L' + rows[0][0] + ' ～ L' + rows[rows.length - 1][0]);
@@ -3805,7 +3860,6 @@
      🔴 所以換任務的提示**不放在 #dgm-msg**（那一格沒有多的高度可用），
         改放底部置中的 #dgm-hint —— 它沒有高度上限、字更大、而且本來就是
         「現在該做什麼」那一條。#dgm-msg 維持與「直接用該模式開新頁」一字不差。 */
-  var DGM_HINT_BASE = $('dgm-hint').innerHTML;
 
   /* v1.12.0：prim 模式只換標籤與文案，流程與閘門完全共用。
      v1.26.1：抽成函式 —— 換任務時兩個方向都要走得回去，不能只有「進 prim」這一條。
@@ -3861,6 +3915,7 @@
 
     // ① 上一輪的殘留狀態一律歸零
     aborted = null; lastStep = 0; lastGray = null; finished = false;
+    dgmSentOk = false;   // dg v2.8.1：換任務 ⇒ ④ 回到還沒做
     progStop(); scanT0 = 0; progLabel = '準備中';
     dgmSerialCh.rxBuf = '';
     if (dgmSerialCh.pending) { clearTimeout(dgmSerialCh.pending.timer); dgmSerialCh.pending.resolve(null); dgmSerialCh.pending = null; }
@@ -3885,9 +3940,9 @@
     log('主控頁切換量測任務' + (where ? '：' + where : '') + '（' + DGM_MODE + '）', 'o');
     /* v1.30.0：括號裡那段（「這個分頁沒有重開，你擺的位置與儀器連線都維持原樣」）
        是解釋，砍掉 —— 位置與連線本來就沒動，使用者看畫面就知道。 */
-    $('dgm-hint').innerHTML =
+    $('dgm-hint-sw').innerHTML =
       '<b style="color:#4ade80">已切到'
-      + (where ? '「' + where + '」' : '新的任務') + '</b><br>' + DGM_HINT_BASE;
+      + (where ? '「' + where + '」' : '新的任務') + '</b>';
   }
 
   function dgmApplyTask(t) {
@@ -4160,6 +4215,7 @@
   });
   window.addEventListener('storage', function (e) {   // 別的分頁切了語言 ⇒ 視窗跟著換
     if (e.key === 'tcon-lang' && dgmCmpLast) dgmCmpRender();
+    if (e.key === 'tcon-lang') dgmStepStatusSync();   // dg v2.8.1：步驟列跟著換語言
   });
 
   /* 只收同源、且格式對得上的訊息；來源還要真的是開這一頁的那個視窗。

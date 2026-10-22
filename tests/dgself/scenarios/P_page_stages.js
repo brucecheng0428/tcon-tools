@@ -84,19 +84,27 @@
       Element.prototype.scrollIntoView = function (o) { scrolled.push(this.id || this.className); return osv.call(this, o); };
       document.getElementById('dst-align').click();
       // 2026-10-09 去偶發：等步驟卡出現、捲到它、捲動停下來才量位置（原本固定等 1.5 秒）
+      /* dgself v2.9.2：上方多了步驟列、做完的卡片字放大 ⇒ 頁面較短時捲到底也到不了 220 以內（步驟卡在畫面上方 4 成內）；
+         「捲到底了」或「在畫面上方 4 成內」同樣算捲到（scrollIntoView 有叫在它身上，另外檢查）。 */
+      function atEnd() { return window.scrollY + window.innerHeight >= document.scrollingElement.scrollHeight - 2
+        || document.getElementById('dst-steps-card').getBoundingClientRect().top < window.innerHeight * 0.4; }
       await __until(function () { var q = document.getElementById('dst-steps-card').getBoundingClientRect();
-        return dstShowing === 'align' && cardVis('dst-steps-card') && scrolled.indexOf('dst-steps-card') >= 0 && q.top >= -2 && q.top < 220; }, 8000);
+        return dstShowing === 'align' && cardVis('dst-steps-card') && scrolled.indexOf('dst-steps-card') >= 0 && q.top >= -2 && (q.top < 220 || atEnd()); }, 8000);
       await __still();
       __ok('P3 alignment shown', dstShowing === 'align');
       /* dgself v2.7.10：① 的自動讀表改在對位後做 ⇒ 對位後 ① 可能已自動完成（縮成 ✓），所以「① 鈕可見」或「① 已完成」都算 */
       __ok('P3 step card appears', cardVis('dst-steps-card') && (__vis('dst-go-lut') || !!dstStepDone.lut));
-      __ok('P3 test card and hardware card collapsed to pale ✓ lines', __cls('dst-test-card', 'dst-pg-done') && __cls('dst-hw-card', 'dst-pg-done')
+      /* dgself v2.9.2（Bruce 2026-10-23）：縮成的 ✓ 行＝綠色圓勾＋「已完成」、16px、不透明 */
+      var thd = document.querySelector('#dst-test-card > .card-header');
+      __ok('P3 test card and hardware card collapsed to green ✓ lines (已完成, 16px)', __cls('dst-test-card', 'dst-pg-done') && __cls('dst-hw-card', 'dst-pg-done')
         && !__vis('dst-align') && !__vis('dst-hwgrp-bridge')
         && document.querySelector('#dst-test-card .dst-pg-ico').textContent === '✓'
-        && parseFloat(getComputedStyle(document.querySelector('#dst-test-card > .card-header')).opacity) < 0.8);
+        && getComputedStyle(document.querySelector('#dst-test-card .dst-pg-ico')).backgroundColor === 'rgb(22, 163, 74)'
+        && parseFloat(getComputedStyle(thd).opacity) === 1 && getComputedStyle(thd).fontSize === '16px'
+        && /^"(已完成|Done)"$/.test(getComputedStyle(thd, '::after').content), getComputedStyle(thd, '::after').content);
       var r = document.getElementById('dst-steps-card').getBoundingClientRect();
-      __ok('P3 scrolled to the step card (scrollIntoView on it; ends near the top)', scrolled.indexOf('dst-steps-card') >= 0 && r.top >= -2 && r.top < 220,
-        JSON.stringify(scrolled) + ' top=' + Math.round(r.top) + ' scrollY=' + window.scrollY);
+      __ok('P3 scrolled to the step card (scrollIntoView on it; ends near the top)', scrolled.indexOf('dst-steps-card') >= 0 && r.top >= -2 && (r.top < 220 || atEnd()),
+        JSON.stringify(scrolled) + ' top=' + Math.round(r.top) + ' scrollY=' + window.scrollY + ' h=' + document.scrollingElement.scrollHeight + '/' + window.innerHeight);
       __ok('P3 data cards present (folded until the flow is done)', DATA.every(cardVis) && DATA.every(function (id) { return __cls(id, 'dst-fold'); }));
       __ok('P3 remembered for a reload (sessionStorage)', JSON.parse(sessionStorage.getItem('dst-pg-v1') || '{}').aligned === true);
       __ok('P3 the only solid button is in the step card now', blues().length === 1 && document.getElementById('dst-steps-card').contains(document.getElementById(blues()[0])), blues().join(','));
