@@ -15,8 +15,8 @@ function ok(c, m) { if (c) pass++; else { fail++; console.log('FAIL', m); } }
 
 const CASES = [
   { n: '同事B RM80103 EM02', f: 'TCON/客戶/DG_tool_error_*_20261013/RM80103.PC_newcode.v2_EEPROM64K_CKS_02AA7A_CKS_02AB45.bin', m: 'EM02', want: 'match' },
-  { n: 'BOE B10B18 GoldenCheck_CKS_2ACFF EM02', f: 'BOEMNT/BOE_B10_B18_27.0_QHD_100Hz_2port_3pair_mLVDS(RM80103.PC_EM02_同事Q)/Code/05_提供客戶版本/RM80103.PC_BOE_B10B18_QHD100_(Final03_DCLK416Hz_pll_spread2_1_VS.script)BIST100HZ__from__2ACDD_GoldenCheck_CKS_2ACFF.bin', m: 'EM02', want: 'match' },
-  { n: 'EM01 EEPROM BOE FHD320', f: 'BOEMNT/(驗證)BOE_B4_27.0_FHD_320Hz_2port_6pair_mLVDS(RM80203.PB_EM01_Flash_同事R)/Code/InitialCode/RM80100_BOE_FHD320_EEPROM_Initial_CKS_05B313_20260409131844.bin', m: 'EM01', want: 'match' },
+  { n: 'BOE B10B18 GoldenCheck_CKS_2ACFF EM02', f: 'BOEMNT/BOE_B10_B18_27.0_QHD_100Hz_2port_3pair_mLVDS(RM80103.PC_EM02_*)/Code/05_提供客戶版本/RM80103.PC_BOE_B10B18_QHD100_(Final03_DCLK416Hz_pll_spread2_1_VS.script)BIST100HZ__from__2ACDD_GoldenCheck_CKS_2ACFF.bin', m: 'EM02', want: 'match' },
+  { n: 'EM01 EEPROM BOE FHD320', f: 'BOEMNT/(驗證)BOE_B4_27.0_FHD_320Hz_2port_6pair_mLVDS(RM80203.PB_EM01_Flash_*)/Code/InitialCode/RM80100_BOE_FHD320_EEPROM_Initial_CKS_05B313_20260409131844.bin', m: 'EM01', want: 'match' },
   { n: 'EM01 Flash SN314GU02', f: 'TCON/TCON_UI/CheckListTool/MNT_BinComparator/SN314GU02_RM80100_75HZ(TEST1-Base_3E14D3_POL_ST_2200)_CKS_3E1742_20260804170528.bin', m: 'EM01', want: 'match' },
   { n: 'V512 MV27 (EM02 定位)', f: 'TCON/TCON_UI/V512/Raydium_TCON_Tool_v1.1.8.exe/MV27_V512_CKS_02D02B.BIN', m: 'EM02', want: 'blank' },
   { n: 'NT71855 NB（被判成 EM01 Flash）', f: 'TCON/Model/BOE/NB/BOE14.0_E501B2(驗證Driver)/Code/NT71855_BOE_BOE14.0(VerifyDriver)_EDID(8_93h)_CKS(6C63C2h)_(ORI_NVT)_20220817.bin', m: 'EM01', want: 'mismatch', notRd: true }
