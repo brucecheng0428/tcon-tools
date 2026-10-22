@@ -2,6 +2,28 @@
 
 ---
 
+## Digital Gamma (dg) v2.8.0 — 2026-10-23 ｜ MINOR ｜ 入口加「只量測（不調整）」；光學資料比較每組一行摘要（平均 Gamma、白點 x,y、最高階色溫）
+
+判定依據：docs/VERSIONING.md 判定表「多了能做的事，舊的一切照舊」→ MINOR。新增一顆入口鈕與一行顯示、Excel「資料來源」工作表多四欄；既有三顆入口、計算、LUT 輸出、主表與三張圖不變，不帶 ⚠ 輸出變更。
+
+### 需求
+Bruce 2026-10-23 02:0x 問 DG 網頁有沒有只量 Gamma 與色溫、不調整的選項；查核結果是「光學資料比較」分頁本來就是只量不調的路，但入口不明顯、也沒有一行摘要數字。02:3x 指示照 80/20 做最小版本。
+
+### 做法
+1. 入口卡（#dg-card-wmode）加第四顆「只量測（不調整）」#dg-btn-wmode-meas（三語 dg.wmodeMeas／dg.wmodeMeasSub）：`dgSwitchMode('cmp')` 後觸發既有 #dg-btn-slot-live ⇒ 既有 dgPickOpen 跳「電腦畫面／T-CON 自檢畫面」二選一，之後全走既有流程（量完只進比較清單）。不是工作模式：不加 dg-wmode-btn、不動 DG_WMODE／DG_PQ，不產生 LUT、不寫面板。外框樣式與另外三顆相同；版面 560px 起 2×2、1200px 起四欄（原本 900px 起三欄，四顆會排成 3＋1）。
+2. 比較清單每組名稱下多一行（dgSlotSummary／dgSlotSumHtml，標籤三語 dg.slotSumGam／dg.slotSumWp／dg.slotSumCct）：
+   - 平均 Gamma＝圖二同一支 dgCurveOf() 的逐階 Gamma，去掉兩端（本來就是 null）與非有限值後的算術平均。
+   - 白點 x,y＝最高階那一列（8-bit 即 L255）。
+   - 色溫＝最高階那一列：有量到的 T 就用 T，否則 dgCCT(x,y)（與圖三同一條退路）。
+   - 缺值顯示「—」，不補預設值。
+3. 「匯出 Excel」的「資料來源」工作表多四欄：平均 Gamma（逐階平均）、白點 x（最高階）、白點 y（最高階）、最高階色溫（K），數字與畫面同一支；缺值留空格子。匯入端（dgOptParseSrcSheet）只認前面幾欄，舊檔、新檔互讀不受影響。
+4. common/version.js：dg v2.7.0 → v2.8.0；cache-buster：dg.html、dg-measure.html、index.html → 20261023dg280。
+
+### 測試
+- 新增 tests/dgself/scenarios/MO_measure_only.js（run.py：MO、MO-EN、MO-CN、MO-SHOT、MO-SHOT-PICK、MO-SHOT-CMP）45/0：按鈕在入口卡、按下切到比較分頁並跳既有二選一（slot 那一列）、DG_WMODE／DG_PQ 不變；選電腦畫面後以該任務送回模擬量測（gamma 2.2、x 0.3127、y 0.3290）⇒ 進清單、第 2 部分未填、沒有 LUT；摘要＝平均 Gamma 2.20、白點 0.3127／0.3290、L255 6505K（McCamy）；無色度組顯示「—」；有 T 用 T（7100K）；Excel「資料來源」G～J 欄數值與空格、dimension A1:J6；匯出檔再匯入 3 組、來源不掉、摘要相同；英文、簡中鈕面與標籤。
+- tests/dgself/run-all.sh 全套 130 情境 1687/0。
+- 回歸（--scope ui）：check_datamap_boe --qm 109/0、check_cache_buster 通過、check_datamap_sd_snapshot 依型號分 6 批（SNAP_ONLY）全 11 型號 24608 pass／0 fail（基準 tools/datamap_sd_snapshot.json，本版沒動 datamap）。
+
 ## NB TCON Debug應用 (nbdebug) v1.2.0 — 2026-10-23 ｜ MINOR ｜ EN01 KOSC 一步一步引導＋每列說明（做什麼／怎麼判斷／下一步）
 
 判定依據：`docs/VERSIONING.md` §2 案例 1「新增一個完整功能 → MINOR」。KOSC 項目多一個「一步一步引導」開關（預設關）；另外每張 debug 表多一欄說明、KOSC 表下多一塊調法說明（新增顯示內容）；開關關著時 I2C 執行、還原、匯出全部照舊，暫存器序列、Excel 列與 .script 指令不變（.script 檔頭版號照常變成 v1.2.0）⇒ MINOR，不帶 ⚠ 輸出變更。

@@ -80,6 +80,13 @@ SCENARIOS = [
     ('DV-BLK',    'DV_measure_view.js',       '?task=7',              True,  {'__viewCase': 'BLK'},      False, 'dg-measure.html'),
     ('DGV',       'DGV_cmp_view.js',          '',                     False, {},                         False, 'dg.html'),
     ('ZM',        'ZM_chart_zoom_close.js',   '',                     False, {},                         False, 'dg.html'),
+    # dg v2.8.0：入口第四顆「只量測（不調整）」＋比較清單每組摘要＋Excel「資料來源」四欄
+    ('MO',        'MO_measure_only.js',       '',                     False, {'__moCase': 'MAIN'},       False, 'dg.html'),
+    ('MO-EN',     'MO_measure_only.js',       '',                     False, {'__moCase': 'EN'},         False, 'dg.html'),
+    ('MO-CN',     'MO_measure_only.js',       '',                     False, {'__moCase': 'CN'},         False, 'dg.html'),
+    ('MO-SHOT',   'MO_measure_only.js',       '',                     False, {'__moCase': 'SHOT'},       False, 'dg.html'),
+    ('MO-SHOT-PICK', 'MO_measure_only.js',    '',                     False, {'__moCase': 'SHOT-PICK'},  False, 'dg.html'),
+    ('MO-SHOT-CMP', 'MO_measure_only.js',     '',                     False, {'__moCase': 'SHOT-CMP'},   False, 'dg.html'),
     # v2.9.0：NB T-CON（EN01／E503／E501A／E501B）aging Pattern 0 出圖、AG_PGEN_EN＋AG_INV 順序、十字、還原；EM02 不受影響
     ('NB-EN01', 'NB_aging_pattern.js', '', False, {'__nbCase': 'EN01'}, False),
     ('NB-E503', 'NB_aging_pattern.js', '', False, {'__nbCase': 'E503'}, False),
