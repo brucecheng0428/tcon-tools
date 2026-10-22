@@ -2,13 +2,15 @@
 /* check_datamap_i2c_import.js — datamap v1.31.3（Bruce 10/14「我用匯入 code 的話，就完全跟 i2C 沒有關係」）
    模擬 Bridge 不在 → 按連線 → ① 下載提示框＋紅色標籤＋錯誤 toast 出現 → 匯入 code → 全部消失、標籤「I2C 離線（已匯入 code）」
    → 之後重畫／清除匯入再匯入都不再出現 → 再按連線（Bridge 仍不在）才再出現。
-   用法：node tools/check_datamap_i2c_import.js [repo] [--code <code.bin>]（預設用 ~/ClaudeData/em01_peerdir_20260904 的 EM01 code） */
+   用法：node tools/check_datamap_i2c_import.js [repo] [--code <code.bin>]（預設用 ~/ClaudeData/em01_*_20260904 的 EM01 code） */
 'use strict';
 const path = require('path'), fs = require('fs'), os = require('os');
+/* 本機資料夾名含人名，原始碼不寫：路徑中含 * 的那一段在上層資料夾找第一個符合的（2026-10-22 改寫歷史清人名） */
+const globDir = p => { const s = p.split('/'); for (let i = 0; i < s.length; i++) if (s[i].includes('*')) { const up = s.slice(0, i).join('/') || '/'; const re = new RegExp('^' + s[i].split('*').map(x => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.+') + '$'); let hit = null; try { hit = require('fs').readdirSync(up).sort().find(n => re.test(n)); } catch (e) {} if (!hit) return p; s[i] = hit; } return s.join('/'); };
 const args = process.argv.slice(2), ci = args.indexOf('--code');
 const ROOT = path.resolve(args[0] && !args[0].startsWith('--') ? args[0] : path.join(__dirname, '..'));
 let CODE = ci >= 0 ? args[ci + 1] : null;
-if (!CODE) { const dir = path.join(os.homedir(), 'ClaudeData', 'em01_peerdir_20260904'); try { const f = fs.readdirSync(dir).find(n => /\.bin$/i.test(n)); if (f) CODE = path.join(dir, f); } catch (e) {} }
+if (!CODE) { const dir = globDir(path.join(os.homedir(), 'ClaudeData', 'em01_*_20260904')); try { const f = fs.readdirSync(dir).find(n => /\.bin$/i.test(n)); if (f) CODE = path.join(dir, f); } catch (e) {} }
 if (!CODE || !fs.existsSync(CODE)) { console.log('check_datamap_i2c_import: 找不到 code 檔（用 --code 指定），略過'); process.exit(2); }
 let fail = 0, pass = 0;
 const ok = (c, m) => { if (c) pass++; else { fail++; console.log('  ✗ ' + m); } };

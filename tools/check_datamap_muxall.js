@@ -19,9 +19,11 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 'use strict';
 const path = require('path'), fs = require('fs'), cp = require('child_process');
+/* 本機資料夾名含人名，原始碼不寫：路徑中含 * 的那一段在上層資料夾找第一個符合的（2026-10-22 改寫歷史清人名） */
+const globDir = p => { const s = p.split('/'); for (let i = 0; i < s.length; i++) if (s[i].includes('*')) { const up = s.slice(0, i).join('/') || '/'; const re = new RegExp('^' + s[i].split('*').map(x => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.+') + '$'); let hit = null; try { hit = require('fs').readdirSync(up).sort().find(n => re.test(n)); } catch (e) {} if (!hit) return p; s[i] = hit; } return s.join('/'); };
 const args = process.argv.slice(2), opt = k => { const i = args.indexOf(k); return i >= 0 ? args[i + 1] : null; };
 const ROOT = path.resolve(args[0] && !args[0].startsWith('--') ? args[0] : path.join(__dirname, '..'));
-const XLSX = opt('--xlsx') || path.join(process.env.HOME || '', 'TCON/TCON設定相關/RD_peera_DataMapping_20261013/reply_110503_0924/EM01A1_rt7_register_force_mapping.xlsx');
+const XLSX = opt('--xlsx') || globDir(path.join(process.env.HOME || '', 'TCON/TCON設定相關/RD_*_DataMapping_20261013/reply_110503_0924/EM01A1_rt7_register_force_mapping.xlsx'));
 const DM = require(path.join(ROOT, 'common/datamap-core.js')); global.TCONDataMap = DM;
 const LOD = require(path.join(ROOT, 'common/datamap-lod.js')); global.TCONDataMapLOD = LOD;
 const A = require(path.join(ROOT, 'common/datamap-auto.js'));

@@ -59,4 +59,29 @@ export function findNames(text) {
   }
   return hits;
 }
+/* 大小寫不同的寫法（Bruce 2026-10-22 改寫歷史時補抓）：名單只存原本大小寫（例 Abcd），
+   但識別字、檔名、路徑、CLI 參數會寫成 ABCD／abcd（ABCD_meter.js、--abcd、em01_abcd_2026）。
+   這裡把「全大寫或全小寫」的英文字轉成首字大寫再比對名單；底線、連字號也當分隔。
+   原本大小寫的命中由 findNames 負責，這裡不重複；混合大小寫（iAN）與 60 字以上的 base64 類長串不看。
+   一般詞剛好同名（例：DPCD 的音源孔）在該行加 name-guard:allow。 */
+export function findNamesAnyCase(text) {
+  const hits = [];
+  const skip = [...text.matchAll(/[A-Za-z0-9+\/=]{60,}/g)].map(m => [m.index, m.index + m[0].length]);
+  const toks = [...text.matchAll(/[A-Za-z]+/g)].filter(t => !skip.some(([a, b]) => t.index >= a && t.index < b));
+  const cap = s => s[0].toUpperCase() + s.slice(1).toLowerCase();
+  const plain = s => s === s.toLowerCase() || s === s.toUpperCase();
+  for (let i = 0; i < toks.length; i++) {
+    const t = toks[i][0];
+    if (plain(t) && t.length >= 3 && t !== cap(t) && EN_ONE.has(h(cap(t)))) hits.push({ kind: 'name', at: toks[i].index, masked: mask(t) });
+    for (let n = 2; n <= 3 && i + n <= toks.length; n++) {
+      const seg = toks.slice(i, i + n);
+      const gapOk = seg.every((x, k) => k === 0 || /^[\s_\-]+$/.test(text.slice(seg[k - 1].index + seg[k - 1][0].length, x.index)));
+      if (!gapOk) break;
+      if (!seg.every(x => plain(x[0]))) continue;
+      const s = seg.map(x => cap(x[0])).join(' ');
+      if (s !== seg.map(x => x[0]).join(' ') && EN_FULL.has(h(s))) hits.push({ kind: 'name', at: toks[i].index, masked: mask(seg.map(x => x[0]).join(' ')) });
+    }
+  }
+  return hits;
+}
 export const NAME_GUARD_COUNTS = G.counts;

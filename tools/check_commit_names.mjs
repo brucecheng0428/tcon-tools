@@ -13,7 +13,7 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
-import { findNames } from './name-guard.mjs';
+import { findNames, findNamesAnyCase } from './name-guard.mjs';
 
 const ZERO = /^0+$/;
 const EMAIL_OK = /^(?:brucecheng0428@gmail\.com|bruce@rad-ic\.com|noreply@anthropic\.com|[^@\s]+@users\.noreply\.github\.com|noreply@github\.com)$/i;
@@ -30,13 +30,15 @@ function scan(text, where) {
       if (h.kind === 'email' && EMAIL_OK.test(ln.slice(h.at, h.at + h.masked.length))) continue;
       bad++; console.log(`  ✗ ${where}:${i + 1}  ${h.kind}「${h.masked}」`);
     }
+    /* 大小寫不同的寫法（ABCD_x.js、--abcd、em01_abcd_…），2026-10-22 補 */
+    for (const h of findNamesAnyCase(ln)) { bad++; console.log(`  ✗ ${where}:${i + 1}  name（大小寫不同）「${h.masked}」`); }
   });
 }
 /* 新增的行（+ 開頭，不含 +++ 檔頭）；二進位差異 git 只印一行說明，自然略過 */
 function added(diff, label) {
   let file = '?', out = [];
   for (const ln of diff.split('\n')) {
-    if (ln.startsWith('+++ ')) { file = ln.slice(4).replace(/^b\//, ''); continue; }
+    if (ln.startsWith('+++ ')) { file = ln.slice(4).replace(/^b\//, ''); if (file !== '/dev/null') out.push([file, '[檔名] ' + file]); continue; }
     if (ln.startsWith('+')) out.push([file, ln.slice(1)]);
   }
   const byFile = new Map();
