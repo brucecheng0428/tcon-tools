@@ -1,0 +1,30 @@
+name: 人名檢查（commit message／作者欄／新增內容）
+# Bruce 2026-10-22：公開 repo 的 commit message、作者欄與新增內容不可有同事／客戶人名（歷史已於同日改寫清除）。
+#   名單與比對同 tools/name-guard.mjs（雜湊名單 tools/name-guard.json）；log 只印遮罩片段。
+#   本機第一道是 commit-msg hook（tools/hooks/commit-msg，同一支 tools/check_commit_names.mjs）；
+#   這裡跑在 GitHub 上，與誰提交、有沒有裝 hook、有沒有 --no-verify 都無關。
+#   獨立檔案，不動 pages.yml／history-guard.yml／version-gate.yml。
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  names:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: 檢查本次 push／PR 的每個 commit
+        env:
+          BEFORE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          AFTER: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: node tools/check_commit_names.mjs --range "${BEFORE}..${AFTER}"

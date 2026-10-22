@@ -21,6 +21,8 @@ STOP = set('''Monitor Tablet Will Max Team Grace Lee Song
 Zhang Liu Li Wang Huang Xu Lu Gao Chen Bai Dan Hou Pan Ran Sha Shen Tang Wei Xie Yao Zheng Zuo Jia Lin Wu
 Chang
 Ken Sam Tim Vic Rui Eric'''.split())
+# 其他不當單字名的字（拼音全名、代號等本身就是人名，明文不能放進公開 repo）：放 assistant_kb/reference/對外網頁人名檢查_不當單字名.md，
+#   一行可放多個字、# 開頭是註解；main() 讀進 STOP（2026-10-22 改寫歷史時從上面的清單移出）。
 CJK = re.compile(r'[㐀-鿿]')
 
 
@@ -34,6 +36,11 @@ def main():
     ap.add_argument('--out', default=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'name-guard.json'))
     ap.add_argument('--list', action='store_true', help='只印出明文名單（本機檢查用，不寫檔）')
     a = ap.parse_args()
+    stop_extra = os.path.join(a.kb, 'reference', '對外網頁人名檢查_不當單字名.md')
+    if os.path.exists(stop_extra):
+        for line in open(stop_extra, encoding='utf-8'):
+            if not line.lstrip().startswith('#'):
+                STOP.update(line.split())
     try:
         import opencc
         t2s = opencc.OpenCC('t2s').convert
