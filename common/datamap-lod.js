@@ -232,7 +232,7 @@
 
   ];
   /* v1.35.21（Bruce 10/17「你決定」→ Dispatch：修；派工 236884173342228480）：code 範圍與 ② 表格同一政策（DM.mntInRange／codeIdx：code 0～29 每一欄都合法）。
-     依據：同事A EM01A1_rt7_register_force_mapping.xlsx 1D1G!C26:C55 Pool 列出 code 0～29（空白＝負 pixel／AA 區外 dummy，Bruce 10/13 決策 A5）；
+     依據：RD EM01A1_rt7_register_force_mapping.xlsx 1D1G!C26:C55 Pool 列出 code 0～29（空白＝負 pixel／AA 區外 dummy，Bruce 10/13 決策 A5）；
      EM01 RApp_TX.cpp:9506-9511 StringGrid 只在 >29 時夾成 29；EM02A1_RegisterBank.model:18264 force_sel 5 bit。舊版多一個 g>n（⌊code/6⌋≤欄）限制，
      ② 可選的 R-3～R-6（第 2 欄 code 18～29）在 Auto 接線換算（datamap-auto wiringFromState）被當成無效 code（why:'code'）。g≤n 時算式不變，其他 code 結果不變。 */
   function tName(n, code) { var g = Math.floor(code / 6), j = code % 6; if (code < 0 || code > 29) return null; return 3 * (2 * (n - 1) - 2 * g) + j; }

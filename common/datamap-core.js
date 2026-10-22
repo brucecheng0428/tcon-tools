@@ -222,32 +222,32 @@
   /* 顯示哪些列：P1 一定有；P2／P3 依 code 的 header 有沒有載入那一段（DMM:356-374）。seg 缺省＝全部 */
   function en01Rows(seg) { var out = []; for (var r = 0; r < 24; r++) { var g = en01Seg(r); if (g === 'p1' || !seg || seg[g]) out.push(r); } return out; }
   /* v1.36.0（Bruce 10/16「peera 那邊表格是 6 個 subpixel 為一組…EN01 是 12 個 subpixel 為一組…原理是一樣的，只是一個是 6 的倍數，一個是 12 的倍數」；
-     依據＝同事E 10/16 轉寄 同事D 4/8 指定的 E507_rt7_sram_w_hand(1T4P).xlsm「FORCE」分頁＋同事H 3/17 EN01 表）：
+     依據＝RD 10/16 轉寄 RD 4/8 指定的 E507_rt7_sram_w_hand(1T4P).xlsm「FORCE」分頁＋RD 3/17 EN01 表）：
      ・EN01 改用和 MNT 同一個 pool 公式 poolIdx（每個 T 往右 step 個 subpixel；MNT step 6、EN01 step 12＝1T4P），名稱＝linName（負＝R-1…）。
        FORCE 分頁第 S n 欄（8'h0x 表頭：欄 I＝8'h01、J＝8'h02＝S1…）code v ⇒ subpixel 12n−12⌊v/12⌋＋v%12，即 EN01 的 T n＝pool 第 n+1 欄。
        正 pixel 與 FORCE 分頁 S1～S10 逐格相同（1320/1320）；表上空白格（⌊v/12⌋＞n）照同一公式得負 pixel（例 S1 的 code 24～35＝R-4～B-1）。
        code 0～131（11 組×12）每個 T 都有名稱（＝MNT 的 code 0～29 在每欄都有定義）；T0＝8'h01 那欄（FORCE 分頁欄 I）。
      ・每列預設 T＝FORCE_DE_SEL 最小設 1 的 bit n（8'h02⇒T1、8'h01⇒T0；0x0E⇒T1，與 MNT 同一個 deSelTs）＋SW 時槽 k−1（en01Rel）：
-       同事H 表 FORCE_DE_SEL 8'h02 時 SW1 在 S1、SW2 在 S2 解讀，4 條 line 都一樣（例 L1-1 R0＝14⇒B1、L1-2 R0＝24⇒R1）；
-       Tri／MUX4／MUX6 照 MNT「每多一條 gate 往右一欄」同理推廣（Bruce 10/16 17:3x）。Mirror 不改名稱（同 MNT，同事A 10/13）。
+       RD 表 FORCE_DE_SEL 8'h02 時 SW1 在 S1、SW2 在 S2 解讀，4 條 line 都一樣（例 L1-1 R0＝14⇒B1、L1-2 R0＝24⇒R1）；
+       Tri／MUX4／MUX6 照 MNT「每多一條 gate 往右一欄」同理推廣（Bruce 10/16 17:3x）。Mirror 不改名稱（同 MNT，RD 10/13）。
        FORCE_DE_EN＝0 或值 0 ⇒ 當 WPF 預設 0x0E（EN01 沒有 auto 等效表的依據）。
      ・v1.35.19（Bruce 10/16 21:2x 依 Dispatch 建議 A）：每列 T 改唯讀、只由 FORCE_DE_SEL＋SW 自動推出（拿掉手動下拉）。依據＝WPF 原始碼：
        DataMappingLine.cs:24-37 TabNum 改變只換名稱對照表＋TabNumChangeHandle（→ DataMappingModule.cs:409 MappingCellInfoValueChanged＝重跑 TaskInitial 重讀畫面），
        不寫暫存器；寫 byte 的只有 cell code 值；Hand Mode 只寫 FORCE_DE_EN／FORCE_SEL_EN／FORCE_DE_SEL＝0xE（:260-272）。要換欄＝改 FORCE_DE_SEL（會寫入 TCON）。
-       顯示用 MNT 同樣的「相對」編號：T1＝FORCE_DE_SEL 起始欄（SW1），SW k＝T k；括號保留 同事E FORCE 分頁的 S 欄名（J～S 欄表頭 S1～S10，xlsm 第 1 列）。
+       顯示用 MNT 同樣的「相對」編號：T1＝FORCE_DE_SEL 起始欄（SW1），SW k＝T k；括號保留 參考表 FORCE 分頁的 S 欄名（J～S 欄表頭 S1～S10，xlsm 第 1 列）。
        例 0x02 SW1＝T1（S1）、0x04 SW1＝T1（S2）、0x0E＋HSD SW2＝T2（S2）。內部換算仍用絕對欄 en01RowT（＝S 編號），名稱與 byte 不變。 */
   var EN01_TMAX = 12;   // 8'h80（n＝7）＋SW6（＋5）
   function en01T(t) { if (t === null || t === undefined || t === '' || isNaN(+t)) return EN01_TDEF; t = +t | 0; return t < 0 ? 0 : (t > EN01_TMAX ? EN01_TMAX : t); }
   function en01BaseT(s) {
     var en = !!(s && (s.deEn | 0)), v = en ? ((s.deSel | 0) & 0xFF) : 0;
     if (!v) v = 0x0E;   // FORCE_DE_EN＝0 或值 0：EN01 的 auto 等效值原廠沒定義 ⇒ 當 WPF 開 Hand 會寫的 0x0E（不套 MNT 的 panel 等效表）
-    return deSelTs(v, 8)[0] - 1;   // 與 MNT 同一函式（同事A BOE 分頁：起始欄＝最小設 1 的 bit，bit n＝第 n+1 欄）；EN01 的 T n＝第 n+1 欄 ⇒ T＝bit n
+    return deSelTs(v, 8)[0] - 1;   // 與 MNT 同一函式（RD BOE 分頁：起始欄＝最小設 1 的 bit，bit n＝第 n+1 欄）；EN01 的 T n＝第 n+1 欄 ⇒ T＝bit n
   }
-  /* 相位右移（Bruce 10/16 17:3x「原理應該是一樣的」）：MNT 每多一條 gate 往右一欄（Dual 下 gate＝起始欄＋1、Tri 第 k 條＝＋k，同事A BOE 分頁／mntRel）；
-     EN01 每個 SW 時槽同理：SW k＝起始 T＋(k−1)（同事E FORCE 分頁 HSD 範例 SW1→S1、SW2→S2 證實）。只對 RD_MODE 用到的時槽右移，未用的列＝起始 T。 */
+  /* 相位右移（Bruce 10/16 17:3x「原理應該是一樣的」）：MNT 每多一條 gate 往右一欄（Dual 下 gate＝起始欄＋1、Tri 第 k 條＝＋k，RD BOE 分頁／mntRel）；
+     EN01 每個 SW 時槽同理：SW k＝起始 T＋(k−1)（參考表 FORCE 分頁 HSD 範例 SW1→S1、SW2→S2 證實）。只對 RD_MODE 用到的時槽右移，未用的列＝起始 T。 */
   function en01Rel(s, row) { var np = en01Phases(s && s.rd) || 1, ph = (row | 0) % 6; return ph < np ? ph : 0; }
   function en01RowT(s, row) { return en01T(en01BaseT(s) + en01Rel(s, row)); }
-  /* v1.35.19：顯示用。相對 T（SW1＝T1，同 MNT deSelText 的 T1＝起始欄）；S 名＝同事E FORCE 分頁欄名（只有 S1～S10 有表頭：欄 I＝8'h01 沒標、S11 以後分頁沒有） */
+  /* v1.35.19：顯示用。相對 T（SW1＝T1，同 MNT deSelText 的 T1＝起始欄）；S 名＝參考表 FORCE 分頁欄名（只有 S1～S10 有表頭：欄 I＝8'h01 沒標、S11 以後分頁沒有） */
   function en01TRel(s, row) { return en01RowT(s, row) - en01BaseT(s) + 1; }
   function en01SName(t) { t = en01T(t); return t >= 1 && t <= 10 ? 'S' + t : ''; }
   function en01TLabel(s, row) { var sn = en01SName(en01RowT(s, row)); return 'T' + en01TRel(s, row) + (sn ? '（' + sn + '）' : ''); }
@@ -282,7 +282,7 @@
        ・RD_MODE 0x41C[2:0]＝一條 line 的 data 分幾段（model:3529-3533；原理 12.8.4）：0＝1 段、1＝2 段、2＝3 段、3＝MUX4、5＝MUX6。
      ⇒ RD 1：PANEL≠3＝Dual(HSD)、PANEL 3＋SUB[0]＝1＝MUX2；RD 2：PANEL≠3＝Tri-Gate、PANEL 3＋SUB[0]＝0＝MUX3；RD 3／5＝MUX4／MUX6（只看 RD_MODE，
        model 的 SUB 註解只列 MUX3／MUX2）。PANEL 3 配 RD 0（MUX 卻只分 1 段）或 SUB[0] 和 RD 段數不符＝矛盾 'bad'（③ 不畫、寫原因）。
-     MUX2／MUX3 的 TYPE 由 SUB[2] 決定；MUX4 原廠只有 TYPE 1；MUX6 沒有暫存器 ⇒ ③ 保留手動 TYPE（待 同事D）。 */
+     MUX2／MUX3 的 TYPE 由 SUB[2] 決定；MUX4 原廠只有 TYPE 1；MUX6 沒有暫存器 ⇒ ③ 保留手動 TYPE（待 RD）。 */
   function en01Panel(s) {
     var rd = s.rd | 0, pm = s.panel | 0, sb = s.subPanel | 0, ltps = pm === 3, m2 = (sb & 1) === 1;
     var o = { kind: '', mux: 0, type: 0, typeReg: false, zz: ltps ? (sb >> 1) & 1 : 0, why: '' };
@@ -299,12 +299,12 @@
   /* v1.35.29（Bruce 10/19 12:5x「為何Data mapping網頁，其他tcon的mux接線，沒有一併更新成最新的畫法?」；派工 237801403670081536）：
      全型號共用的「面板是 Gate 還是 Source MUX」判定（單一來源；EN01 照 en01Panel）。MNT（EM01／EM02／E512）與 NB（E503／E501A／E501B／DAZ6138／6139）：
        ・PANEL_MODE＝3（LTPS）＝Source MUX 面板：SUB_PANEL_MODE[0] 0＝MUX3／1＝MUX2、[1]＝Zigzag、[2]＝TYPE 1／2
-         （原廠 MNT Tool ComboBox_TX_sub_panel_mode「MUX3 normal type1…MUX2 zigzag type2」EM01 RApp_TX.cpp:8963-8970；同事A EM01A1 LTPS!AC1:AJ9；
+         （原廠 MNT Tool ComboBox_TX_sub_panel_mode「MUX3 normal type1…MUX2 zigzag type2」EM01 RApp_TX.cpp:8963-8970；RD EM01A1 LTPS!AC1:AJ9；
           瑞鼎查詢 Excel B15:D22；RM8100x model SUB_PANEL_MODE）。gate 不分段（一列 pixel 一條 gate），SW1～SWk 在 Source 端 demux（原理 12.8）。
-       ・例外：MNT Hand 的 Tri-Gate（BOE tri-gate）。同事A EM01A1 LTPS!AK8:AK10「LTPS BOE tri-gate」Manual setting 和 MUX3 zigzag type1 同一組暫存器
+       ・例外：MNT Hand 的 Tri-Gate（BOE tri-gate）。RD EM01A1 LTPS!AK8:AK10「LTPS BOE tri-gate」Manual setting 和 MUX3 zigzag type1 同一組暫存器
          （panel 3、sub 2、force_sel_en 1）⇒ TCON 暫存器分不出來，是面板（玻璃）不同 ⇒ 由 ②-1 Gate Type 選 Tri-Gate 記在 state.triGate（不是暫存器、不寫入 TCON）；
-         沒選過（匯入 code／I2C 讀回／套原廠樣式）時用 同事A BOE 表的特徵判斷：每個 Data 三個時段填同一個 code、6 個 Data 各不相同、沒有 X
-         （LTPS!AK12:AK29、(21) Tri+BOE RApp_TX.h；mux3 的三個時段一定不同 code：同事A LTPS!AC12:AJ29 全部 0 例外）。
+         沒選過（匯入 code／I2C 讀回／套原廠樣式）時用 RD BOE 表的特徵判斷：每個 Data 三個時段填同一個 code、6 個 Data 各不相同、沒有 X
+         （LTPS!AK12:AK29、(21) Tri+BOE RApp_TX.h；mux3 的三個時段一定不同 code：RD LTPS!AC12:AJ29 全部 0 例外）。
        ・PANEL 0／1＝1 段（Single），2＝2 段（Dual／HSD）。 */
   function triSig(s) {
     for (var l = 0; l < 2; l++) {
@@ -360,7 +360,7 @@
      15:0x「為何…en01 auto mode，仍然無法像是其他tcon可以選擇不同預設的data mapping?」；派工 237801892587515904）：
      ・EN01 的 PANEL_MODE／SUB_PANEL_MODE 編碼和 NB RM8100x 相同（RM81008.model:11051-11079：ZigZag Type 1～8、HSD Type 1／Type 4／Type 3-5／Type 4+zigzag(BOE)、
        LTPS [0] MUX3／MUX2、[1] Zigzag、[2] Type 1／2），Auto 時晶片依這兩顆（＋RD_MODE 段數）自動排列；原廠沒有 Auto 對照表。
-     ・同事D 指定的 E507_rt7_sram_w_hand(1T4P).xlsm 各分頁（NORMAL／ZIGZAG／HSD TYPE 1／4／3-5／4+ZIGZAG／MUX2／MUX3／MUX4／MUX6 的 NORMAL／ZIGZAG TYPE 1／2）
+     ・RD 指定的 E507_rt7_sram_w_hand(1T4P).xlsm 各分頁（NORMAL／ZIGZAG／HSD TYPE 1／4／3-5／4+ZIGZAG／MUX2／MUX3／MUX4／MUX6 的 NORMAL／ZIGZAG TYPE 1／2）
        是「用 Hand 模式填 code 重現該面板排列」的原廠範例 ⇒ 網頁把它當成該 PANEL／SUB 的 Auto 預設排列（推論：xlsm 是 Hand 填法，晶片 Auto 實際輸出未經 RD 確認）。
        只取 mirror＝0 的範例（Auto 不套 Mirror，同 MNT／NB Auto）；有 line 0／line 1 兩組的照用，Line 3、4 重複 Line 1、2（推論）。
      ・ZigZag Type 1～8 只有 data_sft 0／1 兩組範例（ZIGZAG!H48／H64）；每條 line 用哪組＝xlsm image5 data_sft 表 z0～z7（01010101、10101010、00110011、
@@ -472,7 +472,7 @@
      v1.35.31（Bruce 10/19 19:4x「mux 2不是跟hsd(dual gate)行為上一樣嗎？所以理論上rd mode應該設定也是」；派工 237903570581180416）：
      MNT MUX2 由 2 改 1。依據：NB 同一顆 rt8（0x350／0x420／0x1B0[7:6]，同 byte 也是 tcon_mode[3:0]／rd_non_stop／mgoa_rotate，與 MNT 0x0504 位元配置相同）
      RM8100x_for_FAE model:4061-4070「1: HSD or MUX2 panel (1 line in 2 half line out)」、RM81010 Kick Off「1: 1line 2 read (mux2 HSD) 2: 1 line 3 read(mux3, tri_gate)」；
-     EM02 model:19498-19504「1: HSD (dual-gate) 2: LTPS (tri-gate)」＝分 2／3 段；同事A EM01A1 LTPS 分頁 MUX2 每條 line 2 格（同事A 10/19 回信問題一「對」）。
+     EM02 model:19498-19504「1: HSD (dual-gate) 2: LTPS (tri-gate)」＝分 2／3 段；RD EM01A1 LTPS 分頁 MUX2 每條 line 2 格（RD 10/19 回信問題一「對」）。
      原廠 MNT Tool 寫 2 是因為它只依 panel_mode 決定 rd（EM01 RApp_TX.cpp:8911-8994，換 sub 不重算；RT7 清單 RApp_TX.h:552-556 只有 MUX3），不是硬體要求；
      ⚠ 原廠 MNT Tool 讀回 panel 3＋rd 1 會跳「rt7 Panel mode/rt8 rd mode not match」（RApp_TX.cpp:9457-9496，只比 panel 與 rd）。（型號/MNT §10.10） */
   function autoRd(key, s) {
@@ -707,7 +707,7 @@
       f.push({ id: 'rvsL', parts: [P(b + 0x46, 7, 0)], name: 'read_rvs[7:0]' });
       f.push({ id: 'rvsH', parts: [P(b + 0x47, 7, 0)], name: 'read_rvs[15:8]' });
       /* v1.11.0（Bruce 10/7「以 RT7 為主…實際上應該要將 RT7 跟 LineOD 設成是一樣的才對」）：Line OD Mapping 暫存器（EM02 BK_LOD＝0x0900，
-         Table_LOD_Reg_st RApp_Table.h:1185-1436；de／spec_line＝+0xC7、line／pix＝+0xC8、map r_0..b_15＝+0xC9..+0xF8，同事C code 實測解出 Type 32）。
+         Table_LOD_Reg_st RApp_Table.h:1185-1436；de／spec_line＝+0xC7、line／pix＝+0xC8、map r_0..b_15＝+0xC9..+0xF8，客戶案例 code 實測解出 Type 32）。
          EM01（0x0C00、欄位寬度與 48 值排法不同）與 E512（bin 表頭沒有 lod1_addr）暫不支援。 */
       if (m.lod) {
         var lb = m.lod, CHL = ['r', 'g', 'b'];
@@ -833,7 +833,7 @@
      v1.35.23（Bruce 10/17「第二組下拉名稱固定取 GN1。GN1 到底是什麼意思？這是哪來的名稱？我這邊好像沒有命名過」；#c8911321 缺口 2）：
      舊版固定用 Python UI 的 GN1 字典（＝Single-Gate 名稱表＝起始欄第 2 欄 code 0～17），18～29 只有數字、也不跟起始欄 ⇒ 改成和 ③ TFT 接線圖、Auto 接線同一個位置：
      secondT＝起始欄（mntBaseT）＋該組相對欄（與 datamap-auto.js wiringFromState 同一規則：pix58＝＋2＋上/下 gate、row34＝＋上/下 gate、line58＝＋0、mux3（Tri 第 3 條 gate）＋2），
-     名稱＝pool（mntIdx，code 0～29 每欄都有名稱）。沒給 key／s（Benchmark 只取值）⇒ 只有數字。30 未定義（同事A 隱藏表有用到、意義待問），不列。 */
+     名稱＝pool（mntIdx，code 0～29 每欄都有名稱）。沒給 key／s（Benchmark 只取值）⇒ 只有數字。30 未定義（RD 隱藏表有用到、意義待問），不列。 */
   function secondT(key, s, row) {
     if (!key || !s || MODELS[key].kind !== 'mnt') return null;
     var R = secondSetRule(key, s), g = gateOf(key, s), b = mntBaseT(s, g === 'tri' || g === 'dual' || g === 'single' ? g : undefined).t, lo = row & 1;
@@ -911,7 +911,7 @@
     if (MODELS[key].kind === 'en01') return en01Gate(s);
     if (!s.hand) return 'off';
     var p = s.panel | 0;
-    /* v1.35.29：MNT 的 gate 值＝data 一條 line 分幾段（表格列數）：LTPS MUX2 分 2 段（同事A LTPS!AD11:AD24 line／pixel 只到 _0／_1）⇒ 'dual'；
+    /* v1.35.29：MNT 的 gate 值＝data 一條 line 分幾段（表格列數）：LTPS MUX2 分 2 段（RD LTPS!AD11:AD24 line／pixel 只到 _0／_1）⇒ 'dual'；
        MUX3 與 Tri-Gate 分 3 段 ⇒ 'tri'（v1.35.28 以前 LTPS 一律 'tri'，MUX2 被當成 6 列）。面板是 gate 分段還是 MUX 見 muxPanel */
     if (semOf(key) !== 'e50x') return p <= 1 ? 'single' : (p === 2 ? 'dual' : (muxPanel(key, s).mux === 2 ? 'dual' : 'tri'));
     var r = s.rd | 0;
@@ -948,7 +948,7 @@
   function mntIdx(T, code) { return poolIdx(MNT_POOL.step, T, code); }
   /* v1.35.24（Bruce 10/17 20:0x「X 其實只是把它選到最後一個而已，並不是真的不送…31 跟 255，有可能也會對應到負的 subpixel…這個就要靠你網頁版的程式來判斷」；
      派工 237187824600842240）：依模式判斷 code 30／31 是 subpixel 還是 X。寫入值不變（X 仍寫 31）。
-     出處：瑞鼎 同事A reply_110503_0924 EM01A1_rt7_register_force_mapping.xlsx LTPS!A185:S251（MUX3 zigzag type1）、LTPS!A322:S388（type2）：
+     出處：瑞鼎 RD reply_110503_0924 EM01A1_rt7_register_force_mapping.xlsx LTPS!A185:S251（MUX3 zigzag type1）、LTPS!A322:S388（type2）：
        Pool 第 216～217 列（type2 第 353～354 列）code 30＝B1、31＝B2，從第 6 欄（K 欄）起每往右一欄 +2 pixel（B3／B4、B5／B6…）；
        「Only for line=1, mirror=1」那份（第 250～251 列、type2 第 387～388 列）30＝G1、31＝G2；其他 Pool（MUX3 normal、MUX2、BOE tri-gate、1D1G、Zigzag、HSD）都只到 29。
      ⇒ 第 T 欄：30＝第 6(T−6)+2 顆（B）／+1 顆（G），31＝再 +3 顆（下一個 pixel 同色）。前 5 欄 Excel 是空白，依決策 A5（空白＝負 pixel）同公式延伸成 B-1、B-2…
@@ -971,7 +971,7 @@
      RM81010_Kick_Off_Check_20210805.xlsx「Data hand mode」A1「FORCE_DE_SEL 182h[7:4]:」、D1:G1＝0001／0010／0100／1000（code 表 D～G 欄＝T1～T4），
      AN7:AQ7「FORCE_DE_SEL 3F2h[7:4]｜FORCE_DE_SEL：0010(default) NOTE:FORCE_DE_EN=1｜2」⇒ FORCE_DE_EN＝1 時 FORCE_DE_SEL 的 one-hot 位元選 D1~D6 用哪張 T 表；
      預設 0010＝T2（輸出公式 E36 從 E 欄＝T2 開始）。MNT：force_de_en＝rt7+0x02[0]、force_de_sel＝rt7+0x45[5:0]（EM02A1_RegisterBank.model:18200／18905，
-     6 bit「[0]~[5]: de phase 0~5」）。多位元值（Python UI 一律寫 0xE：PY pyNormalize；同事C 0x0E、全民 0x1F）原廠資料未定義，
+     6 bit「[0]~[5]: de phase 0~5」）。多位元值（Python UI 一律寫 0xE：PY pyNormalize；客戶案例 0x0E、全民 0x1F）原廠資料未定義，
      v1.17.1（Bruce 10/8「不能都用 T2」）：不再有預設 T2。Kick Off「Data hand mode」的公式（E36＝INDIRECT(ADDRESS($C36+2,COLUMN(E36)))）
      沒有引用 FORCE_DE_SEL（D1:G1、AQ7 只是表頭／範例值）：code 表每一欄 T1~T15＝沿著一行的第幾組 6 條 Data 線（每往右一欄＝往右 2 pixel），
      同一組內的相對接線和 T 無關，T 只決定整體編號（以及一行開頭往左參照不到的 code）。
@@ -995,8 +995,8 @@
     if (s.deEn | 0) for (var b = 0; b < 6; b++) if (v === (1 << b)) return { t: b + 1, why: 'onehot' };
     /* FORCE_DE_EN＝0（auto de phase）：EM02 原廠 RT7 清單 33 型（de_en＝0）算出的 Line OD 只有以 T2 解碼才和原廠 Line OD Type 一致
        （tools/check_datamap_auto.js；EM02 RApp_TX.h:533-566 ⇔ RApp_Table.h Line OD）⇒ auto 時以 T2 解讀（依 EM02 反推；EM01／E512 比照推定）。 */
-    /* v1.27.0（同事A 10/13 回信）：reg_force_de_en＝0 ⇒ 1D1G 從第 1 欄（T1）、Zigzag／HSD 從第 2 欄（T2）；其他（LTPS）沿用第 2 欄（推定）。 */
-    /* v1.28.1：同事A 10/14 14:44 定案——force_de_en＝0 等同 de_sel（1D1G 0x01／Zigzag 0x06／HSD 0x0A／LTPS 0x0C）⇒ 起始欄 1／2／2／3（LTPS 改第 3 欄）；與 tWin 共用 deAutoBase */
+    /* v1.27.0（RD 10/13 回信）：reg_force_de_en＝0 ⇒ 1D1G 從第 1 欄（T1）、Zigzag／HSD 從第 2 欄（T2）；其他（LTPS）沿用第 2 欄（推定）。 */
+    /* v1.28.1：RD 10/14 14:44 定案——force_de_en＝0 等同 de_sel（1D1G 0x01／Zigzag 0x06／HSD 0x0A／LTPS 0x0C）⇒ 起始欄 1／2／2／3（LTPS 改第 3 欄）；與 tWin 共用 deAutoBase */
     if (!(s.deEn | 0)) return { t: deAutoBase(s), why: 'auto', sel: deAutoSel(s) };
     /* v1.26.0（Bruce 10/13 決定，依 RD：「data 永遠都是從 T1 開始…14 代表最前面那一行不用，T1 移到第二行才開始用；31 其實 T1 就在最前面那行」）：
        多 bit ⇒ T1 起始欄＝最小設 1 的 bit＋1（0x0E＝第 2 欄、0x1F＝第 1 欄），不再依 code 反推（取代 v1.17.1「24 格都在範圍內的最低那張」）。
@@ -1017,7 +1017,7 @@
   /* v1.28.1：Tri（LTPS）的第 2 條 gate（_1／_3 列）與 Dual 下 gate 同樣＝起始欄＋1（datamap-auto wiringFromState：Tri 第 k 條 gate＝起始欄＋k；第 3 條 gate 在 x 表） */
   function mntRel(gate, row) { return (gate === 'dual' || gate === 'tri') && (row & 1) ? 1 : 0; }
   /* Mirror＝1：名稱整行反轉後＝Kick Off 命名往後 gate 數張表（Single＋1、Dual＋2），範圍也照那張表判斷 */
-  /* v1.27.0（同事A 10/13：BOE 分頁 INDEX 17..12 在第 1 欄＝B-3 G-3 R-3 B-4 G-4 R-4，Mirror 範例也是直接查 Pool 表）：Mirror 不改變名稱與 T 表 ⇒ 恆為 0（保留介面） */
+  /* v1.27.0（RD 10/13：BOE 分頁 INDEX 17..12 在第 1 欄＝B-3 G-3 R-3 B-4 G-4 R-4，Mirror 範例也是直接查 Pool 表）：Mirror 不改變名稱與 T 表 ⇒ 恆為 0（保留介面） */
   function mntMirT(s, gate) { return 0; }
   function mntCands(s, gate) {
     var ts = deSelTs(s.deSel, 6), mo = mntMirT(s, gate);   // v1.27.6：候選欄＝BOE 連續視窗（只在值 0 時顯示 ⇒ 實際為空）
@@ -1026,8 +1026,8 @@
   /* v1.24.0（Bruce 10/13「設定 3 應該是 T2 跟 T1 兩個是 or；設定 5 就是 T3 跟 T1」）：FORCE_DE_SEL 換算成 T 組合。
      規格：EM02A1_RegisterBank.model force_de_sel 6 bit「[0]~[5]: de phase 0~5」＋Kick Off「Data hand mode」D1:G1＝0001／0010／0100／1000＝T1～T4
      ⇒ bit n ＝ T(n+1)，與 Bruce 的例子一致（3＝T1|T2、5＝T1|T3、14＝T2|T3|T4）。原廠只定義 one-hot；多 bit 時晶片怎麼用（OR？取最低？）原廠資料沒寫。
-     ※ v1.27.6 起此段的「設 1 的 bit＝可用 T」已作廢，改依 同事A 10/14 BOE 分頁（見下方 deSelTs）。 */
-  /* v1.27.6（同事A 10/14 09:24 新版 EM01A1_rt7_register_force_mapping.xlsx「BOE」分頁 reg_force_de_sel 0x01～0x3F 每列 T 欄位；取代 v1.24.0／v1.26.2 的「可用 T＝設 1 的 bit」）：
+     ※ v1.27.6 起此段的「設 1 的 bit＝可用 T」已作廢，改依 RD 10/14 BOE 分頁（見下方 deSelTs）。 */
+  /* v1.27.6（RD 10/14 09:24 新版 EM01A1_rt7_register_force_mapping.xlsx「BOE」分頁 reg_force_de_sel 0x01～0x3F 每列 T 欄位；取代 v1.24.0／v1.26.2 的「可用 T＝設 1 的 bit」）：
      force_de_en＝1：T1＝最小設 1 的 bit 那欄（bit n＝第 n+1 欄），T2、T3…連續往右不跳欄，最後一個 T＝最大設 1 的 bit 那欄＋4
      ⇒ 可用 T 數＝(最大 bit − 最小 bit)＋5。0x05＝第 1～7 欄、0x0E＝第 2～8 欄、0x3F＝第 1～10 欄、0x20＝第 6～10 欄。
      回傳 T1、T2…依序所在的 Pool 欄號（ts[i]＝T(i+1) 的欄）。值 0 ⇒ []（BOE 分頁沒有定義）。tools/check_datamap_boe.js 逐列逐格比對。 */
@@ -1039,12 +1039,12 @@
     return ts;
   }
   function deSelText(v, bits) { var ts = deSelTs(v, bits); return ts.length ? 'T1～T' + ts.length + '＝第' + ts[0] + '～' + ts[ts.length - 1] + '欄' : ''; }
-  /* v1.28.1（同事A 10/14 14:44 回信「是等效的」，演算法定案；取代 v1.27.0／v1.27.6 的「起始欄＋往右 4 欄」）：
+  /* v1.28.1（RD 10/14 14:44 回信「是等效的」，演算法定案；取代 v1.27.0／v1.27.6 的「起始欄＋往右 4 欄」）：
      force_de_en＝0 時，晶片依 panel_mode 等同一個 reg_force_de_sel 值，直接套用上面 FORCE_DE_SEL 的 BOE 規則（deSelTs），不另寫一套：
        panel 0 1D1G   ＝0x01（6'b00_0001）⇒ 第 1～5 欄
        panel 1 Zigzag ＝0x06（6'b00_0110）⇒ 第 2～7 欄
-       panel 2 HSD    ＝0x0A（6'b00_1010）⇒ 第 2～8 欄（與 force_de_en＝1＋0x0E 的 T1 起始欄相同，同事A：RT7 (26) 0/0 與 1＋0x0E 等效）
-       panel 3 LTPS   ＝0x0C（6'b00_1100）⇒ 第 3～8 欄（同事A 修正：LTPS DE＝T3，第 3 欄）
+       panel 2 HSD    ＝0x0A（6'b00_1010）⇒ 第 2～8 欄（與 force_de_en＝1＋0x0E 的 T1 起始欄相同，RD：RT7 (26) 0/0 與 1＋0x0E 等效）
+       panel 3 LTPS   ＝0x0C（6'b00_1100）⇒ 第 3～8 欄（RD 修正：LTPS DE＝T3，第 3 欄）
      panel_mode 只有 2 bit（0～3），每個值都有定義；所有型號共用，不做機種特例。 */
   var DE_AUTO_SEL = [0x01, 0x06, 0x0A, 0x0C];
   function deAutoSel(s) { return DE_AUTO_SEL[((s && s.panel) | 0) & 3]; }
@@ -1060,7 +1060,7 @@
      依據＝mntName／mntIdx（同一份 Pool 命名）：第 c 欄（T1 起始欄）的 code 0~29 ⇒ 線性位置 k＝6(c−1)−6⌊code/6⌋＋code%6 ∈ [6c−30, 6c−1]
        ⇒ 該欄可選 pixel 索引 [2c−10, 2c−1]（索引≥0 ⇒ 名稱 idx+1；負＝dummy 名稱＝idx）。例：第 2 欄＝R-6～B4、第 1 欄＝R-8～B2。
      Dual／Tri 的下 gate 列用 起始欄＋mntRel（＝＋1）⇒ 每一列都選得到＝各列欄位的交集 [2(c+rel)−10, 2c−1]（與表格下拉同一來源，不另寫規則）。
-     選值：先依序試常用值（0x0E、0x1F、同事A 自動等效 0x01／0x06／0x0A／0x0C、0x3F），起始欄能涵蓋就用；都不行才只設起始欄那個 bit。
+     選值：先依序試常用值（0x0E、0x1F、RD 自動等效 0x01／0x06／0x0A／0x0C、0x3F），起始欄能涵蓋就用；都不行才只設起始欄那個 bit。
      範圍大於一欄能涵蓋的 ⇒ over＝true，取涵蓋最多的起始欄（同分先取有常用值的、再取較小欄）。 */
   var DE_COMMON = [0x0E, 0x1F, 0x01, 0x06, 0x0A, 0x0C, 0x3F];
   function pxIdx(p) { p = p | 0; return p > 0 ? p - 1 : p; }
@@ -1105,7 +1105,7 @@
   /* v1.24.0 T 使用分析（Bruce 10/13 轉述 RD 原話：「它一樣是 OR 的概念，就是你到底會用到哪幾個 T，只是它會從你所選的 T 裡面最小的 T 開始用…
      設定 14…最小的會是在 T2，也就是從 T2 開始推…某些 data mapping 下它除了 T2 以外還會用到 T3…最多用到 T4…要看它的 line buffer（那個 T 其實是 line buffer 的意思）」）：
      ・v1.27.6：可用欄＝tWin（BOE 分頁：最小 bit 那欄起連續到最大 bit 那欄＋4；force_de_en＝0＝panel 等效 de_sel 套同一規則，v1.28.1）；基準＝T1 那欄。
-       （取代 v1.24.0「可用 T＝遮罩中為 1 的 bit」——同事A 10/14 新表證明是錯的。）
+       （取代 v1.24.0「可用 T＝遮罩中為 1 的 bit」——RD 10/14 新表證明是錯的。）
      ・每條 gate 一個 line buffer：Single 只用基準；Dual 的下 gate（Line x-2）用基準＋1（與 mntTOf 相同）。
      ・MNT 另依 code 表範圍：某格的 code 在該 T 表沒有定義（code≥6×(T＋1)）⇒ 往上找到第一張有定義的 T（＝這格要用到更大的 line buffer）。
        NB（E50x／DAZ613x）的名稱是固定的 GN1／GN2 表，不隨 T 變 ⇒ 只用 gate 規則。
@@ -1134,7 +1134,7 @@
     if (code === 31) return 'X';
     if (code < 0 || code > 29) return null;
     var T = (base || 2) + mntRel(gate, row), k = mntIdx(T, code);
-    /* v1.27.0：Mirror 不再平移名稱（取代 v1.17.1 的 +6×gate）；名稱＝Pool 表直接查（同事A BOE 分頁） */   /* v1.17.1：整行反轉（不再每 6×gate 一組各自反轉）⇒ 跨組的 code 落在相鄰位置（全民 0x17＝B-1，Bruce 10/8）；等同 Kick Off 命名的「基準＋gate 數」那張 T */
+    /* v1.27.0：Mirror 不再平移名稱（取代 v1.17.1 的 +6×gate）；名稱＝Pool 表直接查（RD BOE 分頁） */   /* v1.17.1：整行反轉（不再每 6×gate 一組各自反轉）⇒ 跨組的 code 落在相鄰位置（全民 0x17＝B-1，Bruce 10/8）；等同 Kick Off 命名的「基準＋gate 數」那張 T */
     return linName(k);
   }
   var _mntDicts = {};
@@ -1154,7 +1154,7 @@
      頁面 nbDeSelNow 都用這一個值（tWin 照舊描述暫存器本身的值，給 FORCE_DE_SEL 輸入框旁說明用） ⇒ 起始欄＝它最低設 1 的 bit＋1（原理 2.1）。state.deRev（使用者手改 FORCE_DE_SEL、套用 Pixel、自動反推，或匯入／讀回 code 的值≠0xE：
      datamap.html afterLoad）且 FORCE_DE_EN＝1、值≠0 ⇒ 依該值（Bruce 10/16「預設 14，但是可以改」「有 code／連線時依 code 值」）；其他 ⇒ 0xE（pyNormalize 下次改表格會寫回 0xE，
      名稱要和寫出去的值一致；Python UI 開 Hand 寫 0xE：PY:29274-29280；FORCE_DE_EN 不開時 FORCE_DE_SEL 預設 2＝第 2 欄：PY:1793）。判斷＝v1.35.20 rowDict（名稱不變）；
-     舊版 Pixel 範圍／tWin 看暫存器值（FORCE_DE_EN＝0 還套 同事A 的 MNT panel 等效值）、頁面 nbDeSelNow 只看 deRev，三邊對不上。預設 14（Single -6～4／Dual -4～4）與可改（v1.35.15）不變。 */
+     舊版 Pixel 範圍／tWin 看暫存器值（FORCE_DE_EN＝0 還套 RD 的 MNT panel 等效值）、頁面 nbDeSelNow 只看 deRev，三邊對不上。預設 14（Single -6～4／Dual -4～4）與可改（v1.35.15）不變。 */
   function nbE50x(key) { return !!MODELS[key] && MODELS[key].kind === 'nb' && semOf(key) === 'e50x'; }
   /* v1.36.0（Bruce 10/19 22:4x「E503 我就可以回答你，實際上它的結果是跟 MNT 的提案是一樣的」、22:3x「我之前就說可以改，不用寫 0xE，但是預設的要 0xE」「501 跟 503 是同一個家族」）：
      RM8100x 家族（E501A／E501B／E503）code 18～29（R-3～R-6）正式支援、FORCE_DE_SEL 同 MNT 可改 ⇒ FORCE_DE_EN＝1 且值≠0 就照值（不再需要 deRev）；預設仍 0xE。
@@ -1309,7 +1309,7 @@
      v1.35.31 起 MUX2 寫 1（v1.35.29／30 照原廠 MNT Tool 寫 2；依據與原廠 Tool 讀回會跳 not match 的提醒見 autoRd 上方、型號/MNT §10.10）。
        Single：panel 保留 0／1（1D1G／Zigzag；原本是 HSD／LTPS 才改 0、sub 歸 0），rd 0（v1.35.28 以前一律寫 panel＝1＝Zigzag，MNT 已知問題 3）
        Dual：panel 2（原本不是 HSD 才 sub 歸 0），rd 1
-       Tri-Gate：panel 3（sub 保留；BOE tri-gate 的 同事A 表是 sub 2），rd 2，triGate＝1
+       Tri-Gate：panel 3（sub 保留；BOE tri-gate 的 RD 表是 sub 2），rd 2，triGate＝1
        MUX2／MUX3：panel 3、SUB[0]＝1／0（保留 SUB[1] Zigzag、[2] TYPE；原本不是 LTPS 則歸 0），rd 1／2（v1.35.31），triGate＝0 */
   var MNT_GATES = ['Single-Gate', 'Dual-Gate', 'Tri-Gate', 'MUX2', 'MUX3'];
   function mntSetGate(key, s, item) {
@@ -1805,7 +1805,7 @@
   function triId(row, col) { var R = TRI_ROWS[row]; return R.f + (R.slot * 6 + col); }
   function triT(s, row) { return mntBaseT(s, 'tri').t + TRI_ROWS[row].g; }
   /* v1.35.22（Bruce 10/17「放寬到 0 至 29…Tri Gate 其實也有可能用到負數，都是一樣的」；派工 237015171729031168）：拿掉 ⌊code/6⌋≤欄，
-     改用 MNT 同一份 mntInRange（code 0～29＋X 31，每一欄都合法；空白處＝負 pixel／AA 區外 dummy，決策 A5；同事A EM01A1 1D1G!C26:C55、RApp_TX.cpp:9506-9511）。 */
+     改用 MNT 同一份 mntInRange（code 0～29＋X 31，每一欄都合法；空白處＝負 pixel／AA 區外 dummy，決策 A5；RD EM01A1 1D1G!C26:C55、RApp_TX.cpp:9506-9511）。 */
   function triCodeOk(T, code) { return mntInRange(T, code); }
   /* v1.35.24：zz＝ltpsZzKind（LTPS MUX3 zigzag 的 Pool 有 30／31 ⇒ 名稱＝subpixel，不當 X；其他模式 31＝X、30 未定義，與舊版相同） */
   function triName(T, code, zz) { code = code | 0; if (zz && (code === 30 || code === 31)) return linName(ltpsZzIdx(T, code, zz)); if (code === 31) return 'X'; if (code < 0 || code > 29) return null; return linName(mntIdx(T, code)); }

@@ -320,7 +320,7 @@
     var c = function (slot, ch) { return s['c' + (slot * 6 + ch)] | 0; }, x = function (slot, ch) { return s['x' + (slot * 6 + ch)] | 0; };
     /* v1.17.0：Hand Mode 的 T 表跟 FORCE_DE_EN／FORCE_DE_SEL（DM.mntBaseT；Kick Off「Data hand mode」D1:G1，預設／多位元＝T2 ⇒ 位移 0，舊行為不變） */
     var dT = DM.mntBaseT ? DM.mntBaseT(s).t - 2 : 0;
-    /* v1.28.1（同事A 10/14 14:44：LTPS DE＝T3＝第 3 欄，等同 de_sel 0x0C）：Tri 第 k 條 gate＝起始欄＋k（與 Dual 下 gate＝起始欄＋1 同一規則）。
+    /* v1.28.1（RD 10/14 14:44：LTPS DE＝T3＝第 3 欄，等同 de_sel 0x0C）：Tri 第 k 條 gate＝起始欄＋k（與 Dual 下 gate＝起始欄＋1 同一規則）。
        舊版把 Tri 寫死成 lin(3＋g3)（起始欄 2 再＋1），等於把 LTPS 的第 3 欄藏在這裡；起始欄改由 mntBaseT 給 3 後改回 lin(2＋g3)＋dT，原廠 RT7 Tri 樣式的 Line OD 結果不變。 */
     var bad = false, badN = 0, keep = !!(opt && opt.keepBad), lin = function (T, v) { if (v === 31) return null; var l = tn(T + dT, v); if (l === null) { bad = true; badN++; if (keep) return NaN; } return l; };
     var rows = [], P = 6, A, G;
@@ -403,7 +403,7 @@
 
   /* ── v1.28.2（Bruce 10/14「這些都是用預設的設定，所以應該都要有圖才對」；依據優先序：瑞鼎 Excel ＞ Line OD 預設）──────────────
      MNT Auto（Hand 關）原本只認原廠 RT7 清單中 force_sel_en＝0 的樣式 ⇒ HSD sub 4／5（8-pixel、4line-4pixel）、LTPS sub 1～7、1D1G sub≠0 沒有 TFT 圖。
-     補上瑞鼎 Excel（RD_peera_DataMapping_20261013/reply_110503_0924/EM01A1_rt7_register_force_mapping.xlsx）1D1G／Zigzag／HSD／LTPS 分頁
+     補上瑞鼎 Excel（RD_RD_DataMapping_20261013/reply_110503_0924/EM01A1_rt7_register_force_mapping.xlsx）1D1G／Zigzag／HSD／LTPS 分頁
      「Manual setting」的 force_sel 表（非 mirror 欄；mirror 不改玻璃接線，同 matchLoose），用 Hand Mode 同一套 wiringFromState 換算接線（單一來源）。
      欄位：[分頁, 名稱, panel, sub（null＝Excel 寫 x：任何 sub）, Excel Auto setting 有列這組（1）／只有 Manual（0，推定）, gate 覆寫, c0..c23, x0..x23]
      交叉驗證（tools/check_datamap_tft_all.js）：與 RT7＋Line OD 已有圖的 14 組 24 條 Data 線完全相同；HSD 8pixel＝Line OD 29、4line-4pixel＝Line OD 30；

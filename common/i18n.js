@@ -2345,7 +2345,7 @@ var I18N = {
 
   /* ── v1.28.0：治具通道診斷（只讀，Bruce 2026-09-30）──────────────────── */
   'i2c.hdChDiag':       { 'zh-TW': '治具通道診斷（只讀）', 'en': 'Adapter channel check (read-only)', 'zh-CN': '工装通道诊断（只读）' },
-  'i2c.cdIntro':        { 'zh-TW': '看治具的兩個通道各自接了什麼。<b>只讀不寫</b>：不換驅動、不寫 TCON／EEPROM、不改任何程式的設定。兩顆都按完，按「複製結果」貼回聊天室。', 'en': 'Shows what each of the adapter\'s two channels is connected to. <b>Read-only</b>: no driver change, nothing written to the TCON or EEPROM, no program settings touched. Press both buttons, then "Copy result" and paste it into the chat.', 'zh-CN': '看工装的两个通道各自接了什么。<b>只读不写</b>：不换驱动、不写 TCON／EEPROM、不改任何程序的设置。两个都按完，按“复制结果”贴回聊天室。' },
+  'i2c.cdIntro':        { 'zh-TW': '看治具的兩個通道各自接了什麼。<b>只讀不寫</b>：不換驅動、不寫 TCON／EEPROM、不改任何程式的設定。兩顆都按完，按「複製結果」貼回來給維護者看。', 'en': 'Shows what each of the adapter\'s two channels is connected to. <b>Read-only</b>: no driver change, nothing written to the TCON or EEPROM, no program settings touched. Press both buttons, then "Copy result" and send the result to the maintainer.', 'zh-CN': '看工装的两个通道各自接了什么。<b>只读不写</b>：不换驱动、不写 TCON／EEPROM、不改任何程序的设置。两个都按完，按“复制结果”贴回来给维护者看。' },
   'i2c.cdBtnBridge':    { 'zh-TW': '① 通道與位址掃描', 'en': '1. Channels & address scan', 'zh-CN': '① 通道与地址扫描' },
   'i2c.cdBtnUsb':       { 'zh-TW': '② 讀 USB 描述', 'en': '2. Read USB descriptors', 'zh-CN': '② 读 USB 描述' },
   'i2c.cdBtnCopy':      { 'zh-TW': '複製結果', 'en': 'Copy result', 'zh-CN': '复制结果' },

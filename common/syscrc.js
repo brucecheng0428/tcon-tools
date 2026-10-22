@@ -5,8 +5,8 @@
      match    ＝ 存值＝計算值 ⇒ 確認型號
      blank    ＝ 存值 0000／FFFF（V512 這類）⇒ 照舊、不提醒
      mismatch ＝ 不符 ⇒ 不擋路提醒；others＝其他型號位置有沒有吻合，空＋EM01 Flash ⇒ notRaydium（可能不是瑞鼎 code）
-   出處：同事I 10/14 信＋EM01／EM02 UI App/RApp_Common.cpp RApp_Common_CRC16（初值 0x0052、LSB 存前）；
-   crc16 逐字移植自 ~/TCON/TCON設定相關/peeri_20261014_1512/em_syscrc_probe.js（1249 個 bin：EM02 132、EM01 EEPROM 66、EM01 Flash 157 吻合，互認錯 0）。
+   出處：RD 10/14 信＋EM01／EM02 UI App/RApp_Common.cpp RApp_Common_CRC16（初值 0x0052、LSB 存前）；
+   crc16 逐字移植自 ~/TCON/TCON設定相關/RD_20261014_1512/em_syscrc_probe.js（1249 個 bin：EM02 132、EM01 EEPROM 66、EM01 Flash 157 吻合，互認錯 0）。
    位置（皆從檔案 0 起算）：EM02 SYS 0x00～0x87、CRC 0x88；EM01 EEPROM 0x00～0xBF、CRC 0xC0；EM01 Flash 0x00～0xF1、CRC 0xF2。
    瀏覽器 window.TCONSysCrc，node module.exports。
    ═══════════════════════════════════════════════════════════════════════════ */

@@ -13,7 +13,7 @@ var TOOL_VERSIONS = {
   wfg:     'v4.59.0',     // 面板訊號模擬與取樣
   pattern: 'v3.8.7',       // Pattern Generator 畫面產生器
   dg:      'v2.7.0',       // Digital Gamma 迭代校正（含量測頁 dg-measure.html）
-  i2c:     'v1.34.2',       // I2C（讀寫測試）
+  i2c:     'v1.34.3',       // I2C（讀寫測試）
   nbdebug: 'v1.1.0',        // NB TCON Debug應用（E503／E501A／E501B／EN01 debug 輸出：選 IC、項目、GPIO → I2C 執行或匯出 Excel／.script）
   datamap: 'v1.37.1',       // Data Mapping（Python UI 的內容與規則、站內風格；DAZ／E501／E503／EN01／EM01／EM02／E512）// v1.20.0（Bruce 10/9）：新增 EN01（RM81008，依原廠 WPF RomCodeProcessUI）
   /* 🔴 TCON 自檢畫面量測（dg-selftest.html）。
@@ -71,7 +71,7 @@ var HELPER_PKG = {
       69,120 bytes，coff-i386（32 位元，與我們的 bridge 相符）
       SHA256 d441d08edb9b4c6ba411493567c38f6f8d2dce2cc0ed4d12240a38dac3b63c4b
       （與 `EM01/Raydium_TCON_Tool_RM80100_v0.3.35/` 那份**雜湊相同**，兩處交叉驗證）
-      ⚠️ 不是 `Python_peeri/DLL_I2C_BCB_DEMO_20220606/` 那份（64,512 bytes，舊版），
+      ⚠️ 不是 `Python_RD/DLL_I2C_BCB_DEMO_20220606/` 那份（64,512 bytes，舊版），
          也不是 `DLL_I2C_BCB_64.dll`（64 位元，載不進 32 位元的 bridge）。 */
   /* 🔴 v1.12.0（2026-09-19）：exe **有動** —— 原廠 DLL 的寫入（SendBytesEx）
      接上去了。v1.14.x 之後原廠路徑是採用中的讀取後端，而寫入還停在拒絕狀態，
