@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NB TCON Debug應用 — TCON FAE Toolbox</title>
+<link rel="stylesheet" href="common/common.css?v=20261022nd100">
+<link rel="stylesheet" href="common/site-ui.css?v=20261022nd100">
+<!--
+  NB TCON Debug應用 v1.0.0（Bruce 2026-10-22，派工 238904982972174336）
+  ・Bruce 原話：「同事F剛剛寄出E503要拉出RX DE與TX DE的mail，這是有驗證過的方式…如果有差異要以同事F的這份mail為主，
+    然後現在可以開始製作網頁了，我要在tcon tools專案裡看到，標題是NB TCON Debug應用」；
+    「所有的 debug 我不要只限定在某一 pin 輸出，都要有下拉選單，可以從不同的 GPIO pin 輸出」；
+    「網頁版的還需要可以有 I2C 即時操作，或者是匯出 NB 版的 Script，可以選擇 Excel 或是 Script 檔案」；
+    「步驟要越簡單越好，說明要越少越好。就跟之前的 DG網頁或者是 DataMap 網頁的目標是一樣的，簡單明瞭、易操作」。
+  ・主畫面：IC／項目／輸出 GPIO 三個下拉 → 一張暫存器表 → I2C 執行／還原／匯出 Excel／匯出 .script。來源、驗證等級用小標籤；細節收在「說明」。
+  ・GPIO 清單：WPF ModelFiles 的 .model（RM8100x_for_FAE_20240925_20250311／RM81010_for_FAE_20240509_20241127／
+    RM81011_for_FAE_20231025_20240509／RM81008）裡同一個父節點底下同時有 *_TX_EN 與 *_TX_IN_SEL 的全部列出，
+    位址／bit／行號由程式從 .model 抽出（NBD_GPIO，行號存在 txL／selL）。封裝腳名來源：assistant_kb
+    reference/NB_TCON_debug_TCON資料夾整理_20261022.md §5（datasheet Pin List）；查不到的標「封裝腳位待確認」。
+  ・I2C：I2C Bridge（common/i2c-bridge.js 連線位址／徽章／下載提示；common/i2c-mbus.js M-Bus 導通 C-Bus），
+    WebSocket 協定（ping／open／read／rawwrite／close）與 IC 辨認（7C:95／7C:98／7D:007D／3E:207E）照 datamap.html。
+    🔴 不下 datamap 那一筆 E503 3E:0059←1E —— 0x059 正是 WP pin 的 TX_IN_SEL（同事F的輸出腳），下了會把 debug 輸出蓋掉。
+    每一列都是「讀 → 只改遮罩內的 bit → 寫 → 讀回比對」；第一次寫前的原值記下來給「還原」。
+  ・匯出：Excel 照 WFG NB 匯出（wfg.html wfgNbBuildXlsx：WFG_NB_XLSX_HEADER 22 欄、Check Item＝.model 區塊名、
+    Offset 用 wfgNbOff 格式、值 '0x'+HEX）；.script 照 wfgNbBuildScript（write -m AAAA VV MM、// 註解、ASCII）。
+  ・KOSC（EN01）：同事K 2026-10-21 Debug_OSC.i2cs＋EN01A1 osc calibration_1.i2cs；燒 eFuse（7C 0x01=01）預設不含，
+    要勾「加入燒錄」＋兩個確認才會出現在表上／檔案裡；I2C 送出另外要求本次已讀 3E 0x20D0＝0。
+-->
+<style>
+  :root { --sub: var(--text-sub); --fh: 34px; }
+  .hidden { display: none !important; }
+  .nd-top { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; margin: 0 0 10px; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border, #334155); background: var(--card, #0f172a); }
+  .nd-top .sp { flex: 1; }
+  .sbtn { background: #334155; border: 1px solid #475569; border-radius: 6px; color: var(--text); padding: 0 14px; font-size: 13px; font-weight: 600;
+          cursor: pointer; min-height: var(--fh); display: inline-flex; align-items: center; justify-content: center; gap: 6px; box-sizing: border-box; }
+  .sbtn:hover { background: #3f4f66; }
+  .sbtn:disabled { opacity: .45; cursor: not-allowed; }
+  .sbtn.pri { background: #0369a1; border-color: #0ea5e9; } .sbtn.pri:hover { background: #0284c7; }
+  .sbtn.sm { min-height: 28px; padding: 0 10px; font-size: 12px; }
+  .nd-form { display: grid; grid-template-columns: minmax(110px, 160px) minmax(0, 1fr); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .nd-frow { display: contents; }
+  .nd-frow > span { padding: 6px 10px; display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; min-height: var(--fh); }
+  .nd-frow + .nd-frow > span { border-top: 1px solid var(--border); }
+  .nd-fl { font-size: 13px; color: var(--sub); background: rgba(148,163,184,.06); }
+  .nd-fc { min-width: 0; }
+  .nd-sel { background: #0b1424; color: var(--text); border: 1px solid var(--border); border-radius: 6px; height: var(--fh); padding: 0 8px; font-size: 13.5px; box-sizing: border-box; width: 100%; max-width: 420px; }
+  .nd-sel:focus, .nd-in:focus { outline: none; border-color: var(--accent); }
+  .nd-in { background: #0b1424; color: var(--text); border: 1px solid var(--border); border-radius: 6px; height: 28px; padding: 0 6px; font-size: 13px; width: 58px; font-family: ui-monospace, Menlo, Consolas, monospace; }
+  .nd-line { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; margin: 10px 0 0; font-size: 13px; color: var(--sub); }
+  .nd-tag { display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: 11px; font-size: 12px; font-weight: 700; border: 1px solid transparent; white-space: nowrap; cursor: default; }
+  .lv-peerf { background: #064e3b; color: #6ee7b7; border-color: #10b981; }
+  .lv-ven { background: #0c4a6e; color: #7dd3fc; border-color: #0ea5e9; }
+  .lv-doc { background: #451a03; color: #fcd34d; border-color: #f59e0b; }
+  .nd-meas b { color: var(--text); }
+  .nd-pkgq { color: #fcd34d; }
+  .nd-warn { margin: 8px 0 0; padding: 6px 10px; border-radius: 6px; border: 1px solid #b45309; background: #2a1606; color: #fde68a; font-size: 13px; }
+  .nd-warn:empty { display: none; }
+  .nd-tblwrap { margin-top: 10px; overflow-x: auto; }
+  table.nd-tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .nd-tbl th, .nd-tbl td { border-top: 1px solid var(--border); padding: 5px 6px; text-align: left; vertical-align: middle; white-space: nowrap; }
+  .nd-tbl th { color: var(--sub); font-weight: 600; font-size: 12px; border-top: 0; }
+  .nd-tbl .mono, .nd-mono { font-family: ui-monospace, Menlo, Consolas, monospace; }
+  .nd-tbl td.nm { white-space: normal; color: var(--sub); font-size: 12px; min-width: 90px; }
+  .nd-tbl tr.pin td { background: rgba(14,165,233,.07); }
+  .nd-tbl tr.burn td { background: rgba(220,38,38,.12); }
+  .nd-tbl tr.rd td { background: rgba(148,163,184,.06); }
+  .nd-rb.ok { color: #86efac; } .nd-rb.ng { color: #fca5a5; } .nd-rb.mid { color: #fcd34d; }
+  .nd-bits { color: var(--sub); font-size: 11.5px; }
+  .nd-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; align-items: center; }
+  .nd-acts .gap { flex: 1; }
+  .nd-st { margin-top: 8px; font-size: 13px; color: var(--sub); min-height: 1em; }
+  .nd-st.err { color: #fca5a5; } .nd-st.ok { color: #86efac; }
+  .nd-burnbox { margin-top: 10px; padding: 8px 10px; border: 1px solid #7f1d1d; border-radius: 8px; background: #1f0a0a; font-size: 13px; }
+  .nd-burnbox label { display: flex; gap: 8px; align-items: flex-start; margin: 4px 0; color: var(--text); font-weight: 500; text-transform: none; letter-spacing: 0; cursor: pointer; }
+  .nd-burnbox input { width: 16px; height: 16px; margin: 2px 0 0; accent-color: #ef4444; flex: none; }
+  .nd-help { font-size: 13px; line-height: 1.7; color: var(--text); }
+  .nd-help ul { margin: 6px 0; padding-left: 20px; }
+  .nd-help h4 { margin: 10px 0 4px; font-size: 13.5px; }
+  .nd-log { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow: auto; margin: 6px 0 0; color: var(--sub); }
+  @media (max-width: 560px) {
+    .nd-form { grid-template-columns: minmax(0, 1fr); }
+    .nd-fl { padding-bottom: 0 !important; min-height: 0 !important; background: none; font-weight: 600; }
+    .nd-frow + .nd-frow > .nd-fc { border-top: 0; }
+    .nd-sel { max-width: none; }
+    .nd-tbl th.c-slave, .nd-tbl td.c-slave { display: none; }
+    .nd-tbl td.nm { min-width: 70px; }
+    .nd-tbl td.nm .nd-bits { display: none; }
+  }
+  @media (pointer: coarse) { .nd-sel, .sbtn { min-height: 40px; height: auto; } .sbtn.sm { min-height: 34px; } }
+</style>
+</head>
+<body>
+<div id="ptr-indicator"><span class="ptr-icon">⬇</span><span class="ptr-text" data-i18n="ptr.pull">下拉刷新</span></div>
+
+<div class="header subpage-header">
+  <a href="index.html" class="back-btn" data-i18n="common.backToHome">← 返回首頁</a>
+  <h1><svg width="20" height="16" viewBox="0 0 30 22" fill="none" style="display:inline-block;vertical-align:middle;margin-right:6px" aria-hidden="true"><rect x="7" y="4" width="16" height="14" rx="2" stroke="#34d399" stroke-width="1.6"/><path d="M1 8 H7 M1 14 H7 M23 11 H29" stroke="#34d399" stroke-width="1.6" stroke-linecap="round"/><path d="M10 14 L13 8 L16 12 L20 7" stroke="#34d399" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-i18n="nd.title">NB TCON Debug應用</span> <span style="display:inline-block;background:#34d399;color:#052e16;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;vertical-align:middle;letter-spacing:0;" data-tool-version="nbdebug"></span></h1>
+  <p data-i18n="nd.subtitle">選 IC、項目、輸出腳 → 照表下暫存器（I2C 或匯出）</p>
+  <div class="lang-switcher">
+    <select id="lang-select" class="lang-select" aria-label="Language">
+      <option value="zh-TW">繁體中文</option>
+      <option value="zh-CN">简体中文</option>
+      <option value="en">English</option>
+    </select>
+  </div>
+</div>
+
+<div class="container">
+  <div class="nd-top"><span id="nd-i2c" class="i2cb-badge i2cb-off" data-i2c="off" role="status" aria-live="polite">I2C</span><button class="sbtn sm" id="nd-link" data-i18n="nd.link">連線</button><span id="nd-ic" class="nd-st" style="margin:0"></span><span class="sp"></span></div>
+  <div id="nd-need" hidden></div>
+
+  <div class="card stp" id="nd-card">
+    <div class="nd-form">
+      <div class="nd-frow"><span class="nd-fl" data-i18n="nd.kIc">IC</span><span class="nd-fc"><select id="nd-icsel" class="nd-sel"></select></span></div>
+      <div class="nd-frow"><span class="nd-fl" data-i18n="nd.kItem">項目</span><span class="nd-fc"><select id="nd-item" class="nd-sel"></select></span></div>
+      <div class="nd-frow"><span class="nd-fl" data-i18n="nd.kGpio">輸出 GPIO</span><span class="nd-fc"><select id="nd-gpio" class="nd-sel"></select></span></div>
+    </div>
+    <div class="nd-line" id="nd-info"></div>
+    <div class="nd-warn" id="nd-warn"></div>
+    <div class="nd-tblwrap"><table class="nd-tbl" id="nd-tbl"></table></div>
+    <div class="nd-burnbox hidden" id="nd-burnbox">
+      <label><input type="checkbox" id="nd-burn"> <span data-i18n="nd.burnAdd">加入燒 eFuse（7C 0x01 = 01，不可逆）</span></label>
+      <div id="nd-burnc" class="hidden">
+        <label><input type="checkbox" id="nd-burn1"> <span data-i18n="nd.burnC1">我了解這是一次性燒錄，燒錯可能無法復原</span></label>
+        <label><input type="checkbox" id="nd-burn2"> <span id="nd-burn2t"></span></label>
+      </div>
+    </div>
+    <div class="nd-acts">
+      <button class="sbtn pri" id="nd-run" data-i18n="nd.run">I2C 執行</button>
+      <button class="sbtn" id="nd-undo" data-i18n="nd.undo">還原</button>
+      <span class="gap"></span>
+      <button class="sbtn" id="nd-xlsx" data-i18n="nd.xlsx">匯出 Excel</button>
+      <button class="sbtn" id="nd-script" data-i18n="nd.script">匯出 .script</button>
+    </div>
+    <div class="nd-st" id="nd-st" role="status"></div>
+    <details class="stp-more" id="nd-helpbox"><summary data-i18n="nd.help">說明</summary><div class="nd-help" id="nd-help"></div></details>
+    <details class="stp-more"><summary data-i18n="nd.logT">記錄</summary><pre class="nd-log" id="nd-log"></pre></details>
+  </div>
+  <div class="page-credit">Designed by Bruce</div>
+</div>
+
+<script src="common/version.js?v=20261022nd100"></script>
+<script src="common/i18n.js?v=20261021wfg4590"></script>
+<script>
+/* 本頁字串（三語：zh-TW／en／zh-CN），併進共用 I18N（做法同 datamap.html） */
+(function () {
+  var L = ['zh-TW', 'en', 'zh-CN'];
+  var D = {
+    'nd.title': ['NB TCON Debug應用', 'NB TCON Debug', 'NB TCON Debug应用'],
+    'nd.subtitle': ['選 IC、項目、輸出腳 → 照表下暫存器（I2C 或匯出）', 'Pick IC, item and output pin → set the registers (I2C or export)', '选 IC、项目、输出脚 → 照表下寄存器（I2C 或导出）'],
+    'nd.link': ['連線', 'Connect', '连接'],
+    'nd.unlink': ['中斷', 'Disconnect', '断开'],
+    'nd.kIc': ['IC', 'IC', 'IC'],
+    'nd.kItem': ['項目', 'Item', '项目'],
+    'nd.kGpio': ['輸出 GPIO', 'Output GPIO', '输出 GPIO'],
+    'nd.run': ['I2C 執行', 'Run via I2C', 'I2C 执行'],
+    'nd.undo': ['還原', 'Restore', '还原'],
+    'nd.xlsx': ['匯出 Excel', 'Export Excel', '导出 Excel'],
+    'nd.script': ['匯出 .script', 'Export .script', '导出 .script'],
+    'nd.help': ['說明', 'Notes', '说明'],
+    'nd.logT': ['記錄', 'Log', '记录'],
+    'nd.thSlave': ['Slave', 'Slave', 'Slave'],
+    'nd.thAddr': ['位址', 'Address', '地址'],
+    'nd.thVal': ['值', 'Value', '值'],
+    'nd.thRb': ['讀回', 'Read back', '读回'],
+    'nd.thName': ['名稱', 'Name', '名称'],
+    'nd.w': ['寫', 'W', '写'],
+    'nd.r': ['讀', 'R', '读'],
+    'nd.lvPeerf': ['同事F已驗證', 'Verified (同事F)', '同事F已验证'],
+    'nd.lvVendor': ['原廠腳本', 'Vendor script', '原厂脚本'],
+    'nd.lvDoc': ['文件推論未實測', 'From docs, not measured', '文件推论未实测'],
+    'nd.lvPin': ['依 model 位址推論，未實測', 'From model address, not measured', '依 model 地址推论，未实测'],
+    'nd.lvTip': ['來源：{s}', 'Source: {s}', '来源：{s}'],
+    'nd.meas': ['量 <b>{p}</b>：{m}', 'Probe <b>{p}</b>: {m}', '量 <b>{p}</b>：{m}'],
+    'nd.pkgQ': ['封裝腳位待確認，請對照線路圖', 'package pin unconfirmed — check the schematic', '封装脚位待确认，请对照线路图'],
+    'nd.pkgNo': ['Q5 封裝沒拉出這支（datasheet 沒列）', 'not bonded out on Q5 (not in datasheet)', 'Q5 封装没拉出这支（datasheet 没列）'],
+    'nd.pkgInf': ['推論', 'inferred', '推论'],
+    'nd.def': ['預設', 'default', '默认'],
+    'nd.keep': ['其他 bit 不動', 'other bits kept', '其他 bit 不动'],
+    'nd.w08': ['⚠ 0x008 也是 E503 MCU patch 開關，只能寫 01；量完按「還原」', '⚠ 0x008 is also the E503 MCU-patch switch: write 01 only; press Restore when done', '⚠ 0x008 也是 E503 MCU patch 开关，只能写 01；量完按「还原」'],
+    'nd.wBurn': ['⚠ 燒 eFuse（7C 0x01 = 01）不可逆：預設不執行、不匯出', '⚠ eFuse programming (7C 0x01 = 01) is irreversible: not run or exported unless added', '⚠ 烧 eFuse（7C 0x01 = 01）不可逆：默认不执行、不导出'],
+    'nd.burnAdd': ['加入燒 eFuse（7C 0x01 = 01，不可逆）', 'Add eFuse programming (7C 0x01 = 01, irreversible)', '加入烧 eFuse（7C 0x01 = 01，不可逆）'],
+    'nd.burnC1': ['我了解這是一次性燒錄，燒錯可能無法復原', 'I understand this is one-time programming and may not be recoverable', '我了解这是一次性烧录，烧错可能无法复原'],
+    'nd.burnC2': ['我確定要把 7C 0x00 = {v} 燒進 osc_1', 'I confirm burning 7C 0x00 = {v} into osc_1', '我确定要把 7C 0x00 = {v} 烧进 osc_1'],
+    'nd.needLink': ['先按上方「連線」', 'Press Connect first', '先按上方「连接」'],
+    'nd.linkErr': ['連不上 I2C Bridge', 'Cannot reach the I2C Bridge', '连不上 I2C Bridge'],
+    'nd.icGot': ['認到 {ic}', 'Found {ic}', '认到 {ic}'],
+    'nd.icSwitch': ['認到的是 {ic}，已切換 IC', 'Detected {ic}; IC switched', '认到的是 {ic}，已切换 IC'],
+    'nd.icNone': ['認不出 T-CON，不寫入', 'T-CON not identified; nothing written', '认不出 T-CON，不写入'],
+    'nd.runOk': ['完成：{n} 列寫入並讀回相符', 'Done: {n} rows written and verified', '完成：{n} 行写入并读回相符'],
+    'nd.runFail': ['第 {i} 列讀回不符，已停止', 'Row {i} read-back mismatch; stopped', '第 {i} 行读回不符，已停止'],
+    'nd.undoOk': ['已還原 {n} 個 byte', 'Restored {n} bytes', '已还原 {n} 个 byte'],
+    'nd.undoNone': ['這次連線還沒寫過', 'Nothing written in this session', '这次连接还没写过'],
+    'nd.exported': ['已匯出 {f}', 'Exported {f}', '已导出 {f}'],
+    'nd.rbUnk': ['（讀回值未知，記下即可）', '(read-back value unknown; note it)', '（读回值未知，记下即可）'],
+    'nd.burned': ['非 0：已燒過，不要再燒', 'Non-zero: already programmed — do not burn again', '非 0：已烧过，不要再烧'],
+    'nd.notBurned': ['= 0：沒燒過', '= 0: not programmed', '= 0：没烧过'],
+    'nd.burnNeed20d0': ['燒錄前要先在這次連線讀到 3E 0x20D0 = 0', 'Read 3E 0x20D0 = 0 in this session before burning', '烧录前要先在这次连接读到 3E 0x20D0 = 0'],
+    'nd.codeBad': ['7C 0x00 要是 80～FF（bit7＝test_en）', '7C 0x00 must be 80–FF (bit7 = test_en)', '7C 0x00 要是 80～FF（bit7＝test_en）'],
+    'nd.busy': ['執行中…', 'Running…', '执行中…'],
+    'nd.oldBridge': ['I2C Bridge 版本太舊，請更新', 'I2C Bridge too old; please update', 'I2C Bridge 版本太旧，请更新']
+  };
+  Object.keys(D).forEach(function (k) { var o = {}; L.forEach(function (l, i) { o[l] = D[k][i]; }); I18N[k] = o; });
+})();
+</script>
+<script src="common/common.js?v=20260523"></script>
+<script src="common/xlsx.js?v=20261008dm11825"></script>
+<script src="common/i2c-mbus.js?v=20261008dm11825"></script>
+<script src="common/i2c-bridge.js?v=20261013dm1240"></script>
+<script>
+/* ═══ GPIO 位址表：由 WPF ModelFiles 的 .model 程式抽出（id＝.model 父節點名；tx＝[位址, bit]；sel＝[位址, msb, lsb]；
+       txN／selN＝.model 區塊名＝匯出 Excel 的 Check Item；txL／selL＝.model 行號；pkg／pin／pst＝封裝腳名、腳號、狀態 ok／inf／nobond／''）═══ */
+var NBD_GPIO = {"E503":{"model":"RM8100x_for_FAE_20240925_20250311.model","tcon":"E503A","gpios":[{"id":"GPIO_00","tx":[75,0],"txN":"GPIO_00_TX_EN","txL":267,"sel":[84,5,0],"selN":"GPIO_00_TX_IN_SEL","selL":302,"pkg":"GPO0","pin":"pin 54 (RM81003) / 56 (RM81004)","pst":"ok"},{"id":"GPIO_01","tx":[75,4],"txN":"GPIO_01_TX_EN","txL":326,"sel":[85,5,0],"selN":"GPIO_01_TX_IN_SEL","selL":361,"pkg":"GPO1","pin":"pin 55 / 57","pst":"ok"},{"id":"GPIO_02","tx":[76,0],"txN":"GPIO_02_TX_EN","txL":385,"sel":[86,5,0],"selN":"GPIO_02_TX_IN_SEL","selL":420,"pkg":"GPO2","pin":"pin 56 / 58","pst":"ok"},{"id":"GPIO_03","tx":[76,4],"txN":"GPIO_03_TX_EN","txL":444,"sel":[87,5,0],"selN":"GPIO_03_TX_IN_SEL","selL":479,"pkg":"GPO3","pin":"pin 57 / 59","pst":"ok"},{"id":"GPIO_04","tx":[77,0],"txN":"GPIO_04_TX_EN","txL":503,"sel":[88,5,0],"selN":"GPIO_04_TX_IN_SEL","selL":538,"pkg":"GPO4","pin":"pin 60 / 2","pst":"ok"},{"id":"GPIO_ROM_WP","tx":[77,4],"txN":"GPIO_ROM_WP_TX_EN","txL":562,"sel":[89,5,0],"selN":"GPIO_ROM_WP_TX_IN_SEL","selL":590,"pkg":"WP","pin":"pin 17 / 19","pst":"ok"},{"id":"GPIO_BLEN","tx":[78,0],"txN":"GPIO_BLEN_TX_EN","txL":614,"sel":[90,5,0],"selN":"GPIO_BLEN_TX_IN_SEL","selL":642,"pkg":"ENBKLT","pin":"pin 27 / 29","pst":"inf"},{"id":"GPIO_STV","tx":[78,4],"txN":"GPIO_STV_TX_EN","txL":666,"sel":[91,5,0],"selN":"GPIO_STV_TX_IN_SEL","selL":701,"pkg":"STV","pin":"pin 51 / 53","pst":"ok"},{"id":"GPIO_CPV","tx":[79,0],"txN":"GPIO_CPV_TX_EN","txL":725,"sel":[92,5,0],"selN":"GPIO_CPV_TX_IN_SEL","selL":760,"pkg":"CPV","pin":"pin 52 / 54","pst":"ok"},{"id":"GPIO_OE(Initial_High)","tx":[79,4],"txN":"GPIO_OE_TX_EN","txL":784,"sel":[93,5,0],"selN":"GPIO_OE_TX_IN_SEL","selL":819,"pkg":"OE","pin":"pin 53 / 55","pst":"ok"},{"id":"EESEL","tx":[80,0],"txN":"EESEL_TX_EN","txL":843,"sel":[94,5,0],"selN":"EESEL_TX_IN_SEL","selL":871,"pkg":"EESEL","pin":"pin 11 / 13","pst":"ok"},{"id":"GPIO_DBC_EN","tx":[80,4],"txN":"GPIO_DBC_EN_TX_EN","txL":895,"sel":[95,5,0],"selN":"GPIO_DBC_EN_TX_IN_SEL","selL":923,"pkg":"DBC_EN","pin":"pin 58 / 60","pst":"ok"},{"id":"GPIO_COLOR_EN","tx":[81,0],"txN":"GPIO_COLOR_EN_TX_EN","txL":947,"sel":[96,5,0],"selN":"GPIO_COLOR_EN_TX_IN_SEL","selL":975,"pkg":"COLOR_EN","pin":"pin 59 / 1","pst":"ok"},{"id":"PWMO","tx":[81,4],"txN":"PWMO_TX_EN","txL":999,"sel":[97,5,0],"selN":"PWMO_TX_IN_SEL","selL":1034,"pkg":"PWMO","pin":"pin 28 / 30","pst":"ok"},{"id":"HPD","tx":[109,4],"txN":"HPD_TX_EN","txL":1058,"sel":[110,5,0],"selN":"HPD_TX_IN_SEL","selL":1093,"pkg":"HPD","pin":"pin 9 / 11","pst":"ok"},{"id":"TP","tx":[121,0],"txN":"TP_TX_EN","txL":1117,"sel":[122,5,0],"selN":"TP_TX_IN_SEL","selL":1159,"pkg":"GPO5","pin":"pin 29 / 31","pst":"inf"},{"id":"POL","tx":[121,4],"txN":"POL_TX_EN","txL":1183,"sel":[123,5,0],"selN":"POL_TX_IN_SEL","selL":1225,"pkg":"GPO6","pin":"pin 30 / 32","pst":"inf"}],"dbg":{"TOP_DBG_SEL":10707,"DBG_SEL":10714,"DBG_SEL2":10721,"DBG_SEL3":10728}},"E501A":{"model":"RM81010_for_FAE_20240509_20241127.model","tcon":"E501A6","gpios":[{"id":"GPIO_01","tx":[77,0],"txN":"GPIO_01_TX_EN","txL":234,"sel":[86,5,0],"selN":"GPIO_01_TX_IN_SEL","selL":262,"pkg":"","pin":"","pst":""},{"id":"GPIO_02","tx":[77,4],"txN":"GPIO_02_TX_EN","txL":284,"sel":[87,5,0],"selN":"GPIO_02_TX_IN_SEL","selL":312,"pkg":"GPIO_02","pin":"pin 2","pst":"ok"},{"id":"GPIO_03","tx":[78,0],"txN":"GPIO_03_TX_EN","txL":334,"sel":[88,5,0],"selN":"GPIO_03_TX_IN_SEL","selL":362,"pkg":"GPIO_03","pin":"pin 3","pst":"ok"},{"id":"GPIO_04","tx":[78,4],"txN":"GPIO_04_TX_EN","txL":384,"sel":[89,5,0],"selN":"GPIO_04_TX_IN_SEL","selL":412,"pkg":"GPIO_04","pin":"pin 7","pst":"ok"},{"id":"FLASH_WP_GPIO_05","tx":[79,0],"txN":"GPIO_05_TX_EN","txL":434,"sel":[90,5,0],"selN":"GPIO_05_TX_IN_SEL","selL":462,"pkg":"FLASH_WP","pin":"pin 8","pst":"ok"},{"id":"GPIO_06","tx":[79,4],"txN":"GPIO_06_TX_EN","txL":484,"sel":[91,5,0],"selN":"GPIO_06_TX_IN_SEL","selL":512,"pkg":"GPIO_06","pin":"pin 9","pst":"ok"},{"id":"STV1_GPIO_13","tx":[83,0],"txN":"GPIO_13_TX_EN","txL":534,"sel":[98,5,0],"selN":"GPIO_13_TX_IN_SEL","selL":562,"pkg":"STV1","pin":"pin 53","pst":"ok"},{"id":"CPV_GPIO_14","tx":[83,4],"txN":"GPIO_14_TX_EN","txL":584,"sel":[99,5,0],"selN":"GPIO_14_TX_IN_SEL","selL":612,"pkg":"CPV","pin":"pin 54","pst":"ok"},{"id":"OE1_GPIO_15","tx":[84,0],"txN":"GPIO_15_TX_EN","txL":634,"sel":[100,5,0],"selN":"GPIO_15_TX_IN_SEL","selL":662,"pkg":"OE1","pin":"pin 57","pst":"ok"},{"id":"OE2_GPIO_16","tx":[84,4],"txN":"GPIO_16_TX_EN","txL":684,"sel":[101,5,0],"selN":"GPIO_16_TX_IN_SEL","selL":712,"pkg":"OE2","pin":"pin 58","pst":"ok"},{"id":"STV2_GPIO_17","tx":[85,0],"txN":"GPIO_17_TX_EN","txL":734,"sel":[102,5,0],"selN":"GPIO_17_TX_IN_SEL","selL":762,"pkg":"STV2","pin":"pin 59","pst":"ok"},{"id":"DYNAMIC_VCOM_GPIO_18","tx":[85,4],"txN":"GPIO_18_TX_EN","txL":784,"sel":[120,5,0],"selN":"GPIO_18_TX_IN_SEL","selL":812,"pkg":"","pin":"","pst":""},{"id":"GPI_2_GPIO_19","tx":[103,0],"txN":"GPIO_19_TX_EN","txL":834,"sel":[121,5,0],"selN":"GPIO_19_TX_IN_SEL","selL":862,"pkg":"","pin":"","pst":""},{"id":"PSR_EN_GPIO_20","tx":[103,4],"txN":"GPIO_20_TX_EN","txL":884,"sel":[96,5,0],"selN":"GPIO_20_TX_IN_SEL","selL":912,"pkg":"","pin":"","pst":""},{"id":"SDLOCK_GPIO_EOS_01","tx":[185,0],"txN":"GPIO_EOS_01_TX_EN","txL":934,"sel":[186,5,0],"selN":"GPIO_EOS_01_TX_IN_SEL","selL":969,"pkg":"","pin":"","pst":""},{"id":"XSTB_GPIO_EOS_02","tx":[185,4],"txN":"GPIO_EOS_02_TX_EN","txL":991,"sel":[187,5,0],"selN":"GPIO_EOS_02_TX_IN_SEL","selL":1026,"pkg":"","pin":"","pst":""},{"id":"OPDIO_01","tx":[112,6],"txN":"OPDIO_01_TX_EN","txL":1066,"sel":[112,5,0],"selN":"OPDIO_01_TX_IN_SEL","selL":1073,"pkg":"","pin":"","pst":""},{"id":"OPDIO_02","tx":[113,6],"txN":"OPDIO_02_TX_EN","txL":1109,"sel":[113,5,0],"selN":"OPDIO_02_TX_IN_SEL","selL":1116,"pkg":"","pin":"","pst":""},{"id":"OPDIO_03","tx":[114,6],"txN":"OPDIO_03_TX_EN","txL":1152,"sel":[114,5,0],"selN":"OPDIO_03_TX_IN_SEL","selL":1159,"pkg":"","pin":"","pst":""},{"id":"OPDIO_04","tx":[115,6],"txN":"OPDIO_04_TX_EN","txL":1195,"sel":[115,5,0],"selN":"OPDIO_04_TX_IN_SEL","selL":1202,"pkg":"","pin":"","pst":""},{"id":"OPDIO_05","tx":[116,6],"txN":"OPDIO_05_TX_EN","txL":1238,"sel":[116,5,0],"selN":"OPDIO_05_TX_IN_SEL","selL":1245,"pkg":"","pin":"","pst":""},{"id":"OPDIO_06","tx":[117,6],"txN":"OPDIO_06_TX_EN","txL":1281,"sel":[117,5,0],"selN":"OPDIO_06_TX_IN_SEL","selL":1288,"pkg":"","pin":"","pst":""},{"id":"OPDIO_07","tx":[122,6],"txN":"OPDIO_07_TX_EN","txL":1324,"sel":[122,5,0],"selN":"OPDIO_07_TX_IN_SEL","selL":1331,"pkg":"","pin":"","pst":""}],"dbg":{"TOP_DBG_SEL":11982,"DBG_SEL":11990,"DBG_SEL2":11998,"DBG_SEL3":12007}},"E501B":{"model":"RM81011_for_FAE_20231025_20240509.model","tcon":"E501B2","gpios":[{"id":"GPIO_01","tx":[77,0],"txN":"GPIO_01_TX_EN","txL":232,"sel":[86,5,0],"selN":"GPIO_01_TX_IN_SEL","selL":260,"pkg":"","pin":"","pst":""},{"id":"GPIO_02","tx":[77,4],"txN":"GPIO_02_TX_EN","txL":282,"sel":[87,5,0],"selN":"GPIO_02_TX_IN_SEL","selL":310,"pkg":"GPIO_02","pin":"pin 2","pst":"ok"},{"id":"GPIO_03","tx":[78,0],"txN":"GPIO_03_TX_EN","txL":332,"sel":[88,5,0],"selN":"GPIO_03_TX_IN_SEL","selL":360,"pkg":"GPIO_03","pin":"pin 3","pst":"ok"},{"id":"GPIO_04","tx":[78,4],"txN":"GPIO_04_TX_EN","txL":382,"sel":[89,5,0],"selN":"GPIO_04_TX_IN_SEL","selL":410,"pkg":"GPIO_04","pin":"pin 7","pst":"ok"},{"id":"FLASH_WP_GPIO_05","tx":[79,0],"txN":"GPIO_05_TX_EN","txL":432,"sel":[90,5,0],"selN":"GPIO_05_TX_IN_SEL","selL":460,"pkg":"FLASH_WP","pin":"pin 8","pst":"ok"},{"id":"GPIO_06","tx":[79,4],"txN":"GPIO_06_TX_EN","txL":482,"sel":[91,5,0],"selN":"GPIO_06_TX_IN_SEL","selL":510,"pkg":"GPIO_06","pin":"pin 9","pst":"ok"},{"id":"STV1_GPIO_13","tx":[83,0],"txN":"GPIO_13_TX_EN","txL":532,"sel":[98,5,0],"selN":"GPIO_13_TX_IN_SEL","selL":560,"pkg":"STV1","pin":"pin 53","pst":"ok"},{"id":"CPV_GPIO_14","tx":[83,4],"txN":"GPIO_14_TX_EN","txL":582,"sel":[99,5,0],"selN":"GPIO_14_TX_IN_SEL","selL":610,"pkg":"CPV","pin":"pin 54","pst":"ok"},{"id":"OE1_GPIO_15","tx":[84,0],"txN":"GPIO_15_TX_EN","txL":632,"sel":[100,5,0],"selN":"GPIO_15_TX_IN_SEL","selL":660,"pkg":"OE1","pin":"pin 57","pst":"ok"},{"id":"OE2_GPIO_16","tx":[84,4],"txN":"GPIO_16_TX_EN","txL":682,"sel":[101,5,0],"selN":"GPIO_16_TX_IN_SEL","selL":710,"pkg":"OE2","pin":"pin 58","pst":"ok"},{"id":"STV2_GPIO_17","tx":[85,0],"txN":"GPIO_17_TX_EN","txL":732,"sel":[102,5,0],"selN":"GPIO_17_TX_IN_SEL","selL":760,"pkg":"STV2","pin":"pin 59","pst":"ok"},{"id":"DYNAMIC_VCOM_GPIO_18","tx":[85,4],"txN":"GPIO_18_TX_EN","txL":782,"sel":[120,5,0],"selN":"GPIO_18_TX_IN_SEL","selL":810,"pkg":"","pin":"","pst":""},{"id":"GPI_2_GPIO_19","tx":[103,0],"txN":"GPIO_19_TX_EN","txL":832,"sel":[121,5,0],"selN":"GPIO_19_TX_IN_SEL","selL":860,"pkg":"","pin":"","pst":""},{"id":"PSR_EN_GPIO_20","tx":[103,4],"txN":"GPIO_20_TX_EN","txL":882,"sel":[96,5,0],"selN":"GPIO_20_TX_IN_SEL","selL":910,"pkg":"","pin":"","pst":""},{"id":"SDLOCK_GPIO_EOS_01","tx":[185,0],"txN":"GPIO_EOS_01_TX_EN","txL":932,"sel":[186,5,0],"selN":"GPIO_EOS_01_TX_IN_SEL","selL":967,"pkg":"","pin":"","pst":""},{"id":"XSTB_GPIO_EOS_02","tx":[185,4],"txN":"GPIO_EOS_02_TX_EN","txL":989,"sel":[187,5,0],"selN":"GPIO_EOS_02_TX_IN_SEL","selL":1024,"pkg":"","pin":"","pst":""},{"id":"OPDIO_01","tx":[112,6],"txN":"OPDIO_01_TX_EN","txL":1064,"sel":[112,5,0],"selN":"OPDIO_01_TX_IN_SEL","selL":1071,"pkg":"","pin":"","pst":""},{"id":"OPDIO_02","tx":[113,6],"txN":"OPDIO_02_TX_EN","txL":1107,"sel":[113,5,0],"selN":"OPDIO_02_TX_IN_SEL","selL":1114,"pkg":"","pin":"","pst":""},{"id":"OPDIO_03","tx":[114,6],"txN":"OPDIO_03_TX_EN","txL":1150,"sel":[114,5,0],"selN":"OPDIO_03_TX_IN_SEL","selL":1157,"pkg":"","pin":"","pst":""},{"id":"OPDIO_04","tx":[115,6],"txN":"OPDIO_04_TX_EN","txL":1193,"sel":[115,5,0],"selN":"OPDIO_04_TX_IN_SEL","selL":1200,"pkg":"","pin":"","pst":""},{"id":"OPDIO_05","tx":[116,6],"txN":"OPDIO_05_TX_EN","txL":1236,"sel":[116,5,0],"selN":"OPDIO_05_TX_IN_SEL","selL":1243,"pkg":"","pin":"","pst":""},{"id":"OPDIO_06","tx":[117,6],"txN":"OPDIO_06_TX_EN","txL":1279,"sel":[117,5,0],"selN":"OPDIO_06_TX_IN_SEL","selL":1286,"pkg":"","pin":"","pst":""},{"id":"OPDIO_07","tx":[122,6],"txN":"OPDIO_07_TX_EN","txL":1322,"sel":[122,5,0],"selN":"OPDIO_07_TX_IN_SEL","selL":1329,"pkg":"","pin":"","pst":""}],"dbg":{"TOP_DBG_SEL":11788,"DBG_SEL":11795,"DBG_SEL2":11802,"DBG_SEL3":11809}},"EN01":{"model":"RM81008.model","tcon":"EN01","gpios":[{"id":"GPIO_00","tx":[75,0],"txN":"GPIO_00_TX_EN","txL":149,"sel":[86,6,0],"selN":"GPIO_00_TX_IN_SEL","selL":184,"pkg":"","pin":"","pst":""},{"id":"GPIO_01","tx":[75,4],"txN":"GPIO_01_TX_EN","txL":217,"sel":[87,6,0],"selN":"GPIO_01_TX_IN_SEL","selL":252,"pkg":"","pin":"","pst":""},{"id":"GPIO_02","tx":[76,0],"txN":"GPIO_02_TX_EN","txL":285,"sel":[88,6,0],"selN":"GPIO_02_TX_IN_SEL","selL":320,"pkg":"","pin":"Q5 datasheet 沒列 GPIO2","pst":"nobond"},{"id":"GPIO_03","tx":[76,4],"txN":"GPIO_03_TX_EN","txL":353,"sel":[89,6,0],"selN":"GPIO_03_TX_IN_SEL","selL":388,"pkg":"","pin":"","pst":""},{"id":"GPIO_04","tx":[77,0],"txN":"GPIO_04_TX_EN","txL":421,"sel":[90,6,0],"selN":"GPIO_04_TX_IN_SEL","selL":456,"pkg":"GPIO6","pin":"pin 2","pst":"ok"},{"id":"GPIO_07","tx":[77,4],"txN":"GPIO_07_TX_EN","txL":489,"sel":[91,6,0],"selN":"GPIO_07_TX_IN_SEL","selL":517,"pkg":"GPIO7","pin":"pin 23","pst":"ok"},{"id":"GPIO_08","tx":[78,0],"txN":"GPIO_08_TX_EN","txL":550,"sel":[92,6,0],"selN":"GPIO_08_TX_IN_SEL","selL":578,"pkg":"","pin":"","pst":""},{"id":"GPIO_09","tx":[78,4],"txN":"GPIO_09_TX_EN","txL":611,"sel":[93,6,0],"selN":"GPIO_09_TX_IN_SEL","selL":646,"pkg":"","pin":"","pst":""},{"id":"GPIO_10","tx":[79,0],"txN":"GPIO_10_TX_EN","txL":679,"sel":[94,6,0],"selN":"GPIO_10_TX_IN_SEL","selL":714,"pkg":"","pin":"","pst":""},{"id":"GPIO_STV","tx":[79,4],"txN":"GPIO_STV_TX_EN","txL":747,"sel":[95,6,0],"selN":"GPIO_STV_TX_IN_SEL","selL":782,"pkg":"STV","pin":"pin 53","pst":"ok"},{"id":"GPIO_CPV","tx":[80,0],"txN":"GPIO_CPV_TX_EN","txL":815,"sel":[96,6,0],"selN":"GPIO_CPV_IN_SEL","selL":850,"pkg":"CPV","pin":"pin 54","pst":"ok"},{"id":"GPIO_OE","tx":[80,4],"txN":"GPIO_OE_TX_EN","txL":883,"sel":[97,6,0],"selN":"GPIO_OE_TX_IN_SEL","selL":918,"pkg":"OE","pin":"pin 55","pst":"ok"},{"id":"GPIO_DBC_EN","tx":[81,0],"txN":"GPIO_DBC_EN_TX_EN","txL":951,"sel":[98,6,0],"selN":"GPIO_DBC_EN_TX_IN_SEL","selL":986,"pkg":"DBC_EN","pin":"pin 60","pst":"ok"},{"id":"GPIO_COLOR_EN","tx":[81,4],"txN":"GPIO_COLOR_EN_TX_EN","txL":1020,"sel":[99,6,0],"selN":"GPIO_COLOR_EN_TX_IN_SEL","selL":1055,"pkg":"","pin":"","pst":""},{"id":"HPD","tx":[82,0],"txN":"HPD_TX_EN","txL":1088,"sel":[100,6,0],"selN":"HPD_TX_IN_SEL","selL":1123,"pkg":"HPD","pin":"pin 11","pst":"ok"},{"id":"ROM_SPI_WP","tx":[82,4],"txN":"ROM_SPI_WP_TX_EN","txL":1156,"sel":[101,6,0],"selN":"ROM_SPI_WP_TX_IN_SEL","selL":1191,"pkg":"ROM_WP","pin":"pin 19","pst":"ok"},{"id":"POL","tx":[83,0],"txN":"POL_TX_EN","txL":1224,"sel":[102,6,0],"selN":"POL_TX_IN_SEL","selL":1259,"pkg":"","pin":"","pst":""},{"id":"PWMO","tx":[83,4],"txN":"PWMO_TX_EN","txL":1292,"sel":[103,6,0],"selN":"PWMO_TX_IN_SEL","selL":1327,"pkg":"PWMO","pin":"pin 30","pst":"ok"},{"id":"ENBKLT","tx":[84,0],"txN":"ENBKLT_TX_EN","txL":1360,"sel":[104,6,0],"selN":"ENBKLT_TX_IN_SEL","selL":1395,"pkg":"ENBKLT","pin":"pin 29","pst":"ok"},{"id":"TP","tx":[84,4],"txN":"TP_TX_EN","txL":1428,"sel":[105,6,0],"selN":"TP_TX_IN_SEL","selL":1463,"pkg":"","pin":"","pst":""}],"dbg":{"TOP_DBG_SEL":15903,"DBG_SEL":15910,"DBG_SEL2":15917,"DBG_SEL3":15924}}};
+</script>
+<script>
+(function () {
+  'use strict';
+  function $(id) { return document.getElementById(id); }
+  function tt(k, v) { return t(k, v); }
+  function esc(s) { return escapeHtml(s); }
+  function hex(v, n) { var s = (v >>> 0).toString(16).toUpperCase(); while (s.length < (n || 2)) s = '0' + s; return s; }
+  var G = window.NBD_GPIO;
+  var IC_LABEL = { E503: 'E503（RM8100x）', E501A: 'E501A（RM81010）', E501B: 'E501B（RM81011）', EN01: 'EN01（RM81008）' };
+  var IC_ORDER = ['E503', 'E501A', 'E501B', 'EN01'];
+
+  /* ── 來源（說明區與標籤 tooltip 用；人名／日期／檔名不翻譯）── */
+  var SRC = {
+    peerf: '同事F 2026-10-22〈DE 量測reg.設定〉（E503，WP pin 實測）',
+    peerm: '同事M 2026-10-06（ISP0_FIFO_IRDY0 設定）',
+    peerhTx: '同事H 2026-10-02（RX_DE 0A=02/59=37；TX_DE(RT6_DE) 59=35）',
+    osc503: '同事L／同事P 2024-03-21〜26（RM81003：07=01、59=24 量到 6.75 MHz）',
+    oscEn01: '同事K 2026-10-21 Debug_OSC.i2cs（07=01、4D=11、5B=24）',
+    kosc: '同事K 2026-10-21 EN01A1 osc calibration_1.i2cs＋K OSC SOP',
+    pll: '同事H 2026-01-13（RM81003：07=13、08=01，Lane0=27h／Lane1=22h）',
+    slide: 'E503A／E501B debug 介紹投影片（同事J 2022-11-11／同事M 2022-04-12）',
+    slideP8: 'E503A debug 介紹 p8 範例（0A=16、58=36 BS、5A=35 BE）',
+    core3: '同事M 2026-03-11（E503 用 CORESTATE[3] 代替 MCU_ST0）＋投影片 dbg_02'
+  };
+  /* ── debug 項目 ──
+     regs：先下的選擇暫存器（3E、2-byte offset；整 byte）；sel＝輸出腳 TX_IN_SEL 的值；
+     lv：各 IC 用預設腳時的驗證等級 peerf／vendor／doc；def：各 IC 的預設腳（＝來源用的腳）；not：不提供的 IC */
+  function R(addr, val, name) { return { slave: 0x3E, ob: 2, addr: addr, msb: 7, lsb: 0, val: val, name: name }; }
+  var DEF = { E503: 'GPIO_ROM_WP', E501A: 'FLASH_WP_GPIO_05', E501B: 'FLASH_WP_GPIO_05', EN01: 'GPIO_07' };
+  var ITEMS = [
+    { id: 'rxde', label: 'RX DE', regs: [R(0x007, 0x02, 'TOP_DBG_SEL'), R(0x00A, 0x02, 'DBG_SEL3')], sel: 0x37, sig: 'DEBUG_OUT2[7] = DPFIFO_2_RTLOG_DE',
+      lv: { E503: 'peerf', E501A: 'doc', E501B: 'doc', EN01: 'doc' }, src: ['peerf', 'peerhTx'], meas: ['每行一個脈衝', 'one pulse per line', '每行一个脉冲'] },
+    { id: 'txde', label: 'TX DE', regs: [R(0x007, 0x12, 'TOP_DBG_SEL'), R(0x008, 0x01, 'DBG_SEL'), R(0x009, 0x07, 'DBG_SEL2')], sel: 0x20, sig: 'DEBUG_OUT[0] = ISP0_FIFO_IRDY0',
+      lv: { E503: 'peerf', E501A: 'doc', E501B: 'doc', EN01: 'doc' }, src: ['peerf', 'peerm'], w08: true, meas: ['每行一段 High（ISP FIFO IRDY）', 'one high period per line (ISP FIFO IRDY)', '每行一段 High（ISP FIFO IRDY）'] },
+    { id: 'txrt6', label: 'TX DE（RT6_DE）', regs: [R(0x00A, 0x02, 'DBG_SEL3')], sel: 0x35, sig: 'DEBUG_OUT2[5] = RT6_DE',
+      lv: { E503: 'vendor', E501A: 'doc', E501B: 'doc', EN01: 'doc' }, src: ['peerhTx'], meas: ['每行一個脈衝', 'one pulse per line', '每行一个脉冲'] },
+    { id: 'osc', label: 'OSC ÷8', regs: [R(0x007, 0x01, 'TOP_DBG_SEL')], sel: 0x24, sig: 'DEBUG_OUT[4] = OSC_CLK_DIV8',
+      lv: { E503: 'vendor', E501A: 'doc', E501B: 'doc', EN01: 'vendor' }, src: ['osc503', 'oscEn01', 'slide'], meas: ['約 6.75 MHz（54 MHz ÷ 8）', 'about 6.75 MHz (54 MHz ÷ 8)', '约 6.75 MHz（54 MHz ÷ 8）'] },
+    { id: 'kosc', label: 'KOSC trim（EN01）', only: ['EN01'], kosc: true, regs: [R(0x007, 0x01, 'TOP_DBG_SEL')], sel: 0x24, sig: 'DEBUG_OUT[4] = OSC_CLK_DIV8',
+      lv: { EN01: 'vendor' }, src: ['kosc', 'oscEn01'], meas: ['調 7C 0x00 到 6.75 MHz', 'tune 7C 0x00 to 6.75 MHz', '调 7C 0x00 到 6.75 MHz'] },
+    { id: 'pll0', label: 'PLL lock（Lane0）', not: ['E501A', 'E501B'], regs: [R(0x007, 0x13, 'TOP_DBG_SEL'), R(0x008, 0x01, 'DBG_SEL')], sel: 0x27, sig: 'DEBUG_OUT[7]',
+      lv: { E503: 'vendor', EN01: 'doc' }, src: ['pll'], w08: true, meas: ['準位意義未記載，與正常板比對', 'level meaning undocumented: compare with a good board', '电平意义未记载，与正常板比对'] },
+    { id: 'pll1', label: 'PLL lock（Lane1）', regs: [R(0x007, 0x13, 'TOP_DBG_SEL'), R(0x008, 0x01, 'DBG_SEL')], sel: 0x22, sig: 'DEBUG_OUT[2]',
+      lv: { E503: 'vendor', E501A: 'doc', E501B: 'doc', EN01: 'doc' }, src: ['pll'], w08: true, meas: ['準位意義未記載，與正常板比對', 'level meaning undocumented: compare with a good board', '电平意义未记载，与正常板比对'] },
+    { id: 'rxclk', label: 'RX link clock ÷8', regs: [R(0x007, 0x01, 'TOP_DBG_SEL')], sel: 0x22, sig: 'DEBUG_OUT[2] = RX_LS0_CLK_DIV8',
+      lv: { E503: 'doc', E501A: 'doc', E501B: 'doc', EN01: 'doc' }, src: ['slide'], meas: ['量到的頻率 × 8', 'measured frequency × 8', '量到的频率 × 8'] },
+    { id: 'bs', label: 'BS', regs: [R(0x00A, 0x16, 'DBG_SEL3')], sel: 0x36, sig: 'DEBUG_OUT2[6] = DP_2_FIFO_BS_TOG', def: { E503: 'GPIO_04' },
+      lv: { E503: 'vendor', E501A: 'doc', E501B: 'doc', EN01: 'doc' }, src: ['slideP8'], meas: ['每行翻轉一次', 'toggles once per line', '每行翻转一次'] },
+    { id: 'be', label: 'BE', regs: [R(0x00A, 0x16, 'DBG_SEL3')], sel: 0x35, sig: 'DEBUG_OUT2[5] = DP_2_FIFO_BE_TOG', def: { E503: 'GPIO_BLEN' },
+      lv: { E503: 'vendor', E501A: 'doc', E501B: 'doc', EN01: 'doc' }, src: ['slideP8'], meas: ['每行翻轉一次', 'toggles once per line', '每行翻转一次'] },
+    { id: 'core3', label: 'Core state[3]', regs: [R(0x007, 0x02, 'TOP_DBG_SEL')], sel: 0x24, sig: 'DEBUG_OUT[4] = RT0_CORESTATE[3]',
+      lv: { E503: 'doc', E501A: 'doc', E501B: 'doc', EN01: 'doc' }, src: ['core3'], meas: ['1＝正常顯示（Normal video）', '1 = normal video', '1＝正常显示（Normal video）'] }
+  ];
+  /* KOSC 後段（calibration_1.i2cs 第 2、5～9 行；第 10 行燒錄另外處理） */
+  var KOSC_POST = [
+    { slave: 0x3E, ob: 2, addr: 0x0E4, msb: 7, lsb: 0, val: 0x83, name: 'KOSC_0E4', rbUnk: true },
+    { slave: 0x7C, ob: 1, addr: 0x0F, msb: 7, lsb: 0, val: 0x80, name: 'DAZ_REG_WEN' },
+    { slave: 0x7C, ob: 1, addr: 0x0A, msb: 7, lsb: 0, val: 0x5A, name: 'PROGRAM_KEY1', rbUnk: true },
+    { slave: 0x7C, ob: 1, addr: 0x0B, msb: 7, lsb: 0, val: 0xC3, name: 'PROGRAM_KEY2', rbUnk: true },
+    { slave: 0x7C, ob: 1, addr: 0x01, msb: 7, lsb: 0, val: 0x00, name: 'OSC_SELECT' },
+    { slave: 0x7C, ob: 1, addr: 0x00, msb: 7, lsb: 0, val: 0xAA, name: 'OSC_TEST_CODE', code: true }
+  ];
+  var BURN = { slave: 0x7C, ob: 1, addr: 0x01, msb: 7, lsb: 0, val: 0x01, name: 'OSC_PROGRAM_EFUSE', kind: 'burn' };
+  var READ_20D0 = { slave: 0x3E, ob: 2, addr: 0x20D0, msb: 7, lsb: 0, val: null, name: 'OSC_1_PROGRAMMED', kind: 'r' };
+
+  function itemOf(id) { for (var i = 0; i < ITEMS.length; i++) if (ITEMS[i].id === id) return ITEMS[i]; return null; }
+  function itemsFor(ic) { return ITEMS.filter(function (it) { return (!it.only || it.only.indexOf(ic) >= 0) && (!it.not || it.not.indexOf(ic) < 0); }); }
+  function defPin(ic, it) { return (it.def && it.def[ic]) || DEF[ic]; }
+  function gpioOf(ic, id) { var a = G[ic].gpios; for (var i = 0; i < a.length; i++) if (a[i].id === id) return a[i]; return null; }
+  function maskOf(r) { return (((1 << (r.msb - r.lsb + 1)) - 1) << r.lsb) & 0xFF; }
+  function offStr(r) { var h = hex(r.addr, 3); return '0x' + h + '[' + r.msb + (r.msb === r.lsb ? '' : ':' + r.lsb) + ']'; }   /* = wfg.html wfgNbOff() */
+  function pinText(g) {
+    if (!g) return '';
+    if (g.pst === 'ok') return g.pkg + '（' + g.id + '）';
+    if (g.pst === 'inf') return g.pkg + '（' + g.id + '，' + tt('nd.pkgInf') + '）';
+    if (g.pst === 'nobond') return g.id + '（' + tt('nd.pkgNo') + '）';
+    return g.id + '（' + tt('nd.pkgQ') + '）';
+  }
+
+  /* ── 核心：依 IC／項目／GPIO 產生暫存器序列（純函式，測試與匯出都用這一支）── */
+  function build(ic, itemId, gid, opt) {
+    opt = opt || {};
+    var it = itemOf(itemId); if (!G[ic] || !it) return null;
+    var dp = defPin(ic, it), g = gpioOf(ic, gid) || gpioOf(ic, dp);
+    var rows = [];
+    if (it.kosc) rows.push(Object.assign({}, READ_20D0));
+    it.regs.forEach(function (r) { rows.push(Object.assign({ kind: 'w' }, r)); });
+    rows.push({ kind: 'w', pin: true, slave: 0x3E, ob: 2, addr: g.tx[0], msb: g.tx[1], lsb: g.tx[1], val: 1, name: g.txN });
+    rows.push({ kind: 'w', pin: true, slave: 0x3E, ob: 2, addr: g.sel[0], msb: g.sel[1], lsb: g.sel[2], val: it.sel, name: g.selN });
+    if (it.kosc) {
+      KOSC_POST.forEach(function (r) { var o = Object.assign({ kind: 'w' }, r); if (r.code && opt.code != null) o.val = opt.code & 0xFF; rows.push(o); });
+      if (opt.burn) rows.push(Object.assign({}, BURN));
+    }
+    rows.forEach(function (r) { r.mask = maskOf(r); });
+    var lvl = (g.id === dp) ? it.lv[ic] : 'pin';
+    return { ic: ic, item: it, gpio: g, isDef: g.id === dp, level: lvl, rows: rows, tcon: G[ic].tcon, model: G[ic].model };
+  }
+
+  /* ── 匯出：Excel（WFG NB 匯出同格式）── */
+  var XLSX_HEADER = [   /* = wfg.html WFG_NB_XLSX_HEADER（22 欄，欄序與字串不可改） */
+    'TCON\n(內部型號)', 'Check Item', 'Slave Address\n(HEX)', 'Offset-Bytes', 'Offset\n(HEX)',
+    'Default Case',
+    'Case 0 Value\n(HEX)', 'Case 1 Value\n(HEX)', 'Case 2 Value\n(HEX)', 'Case 3 Value\n(HEX)',
+    'Case 4 Value\n(HEX)', 'Case 5 Value\n(HEX)', 'Case 6 Value\n(HEX)', 'Case 7 Value\n(HEX)',
+    'Description Case 0', 'Description Case 1', 'Description Case 2', 'Description Case 3',
+    'Description Case 4', 'Description Case 5', 'Description Case 6', 'Description Case 7'
+  ];
+  function rowDesc(b, r) {
+    if (r.kind === 'burn') return 'IRREVERSIBLE eFuse program (one-time) / 不可逆：燒 eFuse';
+    if (r.pin && r.name === b.gpio.selN) return b.item.label + ': ' + b.item.sig;
+    if (r.pin) return 'TX enable';
+    return '';
+  }
+  function xlsxRows(b) {
+    var rows = [XLSX_HEADER.slice()];
+    b.rows.forEach(function (r) {
+      if (r.kind === 'r') return;
+      var x = new Array(XLSX_HEADER.length); for (var i = 0; i < x.length; i++) x[i] = null;
+      x[0] = b.tcon; x[1] = r.name; x[2] = '0x' + hex(r.slave, 2); x[3] = r.ob; x[4] = offStr(r); x[5] = 0;
+      x[6] = '0x' + (r.val >>> 0).toString(16).toUpperCase(); x[14] = rowDesc(b, r) || null;
+      rows.push(x);
+    });
+    return rows;
+  }
+  /* ── 匯出：.script（WFG NB 匯出同格式：write -m AAAA VV MM    // note；只能 ASCII；只有 3E Register）── */
+  function asciiOnly(s) { return String(s).replace(/（/g, '(').replace(/）/g, ')').replace(/[^\x20-\x7E]/g, ''); }
+  function scriptText(b) {
+    var L = [], ver = (window.TOOL_VERSIONS && TOOL_VERSIONS.nbdebug) || '';
+    L.push('// NB TCON Debug ' + ver + ' - ' + b.ic + ' ' + asciiOnly(b.item.label) + ' -> ' + asciiOnly(b.gpio.id) + (b.gpio.pst ? ' (' + asciiOnly(b.gpio.pkg || b.gpio.id) + ')' : ''));
+    L.push('// Load this file from the Script page of the EN01 UI, Address Type = Register.');
+    L.push('// write -m changes only the bits in MASK; other bits keep their value.');
+    L.push('// ' + new Date().toISOString());
+    L.push('');
+    L.push('// -- ' + asciiOnly(b.item.label) + ': ' + asciiOnly(b.item.sig) + ' --');
+    b.rows.forEach(function (r) {
+      if (r.kind === 'r') { L.push('// read 3E 0x' + hex(r.addr, 4) + ' first: non-zero = osc_1 already programmed, do not burn'); return; }
+      var note = r.name + ' = 0x' + hex(r.val, 2);
+      if (r.slave !== 0x3E) {
+        if (r.kind === 'burn') L.push('// WARNING: IRREVERSIBLE (one-time eFuse program). Run only after 7C 0x00 is final.');
+        L.push('// 7C:0x' + hex(r.addr, 2) + ' <- ' + hex(r.val, 2) + '    // ' + note + '  (slave 0x7C, 1-byte offset: not a Register address, send by I2C)');
+        return;
+      }
+      L.push('write -m ' + hex(r.addr, 4) + ' ' + hex((r.val << r.lsb) & 0xFF, 2) + ' ' + hex(r.mask, 2) + '    // ' + note);
+    });
+    var s = L.join('\n') + '\n';
+    for (var i = 0; i < s.length; i++) if (s.charCodeAt(i) > 0x7F) throw new Error('non-ASCII at ' + i);
+    return s;
+  }
+  function fname(b, ext) {
+    var d = new Date(), ds = d.getFullYear() + ('0' + (d.getMonth() + 1)).slice(-2) + ('0' + d.getDate()).slice(-2);
+    var it = asciiOnly(b.item.id), gp = asciiOnly(b.gpio.id).replace(/[^A-Za-z0-9_]+/g, '_').replace(/_+$/, '');
+    return 'NBDebug_' + b.ic + '_' + it + '_' + gp + (S.burnOk() && b.item.kosc ? '_BURN' : '') + '_' + ds + '.' + ext;
+  }
+  function download(name, data, mime) {
+    var blob = new Blob([data], { type: mime }), a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  }
+
+  /* ── 狀態 ── */
+  var S = { ws: null, seq: 0, pend: {}, linked: false, busy: false, miss: null, userClose: false, checked: null,
+            rb: {}, orig: {}, r20d0: null, code: 0xAA,
+            burnOk: function () { return !!($('nd-burn').checked && $('nd-burn1').checked && $('nd-burn2').checked); } };
+  function cur() { return build($('nd-icsel').value, $('nd-item').value, $('nd-gpio').value, { code: S.code, burn: S.burnOk() }); }
+  function key(r) { return r.slave + ':' + r.addr; }
+  function log(s) { var el = $('nd-log'); el.textContent += s + '\n'; el.scrollTop = el.scrollHeight; }
+  function status(msg, cls) { var el = $('nd-st'); el.textContent = msg || ''; el.className = 'nd-st' + (cls ? ' ' + cls : ''); }
+
+  /* ── 畫面 ── */
+  function fillIc() {
+    var s = $('nd-icsel'), v = s.value || 'E503';
+    s.innerHTML = IC_ORDER.map(function (k) { return '<option value="' + k + '">' + esc(IC_LABEL[k]) + '</option>'; }).join('');
+    s.value = v;
+  }
+  function fillItems() {
+    var ic = $('nd-icsel').value, s = $('nd-item'), v = s.value, list = itemsFor(ic);
+    s.innerHTML = list.map(function (it) { return '<option value="' + it.id + '">' + esc(it.label) + '</option>'; }).join('');
+    s.value = list.some(function (it) { return it.id === v; }) ? v : list[0].id;
+  }
+  function fillGpio(keep) {
+    var ic = $('nd-icsel').value, it = itemOf($('nd-item').value), s = $('nd-gpio'), v = s.value, dp = defPin(ic, it);
+    s.innerHTML = G[ic].gpios.map(function (g) {
+      return '<option value="' + esc(g.id) + '">' + esc(pinText(g)) + (g.id === dp ? ' ★' + esc(tt('nd.def')) : '') + '</option>';
+    }).join('');
+    s.value = (keep && gpioOf(ic, v)) ? v : dp;
+  }
+  function lvTag(lv, srcKeys) {
+    var cls = lv === 'peerf' ? 'lv-peerf' : (lv === 'vendor' ? 'lv-ven' : 'lv-doc');
+    var k = lv === 'peerf' ? 'nd.lvPeerf' : (lv === 'vendor' ? 'nd.lvVendor' : (lv === 'pin' ? 'nd.lvPin' : 'nd.lvDoc'));
+    var src = (srcKeys || []).map(function (s) { return SRC[s]; }).join('；');
+    return '<span class="nd-tag ' + cls + '" title="' + esc(tt('nd.lvTip', { s: src })) + '">' + esc(tt(k)) + '</span>';
+  }
+  function li() { var l = document.documentElement.lang; return l === 'en' ? 1 : (l === 'zh-CN' ? 2 : 0); }
+  function render() {
+    var b = cur(); if (!b) return;
+    var g = b.gpio, it = b.item;
+    var pinLbl = g.pst === 'ok' || g.pst === 'inf' ? (g.pkg + (g.pin ? ' · ' + g.pin : '')) : g.id;
+    var pq = (g.pst === 'ok') ? '' : (g.pst === 'inf' ? '（' + tt('nd.pkgInf') + '）' : '<span class="nd-pkgq">（' + esc(g.pst === 'nobond' ? tt('nd.pkgNo') : tt('nd.pkgQ')) + '）</span>');
+    $('nd-info').innerHTML = lvTag(b.level, it.src) + '<span class="nd-meas">' + tt('nd.meas', { p: esc(pinLbl), m: esc(it.meas[li()]) }) + pq + '</span>';
+    var w = [];
+    if (it.w08) w.push(tt('nd.w08'));
+    if (it.kosc) w.push(tt('nd.wBurn'));
+    $('nd-warn').textContent = w.join('　');
+    $('nd-burnbox').classList.toggle('hidden', !it.kosc);
+    $('nd-burnc').classList.toggle('hidden', !$('nd-burn').checked);
+    $('nd-burn2t').textContent = tt('nd.burnC2',{ v: '0x' + hex(S.code, 2) });
+    var h = '<thead><tr><th>#</th><th class="c-slave">' + esc(tt('nd.thSlave')) + '</th><th>' + esc(tt('nd.thAddr')) + '</th><th>' + esc(tt('nd.thVal')) + '</th><th>' + esc(tt('nd.thRb')) + '</th><th>' + esc(tt('nd.thName')) + '</th><th></th></tr></thead><tbody>';
+    b.rows.forEach(function (r, i) {
+      var part = r.mask !== 0xFF, cls = r.kind === 'burn' ? 'burn' : (r.kind === 'r' ? 'rd' : (r.pin ? 'pin' : ''));
+      var addr = (r.ob === 2 ? '0x' + hex(r.addr, 3) : '0x' + hex(r.addr, 2)) + (part ? ' <span class="nd-bits">[' + r.msb + (r.msb === r.lsb ? '' : ':' + r.lsb) + ']</span>' : '');
+      var val = r.kind === 'r' ? '—' : (r.code ? '<input class="nd-in" id="nd-code" value="' + hex(S.code, 2) + '" maxlength="2" aria-label="7C 0x00">' : '0x' + hex(r.val, 2));
+      var rb = S.rb[i] || '';
+      var tip = part ? tt('nd.keep') + '（mask 0x' + hex(r.mask, 2) + '）' : '';
+      h += '<tr class="' + cls + '" data-k="' + [r.kind, hex(r.slave, 2), hex(r.addr, 4), r.msb, r.lsb, r.val == null ? '' : hex(r.val, 2)].join(':') + '"><td>' + (i + 1) + '</td><td class="c-slave mono">' + hex(r.slave, 2) + '</td><td class="mono">' + addr + '</td><td class="mono">' + val + '</td>' +
+        '<td class="mono nd-rb ' + (rb.cls || '') + '">' + esc(rb.t || '') + '</td><td class="nm" title="' + esc(tip) + '">' + esc(r.name) + (part ? ' <span class="nd-bits">· ' + esc(tt('nd.keep')) + '</span>' : '') + '</td>' +
+        '<td>' + (r.kind === 'r' ? '' : '<button class="sbtn sm" data-w="' + i + '"' + (S.linked && !S.busy ? '' : ' disabled') + '>' + esc(tt('nd.w')) + '</button> ') +
+        '<button class="sbtn sm" data-r="' + i + '"' + (S.linked && !S.busy ? '' : ' disabled') + '>' + esc(tt('nd.r')) + '</button></td></tr>';
+    });
+    $('nd-tbl').innerHTML = h + '</tbody>';
+    var ci = $('nd-code'); if (ci) ci.addEventListener('change', function () { var v = parseInt(ci.value, 16); if (!(v >= 0x80 && v <= 0xFF)) { status(tt('nd.codeBad'), 'err'); ci.value = hex(S.code, 2); return; } S.code = v; S.rb = {}; render(); });
+    $('nd-run').disabled = !S.linked || S.busy;
+    $('nd-run').title = S.linked ? '' : tt('nd.needLink');
+    $('nd-undo').disabled = !S.linked || S.busy || !Object.keys(S.orig).length;
+    $('nd-link').textContent = tt(S.linked ? 'nd.unlink' : 'nd.link');
+    renderI2c(); renderHelp(b);
+  }
+  function renderHelp(b) {
+    var it = b.item, n = li();
+    var T3 = function (a) { return a[n]; };
+    var src = it.src.map(function (s) { return '<li>' + esc(SRC[s]) + '</li>'; }).join('');
+    var h = '<h4>' + esc(it.label) + '：' + esc(it.sig) + '</h4><ul>' + src +
+      '<li>' + esc(T3(['GPIO 位址：', 'GPIO addresses: ', 'GPIO 地址：'])) + esc(b.model) + ' ' + esc(b.gpio.txN) + '（L' + b.gpio.txL + '）／' + esc(b.gpio.selN) + '（L' + b.gpio.selL + '）' + (b.gpio.pin ? '；' + esc(b.gpio.pin) : '') + '</li></ul>';
+    h += '<h4>' + esc(T3(['驗證等級', 'Verification level', '验证等级'])) + '</h4><ul>' +
+      '<li>' + esc(T3(['同事F已驗證＝E503 實機量過（WP pin）；原廠腳本＝原廠腳本或 RD 信件給的設定；文件推論未實測＝依 debug 投影片／其他 IC 推過來，沒量過。',
+        'Verified (同事F) = measured on E503 (WP pin); Vendor script = script or RD-mail settings; From docs = derived from the debug slides / another IC, not measured.',
+        '同事F已验证＝E503 实机量过（WP pin）；原厂脚本＝原厂脚本或 RD 信件给的设定；文件推论未实测＝依 debug 投影片／其他 IC 推过来，没量过。'])) + '</li>' +
+      '<li>' + esc(T3(['改選非預設腳＝依 model 位址推論，未實測（訊號選擇相同，只換輸出腳的 TX_EN／TX_IN_SEL）。', 'A non-default pin = from model address, not measured (same signal, only the pin TX_EN / TX_IN_SEL change).', '改选非默认脚＝依 model 地址推论，未实测（信号选择相同，只换输出脚的 TX_EN／TX_IN_SEL）。'])) + '</li></ul>';
+    h += '<h4>' + esc(T3(['注意', 'Notes', '注意'])) + '</h4><ul>' +
+      '<li>' + esc(T3(['每一列只改標示的 bit（E503／E501 的 TX_IN_SEL 與 DRV 同一個 byte：只改 [5:0]，[7:6] DRV 不動）。', 'Each row changes only the marked bits (on E503/E501 TX_IN_SEL shares the byte with DRV: only [5:0] changes, [7:6] DRV kept).', '每一行只改标示的 bit（E503／E501 的 TX_IN_SEL 与 DRV 同一个 byte：只改 [5:0]，[7:6] DRV 不动）。'])) + '</li>' +
+      '<li>' + esc(T3(['E503 WP pin 平常是 EEPROM 寫保護（0x059＝1E）；拿來量 debug 時 EEPROM 寫保護暫時沒有，量完按「還原」。', 'On E503 the WP pin is normally EEPROM write-protect (0x059 = 1E); while it outputs debug the EEPROM is unprotected — press Restore when done.', 'E503 WP pin 平常是 EEPROM 写保护（0x059＝1E）；拿来量 debug 时 EEPROM 写保护暂时没有，量完按「还原」。'])) + '</li>' +
+      '<li>' + esc(T3(['同事F信的 RX DE 是 DEBUG_OUT2[7]（DPFIFO_2_RTLOG_DE），不是舊整理的 DP_2_FIFO_DE（28h）；TX DE 是 ISP0_FIFO_IRDY0，RT6_DE 另列一項。', '同事F’s RX DE is DEBUG_OUT2[7] (DPFIFO_2_RTLOG_DE), not DP_2_FIFO_DE (28h) from older notes; TX DE is ISP0_FIFO_IRDY0, RT6_DE is listed separately.', '同事F信的 RX DE 是 DEBUG_OUT2[7]（DPFIFO_2_RTLOG_DE），不是旧整理的 DP_2_FIFO_DE（28h）；TX DE 是 ISP0_FIFO_IRDY0，RT6_DE 另列一项。'])) + '</li>' +
+      '<li>' + esc(T3(['EN01 的內部 debug 群組沒有文件，只有 OSC（dbg_01 bit4）有實例對上；其他項目套 E503 做法＝推論。', 'EN01 internal debug groups are undocumented; only OSC (dbg_01 bit4) is confirmed; other items reuse the E503 method (inferred).', 'EN01 的内部 debug 群组没有文件，只有 OSC（dbg_01 bit4）有实例对上；其他项目套 E503 做法＝推论。'])) + '</li>' +
+      '<li>' + esc(T3(['E501 的 TX_IN_SEL 26h／27h 是 BE／BS，不是 DEBUG_OUT[6]／[7]，所以 E501 沒有 PLL lock（Lane0）。', 'On E501 TX_IN_SEL 26h/27h are BE/BS, not DEBUG_OUT[6]/[7], so PLL lock (Lane0) is not offered.', 'E501 的 TX_IN_SEL 26h／27h 是 BE／BS，不是 DEBUG_OUT[6]／[7]，所以 E501 没有 PLL lock（Lane0）。'])) + '</li>' +
+      '<li>' + esc(T3(['匯出 Excel／.script 是給 EN01 UI 載入（Excel＝Import CheckList；.script＝Script 分頁、Address Type＝Register）；7C 的列與 0x0E4 不是 .model 的 Register，.script 只寫成註解，要用 I2C 下。', 'Exports are for the EN01 UI (Excel = Import CheckList; .script = Script page, Address Type = Register); 7C rows and 0x0E4 are not .model registers, so .script keeps them as comments — send them by I2C.', '导出 Excel／.script 是给 EN01 UI 载入（Excel＝Import CheckList；.script＝Script 分页、Address Type＝Register）；7C 的行与 0x0E4 不是 .model 的 Register，.script 只写成注释，要用 I2C 下。'])) + '</li></ul>';
+    $('nd-help').innerHTML = h;
+  }
+
+  /* ── I2C（協定同 datamap.html／i2c.html）── */
+  var IB = window.I2CBridge || null;
+  var WS_URL = IB ? IB.WS_URL : 'ws://127.0.0.1:8899/ws', WS_MS = 4000, CLOCK_HZ = 150000;
+  function i2cState() { return S.linked ? 'on' : (S.busy && !S.linked ? 'busy' : (S.miss || 'off')); }
+  function renderI2c() {
+    if (IB) IB.badge($('nd-i2c'), i2cState());
+    var need = $('nd-need');
+    if (IB && S.miss && !S.linked) { if (need.getAttribute('data-i2cb-need') !== S.miss || need.getAttribute('data-lang') !== document.documentElement.lang) { IB.mountNeed(need, S.miss); need.setAttribute('data-lang', document.documentElement.lang); } }
+    else if (IB) IB.unmountNeed(need);
+  }
+  function send(obj) {
+    return new Promise(function (resolve, reject) {
+      if (!S.ws || S.ws.readyState !== 1) { reject(new Error(tt('nd.needLink'))); return; }
+      var id = ++S.seq; obj.id = id;
+      var timer = setTimeout(function () { if (S.pend[id]) { delete S.pend[id]; reject(new Error('timeout: ' + obj.type)); } }, WS_MS);
+      S.pend[id] = { resolve: resolve, reject: reject, timer: timer };
+      try { S.ws.send(JSON.stringify(obj)); } catch (e) { clearTimeout(timer); delete S.pend[id]; reject(e); }
+    });
+  }
+  async function rawRead(slave, awid, addr, len) {
+    var r = await send({ type: 'read', slave: slave, addr: addr, len: len, awid: awid });
+    if (!r.ok) throw new Error('read 0x' + hex(slave, 2) + ':0x' + hex(addr, 4) + ' fail' + (r.err ? ' ' + r.err : ''));
+    return r.data || [];
+  }
+  async function rawWrite(slave, awid, addr, bytes) {
+    var r = await send({ type: 'rawwrite', slave: slave, addr: addr, data: bytes.map(function (x) { return x & 0xFF; }), awid: awid });
+    if (!r.ok) {
+      if (r.err && /unknown|type/i.test(String(r.err))) throw new Error(tt('nd.oldBridge'));
+      throw new Error('write 0x' + hex(slave, 2) + ':0x' + hex(addr, 4) + ' fail' + (r.err ? ' ' + r.err : ''));
+    }
+    return r;
+  }
+  async function tryRead1(slave, awid, addr) { try { var b = await rawRead(slave, awid, addr, 1); return b.length ? b[0] : null; } catch (e) { return null; } }
+  /* IC 辨認：datamap.html checkTcon() 的 NB 段（7C:95／7C:98 → E501A／E501B；7D:007D ≤ 4 → 3E:207E 10/11＝EN01，否則 E503） */
+  async function checkIc() {
+    var mb = await TconMbus.open(rawWrite); log(mb.ok ? TconMbus.LOG : tt('tcon.mbusFail', { err: mb.err }));
+    var id95 = await tryRead1(0x7C, 1, 0x95), f98 = await tryRead1(0x7C, 1, 0x98);
+    log('0x7C:0x95 = ' + (id95 == null ? '—' : hex(id95, 2)) + ' · 0x7C:0x98 = ' + (f98 == null ? '—' : hex(f98, 2)));
+    if (id95 == null || f98 == null) return null;
+    if (f98 !== 0) { var E501 = { 0x00: 'E501A', 0x40: 'E501B', 0x41: 'E501B' }; return E501[id95] || null; }
+    var v7d = await tryRead1(0x7D, 2, 0x007D); log('0x7D:0x007D = ' + (v7d == null ? '—' : hex(v7d, 2)));
+    if (v7d == null || v7d > 4) return null;
+    var b = await tryRead1(0x3E, 2, 0x207E);
+    if (b == null || b === 0xFF) { await TconMbus.open(rawWrite); b = await tryRead1(0x3E, 2, 0x207E); }
+    log('0x3E:0x207E = ' + (b == null ? '—' : hex(b, 2)));
+    return (b === 0x10 || b === 0x11) ? 'EN01' : 'E503';
+  }
+  async function connect() {
+    if (S.linked) return disconnect();
+    if (S.busy) return;
+    S.busy = true; S.userClose = false; S.miss = null; render();
+    log('connect ' + WS_URL);
+    var ws;
+    try { ws = new WebSocket(WS_URL); } catch (e) { S.busy = false; S.miss = 'none'; status(tt('nd.linkErr'), 'err'); render(); return; }
+    S.ws = ws;
+    ws.onmessage = function (ev) { var m; try { m = JSON.parse(ev.data); } catch (e) { return; } if (typeof m.id === 'number' && S.pend[m.id]) { var p = S.pend[m.id]; delete S.pend[m.id]; clearTimeout(p.timer); p.resolve(m); } };
+    ws.onclose = function () {
+      for (var k in S.pend) { try { clearTimeout(S.pend[k].timer); S.pend[k].reject(new Error('closed')); } catch (e) {} }
+      S.pend = {}; if (S.linked && !S.userClose) S.miss = 'drop';
+      S.linked = false; S.ws = null; S.checked = null; render();
+    };
+    var opened = await new Promise(function (res) {
+      var done = false, to = setTimeout(function () { if (!done) { done = true; res(false); } }, WS_MS);
+      ws.onopen = function () { if (!done) { done = true; clearTimeout(to); res(true); } };
+      ws.onerror = function () { if (!done) { done = true; clearTimeout(to); res(false); } };
+    });
+    if (!opened) { try { ws.close(); } catch (e) {} S.ws = null; S.busy = false; S.miss = 'none'; status(tt('nd.linkErr'), 'err'); render(); return; }
+    try {
+      var pong = await send({ type: 'ping' }); log('I2C Bridge ' + (pong.helper || '?') + ' proto ' + (pong.proto || '?'));
+      var op = null;
+      for (var a = 1; a <= 5; a++) {
+        op = await send({ type: 'open', page: 'nbdebug ' + ((window.TOOL_VERSIONS && TOOL_VERSIONS.nbdebug) || ''), clockHz: CLOCK_HZ, takeover: 1, fastread: 0 });
+        if (op && op.locked) throw new Error('I2C Bridge locked by another page');
+        if (op && op.ok) break;
+        await new Promise(function (r) { setTimeout(r, 500); });
+      }
+      if (!op || !op.ok) throw new Error('open failed');
+      S.linked = true; log('channel open');
+      var ic = await checkIc(); S.checked = ic;
+      if (!ic) { $('nd-ic').textContent = tt('nd.icNone'); status(tt('nd.icNone'), 'err'); }
+      else if (ic !== $('nd-icsel').value) { $('nd-icsel').value = ic; onIc(); $('nd-ic').textContent = tt('nd.icGot', { ic: ic }); status(tt('nd.icSwitch', { ic: ic }), 'ok'); }
+      else { $('nd-ic').textContent = tt('nd.icGot', { ic: ic }); status(''); }
+    } catch (e) {
+      status(String(e && e.message || e), 'err'); S.userClose = true;
+      try { send({ type: 'close' }).catch(function () {}); } catch (e2) {}
+      try { ws.close(); } catch (e3) {}
+      S.linked = false; S.ws = null;
+    } finally { S.busy = false; render(); }
+  }
+  async function disconnect() {
+    S.userClose = true; S.miss = null;
+    try { if (S.ws && S.ws.readyState === 1) await send({ type: 'close' }); } catch (e) {}
+    try { if (S.ws) S.ws.close(); } catch (e) {}
+    S.ws = null; S.linked = false; S.checked = null; $('nd-ic').textContent = ''; log('disconnected'); render();
+  }
+  function icOk() { return S.linked && S.checked && S.checked === $('nd-icsel').value; }
+  /* 一列：讀 → 只改遮罩內 bit → 寫 → 讀回比對；第一次寫前的原值記到 S.orig（還原用） */
+  async function doRow(b, i, mode) {
+    var r = b.rows[i], aw = r.ob;
+    if (mode === 'r' || r.kind === 'r') {
+      var v = (await rawRead(r.slave, aw, r.addr, 1))[0] & 0xFF;
+      log('R 0x' + hex(r.slave, 2) + ':0x' + hex(r.addr, aw === 2 ? 4 : 2) + ' -> ' + hex(v, 2));
+      if (r.kind === 'r') { S.r20d0 = v; S.rb[i] = { t: '0x' + hex(v, 2) + ' ' + tt(v ? 'nd.burned' : 'nd.notBurned'), cls: v ? 'ng' : 'ok' }; return true; }
+      var got = (v & r.mask) >> r.lsb;
+      S.rb[i] = r.rbUnk ? { t: '0x' + hex(v, 2) + ' ' + tt('nd.rbUnk'), cls: 'mid' } : { t: '0x' + hex(v, 2) + (got === r.val ? ' ✓' : ' ✗'), cls: got === r.val ? 'ok' : 'ng' };
+      return r.rbUnk || got === r.val;
+    }
+    if (r.kind === 'burn') {
+      if (!S.burnOk()) throw new Error(tt('nd.burnAdd'));
+      if (S.r20d0 !== 0) throw new Error(tt('nd.burnNeed20d0'));
+    }
+    var old = (await rawRead(r.slave, aw, r.addr, 1))[0] & 0xFF;
+    var k = key(r); if (!(k in S.orig) && r.kind !== 'burn') S.orig[k] = { slave: r.slave, ob: aw, addr: r.addr, v: old, order: Object.keys(S.orig).length };
+    var nv = (old & ~r.mask & 0xFF) | ((r.val << r.lsb) & r.mask);
+    await rawWrite(r.slave, aw, r.addr, [nv]);
+    log('W 0x' + hex(r.slave, 2) + ':0x' + hex(r.addr, aw === 2 ? 4 : 2) + ' ' + hex(old, 2) + ' -> ' + hex(nv, 2) + ' (mask ' + hex(r.mask, 2) + ')');
+    if (r.kind === 'burn') { S.rb[i] = { t: 'sent', cls: 'mid' }; return true; }
+    return await doRow(b, i, 'r');
+  }
+  async function guard(fn) {
+    if (!S.linked) { status(tt('nd.needLink'), 'err'); return; }
+    if (!icOk()) { status(tt('nd.icNone'), 'err'); return; }
+    if (S.busy) return;
+    S.busy = true; status(tt('nd.busy')); render();
+    try { await fn(); } catch (e) { status(String(e && e.message || e), 'err'); log('ERR ' + (e && e.message || e)); }
+    finally { S.busy = false; render(); }
+  }
+  function runAll() {
+    return guard(async function () {
+      var b = cur(), n = 0; S.rb = {};
+      var mb = await TconMbus.open(rawWrite); if (!mb.ok) log(tt('tcon.mbusFail', { err: mb.err }));
+      for (var i = 0; i < b.rows.length; i++) {
+        var ok = await doRow(b, i, 'w'); render();
+        if (b.rows[i].kind === 'r' && S.r20d0) { /* 已燒過：照樣讓使用者量頻，但燒錄列一定不送 */ }
+        if (!ok) { status(tt('nd.runFail', { i: i + 1 }), 'err'); return; }
+        if (b.rows[i].kind !== 'r') n++;
+      }
+      status(tt('nd.runOk', { n: n }), 'ok');
+    });
+  }
+  function undo() {
+    return guard(async function () {
+      var list = Object.keys(S.orig).map(function (k) { return S.orig[k]; }).sort(function (a, b) { return b.order - a.order; });
+      if (!list.length) { status(tt('nd.undoNone')); return; }
+      for (var i = 0; i < list.length; i++) { var o = list[i]; await rawWrite(o.slave, o.ob, o.addr, [o.v]); log('W 0x' + hex(o.slave, 2) + ':0x' + hex(o.addr, o.ob === 2 ? 4 : 2) + ' <- ' + hex(o.v, 2) + ' (restore)'); }
+      S.orig = {}; S.rb = {}; status(tt('nd.undoOk', { n: list.length }), 'ok');
+    });
+  }
+
+  /* ── 事件 ── */
+  function onIc() { fillItems(); fillGpio(false); S.rb = {}; if (S.linked && S.checked && S.checked !== $('nd-icsel').value) $('nd-ic').textContent = tt('nd.icGot', { ic: S.checked }); render(); }
+  $('nd-icsel').addEventListener('change', onIc);
+  $('nd-item').addEventListener('change', function () { fillGpio(false); S.rb = {}; render(); });
+  $('nd-gpio').addEventListener('change', function () { S.rb = {}; render(); });
+  $('nd-link').addEventListener('click', connect);
+  $('nd-run').addEventListener('click', runAll);
+  $('nd-undo').addEventListener('click', undo);
+  ['nd-burn', 'nd-burn1', 'nd-burn2'].forEach(function (id) { $(id).addEventListener('change', function () { if (id === 'nd-burn' && !$('nd-burn').checked) { $('nd-burn1').checked = false; $('nd-burn2').checked = false; } S.rb = {}; render(); }); });
+  $('nd-tbl').addEventListener('click', function (e) {
+    var t0 = e.target.closest('button'); if (!t0) return;
+    var i = +(t0.getAttribute('data-w') || t0.getAttribute('data-r')), mode = t0.hasAttribute('data-w') ? 'w' : 'r';
+    guard(async function () { await TconMbus.open(rawWrite); var ok = await doRow(cur(), i, mode); render(); if (!ok) status(tt('nd.runFail', { i: i + 1 }), 'err'); else status(''); });
+  });
+  $('nd-xlsx').addEventListener('click', function () {
+    var b = cur(), f = fname(b, 'xlsx');
+    download(f, TCONXlsx.build([{ name: 'Sheet1', rows: xlsxRows(b) }]), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    status(tt('nd.exported', { f: f }), 'ok'); log('export ' + f);
+  });
+  $('nd-script').addEventListener('click', function () {
+    var b = cur(), f = fname(b, 'script');
+    download(f, scriptText(b), 'text/plain');
+    status(tt('nd.exported', { f: f }), 'ok'); log('export ' + f);
+  });
+  window._onLangChange = function () { fillGpio(true); render(); };
+
+  fillIc(); fillItems(); fillGpio(false);
+  render();
+  /* 測試／除錯入口（不在畫面上） */
+  window.NBD = { build: build, xlsxRows: xlsxRows, scriptText: scriptText, fname: fname, items: ITEMS, itemsFor: itemsFor, defPin: defPin, XLSX_HEADER: XLSX_HEADER, S: S, render: render };
+})();
+</script>
+</body>
+</html>

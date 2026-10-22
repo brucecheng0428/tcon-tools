@@ -2,6 +2,41 @@
 
 ---
 
+## NB TCON Debug應用 (nbdebug) v1.0.0 — 2026-10-22 ｜ MINOR ｜ 新分頁
+
+**全新分頁 `nbdebug.html`：NB T-CON（E503／E501A／E501B／EN01）把內部 debug 訊號拉到 GPIO 量測。選 IC、項目、輸出 GPIO 三個下拉 → 一張暫存器表 → I2C 執行（逐列寫入＋讀回比對、還原）或匯出 Excel／.script。** 初版。
+
+判定依據：`docs/VERSIONING.md` §2 案例 12（新增一個獨立的新分頁工具 ⇒ 該分頁 v1.0.0、首頁 `app` 進 MINOR）。`tools/version_bump_check.py` 對新工具不判級別，這裡標 MINOR 只是照 §1 判定表「新增獨立功能」那一格。
+
+### 需求（Bruce 2026-10-22 原話）
+- 「同事F剛剛寄出E503要拉出RX DE與TX DE的mail，這是有驗證過的方式，要與你搜集的資料比對，如果有差異要以同事F的這份mail為主，然後現在可以開始製作網頁了，我要在tcon tools專案裡看到，標題是NB TCON Debug應用」
+- 「所有的 debug 我不要只限定在某一 pin 輸出，都要有下拉選單，可以從不同的 GPIO pin 輸出。」
+- 「網頁版的還需要可以有 I2C 即時操作，或者是匯出 NB 版的 Script，可以選擇 Excel 或是 Script 檔案。」
+- 「步驟要越簡單越好，說明要越少越好。就跟之前的 DG網頁或者是 DataMap 網頁的目標是一樣的，簡單明瞭、易操作。」
+- 派工 238904982972174336（Dispatch 補充：KOSC 引導頁整合、驗證等級標籤、375px）。
+
+### 內容
+1. 項目：RX DE、TX DE（同事F 2026-10-22 信，E503 WP pin 實測）、TX DE（RT6_DE，同事H 2026-10-02）、OSC ÷8、KOSC trim（EN01，同事K 2026-10-21 兩支腳本）、PLL lock Lane0／Lane1（同事H 2026-01-13；E501 不提供 Lane0：E501 的 TX_IN_SEL 27h 是 BS）、RX link clock ÷8、BS、BE（E503 debug 介紹 p8）、Core state[3]。
+2. 輸出 GPIO 下拉：.model 裡同一父節點同時有 *_TX_EN 與 *_TX_IN_SEL 的全部列出（E503 17 支、E501A／E501B 各 23 支、EN01 20 支，位址／bit／行號由程式從 .model 抽出）；來源用的腳是預設（★）。封裝腳名查得到就顯示「封裝腳名（內部名）」，查不到標「封裝腳位待確認，請對照線路圖」。
+3. 驗證等級跟著腳：預設腳＝來源等級（同事F已驗證／原廠腳本／文件推論未實測）；改選其他腳＝「依 model 位址推論，未實測」。
+4. 每一列只改標示的 bit（E503／E501 TX_IN_SEL 與 DRV 同 byte：只改 [5:0]）；I2C 是讀 → 改遮罩內 bit → 寫 → 讀回；第一次寫前的原值記下，「還原」逆序寫回。
+5. I2C 走 common/i2c-bridge.js（位址、徽章、下載提示）＋ common/i2c-mbus.js；WebSocket 協定與 IC 辨認照 datamap.html（認到的 IC 與選的不同 ⇒ 自動切換；認不出 ⇒ 不寫）。**不下** datamap 那筆 E503 3E:0059←1E（0x059 是 WP pin 的 TX_IN_SEL，會蓋掉 debug 輸出）。
+6. 匯出 Excel＝WFG NB 匯出格式（22 欄表頭同 `WFG_NB_XLSX_HEADER`、Check Item＝.model 區塊名、Offset 同 `wfgNbOff()`、值 `0x`+HEX）；.script＝`write -m AAAA VV MM    // note`（同 `wfgNbBuildScript()`，ASCII）。7C 與 0x0E4 不是 .model Register，.script 只寫成註解。檔名 `NBDebug_<IC>_<項目>_<GPIO>_<YYYYMMDD>`。
+7. KOSC 燒 eFuse（7C 0x01=01）：預設不在表上、不匯出；勾「加入燒 eFuse」＋兩個確認才出現（檔名加 _BURN、Excel 描述與 .script 註明 IRREVERSIBLE／不可逆）；I2C 送出另外要求這次連線讀到 3E 0x20D0＝0。
+8. 主畫面警示只兩種：0x008（E503 MCU patch 開關，只寫 01）、KOSC 燒錄不可逆。其餘說明收在「說明」（預設收起）。
+9. 首頁第 10 張卡片；common/version.js `nbdebug: 'v1.0.0'`、`app` v1.94.0；index.html／nbdebug.html version.js `?v=20261022nd100`。
+
+### 測試（tools/check_nbdebug.mjs，新增）
+見派工完成回報；需要 `PLAYWRIGHT_CORE`（本機 playwright-core 1.64.1）與 `NBD_MODEL_DIR`。
+
+## 首頁 (app) v1.94.0 — 2026-10-22 ｜ MINOR
+
+首頁新增第 10 張卡片「NB TCON Debug應用」→ `nbdebug.html`（版號徽章讀 `TOOL_VERSIONS.nbdebug`），`home.ndTitle`／`home.ndDesc` 三語（寫在 index.html，不動 common/i18n.js）。
+
+判定依據：`docs/VERSIONING.md` §2 案例 12（新增獨立新分頁 ⇒ 首頁 `app` 進 MINOR）。既有九張卡片與入口位置不變。
+
+---
+
 ## Data Mapping (datamap) v1.37.0 — 2026-10-21 ｜ MINOR ｜ EN01 開放 Benchmark 自動反推（快速路徑、分段執行可取消、多解提示）
 
 判定依據：docs/VERSIONING.md R3——使用者多能做一件事（EN01 也能按「自動反推」）⇒ MINOR。MNT／NB 反推結果逐欄不變（見測試），不標 ⚠ 輸出變更；結果行在有多組 0 錯解時多一句「共 N 組 0 錯解」（MNT／NB 也會出現，只是文字）。
