@@ -158,7 +158,7 @@ int main(void){
     char b[16384], hello[1024];
     int s=ws_open(hello,sizeof(hello));
     CHECK(s>=0,"WebSocket 連得上"); if(s<0){ printf("%d/%d\n",total-fails,total); return 1; }
-    CHECKS(hello,"\"proto\":7","hello 回報 proto 7");
+    CHECKS(hello,"\"proto\":8","hello 回報 proto 8（1.19.0 起）");
 
     G("1. DLL 不在：清楚的錯誤，治具功能不受影響");
     jcmd(s,"{\"type\":\"open\",\"id\":1,\"mode\":4}",b,sizeof(b));

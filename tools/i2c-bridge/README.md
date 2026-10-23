@@ -3,9 +3,22 @@
 網頁沒有任何管道直接呼叫本機的 FTDI 驅動（D2XX），這支小程式就是那條「電話線」：
 
 ```
-網頁 ──WebSocket(127.0.0.1)──> i2c-bridge.exe ──libMPSSE(D2XX)──> 治具 ──I2C──> TCON
+網頁 ──WebSocket(127.0.0.1)──> i2c-aux-bridge.exe ──libMPSSE(D2XX)──> 治具 ──I2C──> TCON
 ```
 
+## 1.19.0（proto 8）：exe 改名＋I2C 治具與 DP AUX 同時使用
+
+Bruce 2026-10-23：「I2C-Bridge.exe 我還是覺得它要改名欸。為什麼改了沒好處？這些事情不是全部再重新用一次就好了嗎？另外，I2C 跟 AUX 還是要改成可以同時使用。不要因為怕麻煩就不做」。
+
+- **exe 改名 `i2c-aux-bridge.exe`、log 改名 `i2c-aux-bridge.log`**（下載包 `data/i2c-aux-bridge-v1.19.0.zip`）。`i2c-aux-bridge.ini`／`i2c-aux-bridge-vendor.ini` 新名優先，舊名照讀。網頁靠 WebSocket 埠（127.0.0.1:8899）找 bridge，**不看檔名** ⇒ 舊 exe 照樣連得上。舊的桌面捷徑要改指到新檔名。wire 欄位 `helper` 不改。
+- **兩條路各自持有**：`g_own[DGH_PATH_JIG|AUX]`／`g_lk[…]`。AUX 開啟不再讓出治具、回治具不再放掉 AUX；一個分頁斷線只放掉它那一條路。兩個分頁可以各接一種；同一頁開兩條 WebSocket（一條一種）也可以。同一條連線改用另一種（舊網頁）＝先放掉原本那條（與 1.18 相同）。
+- 每一則命令依連線的路分流；AUX 連線的命令期間 `dgh_mode` 暫設 4，做完**還原治具的模式與參數**（fastread／rawmpsse／三相／ckdelay）——AUX 那頁送的 open 欄位不會改到治具那頁。
+- **T-CON 保護**：單執行緒 ⇒ 一則命令從頭跑到尾才換下一則（兩條路的交易不交錯，`test_server_simul` 用重疊偵測驗 0 次）。一條路用 `lock`（proto 3）宣告在跑一串時，另一條路的持有者碰硬體的命令（read／write／rawwrite／batchwrite／dpcd*／psr／chandiag）**排隊**：那條連線暫停收訊（後面的命令照順序留在 socket 裡），lock 解除就照順序做；排超過 6 秒回 `{"ok":false,"busy":true,"tconBusy":true}`，什麼都沒送（小於網頁 8 秒逾時）。lock 持有者斷線 ⇒ lock 消失、排隊的馬上做。
+- EEPROM 擋寫規則照舊（AUX 只到得了 0x3E／0x7C／0x7D／0x7E；0x50–0x57、DPCD 0x480–0x48F 一律擋）。
+- hello／pong 新欄位：`simul:true`、`jigBusy`、`auxBusy`、`jigLocked`、`auxLocked`（pong 另有 `path`）。舊欄位 `busy`／`locked` 仍指治具那條路，`owner` 指「這條連線所在的那條路」。
+- 🔴 全部是模擬（shim＋假 DLL）：`test/test_server_simul.c` 81/81；**未在 Windows 實機驗證**（兩條路真的同時打到同一片面板的電氣／時序只有實機看得到）。
+
+## DP AUX（1.18.0 起，proto 7）
 ## DP AUX（1.18.0 起，proto 7）
 
 Bruce 2026-10-23：「AUX bridge 可以的話跟 i2c bridge 做在一起，用一套轉發就好」「一定要透過 tcon 來控制 i2c，不能直接對 eeprom 也寫入」。
@@ -30,7 +43,7 @@ Bruce 2026-10-23：「AUX bridge 可以的話跟 i2c bridge 做在一起，用�
 
 1. **下載**（不加密 zip，Windows 內建就解得開）
 2. 🔴 **整包解壓到一個資料夾**（例如桌面）—— **不要**直接在壓縮檔預覽視窗裡點 exe
-3. 在那個資料夾**雙擊 `i2c-bridge.exe`**（SmartScreen「其他資訊 → 仍要執行」兩下）→ 瀏覽器自己開、自己連好，直接用
+3. 在那個資料夾**雙擊 `i2c-aux-bridge.exe`**（1.19.0 起的檔名；1.18.1 以前叫 `i2c-bridge.exe`）（SmartScreen「其他資訊 → 仍要執行」兩下）→ 瀏覽器自己開、自己連好，直接用
 
 解壓後是**四個檔**（`i2c-bridge.exe`＋`dg-measure.html`＋`i2c.html`＋`libMPSSE.dll`）要在同一資料夾。要用原廠 PQ Tool 時先關掉 helper 黑視窗（擇一使用）。
 
@@ -40,7 +53,7 @@ Bruce 2026-10-23：「AUX bridge 可以的話跟 i2c bridge 做在一起，用�
 > - **主下載改不加密**。原本壓密碼只是為了繞下載掃描，但密碼 `1234` 本來就印在頁面上＝沒有機密性，只多一步輸入 → 拿掉。被公司掃描器擋住的話再給加密版。
 > - 🔴 **偵測「在暫存目錄執行」＝狀態碼 T**。最可能造成 Bruce 出 D 的真因：在檔案總管的**壓縮檔預覽**裡直接雙擊 exe，Windows 只把 exe 解到 `%TEMP%` 執行，`libMPSSE.dll` 留在壓縮檔沒跟出來 → 找不到。這種情況印 **T**（不是 D），並直接叫使用者「整包解壓到資料夾再從那裡跑」。
 
-**Console 全英文**（Windows console 中文會亂碼）。黑視窗最後一行是**單一大寫狀態字母**，詳細英文寫進 exe 旁的 `i2c-bridge.log`。
+**Console 全英文**（Windows console 中文會亂碼）。黑視窗最後一行是**單一大寫狀態字母**，詳細英文寫進 exe 旁的 `i2c-aux-bridge.log`（1.18.1 以前叫 `i2c-bridge.log`）。
 
 | 字母 | 意思 | 處置 |
 |---|---|---|
@@ -114,7 +127,7 @@ Microsoft／Mono／Debian 套件庫）根本編不出 C# net472。** 依 Bruce �
 
 ```bash
 # 需要 zig（pip 套件 ziglang 亦可）
-ZIG=/path/to/zig ./build.sh          # 產出 i2c-bridge.exe（32 位元、PE32、console）
+ZIG=/path/to/zig ./build.sh          # 產出 i2c-aux-bridge.exe（32 位元、PE32、console；1.19.0 起的檔名）
 ```
 
 驗證 PE：`python3` 讀 `f[0x3c:0x40]` 取 PE offset、再讀 machine，應為 `0x014c`。
@@ -146,6 +159,9 @@ cc -O2 -I test/shim -I . test/test_vendor_len.c test/shim.c -o test_vendor_len -
 cc -O2 -I . test/test_aux.c -o test_aux && ./test_aux   # 45/45
 cc -O2 -I test -c test/test_server_aux.c -o /tmp/tsa.o
 cc /tmp/tsa.o /tmp/bo.o /tmp/sh.o -o test_server_aux -lpthread && ./test_server_aux   # 64/64
+# 1.19.0 I2C 治具＋DP AUX 同時使用：兩條路各自持有、交錯讀寫不重疊、T-CON lock 排隊、一邊斷線另一邊不受影響
+cc -O2 -I test -c test/test_server_simul.c -o /tmp/tss.o
+cc /tmp/tss.o /tmp/bo.o /tmp/sh.o -o test_server_simul -lpthread && ./test_server_simul   # 81/81（含 6 秒逾時那一段）
 ```
 
 🔴 `build.sh` 需要 zig 做交叉編譯。**更正（2026-09-20）：這台 Mac 上已經有

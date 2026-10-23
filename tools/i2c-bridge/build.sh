@@ -4,11 +4,11 @@
 #
 #   ZIG=/path/to/zig ./build.sh
 #
-# 產出：i2c-bridge.exe（32 位元、PE32、console、無 .NET 依賴）
+# 產出：i2c-aux-bridge.exe（32 位元、PE32、console、無 .NET 依賴；1.19.0 起改名，舊名 i2c-bridge.exe）
 set -euo pipefail
 DIR="$(cd "$(dirname "$0")" && pwd)"
 ZIG="${ZIG:-zig}"
-OUT="${1:-$DIR/i2c-bridge.exe}"
+OUT="${1:-$DIR/i2c-aux-bridge.exe}"
 
 "$ZIG" cc -target x86-windows-gnu -O2 \
     "$DIR/i2c_bridge.c" \

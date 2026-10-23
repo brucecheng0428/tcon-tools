@@ -286,8 +286,25 @@
  *     使用者的捷徑、說明頁的步驟、他傳回來的 log 檔名都靠它們；改了只換到相容性問題。
  *     下載包改名 `data/i2c-aux-bridge-v1.18.1.zip`（舊的 i2c-bridge-v*.zip 全部保留）。
  */
-#define I2C_BRIDGE_VERSION "1.18.1"
-#define I2C_BRIDGE_PROTO   7
+/* ═══ 1.19.0（2026-10-23）══════════════════════════════════════════════════
+ *   Bruce 2026-10-23 原話：「I2C-Bridge.exe 我還是覺得它要改名欸。為什麼改了沒好處？這些事情不是
+ *   全部再重新用一次就好了嗎？另外，I2C 跟 AUX 還是要改成可以同時使用。不要因為怕麻煩就不做」
+ *   - exe 改名 **i2c-aux-bridge.exe**、log 改名 **i2c-aux-bridge.log**；ini 新名優先、舊名照讀。
+ *     網頁靠 WebSocket 埠找 bridge，不看檔名 ⇒ 舊 exe 照樣連得上（相容）。wire 欄位 `helper` 不改。
+ *   - 🔴 **I2C 治具與 DP AUX 可以同時使用**：兩條路各自一個持有者、一個 lock（g_own[]／g_lk[]），
+ *     AUX 開啟不再讓出治具、回治具不再放掉 AUX、一邊斷線另一邊不受影響。
+ *     兩個分頁可以各接一種；同一頁開兩條 WebSocket 也可以（一條一種）。
+ *   - T-CON 保護：單執行緒 ⇒ 每一則命令從頭跑到尾才換下一則（兩條路的交易不交錯）；
+ *     一條路用 `lock` 宣告在跑一串操作時，另一條路碰硬體的命令**排隊**等它解除
+ *     （最多 6 秒，逾時回 tconBusy:true、什麼都沒送）。
+ *   - EEPROM 擋寫規則照舊（AUX 不能直寫 0x50–0x57、DPCD 0x480–0x48F）。
+ *   - **proto 8**：hello／pong 帶 `simul:true`、`jigBusy`／`auxBusy`／`jigLocked`／`auxLocked`（pong 另帶 `path`）。
+ *     舊欄位 `busy`／`locked`／`owner` 意義不變（busy／locked ＝ 治具那條路）。
+ *   🔴 全部是模擬測試（test/test_server_simul.c），**未在 Windows 實機驗證**。 */
+#define I2C_BRIDGE_VERSION "1.19.0"
+#define I2C_BRIDGE_PROTO   8
+/* 🔴 I2C 治具與 DP AUX 同時使用（兩條路各自持有、T-CON 排隊）需要的 proto 下限。 */
+#define I2C_BRIDGE_PROTO_SIMUL 8
 /* 🔴 DP AUX（open mode 4、dpcdread／dpcdwrite／psr）需要的 proto 下限。 */
 #define I2C_BRIDGE_PROTO_AUX 7
 /* 🔴 `chandiag` 需要的 proto 下限。 */
@@ -308,8 +325,9 @@
    🔴 1.17.0：上一個版本是 **v1.16.0**。 */
 /* 🔴 1.18.0：上一個版本是 **v1.17.0**。
    🔴 1.18.1：上一個版本是 **v1.18.0**（舊檔名 i2c-bridge-v1.18.0.zip）。 */
+/* 🔴 1.19.0：上一個版本是 **v1.18.1**（i2c-aux-bridge-v1.18.1.zip，裡面的 exe 還叫 i2c-bridge.exe）。 */
 #define I2C_BRIDGE_PREV_PKG \
-    "https://brucecheng0428.github.io/tcon-tools/data/i2c-bridge-v1.18.0.zip"
+    "https://brucecheng0428.github.io/tcon-tools/data/i2c-aux-bridge-v1.18.1.zip"
 /* (2) 「**沒有 ACK 守衛**的那一版」——只出現在 ACK 守衛擋下讀寫時的錯誤訊息裡。
        它的意思不是「上一版」，而是「**這道守衛不存在的那一版**」：使用者若判斷
        是守衛誤殺，他要的是一個不做這個檢查的 exe。

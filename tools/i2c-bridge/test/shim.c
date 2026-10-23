@@ -7,6 +7,7 @@
 #include <dirent.h>
 #include <sys/stat.h>
 #include <stdint.h>
+#include <time.h>
 
 int  dgh_shim_browser_opened = 0;
 char dgh_shim_browser_url[512] = "";
@@ -74,8 +75,21 @@ static void fake_eeprom_write(uint32_t n, const unsigned char* b){
     /* 寫入結束後，真裝置的位址指標停在最後寫進去的那一格之後（頁內）。
        我們用得到的只有「讀取前的位址相位」，所以這裡不再動它。 */
 }
+/* 1.19.0：兩條路（治具／AUX）的硬體交易紀錄＋重疊偵測（test_server_simul.c 用）。
+   每筆寫入記一個字母：J＝治具、A＝AUX；`dgh_fake_inflight` 進入時 >0 ⇒ 兩筆交易重疊（必須永遠 0）。
+   `dgh_fake_xact_us` ＞ 0 ⇒ 每筆寫入故意拖這麼久，把「交錯」的窗口撐大。 */
+char dgh_fake_trace[4096]; int dgh_fake_trace_len = 0;
+int  dgh_fake_inflight = 0, dgh_fake_overlaps = 0, dgh_fake_xact_us = 0;
+void dgh_fake_trace_reset(void){ dgh_fake_trace_len=0; dgh_fake_trace[0]=0; dgh_fake_overlaps=0; dgh_fake_inflight=0; }
+static void fx_enter(char tag){
+    if(dgh_fake_inflight>0) dgh_fake_overlaps++;
+    dgh_fake_inflight++;
+    if(dgh_fake_trace_len < (int)sizeof(dgh_fake_trace)-1){ dgh_fake_trace[dgh_fake_trace_len++]=tag; dgh_fake_trace[dgh_fake_trace_len]=0; }
+    if(dgh_fake_xact_us>0){ struct timespec ts={0,(long)dgh_fake_xact_us*1000L}; nanosleep(&ts,NULL); }
+}
+static void fx_leave(void){ dgh_fake_inflight--; }
 static uint32_t  fake_Write(void* h, uint32_t a, uint32_t n, unsigned char* b, uint32_t* t, uint32_t o){
-    (void)h;(void)a; dgh_fake_writes++; dgh_fake_last_write_opts=o;
+    (void)h;(void)a; fx_enter('J'); fx_leave(); dgh_fake_writes++; dgh_fake_last_write_opts=o;
     dgh_fake_last_write_len = (int)(n>sizeof(dgh_fake_last_write)?sizeof(dgh_fake_last_write):n);
     memcpy(dgh_fake_last_write,b,(size_t)dgh_fake_last_write_len);
     if(dgh_fake_eeprom && dgh_fake_write_status==0) fake_eeprom_write(n,b);
@@ -135,7 +149,7 @@ void* GetProcAddress(HMODULE m, const char* name){
 }
 
 DWORD GetModuleFileNameA(HMODULE m, char* buf, DWORD cap){
-    (void)m; snprintf(buf,cap,"%si2c-bridge.exe",g_shim_exe_dir);
+    (void)m; snprintf(buf,cap,"%si2c-aux-bridge.exe",g_shim_exe_dir);
     /* i2c_bridge.c 用 strrchr(exe,'\\') 切目錄，所以這裡要給 Windows 風格的分隔符 */
     for(char* p=buf; *p; p++) if(*p=='/') *p='\\';
     return (DWORD)strlen(buf);
@@ -351,7 +365,7 @@ static int fa_DpcdRead(int n, int a, unsigned char* d){
     }
     return 1; }
 static int fa_DpcdWrite(int n, int a, unsigned char* d){
-    int i; if(dgh_fake_aux_fail_writes) return 0;
+    int i; fx_enter('A'); fx_leave(); if(dgh_fake_aux_fail_writes) return 0;
     if(a<0||a+n>0x1000) return 0;
     dgh_fake_aux_dpcd_writes++;
     for(i=0;i<n;i++){
@@ -364,6 +378,7 @@ static int fa_DpcdWrite(int n, int a, unsigned char* d){
     return 1; }
 static int fa_I2cWrite(int n, int slave, unsigned char* d, int mot){
     (void)mot;
+    fx_enter('A'); fx_leave();
     if(dgh_fake_aux_fail_writes) return 0;
     if(slave>=0x50 && slave<=0x57){ dgh_fake_aux_ee_hits++; return 1; }
     dgh_fake_aux_i2c_writes++;

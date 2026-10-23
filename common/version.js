@@ -13,7 +13,7 @@ var TOOL_VERSIONS = {
   wfg:     'v4.59.2',     // 面板訊號模擬與取樣
   pattern: 'v3.9.0',       // Pattern Generator 畫面產生器
   dg:      'v2.8.2',       // Digital Gamma 迭代校正（含量測頁 dg-measure.html）
-  i2c:     'v1.35.2',       // I2C（讀寫測試）
+  i2c:     'v1.36.0',       // I2C（讀寫測試）
   nbdebug: 'v1.2.2',        // NB TCON Debug應用（E503／E501A／E501B／EN01 debug 輸出：選 IC、項目、GPIO → I2C 執行或匯出 Excel／.script）
   datamap: 'v1.37.3',       // Data Mapping（Python UI 的內容與規則、站內風格；DAZ／E501／E503／EN01／EM01／EM02／E512）// v1.20.0（Bruce 10/9）：新增 EN01（RM81008，依原廠 WPF RomCodeProcessUI）
   /* 🔴 TCON 自檢畫面量測（dg-selftest.html）。
@@ -197,11 +197,17 @@ var HELPER_PKG = {
      （舊捷徑、說明步驟、log 檔名 i2c-bridge.log 都靠它）。四支 DLL 從 v1.18.0 的包原樣搬過來
      （SHA 逐一比對相同），只有 exe 換掉：PE32 Intel 80386，367,104 bytes。
      `data/i2c-bridge-v1.18.0.zip` 與更舊的包一律保留不刪。🔴 未在 Windows 實機驗證。 */
-  pkg:    'v1.18.1',                      // 下載包（zip）版本 ＝ 檔名
-  exe:    '1.18.1',                       // exe 內的 I2C_BRIDGE_VERSION（ping 回報值）
-  proto:  7,                             // wire protocol 版本（7 起有 DP AUX）
-  file:   'data/i2c-aux-bridge-v1.18.1.zip',
-  bytes:  555390,                             // zip 位元組數（打包後填）
-  zipSha: '0695da6432f500e549336e1a35d141b7a01b7d88535e9f29bcff87081c1e4715',
-  exeSha: '5162b80819d672b83f957969a5316eeb37e71bad4f63513481687a918aa8cb35'
+  /* 🔴 v1.19.0（2026-10-23，Bruce「I2C-Bridge.exe 我還是覺得它要改名欸…I2C 跟 AUX 還是要改成可以同時使用。
+     不要因為怕麻煩就不做」）：exe **改名 `i2c-aux-bridge.exe`**（log 改名 `i2c-aux-bridge.log`）；I2C 治具與 DP AUX
+     **可以同時使用**（兩條路各自持有、T-CON lock 排隊），proto 7 ⇒ **8**。四支 DLL 從 v1.18.1 的包原樣搬過來（SHA 逐一相同），
+     只有 exe 換掉：PE32 Intel 80386，370,688 bytes。舊的 `i2c-aux-bridge-v1.18.1.zip`、`i2c-bridge-v*.zip` 一律保留。
+     網頁靠 WebSocket 埠找 bridge，不看檔名 ⇒ 舊 exe 照樣連得上。🔴 未在 Windows 實機驗證。 */
+  pkg:    'v1.19.0',                      // 下載包（zip）版本 ＝ 檔名
+  exe:    '1.19.0',                       // exe 內的 I2C_BRIDGE_VERSION（ping 回報值）
+  proto:  8,                             // wire protocol 版本（7 起有 DP AUX；8 起 I2C 治具與 DP AUX 可同時使用）
+  exeName: 'i2c-aux-bridge.exe',         // 1.19.0 起的 exe 檔名（1.18.1 以前 i2c-bridge.exe）
+  file:   'data/i2c-aux-bridge-v1.19.0.zip',
+  bytes:  558285,                             // zip 位元組數（打包後填）
+  zipSha: '56952d4aa08b21eec09cb63e19c3a2217682fac60ba7e52e7fb11759cfbfb03c',
+  exeSha: 'ddd2efda775e53ac55e1edad68864e5782994eb60f1ab54755251b97c52b4d08'
 };

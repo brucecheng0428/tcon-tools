@@ -38,7 +38,7 @@
     dropT:  ['I2C and AUX Bridge 已關閉或斷線', 'The I2C and AUX Bridge closed or dropped', 'I2C and AUX Bridge 已关闭或断线'],
     dl:     ['⬇ 下載 I2C and AUX Bridge {ver}', '⬇ Download I2C and AUX Bridge {ver}', '⬇ 下载 I2C and AUX Bridge {ver}'],
     dlMiss: ['（下載包資訊讀不到，請到「I2C 讀寫測試」頁下載）', '(Package info unavailable; download it from the I2C page)', '（下载包信息读不到，请到「I2C 读写测试」页下载）'],
-    steps:  ['下載 → 全部解壓到同一個資料夾 → 雙擊 i2c-bridge.exe → 回這頁按「連線」', 'Download → unzip everything into one folder → double-click i2c-bridge.exe → come back and press Connect', '下载 → 全部解压到同一个文件夹 → 双击 i2c-bridge.exe → 回这页按「连接」'],
+    steps:  ['下載 → 全部解壓到同一個資料夾 → 雙擊 i2c-aux-bridge.exe → 回這頁按「連線」', 'Download → unzip everything into one folder → double-click i2c-aux-bridge.exe → come back and press Connect', '下载 → 全部解压到同一个文件夹 → 双击 i2c-aux-bridge.exe → 回这页按「连接」'],
     more:   ['詳細說明與疑難排解：I2C 讀寫測試頁', 'Details and troubleshooting: the I2C page', '详细说明与疑难排解：I2C 读写测试页'],
     small:  ['沒有 I2C and AUX Bridge？下載 {ver}', 'No I2C and AUX Bridge? Download {ver}', '没有 I2C and AUX Bridge？下载 {ver}']
   };
@@ -109,15 +109,15 @@
      版面照 i2c.html 的 #gethelper（大下載鈕＋原因）＋按下載後跳的 #howto 說明視窗（三步、字 22px）＋「跑不起來／連不上？」疑難排解。 */
   var TX = {
     'i2c.nxPrefix': ['下一步：', 'Next: ', '下一步：'],
-    'i2c.nxGetBridge': ['先下載 I2C and AUX Bridge，解壓後執行 i2c-bridge.exe，再按「連線」。', 'Download I2C and AUX Bridge, unzip it, run i2c-bridge.exe, then press "Connect".', '先下载 I2C and AUX Bridge，解压后执行 i2c-bridge.exe，再按「连接」。'],
+    'i2c.nxGetBridge': ['先下載 I2C and AUX Bridge，解壓後執行 i2c-aux-bridge.exe，再按「連線」。', 'Download I2C and AUX Bridge, unzip it, run i2c-aux-bridge.exe, then press "Connect".', '先下载 I2C and AUX Bridge，解压后执行 i2c-aux-bridge.exe，再按「连接」。'],
     'i2c.howtoTitle': ['下載好了，接著這樣做', 'Downloaded — here is what to do next', '下载好了，接着这样做'],
     'i2c.howto1': ['把整包<b>解壓縮</b>到一個資料夾', '<b>Unzip</b> the whole package into one folder', '把整包<b>解压</b>到一个文件夹'],
-    'i2c.howto2': ['雙擊 <code class="mono">i2c-bridge.exe</code>', 'Double-click <code class="mono">i2c-bridge.exe</code>', '双击 <code class="mono">i2c-bridge.exe</code>'],
+    'i2c.howto2': ['雙擊 <code class="mono">i2c-aux-bridge.exe</code>', 'Double-click <code class="mono">i2c-aux-bridge.exe</code>', '双击 <code class="mono">i2c-aux-bridge.exe</code>'],
     'i2c.howto3': ['回到這一頁按<b>「連線」</b>', 'Come back to this page and press <b>"Connect"</b>', '回到这一页按<b>“连接”</b>'],
     'i2c.gotIt': ['知道了', 'Got it', '知道了'],
     'i2c.dlShared': ['「TCON 自檢畫面量測」用的是<b>同一支程式</b>，兩邊只要下載一次。', 'The T-CON self-test measurement uses <b>the same program</b>; download it once.', '「TCON 自检画面测量」用的是<b>同一支程序</b>，两边只要下载一次。'],
     'i2c.tsTitle': ['跑不起來 / 連不上？', 'Will not start / cannot connect?', '跑不起来 / 连不上？'],
-    'i2c.tsBody': ['五個檔要在同一個資料夾：<code class="mono">i2c-bridge.exe</code>、<code class="mono">libMPSSE.dll</code>、<code class="mono">ftd2xx.dll</code>、<code class="mono">DLL_I2C_BCB.dll</code>、<code class="mono">DLL_AUX_VC.dll</code>（DP AUX 用）。', 'All five files must sit in the same folder.', '五个文件要在同一个文件夹。']
+    'i2c.tsBody': ['五個檔要在同一個資料夾：<code class="mono">i2c-aux-bridge.exe</code>、<code class="mono">libMPSSE.dll</code>、<code class="mono">ftd2xx.dll</code>、<code class="mono">DLL_I2C_BCB.dll</code>、<code class="mono">DLL_AUX_VC.dll</code>（DP AUX 用）。', 'All five files must sit in the same folder.', '五个文件要在同一个文件夹。']
   };
   var LANGS = ['zh-TW', 'en', 'zh-CN'];
   /* i2c.html 用的同一份字（HTML 片段，字典是本站自己的、不含使用者輸入） */

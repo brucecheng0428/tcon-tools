@@ -2,6 +2,52 @@
 
 ---
 
+## I2C 讀寫測試 (i2c) v1.36.0 — 2026-10-23 ｜ MINOR ｜ I2C 治具與 DP AUX 可以同時使用＋ I2C and AUX Bridge 1.19.0（exe 改名 i2c-aux-bridge.exe，proto 8）
+
+判定依據：`docs/VERSIONING.md` R3「使用者真的多能做一件事 → MINOR」：I2C 治具與 DP AUX 可以同時用（兩個分頁各接一種，或同一頁切換不斷線）。既有單一連線的流程、預設值、輸出都不變 ⇒ 不是 MAJOR，不帶 ⚠ 輸出變更。exe 檔名改變屬於下載包內容，說明頁三語同步。
+
+### 需求（Bruce 2026-10-23 11:0x）
+
+「I2C-Bridge.exe 我還是覺得它要改名欸。為什麼改了沒好處？這些事情不是全部再重新用一次就好了嗎？另外，I2C 跟 AUX 還是要改成可以同時使用。不要因為怕麻煩就不做」
+
+### 做法
+
+- **I2C and AUX Bridge 1.19.0**（`tools/i2c-bridge`）：
+  - exe 改名 **`i2c-aux-bridge.exe`**、log 改名 **`i2c-aux-bridge.log`**；`i2c-aux-bridge.ini`／`i2c-aux-bridge-vendor.ini` 新名優先、舊名照讀。網頁靠 WebSocket 埠找 bridge，不看檔名 ⇒ 舊 exe 照樣連得上。wire 欄位 `helper` 不改。
+  - **兩條路各自持有**：治具與 AUX 各一個持有者、各一個 lock（`g_own[]`／`g_lk[]`）。AUX 開啟不再讓出治具、回治具不再放掉 AUX；一個分頁斷線只放掉它那一條路；接手（takeover）只影響同一條路。
+  - AUX 連線的命令期間 `dgh_mode` 暫設 4，做完還原治具的模式與參數。順手補一個 1.18 以前就有的洞：**第二個分頁被拒絕的 open 會把持有者的治具模式改掉**（持有者之後每筆都 not open），兩個分頁同時用一定會踩到。
+  - **T-CON 保護**：單執行緒 ⇒ 一則命令從頭跑到尾才換下一則（兩條路交易不交錯）；一條路用 `lock` 宣告在跑一串時，另一條路碰硬體的命令**排隊**（暫停收那條連線、順序不亂），lock 解除就做；排超過 6 秒回 `tconBusy:true`、什麼都沒送（小於網頁 8 秒逾時）。
+  - EEPROM 擋寫照舊（AUX 只到 0x3E／0x7C／0x7D／0x7E；0x50–0x57、DPCD 0x480–0x48F 一律擋）。
+  - proto 7 ⇒ **8**：hello／pong 帶 `simul:true`、`jigBusy`／`auxBusy`／`jigLocked`／`auxLocked`（pong 另有 `path`）；舊欄位意義不變。
+  - 下載包 `data/i2c-aux-bridge-v1.19.0.zip`（五個檔；四支 DLL 從 v1.18.1 原樣搬來，SHA 相同；exe 370688 bytes，PE32 Intel 80386）。舊包全部保留。
+- **i2c.html**：
+  - 兩個分頁可以各接一種。hello 的 busy 依「自己這一種」判斷（新 bridge 分兩條路）。
+  - 同一頁切換「連線方式」：新 bridge ⇒ 原本那一種**保持連線**（停放、仍持有），切回來直接沿用、不重送 open；連線資訊那一行寫「I2C 治具 也連著」。停放的那條被另一頁接手或斷線 ⇒ 只放掉它、目前這一種不受影響（onclose 不再動目前的連線）。
+  - 自動連線（載入時、切回分頁時）**不搶另一頁正在用的那條路**，除非這一頁之前就持有過它；要搶按「接手」。舊 bridge 一切照 v1.2.0（切到哪頁哪頁拿到）。被佔住時提示「把連線方式切成另一種就能同時用」。
+  - 新網頁 × 舊 bridge（proto < 8）：換連線方式照舊中斷，橫幅與 log 說明「比 1.19.0 舊、不能同時用、下載 1.19.0」；被佔住時也說。舊網頁 × 新 bridge：既有「分頁過舊，請重新整理」提示（bridge 比本頁預期新）。
+- **說明頁三語**（i2c-guide／-en／-cn）：五個檔（含 DLL_AUX_VC.dll）、雙擊 `i2c-aux-bridge.exe`、**舊的桌面捷徑請改指到新檔名**、DP AUX（Intel）寫入要「以系統管理員身分執行」、I2C 與 AUX 可同時使用的說明、疑難排解第 ④ 項（開到舊捷徑）。
+- 全站使用者看得到的 exe／log 檔名一起改（common/i18n.js、common/i2c-bridge.js、common/i2c-aux.js、i2c.html、dg-selftest.html）；兩段描述「當時 Bruce 傳來的 log」的歷史註解保留舊名。
+- `common/version.js`：HELPER_PKG ⇒ v1.19.0、proto 8、`exeName`。共用檔改動 ⇒ 引用頁 cache buster 一起換。
+
+### 測試（🔴 全部是模擬；bridge 未在 Windows 實機驗證）
+
+- bridge（shim＋假 DLL，Mac 與 Linux 都跑過）：**新 `test/test_server_simul.c` 88/0**（兩條路各自持有、AUX 那頁的 open 不改治具參數、交錯讀寫 12 輪重疊 0 次、T-CON lock 雙向排隊且順序不亂、6 秒逾時 tconBusy 什麼都沒送、非持有者不排隊、一邊斷線另一邊不受影響、lock 持有者斷線馬上放行、接手只影響同一條路、被拒的 open 不改持有者模式）；同一個測試對 1.18.1 舊碼跑大量 FAIL（證明測得到）。test_proto 250/0、test_server 270/0、test_server_aux 64/0、test_aux 45/0、test_vendor_len 43/0、test_wait 32/0、test_ackguard 32/0（test_server 的 gap 上界與 test_wait 各一項計時上界，在機器同時跑 Playwright 時會超出、單獨重跑皆通過；與 279baa8 提交時記載的同一個計時項）。
+- exe：zig 交叉編譯 PE32 Intel 80386；`strings` 看得到 `I2C and AUX Bridge 1.19.0`、`i2c-aux-bridge.log`。
+- 網頁：**新 `tools/check_i2c_simul.mjs` 41/0**（Playwright 連「出貨 bridge 原始碼＋模擬硬體」的 `test/sim_server.c`：兩分頁各接一種、第二分頁不搶、同頁切換不重連、停放的那條被接手只放掉它、舊 bridge 提示、三語）；check_i2c_aux 42/0、check_i2c_pages 51/0、check_i2c_pages_sim 38/0、check_i2c_bridge_ui 38/0、i2c_tool_selftest 1501/0、i2c_spiflash_selftest 573/0、check_nbdebug 723/0、check_tcon_detect 37/0、check_datamap_boe --qm 109/0。
+- check_datamap_sd_snapshot：21232 pass／3376 fail（DAZ6111 那組）——用未改的 279baa8 副本重跑結果一樣，本來就有，與這次無關（在合併 774a031 前的副本跑；這次沒有改 datamap.html 的程式，合併後它只差 cache buster）。
+
+### Bruce 10/27 實機測試步驟（加同時使用）
+
+1. 下載 `i2c-aux-bridge-v1.19.0.zip`，整包解壓；舊的桌面捷徑改指到 `i2c-aux-bridge.exe`。要測 AUX 寫入：在 exe 按右鍵「以系統管理員身分執行」。黑視窗最後一行是 **G**。
+2. 分頁 1：連線方式「I2C 治具」→ 連線 → Check T-CON → 讀一段暫存器。
+3. 分頁 2：開同一頁 → 不會搶走分頁 1（狀態「I2C 在另一個頁面」＋提示）→ 連線方式切「DP AUX（顯示卡）」→ 連線 → Check T-CON → 讀 3E:207E。
+4. 兩頁輪流讀寫同一顆 T-CON 的暫存器（例：分頁 1 讀 0x3E、分頁 2 寫再讀），兩邊都不斷線、值正確。
+5. 關掉分頁 1 ⇒ 分頁 2 的 AUX 照常讀寫；反過來也試一次。
+6. 單一分頁：治具連上 → 切 DP AUX → 連線 → 切回治具 ⇒ 不必重連直接讀（連線資訊寫「DP AUX 也連著」）。
+7. 回傳 `i2c-aux-bridge.log`（裡面有 `[tcon] … queued` 表示有排隊，`[cmd] … switches` 表示同一條連線換了路）。
+
+---
+
 ## Digital Gamma (dg) v2.8.2 — 2026-10-23 ｜ PATCH ｜ 步驟列固定在最上方：往下捲時縮成一行、點一下展開（共用 common/step-status.*；同一件：dgself v2.9.3、nbdebug v1.2.2、i2c v1.35.2、wfg v4.59.2）
 
 判定依據：`docs/VERSIONING.md` 判定表「改 UI 版面、不動功能 → 微調 → PATCH」：步驟列的內容、步驟狀態的判斷、所有按鈕的位置與流程都不變，只是步驟列捲動時停在頂端（多一個「展開／收起」的點擊）⇒ PATCH，不帶 ⚠ 輸出變更（不影響任何匯出或截圖功能的內容）。

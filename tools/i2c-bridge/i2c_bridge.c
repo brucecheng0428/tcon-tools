@@ -8,7 +8,7 @@
  *   2. Helper SELF-SERVES the measurement page and AUTO-OPENS the default browser
  *      at http://127.0.0.1:<port>. The user no longer clicks any "connect" button.
  *      Fewer steps: download -> unzip (pw 1234) -> double-click exe -> browser opens.
- *   3. Startup SELF-DIAGNOSTICS written to console AND to i2c-bridge.log next to the
+ *   3. Startup SELF-DIAGNOSTICS written to console AND to i2c-aux-bridge.log next to the
  *      exe. Every item prints OK / FAIL:<reason> so the user can just send the log.
  *      The window stays open on fatal failure.
  *
@@ -162,6 +162,12 @@ int dgh_ck_delay = 3;
       (2) `Open()` 失敗 ⇒ 降級到 `DGH_MODE_SLOW`（見 i2c_open 與 main 的 fallback），
           並把降級寫進 log；網頁端也會依讀取回報的指紋掛出提示。 */
 int dgh_mode = DGH_MODE_VENDOR;
+/* 1.19.0：兩條路（I2C 治具／DP AUX）可以同時開。`dgh_mode` 一律是**治具**的模式；
+   處理 AUX 連線的命令時 handle_command 暫時把它設成 DGH_MODE_AUX、做完還原（見 handle_command）。
+   `g_curPath` ＝ 目前這一則命令走哪條路。 */
+#define DGH_PATH_JIG 0
+#define DGH_PATH_AUX 1
+static int g_curPath = DGH_PATH_JIG;
 /* 網頁自報的版本（open 的 `page` 欄位）。只用於 log —— 不拿它做任何行為判斷。 */
 static char g_pageVer[64] = "(no open yet)";
 /* ═══ 🔴🔴 呼叫慣例：ftd2xx ＝ stdcall，libMPSSE ＝ cdecl，**兩者不同** ═══════
@@ -628,7 +634,7 @@ static char g_dllPath[MAX_PATH] = "";
 static FILE* g_log = NULL;
 
 /* ===========================================================================
- * logging: DETAIL goes to i2c-bridge.log ONLY (English, ASCII).
+ * logging: DETAIL goes to i2c-aux-bridge.log ONLY (English, ASCII).
  * The CONSOLE shows just the single-letter status banner (Bruce 2026-09-17:
  * "log message as simple as possible, ideally one letter tells the problem"),
  * so the user can read the letter off the black window without a photo.
@@ -849,11 +855,15 @@ static int locate_and_load_dll(void) {
     if (try_dir(g_exeDir)) return 1;
     /* 3. current working directory */
     if (GetCurrentDirectoryA(sizeof(buf), buf) && try_dir(buf)) return 1;
-    /* 4. optional i2c-bridge.ini (one line = folder) */
-    { char ip[MAX_PATH]; snprintf(ip,sizeof(ip),"%si2c-bridge.ini",g_exeDir);
+    /* 4. optional i2c-aux-bridge.ini (one line = folder).
+       1.19.0: exe renamed i2c-bridge.exe -> i2c-aux-bridge.exe; the old ini name is still read
+       (new name first) so a folder set up for the old exe keeps working. */
+    { const char* inis[]={"i2c-aux-bridge.ini","i2c-bridge.ini",NULL}; int k;
+      for(k=0;inis[k];k++){
+      char ip[MAX_PATH]; snprintf(ip,sizeof(ip),"%s%s",g_exeDir,inis[k]);
       FILE* f=fopen(ip,"rb"); if(f){ if(fgets(buf,sizeof(buf),f)){ int n=(int)strlen(buf);
         while(n>0&&(buf[n-1]=='\n'||buf[n-1]=='\r'||buf[n-1]==' ')) buf[--n]=0;
-        if(buf[0] && try_dir(buf)){ fclose(f); return 1; } } fclose(f); } }
+        if(buf[0] && try_dir(buf)){ fclose(f); return 1; } } fclose(f); } } }
     /* 5. registry Uninstall (both bitness views, HKLM then HKCU) */
     if (scan_uninstall_view(HKEY_LOCAL_MACHINE, KEY_WOW64_64KEY)) return 1;
     if (scan_uninstall_view(HKEY_LOCAL_MACHINE, KEY_WOW64_32KEY)) return 1;
@@ -1050,10 +1060,12 @@ static int locate_and_load_vendor(void){
     if (vendor_try_dir(g_exeDir)) return 1;
     if (GetEnvironmentVariableA("I2C_BRIDGE_VENDOR_DLL_DIR", buf, sizeof(buf)) && buf[0] && vendor_try_dir(buf)) return 1;
     if (GetCurrentDirectoryA(sizeof(buf), buf) && vendor_try_dir(buf)) return 1;
-    { char ip[MAX_PATH]; snprintf(ip,sizeof(ip),"%si2c-bridge-vendor.ini",g_exeDir);
+    { const char* inis[]={"i2c-aux-bridge-vendor.ini","i2c-bridge-vendor.ini",NULL}; int k;   /* 1.19.0: new name first, old kept */
+      for(k=0;inis[k];k++){
+      char ip[MAX_PATH]; snprintf(ip,sizeof(ip),"%s%s",g_exeDir,inis[k]);
       FILE* f=fopen(ip,"rb"); if(f){ if(fgets(buf,sizeof(buf),f)){ int n=(int)strlen(buf);
         while(n>0&&(buf[n-1]=='\n'||buf[n-1]=='\r'||buf[n-1]==' ')) buf[--n]=0;
-        if(buf[0] && vendor_try_dir(buf)){ fclose(f); return 1; } } fclose(f); } }
+        if(buf[0] && vendor_try_dir(buf)){ fclose(f); return 1; } } fclose(f); } } }
     { char up[MAX_PATH];
       if(GetEnvironmentVariableA("USERPROFILE",up,sizeof(up))&&up[0]){
         /* 先試最可能的形狀，再全域遞迴 */
@@ -1071,7 +1083,7 @@ static int locate_and_load_vendor(void){
             if(tok[0]&&vendor_try_dir(tok)){ free(path); return 1; }
         free(path); } } }
     logline("  vendor  : %s not found (searched env I2C_BRIDGE_VENDOR_DLL_DIR, exe dir, cwd,"
-            " i2c-bridge-vendor.ini, %%USERPROFILE%%\\{TCON,Documents,Desktop,Downloads} recursively,"
+            " i2c-aux-bridge-vendor.ini (or the old i2c-bridge-vendor.ini), %%USERPROFILE%%\\{TCON,Documents,Desktop,Downloads} recursively,"
             " C:\\TCON, D:\\TCON, and PATH)", DGH_VENDOR_DLL);
     return 0;
 }
@@ -1664,8 +1676,8 @@ static int aux_load(void){
     if(GetEnvironmentVariableA("I2C_BRIDGE_AUX_DLL_DIR",buf,sizeof(buf)) && buf[0] && aux_try_dir(buf)) return 1;
     if(GetCurrentDirectoryA(sizeof(buf),buf) && aux_try_dir(buf)) return 1;
     if(!g_auxLoadErr[0])
-        snprintf(g_auxLoadErr,sizeof(g_auxLoadErr),"%s not found. It ships in the same zip as i2c-bridge.exe: "
-                 "put it next to i2c-bridge.exe (or set I2C_BRIDGE_AUX_DLL_DIR), then reconnect. "
+        snprintf(g_auxLoadErr,sizeof(g_auxLoadErr),"%s not found. It ships in the same zip as i2c-aux-bridge.exe: "
+                 "put it next to i2c-aux-bridge.exe (or set I2C_BRIDGE_AUX_DLL_DIR), then reconnect. "
                  "The I2C jig path is not affected.", DGH_AUX_DLL);
     logline("  aux     : %s", g_auxLoadErr);
     return 0;
@@ -1736,7 +1748,7 @@ static int aux_tcon_init(char* err, size_t ecap){
     okAll &= aux_dw1(0x431,0x00); okAll &= aux_dw1(0x439,0x08);           /* McuCtrlClk(true) */
     okAll &= aux_dw1(0x431,0x03); okAll &= aux_dw1(0x439,0x80);           /* CbusMbusSelect */
     okAll &= aux_dw1(0x480,0xFF);
-    if(!okAll){ snprintf(err,ecap,"T-CON init over AUX: one or more DPCD writes failed (see i2c-bridge.log)"); return 0; }
+    if(!okAll){ snprintf(err,ecap,"T-CON init over AUX: one or more DPCD writes failed (see i2c-aux-bridge.log)"); return 0; }
     g_auxInitDone = 1;
     return 1;
 }
@@ -1785,7 +1797,7 @@ static int aux_open(int cardReq, int monReq, int projReq, int psrOff, int tconIn
     g_auxAdmin = dgh_shim_is_admin ? 1 : 0;
 #endif
     logline("  aux     : administrator = %s%s", g_auxAdmin?"yes":"NO",
-            (!g_auxAdmin && g_auxCard==(int)DGH_AUX_CARD_INTEL)?"  <- Intel IGCL: AUX writes need admin (right-click i2c-bridge.exe -> Run as administrator)":"");
+            (!g_auxAdmin && g_auxCard==(int)DGH_AUX_CARD_INTEL)?"  <- Intel IGCL: AUX writes need admin (right-click i2c-aux-bridge.exe -> Run as administrator)":"");
     aux_psr_read();
     g_auxPsrWeOff = 0;
     if(psrOff && g_auxPsrSup==1 && g_auxPsrOn==1){
@@ -1808,13 +1820,12 @@ static void aux_close(void){
 
 static int i2c_open(uint32_t clockHz) {
     double t0 = now_ms(), t;
-    /* 1.18.0：AUX 模式完全不碰 FTDI 治具；先讓出治具（若這個 bridge 之前開著它）。 */
+    /* 1.18.0：AUX 模式完全不碰 FTDI 治具。
+       🔴 1.19.0：**也不再讓出治具**，回治具模式也**不再放掉 AUX** —— 兩條路各自持有
+          （Bruce 2026-10-23「I2C 跟 AUX 還是要改成可以同時使用」）。 */
     if (dgh_mode == DGH_MODE_AUX) {
-        if (g_vendorOpen) vendor_close();
-        if (g_opened && g_handle) { p_Close(g_handle); g_handle=NULL; g_opened=0; logline("  open    : released the jig for DP AUX"); }
         return g_auxOpen;   /* 真正的開啟在 handle_command 的 open（要帶 card/monitor 等參數） */
     }
-    if (g_auxOpen) aux_close();   /* 回到治具模式 ⇒ 放掉 AUX */
     /* 🔴🔴 互斥：DLL_I2C_BCB.dll 與 libMPSSE 都會開**同一個** FTDI channel，不能同時持有。
        選了 DLL_I2C_BCB 就完全不碰 `I2C_OpenChannel`，反之亦然。 */
     if (dgh_mode == DGH_MODE_VENDOR) {
@@ -1927,7 +1938,9 @@ static int backend_is_open(void){
 /* 🔴 依後端釋放治具。原本只關 libMPSSE，vendor 開著的話治具不會被放掉 ——
    分頁中斷／主動 close／接手都會留著不放，下一個使用者就開不起來。 */
 static void i2c_close(void){
-    if(g_auxOpen) aux_close();
+    /* 🔴 1.19.0：只關**目前這條路**。以前這裡 AUX 與治具一起關，
+       治具分頁一斷線，另一個分頁的 AUX 也跟著沒了。 */
+    if(g_curPath==DGH_PATH_AUX){ if(g_auxOpen) aux_close(); return; }
     if(g_vendorOpen){ vendor_close(); logline("  close   : vendor Close() done"); }
     if(g_opened&&g_handle) p_Close(g_handle);
     g_handle=NULL; g_opened=0;
@@ -2243,7 +2256,7 @@ static FT_STATUS i2c_write_ex(uint32_t slave, uint32_t addr, uint32_t awid, cons
         g_lastUs = (now_ms() - t0) * 1000.0;
         if(!ok){
             if(!g_auxAdmin && g_auxCard==(int)DGH_AUX_CARD_INTEL && strstr(e,"AUX ")==e)
-                lasterr_set("%s. Intel graphics need administrator rights for AUX writes: close i2c-bridge.exe and start it with right-click -> Run as administrator.", e);
+                lasterr_set("%s. Intel graphics need administrator rights for AUX writes: close i2c-aux-bridge.exe and start it with right-click -> Run as administrator.", e);
             else if(g_auxPsrOn==1 && strstr(e,"AUX ")==e)
                 lasterr_set("%s. PSR (panel self refresh) is ON; AUX writes need it OFF -- reconnect with PSR off.", e);
             else lasterr_set("%s", e);
@@ -2388,20 +2401,52 @@ static int ws_recv_text_dyn(SOCKET c, char** outBuf, size_t* outCap, size_t hard
    每個 client 各一份、隨最大的一則長大、斷線時 free。放在 client 表裡而不是
    main 的區域變數，是因為 batchwrite 的中止輪詢也要在**同一條連線**上收訊，
    兩處必須用同一個緩衝區，否則會各自 realloc 一份。 */
-typedef struct { SOCKET s; int used; int isWs; char* rx; size_t rxCap; } Client;
+/* 1.19.0：`path` ＝ 這條連線走哪一條路（DGH_PATH_JIG／DGH_PATH_AUX），在 open 時決定。
+   `pend`／`pendAt` ＝ 因為另一條路正鎖著 T-CON 而**排隊中**的那一則命令（見 tcon_wait）。 */
+typedef struct { SOCKET s; int used; int isWs; char* rx; size_t rxCap; int path; char* pend; double pendAt; } Client;
 static Client g_cl[MAX_CLIENTS];
-static int    g_ownerIdx = -1;      /* 持有 I2C channel 的 client；-1＝沒人 */
+/* ═══ 🔴🔴 1.19.0：I2C 治具與 DP AUX **各自一個持有者、各自一個 lock** ═══════════════
+   Bruce 2026-10-23「I2C 跟 AUX 還是要改成可以同時使用。不要因為怕麻煩就不做」。
+   1.18.x 只有一個 `g_ownerIdx`／`g_lockOwner`／`dgh_mode`：AUX 開啟會讓出治具、回治具會放掉 AUX，
+   另一個分頁開另一種就是 busy／takeover。現在兩條路各有一組：
+     g_own[DGH_PATH_JIG]／g_lk[DGH_PATH_JIG] ＝ FTDI 治具（vendor／libMPSSE／raw）
+     g_own[DGH_PATH_AUX]／g_lk[DGH_PATH_AUX] ＝ DP AUX（DLL_AUX_VC）
+   `g_curPath` ＝ 目前正在處理的那一則命令屬於哪條路（handle_command 進入時設定、離開時歸 0）。
+   既有程式碼裡的 `g_ownerIdx`／`g_lockOwner` 都是「**目前這條路**的持有者／lock」——
+   用巨集對到陣列，而不是把二十幾處判斷各改一遍（改漏一處就是兩條路互相放掉，正是要修的 bug）。
+   🔴 單執行緒迴圈：一則命令（read／write／rawwrite／batchwrite／dpcd*）從頭跑到尾才換下一則，
+      兩條路的交易**天然不會交錯**；跨多則的序列靠 lock（見 tcon_wait）。 */
+static int    g_own[2] = {-1,-1};   /* 各條路的持有者；-1＝沒人 */
 /* 🔴 v1.6.0：持有者可以把自己標成「忙碌中」（dg 正在跑 Gray 0~255 量測）。
    忙碌中時**拒絕接手** —— 為了「切到哪頁哪頁自動接手」而讓正在跑的量測被
-   打斷，是拿無腦換掉正確性，不做。lock 只對持有者有效，持有權一換就歸零。 */
-static int    g_lockOwner = -1;     /* 宣告忙碌中的 client；-1＝沒人忙 */
-static int    i2c_locked(void){ return g_lockOwner>=0 && g_lockOwner==g_ownerIdx; }
+   打斷，是拿無腦換掉正確性，不做。lock 只對持有者有效，持有權一換就歸零。
+   🔴 1.19.0：lock 同時是「**我正在對 T-CON 跑一串操作**」的宣告 —— 另一條路
+      碰硬體的命令會排隊等它解除（tcon_wait），不會插進這一串中間。 */
+static int    g_lk[2]  = {-1,-1};   /* 宣告忙碌中的 client；-1＝沒人忙 */
+#define g_ownerIdx  (g_own[g_curPath])
+#define g_lockOwner (g_lk[g_curPath])
+static int    path_locked(int p){ return g_lk[p]>=0 && g_lk[p]==g_own[p]; }
+static int    i2c_locked(void){ return path_locked(g_curPath); }
+static const char* path_name(int p){ return p==DGH_PATH_AUX ? "DP AUX" : "I2C jig"; }
 
 static int cl_add(SOCKET s){
     for(int i=0;i<MAX_CLIENTS;i++) if(!g_cl[i].used){
         g_cl[i].s=s; g_cl[i].used=1; g_cl[i].isWs=0;
-        g_cl[i].rx=NULL; g_cl[i].rxCap=0; return i; }
+        g_cl[i].rx=NULL; g_cl[i].rxCap=0;
+        g_cl[i].path=DGH_PATH_JIG; g_cl[i].pend=NULL; g_cl[i].pendAt=0; return i; }
     return -1;
+}
+static void i2c_close(void);
+/* 1.19.0：只放掉**一條路**。另一條路的持有者、lock、硬體一律不碰 ——
+   這正是「一邊斷線，另一邊不受影響」。 */
+static void path_release(int p, int i, const char* why){
+    int saved = g_curPath;
+    if(g_lk[p]==i){ logline("[ws] %s busy-lock owner #%d %s -> lock cleared", path_name(p), i, why); g_lk[p]=-1; }
+    if(g_own[p]==i){
+        logline("[ws] %s owner #%d %s -> releasing the %s", path_name(p), i, why, path_name(p));
+        g_curPath = p; i2c_close(); g_curPath = saved;
+        g_own[p]=-1;
+    }
 }
 /* 丟掉一個 client。🔴 它若是持有者就**一定**要放掉 I2C channel ——
    不放的話 helper 會一直握著治具，下一個頁面（與桌面端的 I2C 工具）都開不起來。 */
@@ -2410,13 +2455,11 @@ static void cl_drop(int i){
     /* 🔴 lock 一定要跟著持有權一起消失。忘了清的後果是最惡劣的那一種：
        分頁關掉之後 helper 永遠認為「有人忙碌中」，所有接手都被拒，
        而且畫面上沒有任何東西可以按 —— 只能重開 helper，正好是 Bruce 要免掉的事。 */
-    if(g_lockOwner==i){ logline("[ws] busy-lock owner #%d gone -> lock cleared", i); g_lockOwner=-1; }
-    if(g_ownerIdx==i){
-        logline("[ws] owner #%d disconnected -> releasing I2C channel", i);
-        i2c_close();
-        g_ownerIdx=-1;
-    }
+    /* 1.19.0：兩條路各自檢查；只放掉這個 client 真的持有的那一條。 */
+    path_release(DGH_PATH_JIG, i, "disconnected");
+    path_release(DGH_PATH_AUX, i, "disconnected");
     closesocket(g_cl[i].s);
+    if(g_cl[i].pend){ free(g_cl[i].pend); g_cl[i].pend=NULL; }
     /* 🔴 1.15.0：收訊緩衝區跟著連線一起釋放。一則 1.3 MB 的 batchwrite 會讓它
        長到 1.3 MB，不釋放的話八條連線輪流開關就是 10 MB 漏在那裡。 */
     if(g_cl[i].rx){ free(g_cl[i].rx); g_cl[i].rx=NULL; }
@@ -2938,7 +2981,7 @@ static void cd_run(int idx, long id){
     ws_send_text(c, rep);
 }
 
-static void handle_command(int idx, const char* json){
+static void handle_command_one(int idx, const char* json){
     SOCKET c=g_cl[idx].s;
     char type[24]={0}; if(!dgh_json_type(json,type,sizeof(type))) return;
     long id=dgh_json_int(json,"id",0);
@@ -3013,7 +3056,7 @@ static void handle_command(int idx, const char* json){
         /* ═══ 1.18.0：DP AUX 開啟 ═══ 擁有權規則與治具完全相同（上面那段沒有改）。 */
         if(dgh_mode==DGH_MODE_AUX){
             int aok;
-            i2c_open(hz);                                    /* 只負責讓出治具 */
+            (void)hz;   /* 🔴 1.19.0：不再呼叫 i2c_open() 讓出治具 —— 治具由另一條路各自持有 */
             aok = aux_open((int)dgh_json_int(json,"card",-1), (int)dgh_json_int(json,"monitor",-1),
                            (int)dgh_json_int(json,"projic",1), (int)dgh_json_int(json,"psroff",1),
                            (int)dgh_json_int(json,"tconinit",1));
@@ -3122,7 +3165,7 @@ static void handle_command(int idx, const char* json){
               logline("[cmd] dpcdwrite 0x%05X x%d: %s", a, dn, hex); }
             okk=dgh_aux_b(g_aux.DpcdWrite(dn,(int)a,d));
             snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"dpcdwrite\",\"ok\":%s%s}",
-                id, okk?"true":"false", okk?"":",\"err\":\"DPCD_Write failed (Intel graphics: run i2c-bridge.exe as administrator; PSR must be off)\"");
+                id, okk?"true":"false", okk?"":",\"err\":\"DPCD_Write failed (Intel graphics: run i2c-aux-bridge.exe as administrator; PSR must be off)\"");
             ws_send_text(c,rep); return; } }
     }
     if(strcmp(type,"read")==0){
@@ -3689,11 +3732,112 @@ static void handle_command(int idx, const char* json){
            而這個欄位是**協定**。改掉它，手上還拿著舊 exe 的人配新頁面、或舊頁面
            配新 exe，版本欄位都會變成 undefined ⇒ 顯示與相容性判斷一起壞。
            使用者看不到這個字串，所以留舊名沒有任何代價。 */
-        snprintf(rep,sizeof(rep),"{\"type\":\"pong\",\"id\":%ld,\"helper\":\"%s\",\"proto\":%d,\"dll\":%s,\"owner\":%s,\"locked\":%s,\"auxOpen\":%s}",
+        /* 1.19.0（proto 8）：兩條路各自的狀態。`owner`／`locked` 仍是「這條連線所在的那條路」，
+           舊網頁讀的欄位意義不變；新欄位 `path`／`jigBusy`／`auxBusy`／`jigLocked`／`auxLocked`／`simul`。 */
+        snprintf(rep,sizeof(rep),"{\"type\":\"pong\",\"id\":%ld,\"helper\":\"%s\",\"proto\":%d,\"dll\":%s,\"owner\":%s,\"locked\":%s,\"auxOpen\":%s,"
+                 "\"path\":\"%s\",\"jigBusy\":%s,\"auxBusy\":%s,\"jigLocked\":%s,\"auxLocked\":%s,\"simul\":true}",
                  id,I2C_BRIDGE_VERSION,I2C_BRIDGE_PROTO,g_dllOk?"true":"false",
-                 (g_ownerIdx==idx)?"true":"false", i2c_locked()?"true":"false", g_auxOpen?"true":"false");
+                 (g_ownerIdx==idx)?"true":"false", i2c_locked()?"true":"false", g_auxOpen?"true":"false",
+                 g_curPath==DGH_PATH_AUX?"aux":"jig",
+                 g_own[DGH_PATH_JIG]>=0?"true":"false", g_own[DGH_PATH_AUX]>=0?"true":"false",
+                 path_locked(DGH_PATH_JIG)?"true":"false", path_locked(DGH_PATH_AUX)?"true":"false");
         ws_send_text(c,rep); return;
     }
+}
+/* ═══ 🔴🔴 1.19.0：命令分流（哪條路）＋ T-CON 排隊 ═══════════════════════════════
+   每一則命令先決定走哪條路（這條連線 open 時選的；open 本身看 `mode`），
+   設好 `g_curPath`（⇒ g_ownerIdx／g_lockOwner 對到那條路），AUX 連線再把 `dgh_mode`
+   暫時設成 DGH_MODE_AUX，做完**還原治具的模式與參數**（fastread／rawmpsse／三相／ckdelay）——
+   AUX 那一頁送的 open 欄位不可以改到治具那一頁正在用的設定。
+   同一條連線改用另一條路（舊網頁同一頁切換連線方式）⇒ 先放掉它原本那一條（與 1.18 相同），
+   **另一個連線持有的路完全不碰**。 */
+static void handle_command(int idx, const char* json){
+    char type[24]={0};
+    int path, sMode=dgh_mode, sFast=dgh_fast_read, sRaw=dgh_raw_mpsse, s3=dgh_three_phase, sCk=dgh_ck_delay;
+    if(!dgh_json_type(json,type,sizeof(type))) return;
+    path = g_cl[idx].path;
+    if(strcmp(type,"open")==0){
+        long md = dgh_json_int(json,"mode",-1);
+        int np = (md==DGH_MODE_AUX) ? DGH_PATH_AUX
+               : (md>=DGH_MODE_VENDOR && md<DGH_MODE_AUX) ? DGH_PATH_JIG : path;
+        if(np!=path){
+            logline("[cmd] #%d switches from %s to %s on the same connection -> releasing its %s (the other connection's path is untouched)",
+                    idx, path_name(path), path_name(np), path_name(path));
+            path_release(path, idx, "switched path");
+            g_cl[idx].path = np; path = np;
+        }
+    }
+    g_curPath = path;
+    if(path==DGH_PATH_AUX) dgh_mode = DGH_MODE_AUX;
+    handle_command_one(idx, json);
+    /* 🔴 還原治具的模式與參數：
+       ・AUX 連線的任何命令（AUX 那頁的 open 欄位不可以改到治具那頁）；
+       ・治具這條路上**被拒絕的 open**（busy／locked）—— handle_command_one 在持有者檢查之前就套用了
+         mode／fastread／rawmpsse，第二個分頁一個被拒的 open 會把持有者正在用的模式改掉
+         （例：持有者已降級成 libMPSSE，被改回 vendor ⇒ 持有者之後每一筆都「not open」）。
+         這是 1.18 以前就有的洞，兩個分頁同時用之後一定會踩到，一起補。 */
+    if(path==DGH_PATH_AUX || (strcmp(type,"open")==0 && g_own[DGH_PATH_JIG]!=idx)){
+        dgh_mode=sMode; dgh_fast_read=sFast; dgh_raw_mpsse=sRaw; dgh_three_phase=s3; dgh_ck_delay=sCk;
+    }
+    g_curPath = DGH_PATH_JIG;
+}
+/* ── T-CON 排隊 ───────────────────────────────────────────────────────────────
+   兩條路可能接到**同一顆 T-CON**（治具接面板 I2C、AUX 經顯示卡到同一片面板）。
+   一則命令本身不會被切開（單執行緒），但「一串」操作（例：7E:AB←CD 導通 → 讀一段 →
+   還原）若被另一條路的寫入插進中間，M-Bus／C-Bus 狀態就會互相干擾。
+   ⇒ 持有者用既有的 `lock`（proto 3）宣告「我在跑一串」；這段期間**另一條路**碰硬體的命令
+     不送出，先排隊（這條連線暫停收訊，後面的命令照順序留在 socket 裡），lock 一解除就照順序做。
+   ⇒ 排太久（DGH_TCON_WAIT_MS）就回一個可判別的錯誤（tconBusy:true），什麼都沒寫，
+     不讓網頁卡在 8 秒逾時。 */
+#define DGH_TCON_WAIT_MS 6000
+static int cmd_touches_hw(const char* t){
+    return !strcmp(t,"read")||!strcmp(t,"write")||!strcmp(t,"rawwrite")||!strcmp(t,"batchwrite")
+         ||!strcmp(t,"dpcdread")||!strcmp(t,"dpcdwrite")||!strcmp(t,"psr")||!strcmp(t,"chandiag");
+}
+/* 1 ＝ 這則要排隊（呼叫端負責保存）。只有**持有者**的硬體命令要排；非持有者照舊直接回 busy。 */
+static int tcon_must_wait(int idx, const char* json){
+    char t[24]={0}; int p=g_cl[idx].path, q=1-p;
+    if(!dgh_json_type(json,t,sizeof(t)) || !cmd_touches_hw(t)) return 0;
+    if(g_own[p]!=idx) return 0;
+    return path_locked(q) && g_lk[q]!=idx;
+}
+static int tcon_queue(int idx, const char* json){
+    size_t L=strlen(json);
+    char t[24]={0}; dgh_json_type(json,t,sizeof(t));
+    g_cl[idx].pend=(char*)malloc(L+1);
+    if(!g_cl[idx].pend) return 0;      /* 配不到記憶體 ⇒ 呼叫端照舊直接處理（不靜默丟掉） */
+    memcpy(g_cl[idx].pend,json,L+1); g_cl[idx].pendAt=now_ms();
+    logline("[tcon] #%d (%s) `%s` queued: the %s connection #%d holds the T-CON lock (a sequence is running)",
+            idx, path_name(g_cl[idx].path), t, path_name(1-g_cl[idx].path), g_lk[1-g_cl[idx].path]);
+    return 1;
+}
+/* 每一輪迴圈呼叫：lock 解除 ⇒ 照順序做；逾時 ⇒ 回錯誤。回傳還在排隊的數量。 */
+static int tcon_service(void){
+    int i, left=0;
+    for(i=0;i<MAX_CLIENTS;i++){
+        char* m; int q;
+        if(!g_cl[i].used || !g_cl[i].pend) continue;
+        q = 1-g_cl[i].path;
+        if(g_own[g_cl[i].path]!=i || !path_locked(q)){
+            m=g_cl[i].pend; g_cl[i].pend=NULL;
+            logline("[tcon] #%d queued command released after %.0f ms (the other path is free)", i, now_ms()-g_cl[i].pendAt);
+            handle_command(i,m); free(m);
+            continue;
+        }
+        if(now_ms()-g_cl[i].pendAt >= DGH_TCON_WAIT_MS){
+            char t[24]={0}, e[480]; m=g_cl[i].pend; g_cl[i].pend=NULL;
+            dgh_json_type(m,t,sizeof(t));
+            snprintf(e,sizeof(e),
+                "{\"type\":\"result\",\"id\":%ld,\"cmd\":\"%s\",\"ok\":false,\"busy\":true,\"tconBusy\":true,"
+                "\"err\":\"the %s connection is running a locked sequence on the T-CON; waited %d ms. Nothing was sent. Try again when it finishes.\"}",
+                dgh_json_int(m,"id",0), t, path_name(q), DGH_TCON_WAIT_MS);
+            logline("[tcon] #%d `%s` gave up after %d ms (the %s lock is still held by #%d) -> nothing sent", i, t, DGH_TCON_WAIT_MS, path_name(q), g_lk[q]);
+            ws_send_text(g_cl[i].s,e); free(m);
+            continue;
+        }
+        left++;
+    }
+    return left;
 }
 /* 只做握手，**不再進 recv 迴圈**（迴圈搬到 main 的 select 那裡）。
    🔴 v1.4.x 就是因為這個函式一路阻塞到對方斷線，helper 在 dg 連著的時候
@@ -3707,10 +3851,15 @@ static int ws_upgrade(SOCKET c, const char* req){
     char acc[64]; dgh_ws_accept(key,acc);
     char resp[256]; snprintf(resp,sizeof(resp),"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: %s\r\n\r\n",acc);
     if(!send_all(c,resp,(int)strlen(resp))) return 0;
-    char hello[200]; snprintf(hello,sizeof(hello),
-        "{\"type\":\"hello\",\"helper\":\"%s\",\"proto\":%d,\"dll\":%s,\"busy\":%s,\"locked\":%s}",
+    /* `busy`／`locked` 維持舊意義（I2C 治具那條路），舊網頁照舊判斷；
+       1.19.0 起另外帶兩條路各自的狀態（proto 8）。 */
+    char hello[360]; snprintf(hello,sizeof(hello),
+        "{\"type\":\"hello\",\"helper\":\"%s\",\"proto\":%d,\"dll\":%s,\"busy\":%s,\"locked\":%s,"
+        "\"jigBusy\":%s,\"auxBusy\":%s,\"jigLocked\":%s,\"auxLocked\":%s,\"simul\":true}",
         I2C_BRIDGE_VERSION,I2C_BRIDGE_PROTO,g_dllOk?"true":"false",
-        (g_ownerIdx>=0)?"true":"false", i2c_locked()?"true":"false");
+        (g_own[DGH_PATH_JIG]>=0)?"true":"false", path_locked(DGH_PATH_JIG)?"true":"false",
+        (g_own[DGH_PATH_JIG]>=0)?"true":"false", (g_own[DGH_PATH_AUX]>=0)?"true":"false",
+        path_locked(DGH_PATH_JIG)?"true":"false", path_locked(DGH_PATH_AUX)?"true":"false");
     ws_send_text(c,hello);
     return 1;
 }
@@ -3730,7 +3879,7 @@ static void serve_404(SOCKET c, const char* what){
         "<!doctype html><meta charset=utf-8><title>404</title>"
         "<body style='font-family:sans-serif;background:#0f172a;color:#e2e8f0;padding:2em'>"
         "<h2>404 — not served</h2><p>%s</p>"
-        "<p>Only files sitting next to i2c-bridge.exe are served (no sub-folders).</p></body>", what);
+        "<p>Only files sitting next to i2c-aux-bridge.exe are served (no sub-folders).</p></body>", what);
     char hdr[256]; int hl=snprintf(hdr,sizeof(hdr),
         "HTTP/1.1 404 Not Found\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: %d\r\nConnection: close\r\n\r\n", bl);
     send_all(c,hdr,hl); send_all(c,body,bl);
@@ -3830,14 +3979,14 @@ static void serve_page(SOCKET c, const char* req){
           "<!doctype html><meta charset=utf-8><title>I2C and AUX Bridge</title>"
           "<body style='font-family:sans-serif;background:#0f172a;color:#e2e8f0;padding:2em'>"
           "<h2>I2C and AUX Bridge is running, but dg-measure.html was not found next to it.</h2>"
-          "<p>Put <b>dg-measure.html</b> in the same folder as i2c-bridge.exe (it ships inside the same zip), then reload.</p>"
+          "<p>Put <b>dg-measure.html</b> in the same folder as i2c-aux-bridge.exe (it ships inside the same zip), then reload.</p>"
           "<p>Or use the online tool at https://brucecheng0428.github.io/tcon-tools/ .</p></body>";
         char resp[1024]; snprintf(resp,sizeof(resp),"HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s",(int)strlen(fb),fb);
         send_all(c,resp,(int)strlen(resp));
         logline("[http] served fallback: dg-measure.html not found next to exe");
         return;
     }
-    serve_404(c,"That file is not next to i2c-bridge.exe.");
+    serve_404(c,"That file is not next to i2c-aux-bridge.exe.");
     logline("[http] 404 (missing) %s", name);
 }
 
@@ -4007,11 +4156,13 @@ int main(int argc, char** argv){
 
     SetConsoleOutputCP(65001);   /* extra insurance; output is ASCII anyway */
     /* 1.18.1（Bruce 2026-10-23「I2C bridge 名稱幫我改成 I2C and AUX bridge」）：黑視窗標題寫名稱與版本
-       （之前沒設，標題是 exe 路徑）。exe 檔名 i2c-bridge.exe 不改：舊捷徑、說明與 log 檔名照舊。 */
+       （之前沒設，標題是 exe 路徑）。
+       🔴 1.19.0：exe 改名 i2c-aux-bridge.exe、log 改名 i2c-aux-bridge.log（Bruce 2026-10-23「I2C-Bridge.exe 我還是覺得它要改名欸」）。
+          網頁靠 WebSocket 埠找 bridge，不看檔名 ⇒ 舊 exe 照樣連得上；說明頁提示舊捷徑改指新檔名。 */
     SetConsoleTitleA("I2C and AUX Bridge " I2C_BRIDGE_VERSION);
     exe_dir(g_exeDir, sizeof(g_exeDir));
     detect_temp_dir();
-    { char lp[MAX_PATH]; snprintf(lp,sizeof(lp),"%si2c-bridge.log",g_exeDir); g_log=fopen(lp,"wb"); }
+    { char lp[MAX_PATH]; snprintf(lp,sizeof(lp),"%si2c-aux-bridge.log",g_exeDir); g_log=fopen(lp,"wb"); }
 
     /* 🔴 v1.11.1：這一行原本在 main() 的第一行，也就是 g_log 還沒 fopen 的時候，
        所以它印的兩行 timer log **永遠不會寫進檔案** —— 出事時等於沒有線索。
@@ -4119,8 +4270,8 @@ int main(int argc, char** argv){
        P port/bind cannot serve (fatal) > D dll missing > X dll wrong/bad
        > J no jig > U jig held by PQ Tool > B browser not opened > G good.   */
     char code; const char *meaning, *todo;
-    if(!g_bindOk){ code='P'; meaning="port 127.0.0.1 is busy"; todo="Another i2c-bridge is already running. Close it, then start this one again."; }
-    else if(!g_dllOk && !g_dllFound && g_runningFromTemp){ code='T'; meaning="you ran the exe from inside the zip (a temp folder), so the bundled libMPSSE.dll got left behind"; todo="Close this. EXTRACT the whole zip to a real folder (e.g. Desktop), then double-click i2c-bridge.exe there."; }
+    if(!g_bindOk){ code='P'; meaning="port 127.0.0.1 is busy"; todo="Another I2C and AUX Bridge (i2c-aux-bridge.exe, or the older i2c-bridge.exe) is already running. Close it, then start this one again."; }
+    else if(!g_dllOk && !g_dllFound && g_runningFromTemp){ code='T'; meaning="you ran the exe from inside the zip (a temp folder), so the bundled libMPSSE.dll got left behind"; todo="Close this. EXTRACT the whole zip to a real folder (e.g. Desktop), then double-click i2c-aux-bridge.exe there."; }
     else if(!g_dllOk && !g_dllFound){ code='D'; meaning="libMPSSE.dll not found"; todo="It normally ships next to this exe. If you moved the exe out, copy libMPSSE.dll back beside it (or run the exe from the folder you unzipped)."; }
     else if(!g_dllOk && g_dllDepMissing){ code='F'; meaning="libMPSSE.dll found, but its ftd2xx.dll (FTDI driver) is missing"; todo="Install the FTDI D2XX driver, or just run the original PQ Tool once; that puts ftd2xx.dll on the system. Then start this program again."; }
     else if(!g_dllOk){ code='X'; meaning="wrong libMPSSE.dll (bitness/corrupt)"; todo="Use the 32-bit libMPSSE.dll from your PQ Tool 'Release V1.5.0' folder."; }
@@ -4136,7 +4287,7 @@ int main(int argc, char** argv){
     printf("==================================================\n");
     printf("   %c = %s\n", code, meaning);
     printf("   What to do: %s\n", todo);
-    printf("   (Full English details are in i2c-bridge.log, next to this program.)\n");
+    printf("   (Full English details are in i2c-aux-bridge.log, next to this program.)\n");
     if(code!='G') printf("   Report just this letter:  %c\n", code);
     /* v1.5.0: the browser lands on the built-in menu, which is what lets the
        two tool pages coexist instead of racing for the I2C channel. */
@@ -4168,8 +4319,12 @@ int main(int argc, char** argv){
     for(int i=0;i<MAX_CLIENTS;i++){ g_cl[i].used=0; g_cl[i].s=INVALID_SOCKET; }
     for(;;){
         fd_set rd; FD_ZERO(&rd); FD_SET(srv,&rd);
-        for(int i=0;i<MAX_CLIENTS;i++) if(g_cl[i].used) FD_SET(g_cl[i].s,&rd);
-        if(select(0,&rd,NULL,NULL,NULL)<=0) continue;   /* Windows 忽略第一個參數 */
+        /* 1.19.0：有命令在排隊（tcon_queue）的連線**暫停收訊** —— 它後面的命令留在 socket 裡，
+           順序不會亂；同時 select 給 50 ms 逾時，讓排隊的命令在 lock 解除後馬上被處理。 */
+        int pending = tcon_service();
+        for(int i=0;i<MAX_CLIENTS;i++) if(g_cl[i].used && !g_cl[i].pend) FD_SET(g_cl[i].s,&rd);
+        { struct timeval tvq; tvq.tv_sec=0; tvq.tv_usec=50000;
+          if(select(0,&rd,NULL,NULL,pending?&tvq:NULL)<=0) continue; }   /* Windows 忽略第一個參數 */
 
         if(FD_ISSET(srv,&rd)){
             SOCKET c=accept(srv,NULL,NULL);
@@ -4220,7 +4375,10 @@ int main(int argc, char** argv){
                     ws_send_text(g_cl[i].s,e); continue;
                 }
                 if(n<0){ logline("[ws] client #%d disconnected", i); cl_drop(i); continue; }
-                if(n>0) handle_command(i,g_cl[i].rx);
+                if(n>0){
+                    if(!(tcon_must_wait(i,g_cl[i].rx) && tcon_queue(i,g_cl[i].rx)))
+                        handle_command(i,g_cl[i].rx);
+                }
             }
         }
     }

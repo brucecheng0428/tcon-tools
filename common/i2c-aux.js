@@ -14,7 +14,7 @@
      tools/check_i2c_aux.mjs 比對兩份清單一致。
 
    API（window.TconAux）：
-     MODE（4）、NEED_PROTO（7）、SLAVES、EE_LO／EE_HI、DPCD_EE_LO／DPCD_EE_HI
+     MODE（4）、NEED_PROTO（7）、SIMUL_PROTO（8：I2C 治具與 DP AUX 同時使用，bridge 1.19.0）、SLAVES、EE_LO／EE_HI、DPCD_EE_LO／DPCD_EE_HI
      allowed(slave)            這個 slave 在 AUX 模式能不能用
      check(msg)                送出前檢查一則 bridge 訊息；可以送回 null，不行回 { code, slave }
      text(code, vars)          錯誤／說明文字（依 <html lang>）
@@ -51,10 +51,22 @@
     psrOff: ['PSR 已關（關閉連線時還原）', 'PSR off (restored on disconnect)', 'PSR 已关（关闭连接时还原）'],
     psrOffNat: ['PSR 關', 'PSR off', 'PSR 关'],
     psrOn: ['PSR 開著', 'PSR on', 'PSR 开着'],
-    bnAdmin: ['Intel 顯示卡的 AUX 寫入要系統管理員：關掉 I2C and AUX Bridge 黑視窗，在 i2c-bridge.exe 按右鍵 →「以系統管理員身分執行」，再回來按連線。讀取不受影響。',
-              'Intel graphics need administrator rights for AUX writes: close the I2C and AUX Bridge window, right-click i2c-bridge.exe → "Run as administrator", then press Connect again. Reads are not affected.',
-              'Intel 显卡的 AUX 写入要系统管理员：关掉 I2C and AUX Bridge 黑窗口，在 i2c-bridge.exe 按右键 →「以管理员身份运行」，再回来按连接。读取不受影响。'],
+    bnAdmin: ['Intel 顯示卡的 AUX 寫入要系統管理員：關掉 I2C and AUX Bridge 黑視窗，在 i2c-aux-bridge.exe 按右鍵 →「以系統管理員身分執行」，再回來按連線。讀取不受影響。',
+              'Intel graphics need administrator rights for AUX writes: close the I2C and AUX Bridge window, right-click i2c-aux-bridge.exe → "Run as administrator", then press Connect again. Reads are not affected.',
+              'Intel 显卡的 AUX 写入要系统管理员：关掉 I2C and AUX Bridge 黑窗口，在 i2c-aux-bridge.exe 按右键 →「以管理员身份运行」，再回来按连接。读取不受影响。'],
     bnPsr: ['PSR（面板自我更新）還開著，AUX 寫入可能失敗。', 'PSR (panel self refresh) is still on; AUX writes may fail.', 'PSR（面板自我刷新）还开着，AUX 写入可能失败。'],
+    /* v1.36.0（I2C and AUX Bridge 1.19.0／proto 8）：I2C 治具與 DP AUX 同時使用 */
+    parked: ['{x} 保持連線（切回來不必重連）。', '{x} stays connected (no reconnect when you switch back).', '{x} 保持连接（切回来不必重连）。'],
+    resumed: ['切回 {x}：沿用原本的連線。', 'Back to {x}: reusing the existing connection.', '切回 {x}：沿用原本的连接。'],
+    simulConnect: ['{x} 保持連線中；這一種請按「連線」（兩種可以同時用）。', '{x} stays connected; press Connect for this one (both can be used at the same time).', '{x} 保持连接中；这一种请按「连接」（两种可以同时用）。'],
+    parkedNote: ['{x} 也連著', '{x} also connected', '{x} 也连着'],
+    parkedGone: ['保持連線的 {x} 斷了（I2C and AUX Bridge 關閉或被另一頁接手）。', 'The kept {x} connection dropped (I2C and AUX Bridge closed, or another page took it over).', '保持连接的 {x} 断了（I2C and AUX Bridge 关闭或被另一页接手）。'],
+    simulOld: ['這個 I2C and AUX Bridge（{have}）比 1.19.0 舊：I2C 治具與 DP AUX 不能同時用，換連線方式會中斷另一種。下載 1.19.0（i2c-aux-bridge.exe）就能同時用。',
+               'This I2C and AUX Bridge ({have}) is older than 1.19.0: the I2C jig and DP AUX cannot be used at the same time, and switching drops the other one. Download 1.19.0 (i2c-aux-bridge.exe) to use both at once.',
+               '这个 I2C and AUX Bridge（{have}）比 1.19.0 旧：I2C 治具与 DP AUX 不能同时用，换连接方式会中断另一种。下载 1.19.0（i2c-aux-bridge.exe）就能同时用。'],
+    noAutoSteal: ['{x} 在另一個頁面使用中，這一頁不自動搶（要拿過來按「接手」）。', '{x} is in use on another page; this page does not grab it automatically (press Take over to get it).', '{x} 在另一个页面使用中，这一页不自动抢（要拿过来按「接手」）。'],
+    simulBusyHint: ['要在這一頁同時用另一種，把「連線方式」切成 {x} 再按連線。', 'To use the other type on this page at the same time, set Connection to {x} and press Connect.', '要在这一页同时用另一种，把「连接方式」切成 {x} 再按连接。'],
+    tconBusy: ['另一種連線正在對 T-CON 跑一串操作，這一筆排隊等太久沒有送出；等它做完再試一次。', 'The other connection is running a sequence on the T-CON; this request waited too long and was not sent. Try again when it finishes.', '另一种连接正在对 T-CON 跑一串操作，这一笔排队等太久没有送出；等它做完再试一次。'],
     eeOff: ['DP AUX 模式不能直接讀寫 EEPROM（只能透過 T-CON）', 'Not available in DP AUX mode (EEPROM only through the T-CON)', 'DP AUX 模式不能直接读写 EEPROM（只能通过 T-CON）']
   };
   function langIdx() {
@@ -85,7 +97,7 @@
     return (addr + n - 1 < DPCD_EE_LO) || (addr > DPCD_EE_HI);
   }
   g.TconAux = {
-    VERSION: '1.0', MODE: 4, NEED_PROTO: 7,
+    VERSION: '1.1', MODE: 4, NEED_PROTO: 7, SIMUL_PROTO: 8,
     SLAVES: SLAVES.slice(), EE_LO: EE_LO, EE_HI: EE_HI, DPCD_EE_LO: DPCD_EE_LO, DPCD_EE_HI: DPCD_EE_HI,
     allowed: allowed, awidFor: awidFor, check: check, text: text, dpcdWriteOk: dpcdWriteOk
   };

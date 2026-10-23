@@ -212,6 +212,8 @@ int main(void){
         CHECK(dgh_mime_for("i2c-bridge.exe")==0,".exe NOT served");
         CHECK(dgh_mime_for("libMPSSE.dll")==0,".dll NOT served");
         CHECK(dgh_mime_for("i2c-bridge.log")==0,".log NOT served");
+        CHECK(dgh_mime_for("i2c-aux-bridge.exe")==0,"1.19.0 new exe name NOT served");
+        CHECK(dgh_mime_for("i2c-aux-bridge.log")==0,"1.19.0 new log name NOT served");
         CHECK(dgh_mime_for("noext")==0,"no extension NOT served");
     }
 
