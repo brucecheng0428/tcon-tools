@@ -2,6 +2,28 @@
 
 ---
 
+## I2C 讀寫測試 (i2c) v1.39.0 — 2026-10-23 ｜ MINOR ｜ DP AUX Check T-CON 恢復，只走 DPCD 視窗（3E、7C、43C），0 筆 I2C over AUX；E503 只判「E503」不分版本；I2C 路徑不變
+
+判定依據：`docs/VERSIONING.md` R3「使用者真的多能做一件事 → MINOR」：AUX 模式又能自動認 T-CON（v1.38.1 止血時停用）。
+
+### 需求（Bruce 2026-10-23）
+
+「不可透過 i2c去讀 7C 跟 7D 喔…實際上客戶端應用不一定是這種解法，所以不可以用 i2c over aux的做法」「C，而且E503不用管A1A2A3，操作都一樣」
+
+### 改了什麼
+
+- **common/tcon-detect.js v1.3**：新增 `opts.dpcd43C`（只有 DP AUX 會傳）。共用判斷認不出時（7D 讀不到），套用原廠 IdentifyChipId 的 DPCD 判法：43C＝E5 03 且 7C:95 在 0x20–0x24 ⇒ `E503`（Tcon81008.cs:173–190）。
+  - 原廠 EN01 的條件和 E503 逐字相同，所以 3E:207E 讀不到、讀到 FF 或 1x 時，不猜，列出 E503／EN01 讓使用者選。
+  - 新增 `e503ByDpcd`。
+  - I2C 不傳 `dpcd43C`，行為不變（check_tcon_detect 46/0，含「I2C 不碰 43C」）。
+- **i2c.html v1.39.0／common/i2c-aux.js 1.5**：AUX 的 Check T-CON 恢復，io 層只走 DPCD：
+  - 3E 走 bridge 的 3E 讀取（430／431→435）。
+  - 7C 走 `dpcdwrite 0x431`＋`dpcdread 0x434`（IdentifyChipId 讀法，不初始化、不 MbusConnect）。
+  - 7D／7E 不讀，寫入一律不送（沒有 7E:AB←CD）。
+  - 認不出才顯示三語「請手動選擇 TCON」。
+  - 一般暫存器讀寫在 AUX 仍只開放 0x3E 和 EEPROM 0x50 唯讀（v1.38.1 起）。
+- bridge 不換（1.22.0 的 dpcdread／dpcdwrite 就是 DPCD 原生讀寫）。
+
 ## I2C 讀寫測試 (i2c) v1.38.1 — 2026-10-23 ｜ PATCH ｜ DP AUX 臨時止血：停用 Check T-CON（AUX 模式需手動選擇 TCON），AUX 只開放 0x3E 與 EEPROM 0x50 唯讀；I2C 路徑不變
 
 判定依據：`docs/VERSIONING.md` R2「修正、沒有新功能 → PATCH」。

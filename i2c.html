@@ -30,7 +30,7 @@
           出來」。那個前提**早就不成立**：bridge 的靜態檔服務拒絕子資料夾、而且自 v1.7.0
           起預設關閉 —— 詳細依據與行號寫在 body 末端那兩個 <script> 的上面。）
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="common/version.js?v=20261023aux1383"></script>
+<script src="common/version.js?v=20261023aux1390"></script>
 <script src="common/i2c-bridge.js?v=20261023ib103"></script>
 <style>
   * { box-sizing: border-box; }
@@ -1670,8 +1670,8 @@
         頁首那四條宣告是逐字抄過來的，來源行號寫在各自上面。 -->
 <script src="common/i18n.js?v=20261023sim1360"></script>
 <script src="common/i2c-mbus.js?v=20261023mb122"></script>
-<script src="common/i2c-aux.js?v=20261023ax140"></script>
-<script src="common/tcon-detect.js?v=20261022td120"></script>
+<script src="common/i2c-aux.js?v=20261023ax150"></script>
+<script src="common/tcon-detect.js?v=20261023td130"></script>
 <script src="common/common.js?v=20261008i2c1341"></script>
 <script src="common/i2c-spiflash.js?v=20261022en01"></script>
 <script src="common/done-step.js?v=20261008i2c1341"></script>
@@ -3278,8 +3278,8 @@ function i2ctSyncButtons(){
     :              i2ctT('i2c.btnWriteSide', { side: (src.side || i2ctT('i2c.sideCurrent')), n: wn });
   $('btn-self').disabled  = !i2ctLinked || i2ctBusy;
   /* v1.25.0：Check T-CON 與自檢同一條件（要有連線、且沒有其他操作在跑）。 */
-  $('btn-checktcon').disabled = !i2ctLinked || i2ctBusy || i2ctXport === 'aux';   /* v1.38.1：AUX 模式需手動選 TCON（臨時止血） */
-  { var ckb = $('btn-checktcon'); if (ckb) { if (i2ctXport === 'aux') { if (ckb.dataset.tipI2c == null) ckb.dataset.tipI2c = ckb.title; ckb.title = TconAux.text('ckManualTip'); } else if (ckb.dataset.tipI2c != null) { ckb.title = ckb.dataset.tipI2c; delete ckb.dataset.tipI2c; } } }
+  $('btn-checktcon').disabled = !i2ctLinked || i2ctBusy;   /* v1.39.0：AUX 也可 Check T-CON（只走 DPCD 視窗） */
+  { var ckb = $('btn-checktcon'); if (ckb) { if (i2ctXport === 'aux') { if (ckb.dataset.tipI2c == null) ckb.dataset.tipI2c = ckb.title; ckb.title = TconAux.text('ckAuxTip'); } else if (ckb.dataset.tipI2c != null) { ckb.title = ckb.dataset.tipI2c; delete ckb.dataset.tipI2c; } } }
   /* ═══ 🔴 v1.22.1：連線／中斷合併成一顆開關的狀態收斂點 ══════════════════════
      舊版是兩顆按鈕用 `disabled` 互斥（conn 在已連線時灰、disc 在未連線時灰）。
      現在只有一顆，三件事都由這裡決定：
@@ -3621,8 +3621,7 @@ async function i2ctConnect(takeover){
       /* v1.37.0（實機 2026-10-23：AMD 顯示卡、非系統管理員 ⇒ DPCD 寫入全失敗、tconInit:false，以前畫面只顯示「已連線」）：
          T-CON 初始化沒成功就一定講，不分顯示卡。 */
       /* v1.38.0：bridge 1.22.0（vendorSeq）照原廠在每次讀寫時才初始化，open 回覆的 tconInit 一律 false ⇒ 不再據此警告；PSR 只有 Intel 規定要關 */
-      if (i2ctXport === 'aux') i2ctBanner('topbanner', 'warn', TconAux.text('ckManualTip'));   /* v1.38.1：AUX 模式需手動選 TCON（臨時止血），優先於其他 AUX 提示 */
-      else if (i2ctAuxInfo.tconInit === false && !i2ctAuxInfo.vendorSeq) i2ctBanner('topbanner', 'warn', TconAux.text('bnInit', { card: i2ctAuxInfo.card || '?' }));
+      if (i2ctAuxInfo.tconInit === false && !i2ctAuxInfo.vendorSeq) i2ctBanner('topbanner', 'warn', TconAux.text('bnInit', { card: i2ctAuxInfo.card || '?' }));
       else if (i2ctAuxInfo.admin === false && i2ctAuxInfo.card === 'INTEL') i2ctBanner('topbanner', 'warn', TconAux.text('bnAdmin'));
       else if (i2ctAuxInfo.psrOn === true && !(i2ctAuxInfo.vendorSeq && i2ctAuxInfo.card !== 'INTEL')) i2ctBanner('topbanner', 'warn', TconAux.text('bnPsr'));
     }
@@ -6064,15 +6063,48 @@ async function i2ctCheckTconRun(){
   i2ctCkResult = null; i2ctCkRender();
   i2ctBanner('topbanner', null, null);
   i2ctCkLog(i2ctT('i2c.logCkStart'));
-  /* v1.38.1（只在 DP AUX，臨時止血）：AUX 不做 Check T-CON —— 辨認要讀 7C／7D，AUX 只能靠 IOA 打 M-Bus 導通（7E:AB←CD），
-     客戶板 M-Bus 與 C-Bus 不一定相連（Bruce 2026-10-23「不可以用 i2c over aux的做法」）。一筆都不送，結果＝手動選擇。 */
+  /* v1.39.0（只在 DP AUX）：Bruce 2026-10-23「C，而且E503不用管A1A2A3，操作都一樣」。
+     AUX 只走 T-CON 的 DPCD 視窗，不送任何 I2C over AUX（IOA），也不送 7E:AB←CD —— Bruce「不可透過 i2c去讀 7C 跟 7D 喔…
+     客戶端應用不一定是這種解法」（M-Bus 與 C-Bus 不一定相連）。判斷照共用 TconDetect.detect，只換 io：
+       3E  ＝ DPCD 430／431→435（bridge 的 3E 讀取，原廠 TconBase.cs:373–391，不初始化）
+       7C  ＝ DPCD 431＝位址 → 讀 434（原廠 IdentifyChipId，Tcon81008.cs:173–190，不初始化、不 MbusConnect）
+       7D／7E ＝ 不讀（回 null）；寫入一律不送
+     7D 讀不到時 TconDetect 用原廠 IdentifyChipId 的 DPCD 判法（43C＝E5 03 且 7C:95 在 0x20–0x24 ⇒ E503，不分版本）。
+     認不出才請使用者手動選。 */
   if (i2ctXport === 'aux') {
-    i2ctCkLog(TconAux.text('ckManualTip'));
+    var auxIo = {
+      read: async function (slave, awid, addr, len) {
+        try {
+          if (slave === 0x3E) { var r3 = await i2ctDoRead(slave, awid, addr, len, true); return (r3.ok && r3.bytes && r3.bytes.length) ? r3.bytes : null; }
+          if (slave === 0x7C && awid === 1) {
+            var out = [];
+            for (var k = 0; k < len; k++) {
+              var o = (addr + k) & 0xFF;
+              var w = await i2ctSend({ type: 'dpcdwrite', addr: 0x431, data: [o] });
+              if (!w || w.ok === false) { i2ctCkLog('DPCD W 0x431 = ' + i2ctHex(o) + ' failed' + (w && w.err ? ': ' + w.err : '')); return null; }
+              var d = await i2ctSend({ type: 'dpcdread', addr: 0x434, len: 1 });
+              if (!d || d.ok === false || !d.data || !d.data.length) { i2ctCkLog('DPCD R 0x434 failed' + (d && d.err ? ': ' + d.err : '')); return null; }
+              i2ctCkLog('DPCD W 0x431 = ' + i2ctHex(o) + ' · R 0x434 → ' + i2ctHex(d.data[0]));
+              out.push(d.data[0] & 0xFF);
+            }
+            return out;
+          }
+        } catch (e) { return null; }
+        i2ctCkLog(TconAux.text('noMbusRead', { s: i2ctHex(slave) }));
+        return null;
+      },
+      write: async function () { return { ok: false, err: TconAux.text('noMbusWrite') }; }
+    };
+    var dpcd43C = async function () {
+      var d = await i2ctSend({ type: 'dpcdread', addr: 0x43C, len: 2 });
+      return (d && d.ok !== false && d.data && d.data.length >= 2) ? d.data.slice(0, 2) : null;
+    };
     var detA = null;
-    var ra = detA || { name: TconAux.text('ckManual'), unknown: true, auxManual: true, alts: TconDetect.ALL_NAMES.slice() };
+    try { detA = await TconDetect.detect(auxIo, { mbus: false, icid: false, dpcd43C: dpcd43C, log: i2ctCkLog }); } catch (e) { detA = null; }
+    var ra = detA || { name: null, unknown: true, alts: TconDetect.ALL_NAMES.slice() };
     if (ra.unknown && !ra.name) ra.name = i2ctT('i2c.ckUnknown');
     ra.isE503 = false;   /* AUX 不做 E503 的 WP 前置（原廠 AUX 沒有這一步） */
-    i2ctBanner('topbanner', 'warn', TconAux.text('ckManualTip'));
+    if (ra.unknown) { ra.name = TconAux.text('ckManual'); ra.auxManual = true; i2ctBanner('topbanner', 'warn', TconAux.text('ckManualTip')); }
     i2ctCkResult = ra; i2ctCkRender();
     i2ctLog(i2ctT('i2c.logCkDone', { name: ra.name }), 'o');
     i2ctBusy = false; i2ctSyncButtons();

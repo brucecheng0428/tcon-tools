@@ -69,5 +69,23 @@ for (const [nm, mem, nack, ff, fam, name] of C) {
 const u = await TD.detect(io({}, [0x7C, 0x7D, 0x3E, 0x60, 0x61, 0x68, 0x69]), {});
 ok(u.unknown && u.alts.includes('EN01') && !u.alts.some(a => /6138|6139/.test(a)), '全部不回 ⇒ 認不出、清單有 EN01、沒有 DAZ6138／6139');
 ok(!TD.ALL_NAMES.some(a => /6138|6139/.test(a)), 'TconDetect.ALL_NAMES 沒有 DAZ6138／6139');
+/* v1.3：DP AUX 的 DPCD 判法（原廠 IdentifyChipId：43C＝E5 03 且 7C:95 在 0x20–0x24 ⇒ E503，不分版本）；I2C 不傳 dpcd43C ⇒ 行為不變 */
+{ const mem = { '7C:95': 0x24, '7C:98': 0x00, '3E:207E': 0x00 };
+  const x = io(mem, [0x7D]); const r = await TD.detect(x, { mbus: false, icid: false, dpcd43C: async () => [0xE5, 0x03] });
+  ok(r.family === 'E503' && r.name === 'E503' && !r.unknown && !r.alts && r.src === 'dpcd', 'AUX：7D 不回＋43C＝E5 03＋7C:95＝24 ⇒ E503（不分版本）', JSON.stringify({ f: r.family, n: r.name, raw: r.rawText }));
+  ok(!x.log.some(l => /^W /.test(l)) && !x.log.some(l => /^R 7D/.test(l) && false), '  └ mbus:false 時一筆寫入都沒有', x.log.join(','));
+  ok(/DPCD 43C = E5 03/.test(r.rawText), '  └ 原始值列出 DPCD 43C', r.rawText);
+  const r2 = await TD.detect(io(mem, [0x7D]), { mbus: false, icid: false, dpcd43C: async () => [0xE5, 0x01] });
+  ok(r2.unknown && r2.family === null, 'AUX：43C 不是 E5 03 ⇒ 認不出', JSON.stringify({ f: r2.family, n: r2.name }));
+  const r3 = await TD.detect(io({ '7C:95': 0x30, '7C:98': 0x00, '3E:207E': 0x00 }, [0x7D]), { mbus: false, icid: false, dpcd43C: async () => [0xE5, 0x03] });
+  ok(r3.unknown, 'AUX：7C:95＝30（不在 20–24）⇒ 認不出', JSON.stringify({ f: r3.family, n: r3.name }));
+  const r4 = await TD.detect(io(mem, [0x7D]), { icid: false });
+  ok(r4.unknown && !('DPCD:43C' in r4.raw), 'I2C（不傳 dpcd43C）⇒ 跟以前一樣認不出、不碰 43C', JSON.stringify({ f: r4.family, raw: r4.rawText }));
+  const r5 = await TD.detect(io({ '7C:95': 0x22, '7C:98': 0x00, '3E:207E': 0x10 }, [0x7D]), { mbus: false, icid: false, dpcd43C: async () => [0xE5, 0x03] });
+  ok(r5.family === 'EN01', 'AUX：3E:207E＝10 ⇒ 仍判 EN01（共用判斷優先，DPCD 判法只在認不出時才用）', JSON.stringify({ f: r5.family, n: r5.name }));
+  const r6 = await TD.detect(io({ '7C:95': 0x22, '7C:98': 0x00 }, [0x7D, 0x3E]), { mbus: false, icid: false, dpcd43C: async () => [0xE5, 0x03] });
+  ok(r6.unknown && r6.ambiguous && r6.alts.join() === 'E503,EN01', 'AUX：43C＝E5 03 但 3E:207E 讀不到 ⇒ 不猜，E503／EN01 給使用者選（EN01 的原廠條件相同）', JSON.stringify({ f: r6.family, n: r6.name, a: r6.alts }));
+  ok(TD.e503ByDpcd([0xE5, 0x03], 0x20) && TD.e503ByDpcd([0xE5, 0x03], 0x24) && !TD.e503ByDpcd([0xE5, 0x03], 0x25) && !TD.e503ByDpcd([0xE5, 0x03], 0x1F) && !TD.e503ByDpcd(null, 0x20), 'e503ByDpcd 邊界 0x20／0x24');
+}
 console.log(`\n${fail ? '✗' : '✓'} check_tcon_detect：${pass} 通過、${fail} 失敗`);
 process.exit(fail ? 1 : 0);

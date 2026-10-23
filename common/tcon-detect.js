@@ -115,6 +115,15 @@
     }
     return null;
   }
+  /* v1.3（2026-10-23，只給 DP AUX；I2C 不傳 opts.dpcd43C，走不到這裡）：原廠 IdentifyChipId（RAD_AUX_DLL Tcon81008.cs:173–190）
+     DPCD 0x43C 讀 2 byte ＝ E5 03（Tcon Name）且 7C:0x95 落在 0x20–0x24 ⇒ E503。
+     Bruce 2026-10-23「C，而且E503不用管A1A2A3，操作都一樣」⇒ 只回 E503，不分版本、不手選版本。 */
+  var E503_DPCD = { name: 'E503', ext: 'RM81000~RM81004', family: 'E503' };
+  function e503ByDpcd(n43c, id95) {
+    if (!n43c || n43c.length < 2 || id95 == null) return null;
+    if ((n43c[0] & 0xFF) !== 0xE5 || (n43c[1] & 0xFF) !== 0x03) return null;
+    return (id95 >= 0x20 && id95 <= 0x24) ? E503_DPCD : null;
+  }
   function e501ByRom(id95, f98) {
     if (id95 == null || f98 == null || f98 === 0) return null;
     return E501[id95] || null;
@@ -239,6 +248,24 @@
     var x = mkIo(io, raw, log), mbus = { ok: true };
     if (opts.mbus !== false) { mbus = await mbusOpen(io); log(mbus.ok ? 'W 0x7E:0xAB <- CD (M-Bus to C-Bus)' : 'M-Bus to C-Bus 0x7E:0xAB <- CD failed: ' + mbus.err); }
     var rom = await romSeq(io, x, log);
+    if (!rom && typeof opts.dpcd43C === 'function') {   /* v1.3：DP AUX（7D 讀不到）⇒ 原廠 IdentifyChipId 的 DPCD 判法 */
+      var n43 = null; try { n43 = await opts.dpcd43C(); } catch (e) { n43 = null; }
+      raw['DPCD:43C'] = n43 ? n43.slice(0, 2).map(function (v) { return hx(v); }).join(' ') : null;
+      log('DPCD 0x43C = ' + (raw['DPCD:43C'] || 'read failed'));
+      var e5 = e503ByDpcd(n43, raw['7C:95']);
+      if (e5) {
+        /* 原廠 Tcon81008（EN01）與 Tcon8100x（E503）的 IdentifyChipId 條件逐字相同 ⇒ 要靠 3E:207E 排除 EN01；
+           207E 讀不到、FF、或高 nibble＝1 但不是 10／11 ⇒ 分不出（同 romSeq 的 E503／EN01 規則），列兩個給使用者選 */
+        var b7 = raw['3E:207E'];
+        if (b7 == null || b7 === 0xFF || (b7 & 0xF0) === 0x10) {
+          log('DPCD 0x43C = E5 03 but cannot tell E503 from EN01 (0x3E:0x207E ' + (b7 == null ? 'read failed' : '= 0x' + hx(b7)) + ') => pick manually');
+          rom = { name: e5.name, ext: e5.ext, family: 'E503', alts: ['E503', 'EN01'], isE503: false, unknown: true, ambiguous: true, src: 'dpcd' };
+        } else {
+          log('DPCD 0x43C = E5 03 and 0x7C:0x95 in 0x20-0x24 => E503 (vendor IdentifyChipId)');
+          rom = { name: e5.name, ext: e5.ext, family: e5.family, alts: null, isE503: false, src: 'dpcd' };
+        }
+      }
+    }
     var sc = (opts.icid === false) ? { match: null } : await scanIcId(io, { slaves: opts.icidSlaves, log: log, raw: raw });
     var icid = sc.match ? { name: sc.match.name, ext: sc.match.ext, family: sc.match.family, key: sc.match.key,
                             alts: sc.match.alts ? sc.match.alts.slice() : null, isE503: false, src: 'icid', slave: sc.matchSlave } : null;
@@ -257,6 +284,7 @@
   function rawText(raw) {
     var ks = ['7C:95', '7C:98', '7D:007D', '3E:207E'], out = [];
     ks.forEach(function (k) { if (k in raw) out.push(k + ' = ' + (raw[k] == null ? '—' : hx(raw[k]))); });
+    if ('DPCD:43C' in raw) out.push('DPCD 43C = ' + (raw['DPCD:43C'] || '—'));
     Object.keys(raw).forEach(function (k) { if (/^FF00@/.test(k) && raw[k]) out.push(k.replace('@', ' @') + ' = ' + raw[k]); });
     return out.join(' · ');
   }
@@ -264,7 +292,7 @@
   var API = {
     REG: REG, E501: E501, E503: E503, DAZ13X: DAZ13X, SY_EN01: SY_EN01, SY_E501B: SY_E501B,
     ICID: ICID, ICID_SLAVES: ICID_SLAVES, ALL_NAMES: ALL_NAMES,
-    detect: detect, scanIcId: scanIcId, matchIcId: matchIcId, e501ByRom: e501ByRom,
+    detect: detect, scanIcId: scanIcId, matchIcId: matchIcId, e501ByRom: e501ByRom, e503ByDpcd: e503ByDpcd,
     readEn01Ver: readEn01Ver, en01VerText: en01VerText, familyOfName: familyOfName, rawText: rawText
   };
   g.TconDetect = API;

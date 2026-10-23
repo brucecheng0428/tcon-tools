@@ -43,9 +43,14 @@
               'DP AUX mode currently allows only 0x3E (DPCD window) and read-only EEPROM 0x50–0x57; 0x7C, 0x7D and 0x7E need the M-Bus, which a customer board may not connect, so they are paused. Slave 0x{s}: nothing was sent.',
               'DP AUX 模式目前只开放 0x3E（DPCD 窗口）与 EEPROM 0x50–0x57 只读；0x7C、0x7D、0x7E 要经 M-Bus，客户板不一定接通，已暂停。slave 0x{s} 这一笔没有送出。'],
     ckManual: ['AUX 模式需手動選擇 TCON', 'AUX mode: select the TCON manually', 'AUX 模式需手动选择 TCON'],
-    ckManualTip: ['AUX 模式需手動選擇 TCON：辨認要讀 0x7C／0x7D，AUX 只能經 M-Bus 讀到，客戶板不一定接通，所以 AUX 不做 Check T-CON。請在下拉選單選型號，或改用 I2C 治具連線再按 Check T-CON。',
-                  'AUX mode: select the TCON manually. Identification needs 0x7C / 0x7D, which AUX can only reach through the M-Bus, and a customer board may not connect it, so Check T-CON is off in AUX mode. Pick the model from the list, or connect with the I2C jig and press Check T-CON.',
-                  'AUX 模式需手动选择 TCON：辨认要读 0x7C／0x7D，AUX 只能经 M-Bus 读到，客户板不一定接通，所以 AUX 不做 Check T-CON。请在下拉菜单选型号，或改用 I2C 治具连接再按 Check T-CON。'],
+    ckManualTip: ['AUX 認不出這顆 T-CON，請手動選擇 TCON。AUX 只走 DPCD 視窗（3E、7C、43C），不經 M-Bus；需要更多資訊請改用 I2C 治具再按 Check T-CON。',
+                  'AUX could not identify this T-CON: select the TCON manually. AUX uses only the DPCD window (3E, 7C, 43C), never the M-Bus; for more, connect with the I2C jig and press Check T-CON.',
+                  'AUX 认不出这颗 T-CON，请手动选择 TCON。AUX 只走 DPCD 窗口（3E、7C、43C），不经 M-Bus；需要更多信息请改用 I2C 治具再按 Check T-CON。'],
+    ckAuxTip: ['AUX 的 Check T-CON 只走 DPCD 視窗（3E、7C、43C），不送 I2C over AUX、不下 7E:AB←CD；E503 只判到「E503」，不分版本。',
+               'AUX Check T-CON uses only the DPCD window (3E, 7C, 43C): no I2C over AUX, no 7E:AB<-CD; E503 is reported as "E503" without the revision.',
+               'AUX 的 Check T-CON 只走 DPCD 窗口（3E、7C、43C），不送 I2C over AUX、不下 7E:AB←CD；E503 只判到“E503”，不分版本。'],
+    noMbusRead: ['AUX：0x{s} 要經 M-Bus 才讀得到（客戶板不一定接通），這一筆不讀。', 'AUX: 0x{s} is only reachable through the M-Bus (a customer board may not connect it); not read.', 'AUX：0x{s} 要经 M-Bus 才读得到（客户板不一定接通），这一笔不读。'],
+    noMbusWrite: ['AUX 的 Check T-CON 不寫入（不下 7E:AB←CD）', 'AUX Check T-CON does not write (no 7E:AB<-CD)', 'AUX 的 Check T-CON 不写入（不下 7E:AB←CD）'],
     awid: ['DP AUX 模式：slave 0x{s} 的 offset 寬度要 {w} byte。這一筆沒有送出。',
            'DP AUX mode: slave 0x{s} needs a {w}-byte offset. Nothing was sent.',
            'DP AUX 模式：slave 0x{s} 的 offset 宽度要 {w} byte。这一笔没有送出。'],
@@ -138,7 +143,7 @@
     return (addr + n - 1 < DPCD_EE_LO) || (addr > DPCD_EE_HI);
   }
   g.TconAux = {
-    VERSION: '1.4', MODE: 4, NEED_PROTO: 7, SIMUL_PROTO: 8, IOA_PROTO: IOA_PROTO, eeReadOk: eeReadOk,
+    VERSION: '1.5', MODE: 4, NEED_PROTO: 7, SIMUL_PROTO: 8, IOA_PROTO: IOA_PROTO, eeReadOk: eeReadOk,
     SLAVES: SLAVES.slice(), EE_LO: EE_LO, EE_HI: EE_HI, DPCD_EE_LO: DPCD_EE_LO, DPCD_EE_HI: DPCD_EE_HI,
     allowed: allowed, awidFor: awidFor, check: check, text: text, dpcdWriteOk: dpcdWriteOk
   };
