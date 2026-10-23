@@ -127,41 +127,31 @@ int main(void){
     CHECK(dgh_aux_card_from_name("Microsoft Basic Display Adapter")==-1,"其他回 -1");
     CHECK(sizeof(DGH_AUX_PSR)==(sizeof(void*)==4?16u:24u),"ST_POWER_PSR 佈局（x86 16 byte）");
 
-    printf("== 10. 1.20.0：3E／7C 讀取先走 I2C over AUX（同 7-bit slave），沒 ACK 才退回 DPCD 視窗 ==\n");
+    printf("== 10. 1.21.0：3E／7C 讀取預設走 DPCD 視窗（同原廠 AUX 工具）；regpath=ioa 才走 I2C over AUX ==\n");
     { DGH_AUX_API C; memset(&C,0,sizeof(C)); C.DpcdRead=mDR; C.DpcdWrite=mDW; C.I2cRead=mIR; C.I2cWrite=mIW;
-      C.regPath = DGH_AUX_PATH_AUTO;
-      ioaTcon=1; r3e[0x207E]=0x11; r7c[0x95]=0x00; r7c[0x98]=0x00; dpcd[0x430]=0; dpcd[0x431]=0;
+      C.regPath = DGH_AUX_PATH_AUTO; ioaTcon=1; r3e[0x207E]=0x11; dpcd[0x430]=0; dpcd[0x431]=0; calls=0;
       ok=dgh_aux_reg_read(&C,0x3E,0x207E,2,1,buf,&g,e,sizeof(e));
-      CHECK(ok && buf[0]==0x11 && C.lastPath==DGH_AUX_PATH_IOA && dpcd[0x430]==0 && dpcd[0x431]==0,"auto：3E:207E 經 IOA 讀到 11，DPCD 視窗沒被寫");
-      { int i; for(i=0;i<40;i++) r3e[0x1000+i]=(unsigned char)(0x80+i); }
-      maxRead=0; ok=dgh_aux_reg_read(&C,0x3E,0x1000,2,40,buf,&g,e,sizeof(e));
-      CHECK(ok && g==40 && buf[0]==0x80 && buf[39]==0x80+39 && maxRead<=16,"auto：3E 連讀 40 byte、每段 ≤16");
-      ok=dgh_aux_reg_read(&C,0x7C,0x95,1,1,buf,&g,e,sizeof(e));
-      CHECK(ok && buf[0]==0x00 && C.lastPath==DGH_AUX_PATH_IOA,"auto：7C:95 經 IOA");
-      /* T-CON 不回 IOA ⇒ 退回 DPCD 視窗 */
-      ioaTcon=0; r3e[0x207E]=0x10;
+      CHECK(ok && buf[0]==0x11 && C.lastPath==DGH_AUX_PATH_DPCD && dpcd[0x430]==0x20 && dpcd[0x431]==0x7E,"auto：3E:207E 走 DPCD 0x430/0x431→0x435（原廠順序）");
+      CHECK(calls==2,"auto：每 byte 一次 DPCD_Write(0x430,2) ＋ 一次 DPCD_Read(0x435)，沒碰 IOA");
+      r7c[0x95]=0x24; ok=dgh_aux_reg_read(&C,0x7C,0x95,1,1,buf,&g,e,sizeof(e));
+      CHECK(ok && buf[0]==0x24 && C.lastPath==DGH_AUX_PATH_DPCD && dpcd[0x431]==0x95,"auto：7C:95 走 DPCD 0x431→0x434");
+      { DGH_AUX_API D=C; D.DpcdWrite=mFalse; calls=0; ok=dgh_aux_reg_read(&D,0x3E,0x207E,2,1,buf,&g,e,sizeof(e));
+        CHECK(!ok && strstr(e,"0x430") && calls==1,"DPCD 寫入失敗 ⇒ 回錯誤（講 0x430），不退去 IOA 拿假資料"); }
+      C.regPath = DGH_AUX_PATH_IOA; ioaTcon=1; r3e[0x207E]=0x10;
       ok=dgh_aux_reg_read(&C,0x3E,0x207E,2,1,buf,&g,e,sizeof(e));
-      CHECK(ok && buf[0]==0x10 && C.lastPath==DGH_AUX_PATH_DPCD,"auto：IOA 沒 ACK ⇒ DPCD 視窗讀到 10");
-      /* 兩條都不通：錯誤訊息兩個原因都講 */
-      { DGH_AUX_API D=C; D.DpcdWrite=mFalse; ok=dgh_aux_reg_read(&D,0x3E,0x207E,2,1,buf,&g,e,sizeof(e));
-        CHECK(!ok && strstr(e,"I2C over AUX") && strstr(e,"0x430"),"兩條都失敗：訊息含 IOA 與 DPCD 0x430"); }
-      /* 只走 IOA */
-      C.regPath = DGH_AUX_PATH_IOA; calls=0;
-      ok=dgh_aux_reg_read(&C,0x3E,0x207E,2,1,buf,&g,e,sizeof(e));
-      CHECK(!ok && calls==1,"regpath=ioa：IOA 沒 ACK 就停，不碰 DPCD");
-      ioaTcon=1; ok=dgh_aux_reg_read(&C,0x3E,0x207E,2,1,buf,&g,e,sizeof(e));
-      CHECK(ok && buf[0]==0x10,"regpath=ioa：讀得到");
-      /* 寫入路徑不變（仍走 DPCD 視窗） */
-      { uint8_t d=0x5A; dpcd[0x430]=0; dpcd[0x431]=0; ok=dgh_aux_reg_write(&C,0x3E,0x0123,2,&d,1,&g,e,sizeof(e));
-        CHECK(ok && dpcd[0x430]==0x01 && dpcd[0x431]==0x23 && r3e[0x0123]==0x5A,"3E 寫入仍走 DPCD 視窗"); }
-      ioaTcon=0; }
+      CHECK(ok && buf[0]==0x10 && C.lastPath==DGH_AUX_PATH_IOA,"regpath=ioa：走 I2C over AUX");
+      ioaTcon=0; ok=dgh_aux_reg_read(&C,0x3E,0x207E,2,1,buf,&g,e,sizeof(e));
+      CHECK(!ok && strstr(e,"no ACK"),"regpath=ioa：沒 ACK 就回錯誤（不退 DPCD）");
+      { uint8_t d=0x5A; dpcd[0x430]=0; dpcd[0x431]=0; C.regPath=DGH_AUX_PATH_AUTO; ok=dgh_aux_reg_write(&C,0x3E,0x0123,2,&d,1,&g,e,sizeof(e));
+        CHECK(ok && dpcd[0x430]==0x01 && dpcd[0x431]==0x23 && r3e[0x0123]==0x5A,"3E 寫入走 DPCD 視窗（未改）"); }
+    }
 
     printf("== 11. 1.20.1：AMD 走 IOA_Read（I2C_Read 在 AMD 是空函式）==\n");
     CHECK(offsetof(DGH_AUX_IOA,u8SlaveAddr)==0 && offsetof(DGH_AUX_IOA,u8OffsetBytes)==1 && offsetof(DGH_AUX_IOA,u16StartAddr)==2 &&
           offsetof(DGH_AUX_IOA,u8BytePerRead)==0x0F && offsetof(DGH_AUX_IOA,u8ReadData)==0x10,"ST_IOA 欄位位移（反組譯 IOA_Read 讀的那幾格）");
     if(sizeof(void*)==4) CHECK(sizeof(DGH_AUX_IOA)==28 && offsetof(DGH_AUX_IOA,au8Data)==0x14,"x86：ST_IOA 28 byte、au8Data 在 0x14");
     { DGH_AUX_API M; memset(&M,0,sizeof(M)); M.DpcdRead=mDR; M.DpcdWrite=mFalse; M.I2cRead=mIRstub; M.I2cWrite=mIW; M.IoaRead=mIoa;
-      M.card=(int)DGH_AUX_CARD_AMD; M.regPath=DGH_AUX_PATH_AUTO;
+      M.card=(int)DGH_AUX_CARD_AMD; M.regPath=DGH_AUX_PATH_IOA;
       r3e[0x207E]=0x11; calls=0; ioaCalls=0;
       ok=dgh_aux_reg_read(&M,0x3E,0x207E,2,1,buf,&g,e,sizeof(e));
       CHECK(ok && buf[0]==0x11 && ioaCalls==1 && calls==0,"AMD：3E:207E 經 IOA_Read 讀到 11，沒呼叫 I2C_Read／I2C_Write");

@@ -86,6 +86,10 @@
              'DP AUX EEPROM read: the offset must be 1 or 2 bytes (slave 0x{s}). Nothing was sent.',
              'DP AUX 读 EEPROM：offset 要 1 或 2 byte（slave 0x{s}）。这一笔没有送出。'],
     eeRO: ['DP AUX：EEPROM 只能讀（I2C over AUX），寫入鈕停用', 'DP AUX: EEPROM is read-only (I2C over AUX); writing is disabled', 'DP AUX：EEPROM 只能读（I2C over AUX），写入钮停用'],
+    /* v1.3（2026-10-23 實機：AMD、非系統管理員，3E／7C／7D 經 IOA 全回 00 ⇒ 共用辨認錯判成 E503A1 T1）：
+       原廠 AUX 工具認 T-CON 前看 DPCD 0x4D1＝DA（Tcon81008.cs Identify）；不是 DA ⇒ T-CON 沒開放，不辨認。 */
+    noTcon: ['AUX 讀不到 T-CON（{v} 讀不到：DPCD 位址暫存器寫不進去，通常要用系統管理員執行 I2C and AUX Bridge）', 'AUX cannot reach the T-CON ({v} read failed: the DPCD address register cannot be written; usually run I2C and AUX Bridge as administrator)', 'AUX 读不到 T-CON（{v} 读不到：DPCD 地址寄存器写不进去，通常要用系统管理员执行 I2C and AUX Bridge）'],
+    noTconLog: ['DP AUX：讀 3E:207E（DPCD 0x430/0x431→0x435，同原廠 AUX 工具）失敗：{v}。不辨認、不寫入；讀 EEPROM（I2C over AUX）不受影響。', 'DP AUX: reading 3E:207E (DPCD 0x430/0x431 -> 0x435, as the vendor AUX tool) failed: {v}. No detection, nothing written; EEPROM reads (I2C over AUX) are not affected.', 'DP AUX：读 3E:207E（DPCD 0x430/0x431→0x435，同原厂 AUX 工具）失败：{v}。不辨认、不写入；读 EEPROM（I2C over AUX）不受影响。'],
     bnInit: ['DP AUX 已連線，但 T-CON 初始化沒成功（顯示卡 {card}：DPCD 寫入失敗）。讀取會改走 I2C over AUX；要寫入 T-CON，請關掉 I2C and AUX Bridge 黑視窗，在 i2c-aux-bridge.exe 按右鍵 →「以系統管理員身分執行」，再按連線。',
              'DP AUX is connected but the T-CON init did not succeed ({card} graphics: DPCD writes fail). Reads go over I2C over AUX; to write the T-CON, close the I2C and AUX Bridge window, right-click i2c-aux-bridge.exe → "Run as administrator", then press Connect again.',
              'DP AUX 已连接，但 T-CON 初始化没成功（显卡 {card}：DPCD 写入失败）。读取会改走 I2C over AUX；要写入 T-CON，请关掉 I2C and AUX Bridge 黑窗口，在 i2c-aux-bridge.exe 按右键 →「以管理员身份运行」，再按连接。']
@@ -127,7 +131,7 @@
     return (addr + n - 1 < DPCD_EE_LO) || (addr > DPCD_EE_HI);
   }
   g.TconAux = {
-    VERSION: '1.2', MODE: 4, NEED_PROTO: 7, SIMUL_PROTO: 8, IOA_PROTO: IOA_PROTO, eeReadOk: eeReadOk,
+    VERSION: '1.3', MODE: 4, NEED_PROTO: 7, SIMUL_PROTO: 8, IOA_PROTO: IOA_PROTO, eeReadOk: eeReadOk,
     SLAVES: SLAVES.slice(), EE_LO: EE_LO, EE_HI: EE_HI, DPCD_EE_LO: DPCD_EE_LO, DPCD_EE_HI: DPCD_EE_HI,
     allowed: allowed, awidFor: awidFor, check: check, text: text, dpcdWriteOk: dpcdWriteOk
   };

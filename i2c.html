@@ -30,7 +30,7 @@
           出來」。那個前提**早就不成立**：bridge 的靜態檔服務拒絕子資料夾、而且自 v1.7.0
           起預設關閉 —— 詳細依據與行號寫在 body 末端那兩個 <script> 的上面。）
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="common/version.js?v=20261023aux1380"></script>
+<script src="common/version.js?v=20261023aux1381"></script>
 <script src="common/i2c-bridge.js?v=20261023ib103"></script>
 <style>
   * { box-sizing: border-box; }
@@ -1670,7 +1670,7 @@
         頁首那四條宣告是逐字抄過來的，來源行號寫在各自上面。 -->
 <script src="common/i18n.js?v=20261023sim1360"></script>
 <script src="common/i2c-mbus.js?v=20261023mb122"></script>
-<script src="common/i2c-aux.js?v=20261023ax121"></script>
+<script src="common/i2c-aux.js?v=20261023ax130"></script>
 <script src="common/tcon-detect.js?v=20261022td120"></script>
 <script src="common/common.js?v=20261008i2c1341"></script>
 <script src="common/i2c-spiflash.js?v=20261022en01"></script>
@@ -3400,7 +3400,8 @@ function i2ctOnMessage(ev){
     if (pp && pp.onProgress) pp.onProgress(m);
     return;
   }
-  if (m.tconBusy && m.ok === false) m.err = TconAux.text('tconBusy');   /* v1.36.0：另一種連線鎖著 T-CON，排隊逾時 */
+  if (m.tconBusy && m.ok === false) m.err = TconAux.text('tconBusy');
+  if (i2ctXport === 'aux' && m.ok === false && m.err) i2ctLastAuxErr = String(m.err);   /* v1.38.0：AUX 防呆顯示用 */   /* v1.36.0：另一種連線鎖著 T-CON，排隊逾時 */
   if (typeof m.id === 'number' && i2ctPending[m.id]) {
     var p = i2ctPending[m.id]; delete i2ctPending[m.id]; clearTimeout(p.timer); p.resolve(m);
   }
@@ -4009,7 +4010,8 @@ var i2ctMode = I2CT_MODE_VENDOR;
    選 aux ⇒ open 送 mode 4；每一則碰匯流排的訊息送出前先過 TconAux.check（只到得了 T-CON，EEPROM 一律擋）。 */
 var I2CT_MODE_AUX = 4;
 var i2ctXport = 'jig';
-var i2ctAuxInfo = null;           /* AUX open 的回覆（card／monitor／admin／PSR），斷線清掉 */
+var i2ctAuxInfo = null;
+var i2ctLastAuxErr = '';          /* v1.38.0：最近一則 AUX 失敗的 bridge 訊息（AUX 防呆顯示用） */           /* AUX open 的回覆（card／monitor／admin／PSR），斷線清掉 */
 /* ═══ v1.36.0：I2C 治具與 DP AUX **同時使用**（I2C and AUX Bridge 1.19.0／proto 8 起）══════════════
    Bruce 2026-10-23「I2C 跟 AUX 還是要改成可以同時使用。不要因為怕麻煩就不做」。
    bridge 端兩條路各自持有 ⇒ 網頁可以兩個分頁各接一種；同一頁切換「連線方式」時，原本那一種的 WebSocket
@@ -6056,6 +6058,39 @@ async function i2ctCheckTconRun(){
   i2ctCkResult = null; i2ctCkRender();
   i2ctBanner('topbanner', null, null);
   i2ctCkLog(i2ctT('i2c.logCkStart'));
+  /* v1.38.0（只在 DP AUX）：照原廠 AUX 工具讀 T-CON（RAD_AUX_DLL AuxApi.cs:420 Tcon_Read_Register：讀 0x3E 不做 Initialize／
+     TconEnable／MbusConnect，直接 DPCD 0x430/0x431 寫 offset、0x435 讀；bridge 1.21.0 預設就是這條）。
+     🔴 AUX 這段一律不寫：不下 7E:AB←CD、不做 E503 的 WP 前置；訊息直接送 bridge（i2ctSendRaw），不經共用 M-Bus session。
+     先讀 3E:207E 當閘：讀不到（DPCD 位址暫存器寫不進去，AMD 非系統管理員常見）⇒ 畫面寫「AUX 讀不到 T-CON」，不辨認、不錯判。
+     I2C 治具不走這段。 */
+  if (i2ctXport === 'aux') {
+    var auxRead = async function (slave, awid, addr, len) {
+      try { var rr = await i2ctSendRaw({ type: 'read', slave: slave, addr: addr, awid: awid, len: len });   /* aux-raw-ok：DP AUX 只讀，不經 M-Bus session（不送 7E:AB←CD） */ return (rr && rr.ok !== false && rr.data && rr.data.length) ? rr.data : null; }
+      catch (e) { return null; }
+    };
+    var auxIo = { read: auxRead, write: async function () { return { ok: false, err: 'DP AUX: Check T-CON does not write' }; } };
+    var gate = await auxRead(0x3E, 2, 0x207E, 1);
+    if (!gate) {
+      var why = (i2ctLastAuxErr || '').slice(0, 160);
+      i2ctLog(TconAux.text('noTconLog', { v: why || '?' }), 'w');
+      i2ctCkResult = { name: TconAux.text('noTcon', { v: '3E' }), ext: '', alts: TconDetect.ALL_NAMES.slice(), isE503: false, unknown: true, auxNoTcon: true, src: 'aux-gate', raw: {}, rawText: '3E:207E = —' };
+      i2ctCkRender();
+      i2ctBanner('topbanner', 'warn', TconAux.text('noTcon', { v: '3E' }));
+      i2ctBusy = false; i2ctSyncButtons();
+      if (typeof i2ctSfOnCk === 'function') i2ctSfOnCk();
+      return i2ctCkResult;
+    }
+    var detA = null;
+    try { detA = await TconDetect.detect(auxIo, { mbus: false, icid: false, log: i2ctCkLog }); } catch (e) { detA = null; }
+    var ra = detA || { name: null, unknown: true, alts: TconDetect.ALL_NAMES.slice() };
+    if (ra.unknown && !ra.name) ra.name = i2ctT('i2c.ckUnknown');
+    ra.isE503 = false;   /* AUX 不做 E503 的 M-Bus／WP 前置（寫入） */
+    i2ctCkResult = ra; i2ctCkRender();
+    i2ctLog(i2ctT('i2c.logCkDone', { name: ra.name }), 'o');
+    i2ctBusy = false; i2ctSyncButtons();
+    if (typeof i2ctSfOnCk === 'function') i2ctSfOnCk();
+    return ra;
+  }
 
   /* v1.34.1（Bruce 2026-10-08）：不分型號，辨認前一律先下 M-Bus 導通 C-Bus
      （common/i2c-mbus.js，出處 RomCodeProcessUI.py L31839；原廠 check_flash L6076 也是先下再讀）。

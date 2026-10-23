@@ -258,7 +258,11 @@ static inline int dgh_aux_reg_read(const DGH_AUX_API* a, uint32_t slave, uint32_
     uint32_t i;
     *got = 0;
     if(!dgh_aux_check(slave, awid, 0, err, ecap)) return 0;
-    if((slave==0x3Eu || slave==0x7Cu) && a->regPath != DGH_AUX_PATH_DPCD){
+    /* 1.21.0: like the vendor AUX tool (RAD_AUX_DLL AuxApi.cs:420 Tcon_Read_Register -> TconBase.cs AuxReadRegister3E /
+       AuxReadRegister7C): 3E / 7C reads use the DPCD window by default (AUTO == DPCD). I2C-over-AUX only when the page
+       asks for it (regpath=1). Measured 2026-10-23 on AMD: IOA to 3E returns "success" with 00 when the T-CON does not
+       answer, so trying IOA first gave fake 00 and a wrong T-CON id. */
+    if((slave==0x3Eu || slave==0x7Cu) && a->regPath == DGH_AUX_PATH_IOA){
         char e1[200] = "";
         ((DGH_AUX_API*)a)->lastPath = DGH_AUX_PATH_IOA;
         if(dgh_aux_ioa_read(a, slave, addr, awid, len, out, got, e1, sizeof(e1))) return 1;

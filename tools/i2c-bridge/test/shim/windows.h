@@ -161,6 +161,8 @@ typedef struct { DWORD cb; char DeviceName[32]; char DeviceString[128]; DWORD St
 BOOL EnumDisplayDevicesA(const char* dev, DWORD i, DISPLAY_DEVICEA* dd, DWORD flags);
 extern int  dgh_shim_is_admin;              /* IsUserAnAdmin 的回答 */
 extern char dgh_shim_adapter[128];          /* EnumDisplayDevicesA 第 0 個介面卡名稱（空＝沒有） */
+extern int  dgh_fake_aux_ok_mask;
+extern int  dgh_fake_aux_tcon_monitor;
 extern int  dgh_fake_aux_ok_monitor;        /* Initial 只有這個 monitor 回 0 */
 extern int  dgh_fake_aux_init_calls, dgh_fake_aux_release_calls, dgh_fake_aux_last_card, dgh_fake_aux_last_proj;
 extern int  dgh_fake_aux_ee_hits;           /* 打到 EEPROM 0x50–0x57 的 I2C-over-AUX 次數 */

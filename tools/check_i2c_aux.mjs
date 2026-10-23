@@ -74,6 +74,7 @@ const FAKE = (opt) => {
         /* bridge 1.20.0（proto 9）：AUX 模式 EEPROM 只放行 read（I2C over AUX），寫入擋 */
         const eeRd = aux && opt.proto >= 9 && m.type === 'read' && m.slave >= 0x50 && m.slave <= 0x57;
         if (eeRd) { r.data = []; const ed = [0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x51, 0xA1]; for (let i = 0; i < (m.len || 1); i++) r.data.push(ed[m.addr + i] ?? 0x5A); r.want = m.len; r.got = m.len; return reply(ws, r); }
+        if (aux && opt.auxRegFail && m.type === 'read' && (m.slave === 0x3E || m.slave === 0x7C)) { Object.assign(r, { ok: false, err: 'AUX DPCD_Write 0x430 failed (3E:207E)' }); return reply(ws, r); }
         if (aux && ![0x3E, 0x7C, 0x7D, 0x7E].includes(m.slave)) { Object.assign(r, { ok: false, err: 'DP AUX mode: not a T-CON slave' }); return reply(ws, r); }
         if (!aux && [0x60, 0x61, 0x68, 0x69].includes(m.slave)) { Object.assign(r, { ok: false, err: 'NACK', status: 2 }); return reply(ws, r); }
       }
@@ -123,7 +124,7 @@ try {
     const ident = await page.evaluate(() => i2ctCkResult ? i2ctCkResult.name : 'none');
     check('Check T-CON（經 AUX）認成 EN01', /^EN01/.test(ident), ident);
     const bus = await page.evaluate(() => window.__msgs.filter(m => ['read', 'rawwrite', 'write', 'batchwrite'].includes(m.t)));
-    check('連線後第一筆是 7E:AB←CD（共用 M-Bus 導通，同一套訊息）', bus[0] && bus[0].t === 'rawwrite' && bus[0].s === 0x7E && bus[0].a === 0xAB && bus[0].d[0] === 0xCD, JSON.stringify(bus[0]));
+    check('AUX Check T-CON 一筆寫入都不送（照原廠讀 3E 不做 MbusConnect）、第一筆是讀 3E:207E', bus.length && !bus.some(m => m.t !== 'read') && bus[0].s === 0x3E && bus[0].a === 0x207E, JSON.stringify(bus.slice(0, 3)));
     const rd = await page.evaluate(() => i2ctDoRead(0x3E, 2, 0x0059, 1, true));
     check('讀 3E:0059（一般暫存器，同一組 read 訊息）', rd && rd.ok !== false && JSON.stringify((rd.bytes || rd.data || []).slice(0, 1)) === '[30]', JSON.stringify(rd).slice(0, 100));
     const wr = await page.evaluate(() => i2ctDoWrite(0x3E, 2, 0x0059, [0x22]));
@@ -208,8 +209,8 @@ try {
     const bus0 = await page.evaluate(() => window.__msgs.filter(m => ['read', 'rawwrite', 'write', 'batchwrite'].includes(m.t)));
     /* i2c-mbus 1.2.2（a6a3d85）：ROM 類型不影響共用 M-Bus 導通；AUX 走同一份 session／TconDetect ⇒ 與 I2C 治具送出的序列相同 */
     const rd0 = bus0.filter(m => m.t === 'read');
-    check('ROM 類型＝Flash 也照共用規則送一次 7E:AB←CD（與 I2C 路徑相同）', bus0.filter(m => m.s === 0x7E && m.a === 0xAB).length >= 1, JSON.stringify(bus0.slice(0, 3)));
-    check('辨認讀取序列與 I2C 路徑相同：7C:95 → 7C:98 → 3E:207E', rd0.length >= 3 && rd0[0].s === 0x7C && rd0[0].a === 0x95 && rd0[1].s === 0x7C && rd0[1].a === 0x98 && rd0[2].s === 0x3E && rd0[2].a === 0x207E, JSON.stringify(rd0.slice(0, 3)));
+    check('AUX Check T-CON 沒有任何寫入（含 7E:AB←CD）', !bus0.some(m => m.t !== 'read'), JSON.stringify(bus0.slice(0, 4)));
+    check('先讀 3E:207E 當閘，再走同一份 TconDetect 讀取序列：7C:95 → 7C:98 → 3E:207E', rd0.length >= 4 && rd0[0].s === 0x3E && rd0[0].a === 0x207E && rd0[1].s === 0x7C && rd0[1].a === 0x95 && rd0[2].s === 0x7C && rd0[2].a === 0x98 && rd0[3].s === 0x3E && rd0[3].a === 0x207E, JSON.stringify(rd0.slice(0, 4)));
     const rd = await page.evaluate(() => i2ctDoRead(0x50, 2, 0, 8, true));
     const rb = (rd && (rd.bytes || rd.data)) || [];
     check('IOA 讀 EEPROM 0x50（2-byte offset）拿到 EDID 開頭 00 FF FF FF FF FF FF 00', rd && rd.ok !== false && JSON.stringify(Array.from(rb).slice(0, 8)) === '[0,255,255,255,255,255,255,0]', JSON.stringify(rd).slice(0, 140));
@@ -227,6 +228,26 @@ try {
     const tip = await page.$eval('#mode-seg [data-mode="ee"]', b => b.title);
     check('EEPROM 鈕提示「只能讀」', /只能讀/.test(tip), tip);
     if (SHOTS) await page.screenshot({ path: SHOTS + '/aux_ioa_1280.png', fullPage: false });
+    check('沒有 JS 錯誤', errs.length === 0, errs.join(' | ').slice(0, 300));
+    await ctx.close();
+  }
+  console.log('E3. DP AUX：3E 讀不到（DPCD 位址暫存器寫不進去）⇒ 不辨認、不寫、顯示「AUX 讀不到 T-CON」；IOA 讀 EEPROM 照常');
+  {
+    const { ctx, page, errs } = await open({ proto: 9, card: 'AMD', admin: false, tconInit: false, auxRegFail: true });
+    await page.selectOption('#in-xport', 'aux');
+    await page.click('#btn-link'); await waitFor(page, () => i2ctLinked === true);
+    const n0 = await page.evaluate(() => window.__msgs.length);
+    await page.evaluate(() => i2ctCheckTconRun());
+    const r = await page.evaluate(() => i2ctCkResult && { name: i2ctCkResult.name, isE503: i2ctCkResult.isE503, gate: !!i2ctCkResult.auxNoTcon });
+    check('3E 讀不到 ⇒ 結果是「AUX 讀不到 T-CON」、不是 E503', r && r.gate && /AUX 讀不到 T-CON/.test(r.name) && !r.isE503, JSON.stringify(r));
+    const after = await page.evaluate((n) => window.__msgs.slice(n), n0);
+    check('3E 讀不到 ⇒ 只送了一筆讀 3E:207E，沒有任何寫入', after.length === 1 && after[0].t === 'read' && after[0].s === 0x3E && after[0].a === 0x207E, JSON.stringify(after));
+    const bn = await page.$eval('#topbanner', e => e.textContent).catch(() => '');
+    check('橫幅寫 AUX 讀不到 T-CON＋系統管理員', /AUX 讀不到 T-CON/.test(bn) && /系統管理員/.test(bn), bn.slice(0, 140));
+    const lg = await page.$eval('#log', e => e.textContent);
+    check('log 寫出 bridge 的錯誤（DPCD_Write 0x430）', /0x430/.test(lg), lg.slice(-200));
+    const rd = await page.evaluate(() => i2ctDoRead(0x50, 1, 0, 8, true));
+    check('IOA 讀 EEPROM 0x50 照常', rd && rd.ok !== false && (rd.bytes || rd.data).length === 8, JSON.stringify(rd).slice(0, 100));
     check('沒有 JS 錯誤', errs.length === 0, errs.join(' | ').slice(0, 300));
     await ctx.close();
   }

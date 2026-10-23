@@ -195,12 +195,12 @@ var HELPER_PKG = {
      可以兩個使用」）：只改名稱（黑視窗標題、狀態橫幅、log 開頭、內建入口頁），行為與 proto 7 不變。
      下載包改名 **`i2c-aux-bridge-v1.18.1.zip`**；包內 exe 檔名 **`i2c-bridge.exe` 刻意不改**
      （舊捷徑、說明步驟、log 檔名 i2c-bridge.log 都靠它）。四支 DLL 從 v1.18.0 的包原樣搬過來
-     （SHA 逐一比對相同），只有 exe 換掉：PE32 Intel 80386，367,104 bytes。
+     （SHA 逐一比對相同），只有 exe 換掉：PE32 Intel 80386，373,248 bytes。
      `data/i2c-bridge-v1.18.0.zip` 與更舊的包一律保留不刪。🔴 未在 Windows 實機驗證。 */
   /* 🔴 v1.19.0（2026-10-23，Bruce「I2C-Bridge.exe 我還是覺得它要改名欸…I2C 跟 AUX 還是要改成可以同時使用。
      不要因為怕麻煩就不做」）：exe **改名 `i2c-aux-bridge.exe`**（log 改名 `i2c-aux-bridge.log`）；I2C 治具與 DP AUX
      **可以同時使用**（兩條路各自持有、T-CON lock 排隊），proto 7 ⇒ **8**。四支 DLL 從 v1.18.1 的包原樣搬過來（SHA 逐一相同），
-     只有 exe 換掉：PE32 Intel 80386，370,688 bytes。舊的 `i2c-aux-bridge-v1.18.1.zip`、`i2c-bridge-v*.zip` 一律保留。
+     只有 exe 換掉：PE32 Intel 80386，373,248 bytes。舊的 `i2c-aux-bridge-v1.18.1.zip`、`i2c-bridge-v*.zip` 一律保留。
      網頁靠 WebSocket 埠找 bridge，不看檔名 ⇒ 舊 exe 照樣連得上。🔴 未在 Windows 實機驗證。 */
   /* 🔴 v1.20.0（2026-10-23，Bruce「DP AUX 的連線是顯示『已連線』，可是卻辨認不出 TCON」「靠 I2C over AUX（簡稱 IOA）的方式去讀 0x50」
      「AUX 應該也可以去讀 3E 的位置，這樣子就可以用同樣方式去辨別是哪一種 Tcon」）：DP AUX 模式 3E／7C 讀取先走 I2C over AUX
@@ -208,15 +208,15 @@ var HELPER_PKG = {
      proto 8 ⇒ 9。四支 DLL 從 v1.19.0 的包原樣搬過來（SHA 逐一相同），只有 exe 換掉：PE32 Intel 80386，373,248 bytes。 */
   /* 🔴 v1.20.1（2026-10-23，Bruce 換上 1.20.0 後「測試還是有問題」）：AMD 顯示卡的 I2C_Read 是空函式（只回成功、不讀），
      1.20.0 在 AMD 讀到的是記憶體殘值 ⇒ AMD 改走 IOA_Read（原廠 AUX 工具的 AMD 做法）。Intel／NVIDIA 不變；proto 維持 9。
-     四支 DLL 原樣（SHA 相同），只有 exe 換掉：PE32 Intel 80386，372,736 bytes。 */
+     四支 DLL 原樣（SHA 相同），只有 exe 換掉：PE32 Intel 80386，373,248 bytes。 */
   /* 🔴 v1.21.0（2026-10-23，Bruce「I2C 用到沒問題以後，就要接著用 AUX 啊」）：1.20.0＋1.20.1 的 DP AUX 改進重新發佈在 1.19.0 回復之後
-     （版號只增不減）；治具路徑與 1.19.0 逐行相同。四支 DLL 原樣，只換 exe：PE32 Intel 80386，372,736 bytes。 */
+     （版號只增不減）；治具路徑與 1.19.0 逐行相同。四支 DLL 原樣，只換 exe：PE32 Intel 80386，373,248 bytes。 */
   pkg:    'v1.21.0',                      // 下載包（zip）版本 ＝ 檔名
   exe:    '1.21.0',                       // exe 內的 I2C_BRIDGE_VERSION（ping 回報值）
   proto:  9,                             // wire protocol 版本（7 起有 DP AUX；8 起 I2C 治具與 DP AUX 可同時使用）
   exeName: 'i2c-aux-bridge.exe',         // 1.19.0 起的 exe 檔名（1.18.1 以前 i2c-bridge.exe）
   file:   'data/i2c-aux-bridge-v1.21.0.zip',
-  bytes:  559448,                             // zip 位元組數（打包後填）
-  zipSha: 'e0b73f50157dbc855040ac5b46ac99812822475f46cdad30633560d74b03f457',
-  exeSha: 'fdc5f7b5b6864f88836cd7102e4b1759a4ec6c86b7709748e0bf918ff874e91c'
+  bytes:  559696,                             // zip 位元組數（打包後填）
+  zipSha: '278702e99648dfc0d3a95774d2929ef468984b284058143e3c503890927761cc',
+  exeSha: '587e6a3fe490d584d29e0b20fbd2347a7b7728edd537f45d3e16a04393ef425d'
 };

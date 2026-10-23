@@ -1626,6 +1626,7 @@ static int  g_auxTried = 0;           /* 這次執行有沒有試過載入 */
 static char g_auxPath[MAX_PATH] = "";
 static char g_auxLoadErr[400] = "";
 static int  g_auxCard = -1, g_auxMon = -1, g_auxProj = 1;
+static int  g_auxTconSeen = 0;   /* 1.21.0: the chosen display answered the vendor 3E probe */
 static int  g_auxAdmin = -1;          /* -1 未知、0 否、1 是 */
 static int  g_auxPsrSup = -1, g_auxPsrOn = -1, g_auxPsrWeOff = 0;
 static int  g_auxInitDone = 0;        /* 做過 T-CON 初始化 ⇒ 關閉時要做收尾 */
@@ -1775,14 +1776,38 @@ static int aux_open(int cardReq, int monReq, int projReq, int psrOff, int tconIn
         snprintf(g_auxOpenErr,sizeof(g_auxOpenErr),"no Intel / AMD / NVIDIA display adapter found (adapters: %s). "
                  "DP AUX needs the panel on the laptop's own eDP / DP output.", g_auxAdapters[0]?g_auxAdapters:"none");
         logline("  aux     : %s", g_auxOpenErr); return 0; }
+    /* 1.21.0: pick the display the way the vendor AUX tool does (RAD_AUX_DLL Common.cs:288 AutoDetectGetGraphicsCardName,
+       AuxApi.cs:98-99): try every monitor, keep only those whose T-CON answers, use the LAST one.
+       Measured 2026-10-23 (Windows test box, AMD): monitor 0 = another DP display (Initial OK, every write to the
+       Raydium DPCD window 0x430 fails), monitor 1 = the Raydium T-CON (0x4D1 = DA, 3E reads fine, no admin needed).
+       Old rule "first monitor whose Initial() is OK" picked monitor 0 => "connected" but no T-CON.
+       Probe = the vendor 3E read itself (DPCD_Write(2,0x430,[00,00]) + DPCD_Read(1,0x435)): read flow only, no T-CON setting
+       is written. An explicit `monitor` from the page is used as-is. No T-CON on any display => first Initial-OK one. */
+    g_auxTconSeen = 0;
     for(ci=0;ci<nc && !g_auxOpen;ci++){
-        int m0 = (monReq>=0)?monReq:0, m1 = (monReq>=0)?monReq:19;
+        int m0 = (monReq>=0)?monReq:0, m1 = (monReq>=0)?monReq:19, firstOk = -1, bestTcon = -1;
         for(m=m0;m<=m1;m++){
             unsigned char c=(unsigned char)cards[ci], mo=(unsigned char)m, pj=(unsigned char)g_auxProj;
             unsigned char r = g_aux.Initial(&c,&mo,&pj);
-            if(r==0){ g_auxCard=cards[ci]; g_auxMon=m; g_auxOpen=1; g_aux.card=cards[ci];
-                logline("  aux     : Initial(card=%s, monitor=%d, projectIc=%d) = OK", dgh_aux_card_name((unsigned)cards[ci]), m, g_auxProj);
-                break; }
+            if(r!=0) continue;
+            if(firstOk<0) firstOk = m;
+            if(monReq>=0){ bestTcon = m; break; }
+            {   unsigned char ab[2] = {0,0}, v = 0; int t;
+                t = dgh_aux_b(g_aux.DpcdWrite(2,0x430,ab)) && dgh_aux_b(g_aux.DpcdRead(1,0x435,&v));
+                logline("  aux     : probe card=%s monitor=%d: Initial OK, T-CON (3E via DPCD 0x430/0x435) %s", dgh_aux_card_name((unsigned)cards[ci]), m, t?"answers":"no answer");
+                if(t) bestTcon = m;
+            }
+            if(g_aux.Release) g_aux.Release();
+        }
+        if(firstOk>=0){
+            int use = (bestTcon>=0) ? bestTcon : firstOk;
+            if(monReq<0){
+                unsigned char c=(unsigned char)cards[ci], mo=(unsigned char)use, pj=(unsigned char)g_auxProj;
+                if(g_aux.Initial(&c,&mo,&pj)!=0){ logline("  aux     : re-Initial monitor %d failed", use); continue; }
+            }
+            g_auxCard=cards[ci]; g_auxMon=use; g_auxOpen=1; g_aux.card=cards[ci]; g_auxTconSeen = (bestTcon>=0);
+            logline("  aux     : Initial(card=%s, monitor=%d, projectIc=%d) = OK%s", dgh_aux_card_name((unsigned)cards[ci]), use, g_auxProj,
+                    bestTcon>=0 ? " (T-CON answers on this display)" : " (no display answered as a T-CON; using the first one)");
         }
         if(!g_auxOpen) logline("  aux     : Initial failed on card %s, monitors %d..%d", dgh_aux_card_name((unsigned)cards[ci]), m0, m1);
     }
@@ -3070,12 +3095,12 @@ static void handle_command_one(int idx, const char* json){
             if(aok)
                 snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"open\",\"ok\":true,\"channels\":1,"
                     "\"aux\":true,\"card\":\"%s\",\"monitor\":%d,\"projic\":%d,\"admin\":%s,"
-                    "\"psrSupported\":%s,\"psrOn\":%s,\"psrTurnedOff\":%s,\"tconInit\":%s,\"regPath\":\"%s\",\"eeRead\":true}",
+                    "\"psrSupported\":%s,\"psrOn\":%s,\"psrTurnedOff\":%s,\"tconInit\":%s,\"regPath\":\"%s\",\"eeRead\":true,\"tconSeen\":%s}",
                     id, dgh_aux_card_name((unsigned)g_auxCard), g_auxMon, g_auxProj,
                     g_auxAdmin==1?"true":(g_auxAdmin==0?"false":"null"),
                     g_auxPsrSup==1?"true":(g_auxPsrSup==0?"false":"null"),
                     g_auxPsrOn==1?"true":(g_auxPsrOn==0?"false":"null"),
-                    g_auxPsrWeOff?"true":"false", g_auxInitDone?"true":"false", dgh_aux_path_name(g_aux.regPath));
+                    g_auxPsrWeOff?"true":"false", g_auxInitDone?"true":"false", dgh_aux_path_name(g_aux.regPath), g_auxTconSeen?"true":"false");
             else
                 snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"open\",\"ok\":false,\"aux\":true,"
                     "\"auxDll\":%s,\"err\":\"%s\"}", id, g_auxOk?"true":"false", g_auxOpenErr);

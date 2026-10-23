@@ -188,6 +188,30 @@ int main(void){
     EQ_I(dgh_fake_aux_dpcd[0x482],0x00,"沒有碰 EEPROM 寫保護（0x482 仍 0）");
     EQ_I(dgh_fake_aux_r3e[0x0065],0x00,"沒有寫 3E:0065（EEPROM 型初始化的 GPIO WP）");
 
+    G("2b. 1.21.0：多台螢幕 ⇒ 照原廠逐台試，選 T-CON 有回應的那台（不是第一台 Initial OK）");
+    {   int oldOk = dgh_fake_aux_ok_monitor;
+        jcmd(s,"{\"type\":\"close\",\"id\":901}",b,sizeof(b));
+        dgh_fake_aux_ok_mask = 0x3; dgh_fake_aux_tcon_monitor = 1;
+        jcmd(s,"{\"type\":\"open\",\"id\":902,\"mode\":4,\"tconinit\":0,\"psroff\":0}",b,sizeof(b));
+        CHECKS(b,"\"ok\":true","兩台螢幕都 Initial OK ⇒ 開啟成功");
+        CHECKS(b,"\"monitor\":1","選到 T-CON 那台（monitor 1），不是 monitor 0");
+        CHECKS(b,"\"tconSeen\":true","回覆 tconSeen:true");
+        dgh_fake_aux_r3e[0x207E]=0x11;
+        jcmd(s,"{\"type\":\"read\",\"id\":903,\"slave\":62,\"addr\":8318,\"awid\":2,\"len\":1}",b,sizeof(b));
+        CHECKS(b,"\"data\":[17]","在選到的那台讀 3E:207E＝11");
+        jcmd(s,"{\"type\":\"close\",\"id\":904}",b,sizeof(b));
+        dgh_fake_aux_tcon_monitor = 5;   /* 沒有一台是 T-CON */
+        jcmd(s,"{\"type\":\"open\",\"id\":905,\"mode\":4,\"tconinit\":0,\"psroff\":0}",b,sizeof(b));
+        CHECKS(b,"\"monitor\":0","沒有 T-CON 回應 ⇒ 用第一台 Initial OK 的（舊行為）");
+        CHECKS(b,"\"tconSeen\":false","回覆 tconSeen:false");
+        jcmd(s,"{\"type\":\"close\",\"id\":906}",b,sizeof(b));
+        jcmd(s,"{\"type\":\"open\",\"id\":907,\"mode\":4,\"monitor\":0,\"tconinit\":0,\"psroff\":0}",b,sizeof(b));
+        CHECKS(b,"\"monitor\":0","網頁指定 monitor ⇒ 照用");
+        jcmd(s,"{\"type\":\"close\",\"id\":908}",b,sizeof(b));
+        dgh_fake_aux_ok_mask = 0; dgh_fake_aux_tcon_monitor = -1; dgh_fake_aux_ok_monitor = oldOk;
+        jcmd(s,"{\"type\":\"open\",\"id\":909,\"mode\":4}",b,sizeof(b));
+        CHECKS(b,"\"ok\":true","還原單台設定後重新開啟（後面的測試照舊）");
+    }
     G("3. 同一套 read／rawwrite：依 slave 路由");
     jcmd(s,"{\"type\":\"rawwrite\",\"id\":5,\"slave\":126,\"addr\":171,\"awid\":1,\"data\":[205]}",b,sizeof(b));
     CHECKS(b,"\"ok\":true","7E:AB←CD 經 I2C-over-AUX");

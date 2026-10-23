@@ -323,6 +323,9 @@ BOOL CloseHandle(HANDLE h){ (void)h; g_shim_timer_armed=0; return 1; }
 int  dgh_shim_is_admin = 1;
 char dgh_shim_adapter[128] = "Intel(R) Iris(R) Xe Graphics";
 int  dgh_fake_aux_ok_monitor = 2;
+int  dgh_fake_aux_ok_mask = 0;      /* 1.21.0：非 0 ⇒ bit m＝monitor m 的 Initial 回 0（多台螢幕） */
+int  dgh_fake_aux_tcon_monitor = -1; /* 1.21.0：≥0 ⇒ 只有這台的 DPCD 0x430 寫得進去（其餘＝別台 DP 螢幕） */
+static int fa_cur_mon = -1;
 int  dgh_fake_aux_init_calls = 0, dgh_fake_aux_release_calls = 0, dgh_fake_aux_last_card = -1, dgh_fake_aux_last_proj = -1;
 int  dgh_fake_aux_ee_hits = 0, dgh_fake_aux_dpcd_writes = 0, dgh_fake_aux_i2c_writes = 0, dgh_fake_aux_fail_writes = 0;
 int  dgh_fake_aux_psr_sup = 1, dgh_fake_aux_psr_on = 1, dgh_fake_aux_psr_sets = 0;
@@ -348,6 +351,8 @@ BOOL EnumDisplayDevicesA(const char* dev, DWORD i, DISPLAY_DEVICEA* dd, DWORD fl
 static unsigned fa_ptr(void){ return ((unsigned)dgh_fake_aux_dpcd[0x430]<<8) | dgh_fake_aux_dpcd[0x431]; }
 static unsigned char fa_Initial(unsigned char* c, unsigned char* m, unsigned char* p){
     dgh_fake_aux_init_calls++; dgh_fake_aux_last_card=*c; dgh_fake_aux_last_proj=*p;
+    fa_cur_mon = *m;
+    if(dgh_fake_aux_ok_mask) return ((dgh_fake_aux_ok_mask >> *m) & 1) ? 0x00 : 0xFF;
     return (*m == (unsigned char)dgh_fake_aux_ok_monitor) ? 0x00 : 0xFF; }
 static void fa_Release(void){ dgh_fake_aux_release_calls++; }
 static int  fa_GetInitialState(void){ return 1; }
@@ -366,6 +371,7 @@ static int fa_DpcdRead(int n, int a, unsigned char* d){
     return 1; }
 static int fa_DpcdWrite(int n, int a, unsigned char* d){
     int i; fx_enter('A'); fx_leave(); if(dgh_fake_aux_fail_writes) return 0;
+    if(dgh_fake_aux_tcon_monitor>=0 && fa_cur_mon!=dgh_fake_aux_tcon_monitor && a>=0x430 && a<=0x4FF) return 0;   /* 別台螢幕：瑞鼎 DPCD 視窗寫不進去 */
     if(a<0||a+n>0x1000) return 0;
     dgh_fake_aux_dpcd_writes++;
     for(i=0;i<n;i++){

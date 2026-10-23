@@ -188,7 +188,7 @@ int main(void){
       CHECKS(b,"\"ok\":true","AUX open 成功（治具持有中也不回 busy）");
       CHECK(!strstr(b,"\"busy\":true"),"AUX open 沒有 busy");
       EQ_I(dgh_fake_live,1,"🔴 AUX 開啟後治具仍開著（1.18 會讓出 ⇒ 0）");
-      EQ_I(dgh_fake_aux_release_calls,rel,"AUX 沒被 Release"); }
+      CHECK(dgh_fake_aux_release_calls-rel<=1,"AUX 沒被 Release（1.21.0：開啟時逐台探測螢幕的那一次 Release 除外，同原廠 AutoDetect）"); }
     EQ_I(dgh_mode,1,"🔴 AUX 那頁的 open 沒改到治具的模式（仍是 1）");
     EQ_I(dgh_fast_read,1,"🔴 AUX 那頁送 fastread:0 沒改到治具（仍 1）");
     EQ_I(dgh_raw_mpsse,0,"🔴 AUX 那頁送 rawmpsse:1 沒改到治具（仍 0）");

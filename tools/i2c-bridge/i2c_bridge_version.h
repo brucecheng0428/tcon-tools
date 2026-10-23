@@ -325,6 +325,11 @@
  *   Bruce 2026-10-23：「誰跟你說過 AUX 的改進要暫停的？I2C 用到沒問題以後，就要接著用 AUX 啊」
  *   - 內容＝1.20.0＋1.20.1 的 DP AUX 改進（3E／7C 讀取走 I2C over AUX、EEPROM 0x50 經 IOA 可讀、AMD 走 IOA_Read），
  *     重新發佈在 1.19.0 回復之後；版號只增不減 ⇒ 1.21.0。
+ *   - 3E／7C 讀取預設走原廠 AUX 工具的 DPCD 視窗（3E：0x430/0x431 寫 offset、0x435 讀；7C：0x431、0x434），
+ *     open regpath=1 才改走 I2C over AUX（AMD 的 IOA 對沒回應的 slave 回 00、不報錯 ⇒ 不當預設）。
+ *   - 顯示器照原廠 AUX 工具選（Common.cs:288、AuxApi.cs:98–99）：每台都試，T-CON 有回應（3E 經 DPCD 0x430/0x435 讀得到）
+ *     的才算，取最後一台。實機：monitor 0 是另一台 DP 螢幕（寫 0x430 全失敗）、monitor 1 才是 T-CON（0x4D1＝DA，不用系統管理員）。
+ *     open 回覆多 tconSeen。
  *   - 🔴 治具（I2C）路徑與 1.19.0 逐行相同：git diff 只落在 dgh_mode==DGH_MODE_AUX 分支、aux_* 函式與 i2c_bridge_aux.h。
  */
 #define I2C_BRIDGE_VERSION "1.21.0"

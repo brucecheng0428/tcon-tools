@@ -89,7 +89,11 @@ for (const f of files) {
     if (sess.includes(name)) {
       const calls = [...src.matchAll(new RegExp('(?<![A-Za-z0-9_$.])' + name.replace(/\$/g, '\\$') + '\\s*\\(', 'g'))].length;
       const decl = [...src.matchAll(new RegExp('function\\s+' + name.replace(/\$/g, '\\$') + '\\s*\\(', 'g'))].length;
-      ok(calls - decl === 0, `${f}：${name}() 只交給 TconMbus.session，頁面沒有直接呼叫`, `直接呼叫 ${calls - decl} 處`);
+      /* i2c v1.38.0 例外（只限 DP AUX、只讀）：DP AUX 的 Check T-CON 照原廠 AUX 工具讀 3E（不做 MbusConnect，Dispatch 2026-10-23
+         定案 AUX 不寫 7E:AB←CD），那一行標 aux-raw-ok 且必須在 i2ctXport === 'aux' 的分支裡、只送 type:'read'。 */
+      const okAux = [...src.matchAll(new RegExp('(?<![A-Za-z0-9_$.])' + name.replace(/\$/g, '\\$') + "\\s*\\(\\{\\s*type:\\s*'read'[^\\n]*aux-raw-ok", 'g'))].length;
+      ok(calls - decl - okAux === 0, `${f}：${name}() 只交給 TconMbus.session，頁面沒有直接呼叫` + (okAux ? `（DP AUX 只讀例外 ${okAux} 處）` : ''), `直接呼叫 ${calls - decl - okAux} 處`);
+      if (okAux) ok(/if \(i2ctXport === 'aux'\) \{\s*\n\s*var auxRead/.test(src), `${f}：DP AUX 只讀例外在 i2ctXport === 'aux' 的分支裡`, '找不到 AUX 分支');
     }
   }
   ok(n > 0, `${f}：找得到送訊息的地方`, '0 處');
