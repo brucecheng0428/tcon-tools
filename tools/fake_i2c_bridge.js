@@ -19,7 +19,8 @@ function install(w, mode) {
       let m; try { m = JSON.parse(s); } catch (e) { return; }
       ws.sent.push(m);
       const r = { id: m.id, ok: true, type: m.type };
-      if (m.type === 'ping') Object.assign(r, { helper: '1.17.0', proto: 6, type: 'pong' });
+      /* 2026-10-24：假 Bridge 回報「目前上線的版本」（HELPER_PKG），否則會被版本過舊彈窗擋住（common/i2c-bridge.js gate） */
+      if (m.type === 'ping') Object.assign(r, (w.HELPER_PKG && w.HELPER_PKG.exe) ? { helper: w.HELPER_PKG.exe, proto: w.HELPER_PKG.proto, type: 'pong' } : { helper: '1.17.0', proto: 6, type: 'pong' });
       if (m.type === 'read') r.data = new Array(m.len || 1).fill(0);
       setTimeout(() => { if (ws.readyState === 1 && ws.onmessage) ws.onmessage({ data: JSON.stringify(r) }); }, 1);
     };

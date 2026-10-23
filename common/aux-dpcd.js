@@ -14,7 +14,7 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 (function (g) {
   'use strict';
-  var VERSION = '1.0';
+  var VERSION = '1.1';   /* 1.1（Bruce 2026-10-24）：第一步沒連線前，第二步「依序執行」停用＋提示；第一步完成套綠框 */
   var T = {
     tabFlow: ['讀寫流程', 'Read/write flow', '读写流程'],
     tabTool: ['DPCD／IOA 工具', 'DPCD / IOA tool', 'DPCD／IOA 工具'],
@@ -43,6 +43,15 @@
     op: ['操作', 'Operation', '操作'], addr: ['位址(h)', 'Address(h)', '地址(h)'], bytes: ['Bytes', 'Bytes', 'Bytes'], data: ['資料(h)', 'Data(h)', '数据(h)'],
     addrIoa: ['Slave(h)', 'Slave(h)', 'Slave(h)'], sleepMs: ['毫秒', 'ms', '毫秒'],
     btnAdd: ['＋ 加入', '+ Add', '＋ 加入'],
+    /* v1.1（Bruce 2026-10-24「只要 check RAD tcon 就有做初始化的動作」）：bridge 1.23.0 實機 log（Windows mini，AMD）：
+       Check RAD TCON＝auxlist tcon:1 ⇒ 每台螢幕 AUX Initial（原廠 DLL）→ 只讀 DPCD 0x000／0x400／0x43C、EDID（IOA 讀）→ Release；
+       沒有 T-CON 初始化序列、沒有 DPCD 寫入。但 AUX Initial 與 EDID 讀（Intel／NVIDIA 會先寫 1 byte EDID offset）都會動到螢幕 ⇒ 依 Bruce 標示「已初始化」。 */
+    chkInitNote: ['（會送 AUX 初始化）', '(sends AUX initialisation)', '（会送 AUX 初始化）'],
+    chkInitTip: ['Check RAD TCON 會對每台螢幕做 AUX 初始化（原廠 DLL Initial）再讀 0x43C；不送 T-CON 初始化序列、不寫 DPCD', 'Check RAD TCON runs the AUX initialisation (vendor DLL Initial) on every display and reads 0x43C; no T-CON init sequence, no DPCD writes', 'Check RAD TCON 会对每台屏幕做 AUX 初始化（原厂 DLL Initial）再读 0x43C；不送 T-CON 初始化序列、不写 DPCD'],
+    initDone: ['已初始化（Check RAD TCON）', 'Initialised (Check RAD TCON)', '已初始化（Check RAD TCON）'],
+    rowLinked: ['已連線', 'Connected', '已连接'], rowSel: ['已選', 'Selected', '已选'],
+    needConn: ['請先在第一步選螢幕並連線', 'Pick a display in step 1 and connect first', '请先在第一步选屏幕并连接'],
+    stepDone: ['已完成', 'Done', '已完成'],
     btnRun: ['▶ 依序執行', '▶ Run', '▶ 依序执行'], btnStop: ['中止', 'Stop', '中止'],
     btnLoad: ['載入 script', 'Load script', '载入 script'], btnSave: ['存成 script', 'Save script', '存成 script'],
     btnClear: ['清除 log', 'Clear log', '清除 log'], btnCsv: ['存 log（CSV）', 'Save log (CSV)', '存 log（CSV）'],
@@ -177,14 +186,19 @@
     var p = $('dpcd-panel'); if (!p) return;
     var linked = H && H.rawLinked();
     var rows = S.disp.map(function (d, i) {
-      return '<tr' + (d.ours ? ' class="dp-ours"' : '') + '><td><input type="radio" name="dp-sel" value="' + i + '"' + (S.sel === i ? ' checked' : '') + (S.running || linked ? ' disabled' : '') + '></td>'
-        + '<td class="mono">' + esc(d.cardName) + ' / ' + d.monitor + '</td>'
+      /* v1.1（Bruce 2026-10-24「把我選的那個螢幕持續地 highlight 出來」）：點整列＝選那台；已連線那台醒目框＋「已連線」直到斷線；
+         選了還沒連線＝細框＋「已選」。已連線時 S.sel 一律對齊 S.target（清單與「中斷」旁的名稱同一台）。 */
+      var isLk = linked && sameDisp(d, S.target), isSel = !linked && S.sel === i;
+      var cls = [d.ours ? 'dp-ours' : '', isLk ? 'dp-linked' : '', isSel ? 'dp-selrow' : ''].filter(Boolean).join(' ');
+      return '<tr data-i="' + i + '"' + (cls ? ' class="' + cls + '"' : '') + '><td><input type="radio" name="dp-sel" value="' + i + '"' + ((linked ? isLk : S.sel === i) ? ' checked' : '') + (S.running || linked ? ' disabled' : '') + '></td>'
+        + '<td class="mono">' + esc(d.cardName) + ' / ' + d.monitor + (isLk ? ' <span class="dp-tag dp-tag-on">' + esc(t('rowLinked')) + '</span>' : (isSel ? ' <span class="dp-tag">' + esc(t('rowSel')) + '</span>' : '')) + '</td>'
         + '<td><span class="mono">' + esc((d.win && d.win.gdi) || '') + '</span>' + (d.win && d.win.name ? ' ' + esc(d.win.name) : '')
         + (d.edid ? '<div class="sub mono">EDID ' + esc(d.edid.mfg + ' ' + d.edid.prod + (d.edid.name ? ' · ' + d.edid.name : '')) + '</div>' : '') + '</td>'
         + (hasWin() ? '<td>' + esc(techText(d)) + (d.win ? '<div class="sub mono">' + esc(d.win.tech) + '</div>' : '') + '</td>' : '')
         + '<td class="mono">' + (d.dpcdRev != null ? h2(d.dpcdRev) : '—') + (d.devId ? '<div class="sub">' + esc(d.oui + ' ' + d.devId) + '</div>' : '') + '</td>'
         + '<td>' + (d.tcon43c ? (d.ours ? t('isOurs', { n: d.ours }) : t('notOurs')) : t('notChecked')) + '</td></tr>';
     }).join('');
+    if (linked && S.target) { var ti = -1; S.disp.forEach(function (d, k) { if (sameDisp(d, S.target)) ti = k; }); if (ti >= 0) S.sel = ti; }
     var sd = S.sel >= 0 ? S.disp[S.sel] : null;
     var warn = '';
     var opOpts = OPS.map(function (o) { return '<option value="' + o.k + '">' + o.n + '</option>'; }).join('');
@@ -193,17 +207,20 @@
     var keep = { op: $('dp-op') ? $('dp-op').value : 'dr', addr: $('dp-addr') ? $('dp-addr').value : '00000', n: $('dp-n') ? $('dp-n').value : '1', data: $('dp-data') ? $('dp-data').value : '' };
     p.innerHTML =
       '<div class="note">' + esc(t('intro')) + '</div>'
-      + '<div class="card stp"><div class="stp-hd"><span class="stp-t">' + esc(t('secDisp')) + '</span></div>'
+      /* v1.1（Bruce 2026-10-24「要按下『連線不初始化』的這個按鈕以後，才能進到第二步」）：連上＝第一步完成 ⇒ 套主流程同一個 .stp.done 綠框 */
+      + '<div class="card stp' + (linked ? ' done' : '') + '" id="dp-stp1"><div class="stp-hd"' + (linked ? ' data-tc-done="' + esc(doneTxt()) + '"' : '') + '><span class="stp-tick">' + (linked ? '✓' : '○') + '</span><span class="stp-t">' + esc(t('secDisp')) + '</span></div>'
       + '<div class="row" style="gap:8px;flex-wrap:wrap;align-items:center">'
       + '<button id="dp-list" title="' + esc(t('listTip')) + '"' + (S.running || linked ? ' disabled' : '') + '>' + esc(t('btnList')) + '</button>'
-      + '<button id="dp-check" title="' + esc(t('checkTip')) + '"' + (S.running || linked ? ' disabled' : '') + '>' + esc(t('btnCheck')) + '</button>'
+      + '<button id="dp-check" title="' + esc(t('checkTip') + '\n' + t('chkInitTip')) + '"' + (S.running || linked ? ' disabled' : '') + '>' + esc(t('btnCheck')) + '</button>'
+      + '<span class="sub dp-chknote" title="' + esc(t('chkInitTip')) + '">' + esc(t('chkInitNote')) + '</span>'
       + '<button id="dp-conn" class="pri"' + (S.running || (!linked && !sd) ? ' disabled' : '') + '>' + esc(linked ? t('btnDisc') : t('btnConn')) + '</button>'
-      + '<span id="dp-state" class="' + (linked ? 'ok' : 'sub') + '">' + esc(linked ? t('linked', { d: S.target ? dispName(S.target) : '' }) : (sd ? '' : t('pickFirst'))) + '</span></div>'
+      + '<span id="dp-state" class="' + (linked ? 'ok' : 'sub') + '">' + esc(linked ? t('linked', { d: S.target ? dispName(S.target) : '' }) : (sd ? '' : t('pickFirst'))) + '</span>'
+      + (linked && S.initByCheck ? '<span id="dp-init" class="dp-tag dp-tag-init" title="' + esc(t('chkInitTip')) + '">' + esc(t('initDone')) + '</span>' : '') + '</div>'
       + '<div id="dp-msg" class="sub" style="margin-top:6px"></div>'
       + (S.disp.length ? '<div class="dp-tw"><table class="dp-t"><thead><tr><th></th><th>' + t('colNo') + '</th><th>' + t('colName') + '</th>' + (hasWin() ? '<th>' + t('colConn') + '</th>' : '') + '<th>' + t('colDpcd') + '</th><th>' + t('colTcon') + '</th></tr></thead><tbody>' + rows + '</tbody></table></div>' : '')
       + (warn ? '<div id="dp-warn" class="dp-warn">' + esc(warn) + '</div>' : '')
       + '</div>'
-      + '<div class="card stp"><div class="stp-hd"><span class="stp-t">' + esc(t('secScript')) + '</span></div>'
+      + '<div class="card stp" id="dp-stp2"><div class="stp-hd"><span class="stp-tick">○</span><span class="stp-t">' + esc(t('secScript')) + '</span></div>'
       + '<div class="row dp-add" style="gap:6px;flex-wrap:wrap;align-items:flex-end">'
       + '<label class="f">' + t('op') + '<select id="dp-op">' + opOpts + '</select></label>'
       + '<label class="f"><span id="dp-addr-l">' + t('addr') + '</span><input id="dp-addr" class="mono" size="7" value="00000"></label>'
@@ -214,23 +231,37 @@
       + '<div class="sub dp-ioa">' + esc(t('ioaNote')) + '</div>'
       + '<textarea id="dp-script" class="mono" rows="8" spellcheck="false" style="width:100%"></textarea>'
       + '<div class="row" style="gap:8px;flex-wrap:wrap;margin-top:6px">'
-      + '<button id="dp-run" class="pri"' + (S.running ? ' disabled' : '') + '>' + esc(t('btnRun')) + '</button>'
+      + '<button id="dp-run" class="pri"' + (S.running || !linked ? ' disabled' : '') + '>' + esc(t('btnRun')) + '</button>'
       + '<button id="dp-stop"' + (S.running ? '' : ' disabled') + '>' + esc(t('btnStop')) + '</button>'
       + '<button id="dp-load">' + esc(t('btnLoad')) + '</button><input type="file" id="dp-file" accept=".txt,text/plain" multiple hidden>'
       + '<button id="dp-save">' + esc(t('btnSave')) + '</button>'
-      + '<span id="dp-prog" class="sub"></span></div></div>'
+      + '<span id="dp-prog" class="sub"></span>'
+      + (linked ? '' : '<span id="dp-need" class="stp-why">' + esc(t('needConn')) + '</span>') + '</div></div>'
       + '<div class="card stp"><div class="stp-hd"><span class="stp-t">' + esc(t('secLog')) + '</span>'
       + '<span style="margin-left:auto;display:inline-flex;gap:6px"><button id="dp-clear">' + esc(t('btnClear')) + '</button><button id="dp-csv">' + esc(t('btnCsv')) + '</button></span></div>'
       + '<div class="dp-tw"><table class="dp-t mono"><thead><tr><th>#</th><th>' + t('colData') + '</th><th>' + t('colAna') + '</th></tr></thead><tbody id="dp-log">'
       + S.log.map(logRow).join('') + '</tbody></table></div></div>';
+    S.lastLinked = !!linked;
     $('dp-script').value = keepScript;
     $('dp-op').value = keep.op; $('dp-addr').value = keep.addr; $('dp-n').value = keep.n; $('dp-data').value = keep.data;
     syncAdd();
     wire();
   }
-  function logRow(r, i) { return '<tr class="' + (r.bad ? 'bad' : (r.rx ? 'rx' : '')) + '"><td>' + (i + 1) + '</td><td>' + esc(r.d) + '</td><td>' + esc(r.a) + '</td></tr>'; }
-  function addLog(d, a, bad, rx) {
-    S.log.push({ d: d, a: a, bad: !!bad, rx: !!rx });
+  function doneTxt() { try { if (g.TCONStepStatus && g.TCONStepStatus.txt) return g.TCONStepStatus.txt('done'); } catch (e) {} return t('stepDone'); }
+  /* v1.1（Bruce 2026-10-24「要可以超連結連動到 AUX 的網頁做查詢說明」，跟 LA 頁一樣）：DPCD 位址連到 aux.html 說明，
+     網址由 common/dpcd-link.js（LA 同一支）產生。req 行連位址；讀回／寫入的每個 byte 連「位址=值」（LA 的 byte list 寫法）。
+     IOA（I2C over AUX）：aux.html 沒有 I2C slave 的說明頁可連（I2C_KNOWN_ADDR 只是 decode 頁的標籤），所以不連。 */
+  function dlinks(L) {
+    if (!L || !L.length || !g.DpcdLink) return '';
+    return ' <span class="dp-dl">' + L.map(function (x) {
+      var v = (x.val == null) ? '' : h2(x.val), txt = '0x' + g.DpcdLink.fmt(x.addr) + (v ? '=0x' + v : '');
+      return '<a class="dp-dlink" href="' + esc(g.DpcdLink.url(x.addr, v)) + '" target="_blank" rel="noopener">' + esc(x.lbl ? x.lbl : txt) + '</a>';
+    }).join(' ') + '</span>';
+  }
+  function bytesL(addr, data) { return (data || []).map(function (b, k) { return { addr: addr + k, val: b }; }); }
+  function logRow(r, i) { return '<tr class="' + (r.bad ? 'bad' : (r.rx ? 'rx' : '')) + '"><td>' + (i + 1) + '</td><td>' + esc(r.d) + '</td><td>' + esc(r.a) + dlinks(r.L) + '</td></tr>'; }
+  function addLog(d, a, bad, rx, L) {
+    S.log.push({ d: d, a: a, bad: !!bad, rx: !!rx, L: L || null });
     var tb = $('dp-log'); if (tb) { tb.insertAdjacentHTML('beforeend', logRow(S.log[S.log.length - 1], S.log.length - 1)); var w = tb.closest('.dp-tw'); if (w) w.scrollTop = w.scrollHeight; }
   }
   function msg(s, bad) { var m = $('dp-msg'); if (m) { m.textContent = s || ''; m.className = bad ? 'err' : 'sub'; } }
@@ -262,6 +293,9 @@
     $('dp-add').onclick = addFromInputs;
     $('dp-list').onclick = function () { list(false); };
     $('dp-check').onclick = function () { list(true); };
+    Array.prototype.forEach.call(g.document.querySelectorAll('#dpcd-panel tr[data-i]'), function (tr) {
+      tr.onclick = function (e) { if (S.running || (H && H.rawLinked())) return; if (e.target && e.target.name === 'dp-sel') return; pick(parseInt(tr.getAttribute('data-i'), 10), true); };
+    });
     Array.prototype.forEach.call(g.document.querySelectorAll('input[name="dp-sel"]'), function (r) {
       r.onchange = function () { pick(parseInt(r.value, 10), true); };
     });
@@ -297,6 +331,7 @@
       if (!r || !r.ok) { msg((r && r.err) || t('needBridge'), true); return; }
       S.disp = (r.displays || []).map(function (d) { d.ours = d.tcon43c ? oursName(d) : ''; return d; });
       S.win = r.windows || []; S.checked = !!checkTcon; S.winApi = S.win.length > 0;
+      if (checkTcon) S.initByCheck = true;   /* v1.1：Check RAD TCON 做過 AUX 初始化（見 chkInitTip） */
       /* 預設：Check 找到 RAD TCON 有回應的那台；否則只有一台就選它；其餘由使用者自己選（不替他猜內建／外接） */
       var ours = S.disp.map(function (d, i) { return d.ours ? i : -1; }).filter(function (i) { return i >= 0; });
       S.sel = ours.length === 1 ? ours[0] : (S.disp.length === 1 ? 0 : -1);
@@ -306,6 +341,7 @@
       else msg('');
     }, function (e) { msg(String(e && e.message || e), true); });
   }
+  function sameDisp(a, b) { return !!(a && b && a.card === b.card && a.monitor === b.monitor); }
   function pick(i, byUser) {
     var d = S.disp[i]; if (!d) return;
     void byUser; S.sel = i; render();
@@ -345,9 +381,9 @@
   }
   function exec(s, a) {
     if (s.kind === 'sl') return sleep(a.ms);
-    if (s.kind === 'dr') { addLog('0x ' + a.src, 'SYS DPCD RD ' + a.n + ' bytes from [0x' + ('0000' + a.addr.toString(16).toUpperCase()).slice(-5) + ']');
-      return H.send({ type: 'dpcdread', addr: a.addr, len: a.n }).then(function (r) { if (r.ok) addLog('0x 00 ' + hexs(r.data), 'ACK + 0x' + (r.data || []).map(h2).join(''), false, true); else addLog('', 'NACK' + (r.err ? '（' + r.err + '）' : ''), true); }); }
-    if (s.kind === 'dw') { addLog('0x ' + a.src, 'SYS DPCD WR ' + a.n + ' bytes to [0x' + ('0000' + a.addr.toString(16).toUpperCase()).slice(-5) + '] + 0x' + a.data.map(h2).join(''));
+    if (s.kind === 'dr') { addLog('0x ' + a.src, 'SYS DPCD RD ' + a.n + ' bytes from [0x' + ('0000' + a.addr.toString(16).toUpperCase()).slice(-5) + ']', false, false, [{ addr: a.addr, lbl: 'DPCD' }]);
+      return H.send({ type: 'dpcdread', addr: a.addr, len: a.n }).then(function (r) { if (r.ok) addLog('0x 00 ' + hexs(r.data), 'ACK + 0x' + (r.data || []).map(h2).join(''), false, true, bytesL(a.addr, r.data)); else addLog('', 'NACK' + (r.err ? '（' + r.err + '）' : ''), true); }); }
+    if (s.kind === 'dw') { addLog('0x ' + a.src, 'SYS DPCD WR ' + a.n + ' bytes to [0x' + ('0000' + a.addr.toString(16).toUpperCase()).slice(-5) + '] + 0x' + a.data.map(h2).join(''), false, false, bytesL(a.addr, a.data));
       return H.send({ type: 'dpcdwrite', addr: a.addr, data: a.data }).then(function (r) { addLog(r.ok ? '0x 00' : '', r.ok ? 'ACK' : ('NACK' + (r.err ? '（' + r.err + '）' : '')), !r.ok, r.ok); }); }
     if (s.kind === 'ioaread') {
       if (s.pre) addLog('0x ' + s.pre.src, 'SYS I2C WR(MOT = ' + (s.pre.mot ? 1 : 0) + ') ' + s.pre.n + ' bytes to [0x' + h2(s.slave) + '] + 0x' + s.pre.data.map(h2).join('') + ' (I2C over AUX)');
@@ -373,6 +409,7 @@
     var tool = aux && S.tab === 'tool';
     FLOW_IDS.forEach(function (id) { var e = $(id); if (e) e.style.display = tool ? 'none' : ''; });
     p.style.display = tool ? '' : 'none';
+    if (tool && H && !!H.rawLinked() !== !!S.lastLinked) render();   /* v1.1：連上啟用、斷線停用 */
     Array.prototype.forEach.call(bar.querySelectorAll('.mseg-b'), function (b) {
       var on = b.getAttribute('data-tab') === S.tab; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on ? 'true' : 'false');
       b.textContent = t(b.getAttribute('data-tab') === 'tool' ? 'tabTool' : 'tabFlow');

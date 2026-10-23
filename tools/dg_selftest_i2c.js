@@ -101,7 +101,8 @@ function makeFakeWs(readMap) {
         writes.push({ addr: m.addr, data: m.data.slice() });
         rep = { type: 'result', id: m.id, cmd: 'write', ok: true, status: 0, transferred: m.data.length };
       } else if (m.type === 'ping') {
-        rep = { type: 'pong', id: m.id, helper: '1.16.0', proto: 5 };
+        /* 2026-10-24：假 Bridge 回報「目前上線的版本」（HELPER_PKG），否則會被版本過舊彈窗擋住（common/i2c-bridge.js gate） */
+        rep = { type: 'pong', id: m.id, helper: (W.HELPER_PKG || {}).exe || '1.16.0', proto: (W.HELPER_PKG || {}).proto || 5 };
       } else {
         rep = { type: 'result', id: m.id, cmd: m.type, ok: true };
       }

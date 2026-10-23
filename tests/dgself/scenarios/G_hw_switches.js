@@ -16,7 +16,7 @@
       ws.send = function (t) {
         var m = JSON.parse(t);
         if (m.type === 'ping' || m.type === 'open') {
-          var rep = { type: 'result', id: m.id, cmd: m.type, ok: true, status: 0, helper: 'v9.9.9', proto: 3, channels: 1 };
+          var rep = { type: 'result', id: m.id, cmd: m.type, ok: true, status: 0, helper: (window.HELPER_PKG || {}).exe || 'v9.9.9', proto: (window.HELPER_PKG || {}).proto || 3, channels: 1 };   /* 2026-10-24：回報目前上線版本，否則會被版本過舊彈窗擋住（common/i2c-bridge.js gate） */
           setTimeout(function () { if (ws.onmessage) ws.onmessage({ data: JSON.stringify(rep) }); }, window.__replyDelay || 0);
           return;
         }
@@ -65,7 +65,7 @@
     await __until(function () { return !dstBusy && !dstLnPending; }, 30000);
     window.__replyDelay = 0;
     __ok('G3 connected: ON lit green ●, label ON', dstLinked && bg('dst-lnsw-on') === GREEN && ic('dst-lnsw-on') === '●' && lb('dst-lnsw-on') === 'ON' && !__cls('dst-lnsw-on', 'pending'), 'linked=' + dstLinked + ' ic=' + (dstIc && dstIc.key));
-    __ok('G3 bridge version shown', /v9\.9\.9/.test(__txt('dst-v-bridge')), __txt('dst-v-bridge'));
+    __ok('G3 bridge version shown', __txt('dst-v-bridge').indexOf((window.HELPER_PKG || {}).exe || 'v9.9.9') >= 0, __txt('dst-v-bridge'));
     // ── G4 disconnect
     window.__replyDelay = 1000;
     document.getElementById('dst-lnsw-off').click(); await __until(function () { return lb('dst-lnsw-off') === '切換中…'; }, 1000);

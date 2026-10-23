@@ -49,7 +49,8 @@ const FAKE = (board) => {
     ws.send = (s) => {
       const m = JSON.parse(s); msgs.push({ t: m.type, s: m.slave, a: m.addr, d: m.data, aw: m.awid, n: m.len });
       const r = { id: m.id, ok: true, type: 'result' };
-      if (m.type === 'ping') Object.assign(r, { type: 'pong', helper: 'v9.9.9', proto: 99, busy: false });
+      /* 2026-10-24：假 Bridge 回報「目前上線的版本」（HELPER_PKG），否則會被版本過舊彈窗擋住（common/i2c-bridge.js gate） */
+      if (m.type === 'ping') Object.assign(r, { type: 'pong', helper: (window.HELPER_PKG || {}).exe || 'v9.9.9', proto: (window.HELPER_PKG || {}).proto || 99, busy: false });
       if (m.type === 'open') Object.assign(r, { channels: 1 });
       if (['read', 'rawwrite', 'write', 'batchwrite'].includes(m.type) && board.nack.includes(m.slave)) { Object.assign(r, { ok: false, err: 'NACK', status: 2 }); return reply(ws, r); }
       if (m.type === 'read') {

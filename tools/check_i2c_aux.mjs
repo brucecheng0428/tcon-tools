@@ -54,6 +54,8 @@ const BASE = `http://127.0.0.1:${srv.address().port}/`;
 
 /* 假 bridge：opt.proto、opt.admin、opt.card；EN01 板（7C:95=22、3E:207E=10…） */
 const FAKE = (opt) => {
+  /* 2026-10-24：這支專測舊 bridge（proto 6／7／9）時頁面怎麼退；產品上它們現在會被版本過舊彈窗擋住（common/i2c-bridge.js gate，另由 check_bridge_version_gate 驗），這裡關掉 gate 照舊驗退路 */
+  window.__I2CB_TEST_NO_GATE__ = true;
   const mem = { '124:149': 0x22, '124:152': 0x00, '125:125': 0x0A, '62:8318': 0x10, '62:89': 0x1E };
   const msgs = []; window.__msgs = msgs; window.__ee = []; window.__mem = mem;
   let aux = false;
@@ -427,6 +429,93 @@ try {
     check('沒有 JS 錯誤', errs.length === 0, errs.join(' | ').slice(0, 300));
     await ctx.close();
   }
+  console.log('E2b. DPCD／IOA 工具（Bruce 2026-10-24）：沒連線前「依序執行」按不下去；連上才能執行、斷線又停用；第一步完成綠框；log 的 DPCD 位址連到 aux.html 說明');
+  {
+    const displays = [
+      { card: 1, cardName: 'AMD', monitor: 0, dpcdRev: 0x14, oui: '00001C', devId: 'eDP', edid: { mfg: 'BOE', prod: '09E5', name: 'NE160' }, win: { gdi: '\\\\.\\DISPLAY1', name: '', tech: 'DISPLAYPORT_EMBEDDED', techId: 11 } },
+      { card: 1, cardName: 'AMD', monitor: 1, dpcdRev: 0x12, oui: '000000', devId: '', edid: { mfg: 'BOE', prod: '0B21', name: '' }, win: { gdi: '\\\\.\\DISPLAY2', name: 'E503 board', tech: 'DISPLAYPORT_EXTERNAL', techId: 10 }, tcon43c: [0xE5, 0x03] }
+    ];
+    const { ctx, page, errs } = await open({ proto: 10, card: 'AMD', admin: false, displays, windows: [] });
+    await page.click('#xport-seg [data-x="aux"]'); await sleep(150);
+    await page.click('#aux-tabs [data-tab="tool"]'); await sleep(150);
+    const st = () => page.evaluate(() => ({ run: document.getElementById('dp-run').disabled, need: (document.getElementById('dp-need') || {}).textContent || '', done: document.getElementById('dp-stp1').classList.contains('done') }));
+    let s = await st();
+    check('一開始（還沒列出螢幕）：依序執行停用、旁邊寫「請先在第一步選螢幕並連線」、第一步沒綠框', s.run && /請先在第一步選螢幕並連線/.test(s.need) && !s.done, JSON.stringify(s));
+    await page.fill('#dp-script', '90 01 00 01\n80 01 00 00 0A\n10 00 50 07\n');
+    const m0 = await page.evaluate(() => window.__msgs.length);
+    let clicked = true; try { await page.click('#dp-run', { timeout: 800 }); } catch (e) { clicked = false; }
+    check('沒連線時按「依序執行」按不下去、一筆都沒送', !clicked && (await page.evaluate((n) => window.__msgs.length - n, m0)) === 0);
+    await page.click('#dp-list'); await waitFor(page, () => document.querySelectorAll('input[name="dp-sel"]').length === 2);
+    await page.click('#dpcd-panel tr[data-i="1"] td:nth-child(3)'); await sleep(150);
+    const selRow = await page.evaluate(() => ({ sel: AuxDpcd.state().sel, cls: document.querySelector('#dpcd-panel tr[data-i="1"]').className, tag: document.querySelector('#dpcd-panel tr[data-i="1"]').textContent }));
+    check('點清單整列（不必點圓鈕）就選到那台：S.sel＝1、那列細框＋「已選」', selRow.sel === 1 && /dp-selrow/.test(selRow.cls) && /已選/.test(selRow.tag), JSON.stringify(selRow).slice(0, 200));
+    await page.click('#dpcd-panel tr[data-i="0"] td:nth-child(3)'); await sleep(100);
+    await page.click('#dpcd-panel tr[data-i="1"] td:nth-child(2)'); await sleep(100);
+    check('改點別列再點回來：框跟著移動、只有一列有框', await page.evaluate(() => document.querySelectorAll('#dpcd-panel tr.dp-selrow').length === 1 && document.querySelector('#dpcd-panel tr[data-i="1"]').classList.contains('dp-selrow')));
+    s = await st();
+    check('選了螢幕但還沒按「連線（不初始化）」：依序執行仍停用＋提示', s.run && /請先在第一步選螢幕並連線/.test(s.need) && !s.done, JSON.stringify(s));
+    if (SHOTS) await page.screenshot({ path: SHOTS + '/dpcd_gate_before.png', fullPage: false });
+    await page.click('#dp-conn'); await waitFor(page, () => i2ctAuxIsRaw()); await sleep(200);
+    s = await st();
+    const lk = await page.evaluate(() => { const rows = [...document.querySelectorAll('#dpcd-panel tr[data-i]')]; const on = rows.filter(r => r.classList.contains('dp-linked')); const st = document.getElementById('dp-state').textContent; return { n: on.length, i: on[0] && on[0].getAttribute('data-i'), txt: on[0] && on[0].textContent, st, raw: window.__rawOpen, init: !!document.getElementById('dp-init') }; });
+    check('連線後：選的那一列醒目綠框＋「已連線」；只有一列；與「中斷」旁名稱、實際 open 的 card/monitor 同一台', lk.n === 1 && lk.i === '1' && /已連線/.test(lk.txt) && /螢幕 1/.test(lk.st) && lk.raw && lk.raw.card === 1 && lk.raw.monitor === 1, JSON.stringify(lk).slice(0, 300));
+    check('沒按過 Check RAD TCON ⇒ 不標「已初始化」', !lk.init);
+    check('按「連線（不初始化）」連上 ⇒ 依序執行可按、提示消失、第一步綠框（.stp.done，與主流程同一個 class）', !s.run && !s.need && s.done, JSON.stringify(s));
+    const bc = await page.$eval('#dp-stp1', e => getComputedStyle(e).borderTopColor);
+    const bcMain = await page.evaluate(() => { const d = document.createElement('div'); d.className = 'card stp done'; document.body.appendChild(d); const c = getComputedStyle(d).borderTopColor; d.remove(); return c; });
+    check('第一步外框顏色＝主流程 .stp.done 的綠框', bc === bcMain, bc + ' vs ' + bcMain);
+    await page.evaluate(() => { window.__cf = []; window.confirm = (m) => { window.__cf.push(m); return true; }; });
+    await page.click('#dp-run'); await waitFor(page, () => /完成/.test(document.getElementById('dp-msg').textContent), null, 8000);
+    const sent = await page.evaluate((n) => window.__msgs.slice(n).map(m => m.t), m0);
+    check('連線後能執行（DPCD 讀、DPCD 寫、IOA 讀都送出）', sent.filter(t => t === 'dpcdread').length >= 1 && sent.filter(t => t === 'dpcdwrite').length >= 1 && sent.includes('ioaread'), JSON.stringify(sent));
+    if (SHOTS) await page.screenshot({ path: SHOTS + '/dpcd_gate_after.png', fullPage: false });
+    /* log 的 DPCD 超連結 */
+    const links = await page.$$eval('#dp-log a.dp-dlink', as => as.map(a => ({ t: a.textContent, h: a.getAttribute('href'), tg: a.target })));
+    const want = (a, v) => links.some(l => l.h === '/aux.html?auxTab=dpcd&dpcd=' + a + (v ? '&val=' + v : '') && l.tg === '_blank');
+    check('DPCD 讀 req 行連到 aux.html?auxTab=dpcd&dpcd=00100', want('00100', ''), JSON.stringify(links));
+    check('讀回 2 byte 各自連「位址=值」（00100=00、00101=00，LA 的 byte list 寫法）', want('00100', '00') && want('00101', '00') && links.some(l => l.t === '0x00100=0x00'), JSON.stringify(links));
+    check('DPCD 寫入連「00100=0A」', want('00100', '0A'), JSON.stringify(links));
+    check('IOA（I2C over AUX）行沒有亂連（aux.html 沒有 I2C slave 說明頁）', !links.some(l => /dpcd=00050/.test(l.h)), JSON.stringify(links));
+    check('網址與 LA（wfg.html）同一支產生：DpcdLink.url', await page.evaluate(() => DpcdLink.url(0x100, '0a') === '/aux.html?auxTab=dpcd&dpcd=00100&val=0A'));
+    /* 實際點：開新分頁、跳到 aux.html 該暫存器 */
+    const [np] = await Promise.all([ctx.waitForEvent('page'), page.click('#dp-log a.dp-dlink[href*="dpcd=00100&val=0A"]')]);
+    await np.waitForLoadState('load'); await sleep(1500);
+    const auxRes = await np.evaluate(() => ({ url: location.pathname + location.search, tab: (document.querySelector('.aux-tab.active') || {}).getAttribute ? document.querySelector('.aux-tab.active').getAttribute('data-tab') : '', res: ((document.getElementById('aux-dpcd-result') || {}).innerText || '').slice(0, 400) }));
+    check('點「0x00100=0x0A」⇒ aux.html 切到 DPCD、顯示 0x00100（LINK_BW_SET）的說明', auxRes.tab === 'dpcd' && /00100/.test(auxRes.res) && /LINK_BW_SET/i.test(auxRes.res), JSON.stringify(auxRes).slice(0, 300));
+    if (SHOTS) await np.screenshot({ path: SHOTS + '/dpcd_link_aux_00100.png', fullPage: false });
+    await np.close();
+    const [np2] = await Promise.all([ctx.waitForEvent('page'), page.click('#dp-log a.dp-dlink[href*="dpcd=00101&val=00"]')]);
+    await np2.waitForLoadState('load'); await sleep(1500);
+    const r2 = await np2.evaluate(() => ((document.getElementById('aux-dpcd-result') || {}).innerText || '').slice(0, 300));
+    check('點「0x00101=0x00」⇒ 顯示 0x00101（LANE_COUNT_SET）的說明', /00101/.test(r2) && /LANE_COUNT_SET/i.test(r2), r2.slice(0, 200));
+    if (SHOTS) await np2.screenshot({ path: SHOTS + '/dpcd_link_aux_00101.png', fullPage: false });
+    await np2.close();
+    /* 斷線 ⇒ 又停用 */
+    await page.click('#dp-conn'); await waitFor(page, () => !i2ctAuxIsRaw()); await sleep(200);
+    s = await st();
+    check('按「中斷」⇒ 依序執行又停用＋提示、綠框拿掉', s.run && /請先在第一步選螢幕並連線/.test(s.need) && !s.done, JSON.stringify(s));
+    check('按「中斷」⇒ 清單的「已連線」框拿掉', await page.evaluate(() => !document.querySelector('#dpcd-panel tr.dp-linked')));
+    check('Check RAD TCON 按鈕旁寫「（會送 AUX 初始化）」', /會送 AUX 初始化/.test(await page.$eval('#dpcd-panel', e => e.textContent)));
+    await page.click('#dpcd-panel tr[data-i="0"] td:nth-child(3)'); await sleep(100);
+    await page.click('#dp-check'); await waitFor(page, () => /RAD TCON 有回應：/.test(document.getElementById('dp-msg').textContent));
+    check('Check RAD TCON 自動選到的那台（0x43C＝E5 03 的螢幕 1）同步加框', await page.evaluate(() => AuxDpcd.state().sel === 1 && document.querySelector('#dpcd-panel tr[data-i="1"]').classList.contains('dp-selrow') && document.querySelectorAll('#dpcd-panel tr.dp-selrow').length === 1));
+    await page.click('#dp-conn'); await waitFor(page, () => i2ctAuxIsRaw()); await sleep(200);
+    const ck = await page.evaluate(() => ({ init: (document.getElementById('dp-init') || {}).textContent || '', lk: (document.querySelector('#dpcd-panel tr.dp-linked') || {}).getAttribute ? document.querySelector('#dpcd-panel tr.dp-linked').getAttribute('data-i') : null, st: document.getElementById('dp-state').textContent }));
+    check('做過 Check RAD TCON 再連線 ⇒ 連線狀態標「已初始化（Check RAD TCON）」、框在螢幕 1、名稱一致', /已初始化（Check RAD TCON）/.test(ck.init) && ck.lk === '1' && /螢幕 1/.test(ck.st), JSON.stringify(ck));
+    if (SHOTS) await page.screenshot({ path: SHOTS + '/dpcd_linked_highlight_init.png', fullPage: false });
+    await page.click('#dp-conn'); await waitFor(page, () => !i2ctAuxIsRaw()); await sleep(200);
+    await page.click('#dp-conn'); await waitFor(page, () => i2ctAuxIsRaw()); await sleep(200);
+    await page.evaluate(() => { i2ctWs.close(); }); await sleep(150);
+    s = await st();
+    check('Bridge 那頭斷線（非使用者按）⇒ 依序執行也立刻停用', s.run && /請先在第一步選螢幕並連線/.test(s.need), JSON.stringify(s));
+    await page.evaluate(() => { document.documentElement.lang = 'en'; AuxDpcd.render(); });
+    check('英文提示', /Pick a display in step 1 and connect first/.test(await page.$eval('#dpcd-panel', e => e.textContent)));
+    await page.evaluate(() => { document.documentElement.lang = 'zh-CN'; AuxDpcd.render(); });
+    check('簡中提示', /请先在第一步选屏幕并连接/.test(await page.$eval('#dpcd-panel', e => e.textContent)));
+    check('沒有 JS 錯誤', errs.length === 0, errs.join(' | ').slice(0, 300));
+    await ctx.close();
+  }
+
   console.log('E3. DP AUX：3E／7C 讀不到 ⇒ 認不出（不錯判 E503）、序列同 I2C、log 有 bridge 的錯誤；IOA 讀 EEPROM 照常');
   {
     const { ctx, page, errs } = await open({ proto: 9, card: 'AMD', admin: false, tconInit: false, auxRegFail: true });

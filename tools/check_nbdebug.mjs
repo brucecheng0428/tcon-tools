@@ -109,7 +109,8 @@ const FAKE = `(() => {
     setTimeout(() => { ws.readyState = 1; ws.onopen && ws.onopen({}); }, 5);
     ws.send = s => { const m = JSON.parse(s); const r = { id: m.id, ok: true, type: m.type };
       if ((m.type === 'read' || m.type === 'rawwrite') && (window.__nack || []).includes(m.slave)) { r.ok = false; r.err = 'NACK'; setTimeout(() => ws.onmessage && ws.onmessage({ data: JSON.stringify(r) }), 1); return; }
-      if (m.type === 'ping') Object.assign(r, { helper: 'fake', proto: 6 });
+      /* 2026-10-24：假 Bridge 回報「目前上線的版本」（HELPER_PKG），否則會被版本過舊彈窗擋住（common/i2c-bridge.js gate） */
+      if (m.type === 'ping') Object.assign(r, { helper: (window.HELPER_PKG || {}).exe || 'fake', proto: (window.HELPER_PKG || {}).proto || 6 });
       if (m.type === 'read') { (window.__rlog = window.__rlog || []).push([m.slave, m.addr]); r.data = []; for (let i = 0; i < (m.len || 1); i++) r.data.push(mem[k(m.slave, m.addr + i)] ?? 0); }
       if (m.type === 'rawwrite') { m.data.forEach((b, i) => { mem[k(m.slave, m.addr + i)] = b; }); window.__wlog.push([m.slave, m.addr, m.data.slice()]); }
       setTimeout(() => ws.onmessage && ws.onmessage({ data: JSON.stringify(r) }), 1); };

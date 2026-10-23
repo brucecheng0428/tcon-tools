@@ -23,6 +23,10 @@
      unmountNeed(el)          收起提示
      badge(el, state)         連線狀態徽章：'on' 綠／'busy' 黃／'off' 灰／'none'、'drop' 紅
      text(key, vars)          本模組三語字串（zh-TW／en／zh-CN，依 <html lang>）
+     check(pong)              v1.2.0：比 ping 回的 helper／proto 與 HELPER_PKG.exe／proto ⇒ {state:'old'|'stale'|'ok',…}
+     gate(pong, {reconnect})  v1.2.0：old ⇒ 擋住整頁的彈窗（下載最新版＋「我已更新，重新連線」，沒有略過）；
+                              stale ⇒ 「這個分頁是舊的，請按 Ctrl+F5」彈窗；回 state。頁面拿到 'old' 一定要 throw oldError(pong)
+     oldError(pong)／blocked()／cmpVer(a,b)
    ═══════════════════════════════════════════════════════════════════════════ */
 (function (root) {
   'use strict';
@@ -96,7 +100,14 @@
     '.i2cb-modalbox li{font-size:22px;line-height:1.85;margin-bottom:6px}' +
     '.i2cb-modalbox code{font-size:21px}' +
     '.i2cb-modalbox button{font-size:16px;padding:9px 22px;border-radius:8px;border:1px solid #38bdf8;background:#0c4a6e;color:#e0f2fe;cursor:pointer}' +
-    '.i2cb-small{font-size:12.5px;margin-left:8px;white-space:nowrap}';
+    '.i2cb-small{font-size:12.5px;margin-left:8px;white-space:nowrap}' +
+    /* v1.2.0：版本過舊／分頁過舊彈窗（過舊在最上層、下載說明視窗再蓋在它上面） */
+    '.i2cb-modal.i2cb-oldm{z-index:2000}.i2cb-modal.i2cb-stalem{z-index:1900}#i2cb-howto{z-index:2100}' +
+    '.i2cb-oldbox{border-color:#f59e0b;max-width:640px}.i2cb-oldbox h3{color:#fde68a}' +
+    '.i2cb-old-msg{font-size:19px;line-height:1.7;margin:0 0 20px;color:#f1f5f9}' +
+    '.i2cb-old-row{display:flex;flex-wrap:wrap;gap:12px;align-items:center}' +
+    '.i2cb-old-s{margin:16px 0 0;font-size:14px;color:#cbd5e1}' +
+    '.i2cb-modalbox button.i2cb-btn2{background:transparent;border-color:#64748b;color:#cbd5e1}';
   function css() {
     var d = root.document; if (!d || d.getElementById('i2cb-css')) return;
     var s = d.createElement('style'); s.id = 'i2cb-css'; s.textContent = CSS;
@@ -163,6 +174,148 @@
     var m = root.document && root.document.getElementById('i2cb-howto'); if (m && !m.hasAttribute('hidden')) howtoEl();   /* 換語言時說明視窗跟著換 */
   }
   function unmountNeed(el) { if (!el) return; el.setAttribute('hidden', ''); el.innerHTML = ''; el.removeAttribute('data-i2cb-need'); }
+  /* ═══ v1.2.0（Bruce 2026-10-24）：Bridge 版本過舊 ⇒ 擋住操作的彈窗（全站共用，各頁只呼叫 gate） ═══
+     Bruce 原話：「I2C bridge 或是 I2C AUX bridge 的版本一直在更新，所以是不是也要有一個檢測？如果使用者用的
+     不是最新版本，就要跳出警告，請他關閉以後更換下載。最好是跳出彈窗的這種更新警告。如果他沒有下載最新的，
+     就不讓他繼續使用。」
+     判準（單一來源＝common/version.js 的 HELPER_PKG）：
+       · old   ＝ ping 回的 proto < HELPER_PKG.proto，或 helper 版本 < HELPER_PKG.exe
+                 ⇒ 擋住整頁的彈窗（沒有略過、Esc 關不掉、背後元素 inert），頁面不得往下開通道
+       · stale ＝ helper 版本 > HELPER_PKG.exe（或 proto 較新）⇒ 本頁是舊的，彈窗請他 Ctrl+F5（可先關掉）
+       · ok    ＝ 相同；HELPER_PKG 讀不到（無從判斷）也算 ok，不擋
+     比的是 exe（ping 回報值），不是 pkg：只換 zip 沒重編 exe 時，手上的 exe 仍是最新，不能擋。
+     helper 不是數字版號（例如測試用 'fake'）⇒ 只看 proto。 */
+  var TG = {
+    oldT:    ['需要更新 I2C and AUX Bridge', 'I2C and AUX Bridge update required', '需要更新 I2C and AUX Bridge'],
+    oldB:    ['I2C and AUX Bridge 版本過舊（目前 {have}，最新 {want}），請關閉舊程式，下載最新版後重新開啟。',
+              'I2C and AUX Bridge is out of date (current {have}, latest {want}). Please close the old program, download the latest version and start it again.',
+              'I2C and AUX Bridge 版本过旧（目前 {have}，最新 {want}），请关闭旧程序，下载最新版后重新打开。'],
+    oldDl:   ['⬇ 下載最新版 {ver}', '⬇ Download the latest {ver}', '⬇ 下载最新版 {ver}'],
+    oldRe:   ['我已更新，重新連線', 'I have updated — reconnect', '我已更新，重新连接'],
+    oldNo:   ['版本沒更新前，讀寫與連線都不能使用。', 'Reading, writing and connecting stay disabled until the bridge is updated.', '版本没更新前，读写与连接都不能使用。'],
+    staleT:  ['這個分頁是舊的', 'This tab is out of date', '这个标签页是旧的'],
+    staleB:  ['I2C and AUX Bridge 已是 {have}，本頁還是預期 {want} 的舊版，請按 Ctrl+F5 重新整理。',
+              'The I2C and AUX Bridge is already {have}, but this page still expects {want}. Press Ctrl+F5 to reload.',
+              'I2C and AUX Bridge 已是 {have}，本页还是预期 {want} 的旧版，请按 Ctrl+F5 重新整理。'],
+    staleRe: ['重新整理（Ctrl+F5）', 'Reload (Ctrl+F5)', '重新整理（Ctrl+F5）'],
+    later:   ['先關閉', 'Close', '先关闭']
+  };
+  function gt(k, v) {
+    var a = TG[k]; if (!a) return k;
+    var s = a[langIdx()] || a[0];
+    if (v) Object.keys(v).forEach(function (n) { s = s.split('{' + n + '}').join(v[n]); });
+    return s.replace(/\s*\{ver\}/g, '');
+  }
+  /* a 與 b 比：-1／0／1；任一邊不是數字版號 ⇒ null（不確定就不據此判） */
+  function cmpVer(a, b) {
+    var re = /^v?\d+(\.\d+)*$/; a = String(a == null ? '' : a).trim(); b = String(b == null ? '' : b).trim();
+    if (!re.test(a) || !re.test(b)) return null;
+    var pa = a.replace(/^v/, '').split('.'), pb = b.replace(/^v/, '').split('.');
+    for (var i = 0; i < Math.max(pa.length, pb.length); i++) {
+      var x = parseInt(pa[i] || '0', 10), y = parseInt(pb[i] || '0', 10);
+      if (x !== y) return x > y ? 1 : -1;
+    }
+    return 0;
+  }
+  function check(pong) {
+    var p = pkg(), want = p.exe ? String(p.exe) : '', need = p.proto | 0;
+    var have = (pong && pong.helper) ? String(pong.helper) : '', proto = pong ? (pong.proto | 0) : 0;
+    var r = { state: 'ok', have: have, want: want, proto: proto, needProto: need, pkg: p.pkg || '' };
+    if (!want || !need) return r;                       /* 下載包資訊讀不到 ⇒ 無從判斷，不擋 */
+    if (root.I2CBridge && root.I2CBridge._testNoGate === true) return r;   /* 只給 tools/ 舊版行為測試用；畫面上沒有任何略過 */
+    var c = cmpVer(have, want);
+    if (proto < need || c === -1) r.state = 'old';
+    else if (c === 1 || proto > need) r.state = 'stale';
+    return r;
+  }
+  var G = { old: null, stale: null, esc: null, obs: null };
+  function blocked() { return !!G.old; }
+  function verTxt(r) { return (r.have || '?') + ((r.proto < r.needProto) ? ' · proto ' + r.proto : ''); }
+  function wantTxt(r) { return (r.want || '?') + ((r.proto < r.needProto) ? ' · proto ' + r.needProto : ''); }
+  function setInert(on) {
+    var d = root.document; if (!d || !d.body) return;
+    Array.prototype.forEach.call(d.body.children, function (el) {
+      if (el.id === 'i2cb-old' || el.id === 'i2cb-howto' || el.id === 'i2cb-stale') return;
+      if (on) { if (!el.hasAttribute('inert')) { el.setAttribute('inert', ''); el.setAttribute('data-i2cb-inert', '1'); } }
+      else if (el.getAttribute('data-i2cb-inert') === '1') { el.removeAttribute('inert'); el.removeAttribute('data-i2cb-inert'); }
+    });
+  }
+  function modalEl(id) {
+    var d = root.document; if (!d) return null; css();
+    var m = d.getElementById(id);
+    if (!m) {
+      m = d.createElement('div'); m.id = id; m.className = 'i2cb-modal ' + (id === 'i2cb-old' ? 'i2cb-oldm' : 'i2cb-stalem');
+      m.setAttribute('role', 'alertdialog'); m.setAttribute('aria-modal', 'true');
+      m.setAttribute('aria-labelledby', id + '-t'); m.setAttribute('aria-describedby', id + '-b');
+      (d.body || d.documentElement).appendChild(m);
+    }
+    return m;
+  }
+  function renderOld() {
+    var r = G.old && G.old.r; if (!r) return;
+    var m = modalEl('i2cb-old'); if (!m) return;
+    var h = dlHref(), p = pkg();
+    m.setAttribute('data-i2cb-have', r.have || ''); m.setAttribute('data-i2cb-want', r.want || '');
+    m.innerHTML = '<div class="i2cb-modalbox i2cb-oldbox"><h3 id="i2cb-old-t">⚠ ' + esc(gt('oldT')) + '</h3>' +
+      '<p id="i2cb-old-b" class="i2cb-old-msg">' + esc(gt('oldB', { have: verTxt(r), want: wantTxt(r) })) + '</p>' +
+      '<div class="i2cb-old-row">' +
+      (h ? '<a id="i2cb-old-dl" class="i2cb-need-dl mono" data-i2cb-dl="' + esc(p.pkg || '') + '" href="' + esc(h) + '" download>' + esc(gt('oldDl', { ver: p.pkg || '' })) + '</a>' : '') +
+      '<button type="button" id="i2cb-old-re">' + esc(gt('oldRe')) + '</button></div>' +
+      '<p class="i2cb-old-s">' + esc(gt('oldNo')) + '</p></div>';
+    wireHowto(m.querySelector('#i2cb-old-dl'));
+    m.querySelector('#i2cb-old-re').addEventListener('click', function () {
+      var o = G.old; hideOld();
+      if (o && typeof o.opts.reconnect === 'function') { try { o.opts.reconnect(); } catch (e) {} }
+      else { try { root.location.reload(); } catch (e) {} }
+    });
+  }
+  function renderStale() {
+    var r = G.stale; if (!r) return;
+    var m = modalEl('i2cb-stale'); if (!m) return;
+    m.innerHTML = '<div class="i2cb-modalbox"><h3 id="i2cb-stale-t">' + esc(gt('staleT')) + '</h3>' +
+      '<p id="i2cb-stale-b" class="i2cb-old-msg">' + esc(gt('staleB', { have: r.have || '?', want: r.want || '?' })) + '</p>' +
+      '<div class="i2cb-old-row"><button type="button" id="i2cb-stale-re">' + esc(gt('staleRe')) + '</button>' +
+      '<button type="button" id="i2cb-stale-x" class="i2cb-btn2">' + esc(gt('later')) + '</button></div></div>';
+    m.querySelector('#i2cb-stale-re').addEventListener('click', function () { try { root.location.reload(); } catch (e) {} });
+    m.querySelector('#i2cb-stale-x').addEventListener('click', hideStale);
+  }
+  function watchLang() {
+    var d = root.document; if (G.obs || !d || typeof root.MutationObserver !== 'function') return;
+    G.obs = new root.MutationObserver(function () { if (G.old) renderOld(); if (G.stale) renderStale(); });
+    G.obs.observe(d.documentElement, { attributes: true, attributeFilter: ['lang'] });
+  }
+  function showOld(r, opts) {
+    G.old = { r: r, opts: opts || {} }; renderOld(); watchLang();
+    var m = root.document.getElementById('i2cb-old'); m.removeAttribute('hidden');
+    setInert(true);
+    if (!G.esc) {
+      G.esc = function (e) { if (G.old && (e.key === 'Escape' || e.key === 'Esc')) { e.preventDefault(); e.stopPropagation(); } };
+      root.document.addEventListener('keydown', G.esc, true);
+    }
+    try { var b = root.document.getElementById('i2cb-old-re'); if (b) b.focus(); } catch (e) {}
+  }
+  function hideOld() {
+    G.old = null; setInert(false);
+    var d = root.document, m = d && d.getElementById('i2cb-old'); if (m) m.setAttribute('hidden', '');
+    if (G.esc && d) { d.removeEventListener('keydown', G.esc, true); G.esc = null; }
+  }
+  function showStale(r) { G.stale = r; renderStale(); watchLang(); var m = root.document.getElementById('i2cb-stale'); if (m) m.removeAttribute('hidden'); }
+  function hideStale() { G.stale = null; var d = root.document, m = d && d.getElementById('i2cb-stale'); if (m) m.setAttribute('hidden', ''); }
+  /* 頁面在 ping 之後呼叫：gate(pong, { reconnect: fn })；回 'old'／'stale'／'ok'。
+     'old' ⇒ 頁面一定要停（throw oldError(pong)），不得送 open／讀寫。 */
+  function gate(pong, opts) {
+    var r = check(pong);
+    if (!root.document) return r.state;
+    if (r.state === 'old') { hideStale(); showOld(r, opts); }
+    else { if (G.old) hideOld(); if (r.state === 'stale') showStale(r); else hideStale(); }
+    return r.state;
+  }
+  function oldError(pong) {
+    var r = check(pong);
+    var e = new Error(gt('oldB', { have: verTxt(r), want: wantTxt(r) }));
+    e.i2cbOld = true; return e;
+  }
+
   var STATES = ['on', 'off', 'busy', 'none', 'drop'];
   function badge(el, state, label) {
     if (!el) return; css();
@@ -175,6 +328,9 @@
   root.I2CBridge = {
     PORT: PORT, WS_URL: 'ws://127.0.0.1:' + PORT + '/ws', ONLINE_BASE: ONLINE_BASE,
     isLocal: isLocal, pkg: pkg, dlHref: dlHref, fillDl: fillDl,
-    mountNeed: mountNeed, unmountNeed: unmountNeed, showHowto: showHowto, hideHowto: hideHowto, wireHowto: wireHowto, badge: badge, text: text, css: css
+    mountNeed: mountNeed, unmountNeed: unmountNeed, showHowto: showHowto, hideHowto: hideHowto, wireHowto: wireHowto, badge: badge, text: text, css: css,
+    /* v1.2.0：版本檢查與擋用彈窗 */
+    cmpVer: cmpVer, check: check, gate: gate, oldError: oldError, blocked: blocked, hideOld: hideOld, hideStale: hideStale,
+    _testNoGate: root.__I2CB_TEST_NO_GATE__ === true   /* 只給 tools/ 舊版 bridge 行為測試用（頁面載入前由測試夾具設）；畫面上沒有任何略過 */
   };
 })(typeof window !== 'undefined' ? window : this);

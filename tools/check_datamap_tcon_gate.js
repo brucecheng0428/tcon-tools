@@ -25,7 +25,8 @@ async function open(opt) {
         const ws = this; ws.readyState = 0;
         setTimeout(() => { ws.readyState = 1; ws.onopen && ws.onopen(); }, 5);
         ws.send = s => { const m = JSON.parse(s); log.push(m); let r = { id: m.id, ok: true };
-          if (m.type === 'ping') r = { id: m.id, ok: true, helper: 'mock', proto: 1 };
+          /* 2026-10-24：假 Bridge 回報「目前上線的版本」（HELPER_PKG），否則會被版本過舊彈窗擋住（common/i2c-bridge.js gate） */
+          if (m.type === 'ping') r = { id: m.id, ok: true, helper: (w.HELPER_PKG || {}).exe || 'mock', proto: (w.HELPER_PKG || {}).proto || 1 };
           else if (m.type === 'read') {
             if (opt.fail) r = { id: m.id, ok: false, err: 'nack' };
             else if (m.addr === 0xFF00 && m.len === 3) r = m.slave === 0x68 ? { id: m.id, ok: true, data: opt.id || [0x01, 0xEF, 0xA0] } : { id: m.id, ok: false, err: 'nack' };

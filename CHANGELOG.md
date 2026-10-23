@@ -2,6 +2,49 @@
 
 ---
 
+## I2C / AUX 讀寫測試 (i2c) v1.43.0 — 2026-10-24 ｜ MINOR ｜ DPCD／IOA 工具：沒連線不能執行、log 連到 aux.html 說明、Check RAD TCON 標示已初始化、清單持續 highlight 已選／已連線的螢幕（＋ wfg v4.59.3：LA 的 DPCD 連結改用共用 common/dpcd-link.js）
+
+判定依據：`docs/VERSIONING.md` R2：新功能（與上一段版本檢查同一版 v1.43.0、同一批推）。wfg 只換成呼叫共用函式、網址不變 ⇒ PATCH。
+
+### 需求（Bruce 2026-10-24）
+1. 「在 DPCD AUX 工具的那個分頁，應該在第一個部分選螢幕，要按下『連線不初始化』的這個按鈕以後，才能進到第二步 script 那邊把『依序執行』按鈕按下去。因為你不連線，我按下去依序執行也沒有用啊」
+2. 「在第三部分 log 這個地方，應該要跟 LA 的網頁一樣。要可以超連結連動到 AUX 的網頁做查詢說明」
+3. 「當我在第一部分按下 check RAD Tcon，這時候連線就要註明已做了初始化。因為我只要 check RAD tcon 就有做初始化的動作，而不是沒有做初始化。」
+4. 「當我選擇了哪一個螢幕做連線以後，它應該要把我選的那個螢幕持續地 highlight 出來…應該要把下方列出來的螢幕也用框框 highlight 起來。然後，選擇的時候不是也要選到那個螢幕嗎？」
+
+### 改了什麼（common/aux-dpcd.js v1.1、common/dpcd-link.js v1.0 新增）
+- **步驟閘門**：第一步沒選螢幕＋按「連線（不初始化）」連上之前，第二步「▶ 依序執行」停用，旁邊寫「請先在第一步選螢幕並連線」（三語）。連上才啟用；按「中斷」或 Bridge 那頭斷線 ⇒ 立刻再停用（頁面每次刷新步驟都會呼叫 `AuxDpcd.sync`，連線狀態變了就重畫）。第一步連上 ⇒ 套主流程同一個 `.stp.done` 綠框＋「已完成」。（工具沒有單筆讀寫鈕；「＋加入／載入／存成 script」只改 script 文字、不送東西，照常可用。）
+- **log 超連結**：網址產生搬到 `common/dpcd-link.js`（原本只在 wfg.html 的 `wfgLaDpcdLookupUrl`），LA 與本工具共用同一支：`aux.html?auxTab=dpcd&dpcd=<5 位>&val=<2 位>`。DPCD 讀 req 行連位址；讀回／寫入的每個 byte 連「位址=值」（LA 的 byte list 寫法），新分頁開 aux.html 該暫存器說明。IOA 不連：aux.html 沒有 I2C slave 的說明頁（`I2C_KNOWN_ADDR` 只是 decode 頁的標籤），連過去只會是空的。
+- **Check RAD TCON 標示已初始化**：先查 bridge 1.23.0 原始碼（`aux_list`）與 Windows mini 實機 bridge log（`auxtx`）：Check RAD TCON＝`auxlist tcon:1` ⇒ 每台螢幕 AUX Initial（原廠 DLL）→ 只讀 DPCD 0x000／0x400／0x43C、EDID（IOA 讀；Intel／NVIDIA 會先寫 1 byte EDID offset）→ Release；log 裡每段 auxlist **0 筆 DPCD W／IOA W、0 段 `-- init`**（對照：一般 AUX 連線的 Detect scan 26 筆寫入、Initial 13 筆）。沒有 T-CON 初始化序列，但有 AUX Initial（以及非 AMD 的 EDID offset 寫入）⇒ 依 Bruce 標示：按鈕旁「（會送 AUX 初始化）」、做過 Check 再連線 ⇒ 連線狀態旁「已初始化（Check RAD TCON）」，滑鼠停留說明實際送了什麼。
+- **螢幕清單 highlight**：點整列就選那台（不必點小圓鈕）；選了還沒連線＝細藍框＋「已選」；連上＝那一列醒目綠框＋「已連線」直到斷線；Check RAD TCON 自動選到的那台同步加框。已連線時清單的選取一律對齊實際連線目標（同一個 card／monitor），清單、「中斷」旁名稱、bridge open 的目標永遠是同一台。
+
+### 驗證
+- `tools/check_i2c_aux.mjs` 新增 E2b（照 Bruce 的操作：切 AUX → DPCD／IOA 工具 → 沒連線按依序執行按不下去、一筆沒送 → 列出 → 點整列選 → 仍停用 → 連線 → 綠框、可執行 → log 連結 → 點連結開 aux.html 看 0x00100 LINK_BW_SET／0x00101 LANE_COUNT_SET → 中斷又停用 → Check RAD TCON 自動選＋框 → 連線標「已初始化」 → Bridge 斷線立刻停用 → 三語）。結果見完成回報。
+
+## I2C / AUX 讀寫測試 (i2c) v1.43.0 ＋ TCON 自檢畫面量測 (dgself) v2.11.0 ＋ Data Mapping (datamap) v1.38.0 ＋ NB TCON Debug應用 (nbdebug) v1.4.0 — 2026-10-24 ｜ MINOR ｜ I2C and AUX Bridge 版本檢查（全站共用彈窗）：Bridge 不是最新 ⇒ 擋住操作的彈窗；分頁過舊的 Ctrl+F5 提示也改成彈窗
+
+判定依據：`docs/VERSIONING.md` R2：新功能（四頁各進 MINOR；`app` 不動，首頁沒有新入口）。
+
+### 需求（Bruce 2026-10-24 00:1x）
+「I2C bridge 或是 I2C AUX bridge 的版本一直在更新，所以是不是也要有一個檢測？如果使用者用的不是最新版本，就要跳出警告，請他關閉以後更換下載。最好是跳出彈窗的這種更新警告。如果他沒有下載最新的，就不讓他繼續使用。」
+
+### 改之前（查現況）
+- `i2c.html`：ping 後只擋 proto < 2（`I2CT_NEED_PROTO`，下載卡）、AUX 擋 proto < 7；個別功能看 proto（整批寫 4、AWID3 5、通道診斷 6、同時用 8、IOA 9）。Bridge **比** `HELPER_PKG.exe` **新** ⇒ 橫幅「這個分頁是舊的，請按 Ctrl+F5」。Bridge 比較舊但 proto 夠 ⇒ **照常用、不提醒**。
+- `dg-selftest.html`：只擋 proto < 1。`datamap.html`、`nbdebug.html`：只把版本印進 log，不比對。
+- `dg.html` 只有下載連結、不連線；`isp.html` 不用 Bridge。
+
+### 改了什麼
+- **`common/i2c-bridge.js` v1.2.0（單一元件）**：`check(pong)`／`gate(pong, {reconnect})`／`oldError(pong)`。判準一律讀 `common/version.js` 的 `HELPER_PKG`：
+  - ping 回的 `proto` < `HELPER_PKG.proto`，或 `helper` 版本 < `HELPER_PKG.exe` ⇒ **擋用彈窗**：一句話「I2C and AUX Bridge 版本過舊（目前 x，最新 y），請關閉舊程式，下載最新版後重新開啟。」＋「⬇ 下載最新版」（＝最新 zip，按下同時跳原本的三步說明）＋「我已更新，重新連線」。**沒有略過**：只有那一顆按鈕、點背景與 Esc 關不掉、背後整頁 `inert`（滑鼠鍵盤都按不到）；頁面不送 `open`，讀寫與連線都不能用。按「我已更新，重新連線」⇒ 重新 ping，還是舊的就再擋。
+  - Bridge 比 `HELPER_PKG.exe` 新（＝分頁是舊的）⇒ 彈窗「…請按 Ctrl+F5 重新整理」（重新整理／先關閉），**不擋連線**（原本就是提示，不是擋）。
+  - 比的是 exe（ping 回報值）不是 pkg：只換 zip、沒重編 exe 時手上的 exe 仍是最新，不擋。`HELPER_PKG` 讀不到 ⇒ 無從判斷、不擋。三語（zh-TW／en／zh-CN），切換語言時彈窗跟著換。
+- 四頁在 ping 之後呼叫同一個 `gate`：`i2c.html`、`dg-selftest.html`、`datamap.html`、`nbdebug.html`。`i2c.html` 的 Ctrl+F5 橫幅只剩模組沒載到時的備援。
+- 測試夾具：假 Bridge 改回報目前上線版本（`HELPER_PKG`）；`i2c_tool_selftest` 裡大量「舊 bridge 退路」測案用 `I2CBridge._testNoGate`（只有 tools/ 會設，畫面上沒有任何略過），第 45c／45d 組打開 gate 專門驗彈窗。
+
+### 驗證
+- 新增 `tools/check_bridge_version_gate.mjs`（真 Chrome＋假 Bridge）：4 頁 × {版本舊、proto 舊、相同、分頁舊} ＋ 三語。
+- 回歸與實機結果見本次完成回報。
+
 ## I2C / AUX 讀寫測試 (i2c) v1.42.1 — 2026-10-24 ｜ PATCH ｜ DPCD／IOA 工具：「我家 TCON」改「RAD TCON」；不初始化的連線不再跳「T-CON 初始化沒成功」
 
 判定依據：`docs/VERSIONING.md` R2：文案修正。

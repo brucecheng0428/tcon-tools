@@ -30,8 +30,8 @@
           出來」。那個前提**早就不成立**：bridge 的靜態檔服務拒絕子資料夾、而且自 v1.7.0
           起預設關閉 —— 詳細依據與行號寫在 body 末端那兩個 <script> 的上面。）
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="common/version.js?v=20261024dp1421"></script>
-<script src="common/i2c-bridge.js?v=20261023ib104"></script>
+<script src="common/version.js?v=20261024bv143"></script>
+<script src="common/i2c-bridge.js?v=20261024bv143"></script>
 <style>
   * { box-sizing: border-box; }
   :root{
@@ -708,6 +708,10 @@
   .stp.done > .stp-hd .stp-tick{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;width:1.45em;height:1.45em;border-radius:50%;background:#16a34a;color:#fff;font-weight:800;line-height:1;}
   .stp.done > .stp-hd::after{content:attr(data-tc-done);flex:0 0 auto;margin-left:auto;padding:1px 10px;border-radius:999px;border:1px solid rgba(74,222,128,.55);background:rgba(22,163,74,.16);color:#4ade80;font-size:.85em;font-weight:700;}
   .stp.done{border-color:rgba(74,222,128,.45);}
+  /* v1.43.0：DPCD／IOA 工具 log 的 DPCD 超連結（同 LA 頁：點了開 aux.html 說明） */
+  .dp-dl{display:inline-flex;flex-wrap:wrap;gap:4px 8px;margin-left:6px;}
+  .dp-dlink{color:var(--accent);text-decoration:underline;text-underline-offset:2px;font-size:12px;white-space:nowrap;}
+  .dp-dlink:hover{filter:brightness(1.2);}
   .stp.tc-step-cur > .tc-cur-tag{margin:0 0 6px;}
   .stp-next{font-size:15px;font-weight:700;color:var(--accent);line-height:1.6;margin:0 0 12px;padding:8px 12px;
     border:1px solid #0e7490;border-radius:8px;background:#082f49;}
@@ -739,6 +743,16 @@
   .dp-tw{max-height:320px;overflow:auto;margin-top:8px;border:1px solid var(--border);border-radius:6px;}
   .dp-t{width:100%;border-collapse:collapse;font-size:13px;}
   .dp-t th,.dp-t td{border-bottom:1px solid var(--border);padding:4px 6px;text-align:left;vertical-align:top;}
+  /* v1.43.0（Bruce 2026-10-24）：螢幕清單整列可點；選到的列細框、已連線的列醒目綠框＋「已連線」直到斷線 */
+  #dpcd-panel tr[data-i]{cursor:pointer;}
+  .dp-t tr.dp-selrow td{background:rgba(56,189,248,.10);box-shadow:inset 0 1px 0 #38bdf8,inset 0 -1px 0 #38bdf8;}
+  .dp-t tr.dp-selrow td:first-child{box-shadow:inset 1px 1px 0 #38bdf8,inset 0 -1px 0 #38bdf8;} .dp-t tr.dp-selrow td:last-child{box-shadow:inset -1px 1px 0 #38bdf8,inset 0 -1px 0 #38bdf8;}
+  .dp-t tr.dp-linked td{background:rgba(22,163,74,.18);box-shadow:inset 0 2px 0 #4ade80,inset 0 -2px 0 #4ade80;font-weight:600;}
+  .dp-t tr.dp-linked td:first-child{box-shadow:inset 2px 2px 0 #4ade80,inset 0 -2px 0 #4ade80;} .dp-t tr.dp-linked td:last-child{box-shadow:inset -2px 2px 0 #4ade80,inset 0 -2px 0 #4ade80;}
+  .dp-tag{display:inline-block;margin-left:6px;padding:0 8px;border-radius:999px;border:1px solid #38bdf8;color:#7dd3fc;font-size:11.5px;font-weight:700;font-family:inherit;}
+  .dp-tag-on{border-color:#4ade80;color:#4ade80;background:rgba(22,163,74,.16);}
+  .dp-tag-init{border-color:#f59e0b;color:#fbbf24;background:rgba(245,158,11,.12);}
+  .dp-chknote{font-size:12px;}
   .dp-t tr.dp-int td{background:rgba(245,158,11,.10);} .dp-t tr.bad td{color:#f87171;} .dp-t tr.rx td{color:#86efac;}
   .dp-warn{margin-top:8px;padding:6px 10px;border:1px solid #f59e0b;border-radius:6px;color:#fbbf24;font-weight:700;}
   .dp-ioa{margin:0 0 6px;color:#fbbf24 !important;}
@@ -1688,7 +1702,8 @@
 <script src="common/i18n.js?v=20261023ui1410"></script>
 <script src="common/i2c-mbus.js?v=20261023mb122"></script>
 <script src="common/i2c-aux.js?v=20261023ax191"></script>
-<script src="common/aux-dpcd.js?v=20261024dp101"></script>
+<script src="common/dpcd-link.js?v=20261024dl100"></script>
+<script src="common/aux-dpcd.js?v=20261024dp110"></script>
 <script src="common/tcon-detect.js?v=20261023td130"></script>
 <script src="common/common.js?v=20261008i2c1341"></script>
 <script src="common/i2c-spiflash.js?v=20261022en01"></script>
@@ -3556,6 +3571,16 @@ async function i2ctConnect(takeover){
     /* 🔴 只記旗標，**不在這裡畫** —— 連線成功後會 i2ctBanner('topbanner','','')
        把上方橫幅清空，在這裡畫會立刻被清掉（第一版就是這樣，測試抓到）。
        真正顯示在 i2ctConnect 清空之後。 */
+    /* 🔴 v1.43.0（Bruce 2026-10-24「如果他沒有下載最新的，就不讓他繼續使用」）：
+       Bridge 不是最新 ⇒ 全站共用彈窗（common/i2c-bridge.js gate）擋住，不往下開通道；
+       分頁比 Bridge 舊 ⇒ 同一個模組跳「請按 Ctrl+F5」彈窗（取代原本的橫幅）。 */
+    var i2ctGate = (typeof I2CBridge !== 'undefined' && I2CBridge && I2CBridge.gate)
+      ? I2CBridge.gate(pong, { reconnect: function () { if (!i2ctLinked && !i2ctBusy) i2ctConnect(); } }) : '';
+    if (i2ctGate === 'old') {
+      i2ctLog(i2ctT('i2c.logBridgeOld', { have: (i2ctHelperVer || '?'), proto: i2ctHelperProto,
+              need: (HELPER_PKG && HELPER_PKG.proto) || I2CT_NEED_PROTO, url: I2CT_ONLINE_PAGE }), 'e');
+      var eGate = I2CBridge.oldError(pong); eGate.i2ctOldBridge = true; throw eGate;
+    }
     i2ctStaleTab = !!(i2ctHelperVer && HELPER_PKG && HELPER_PKG.exe
                       && i2ctVerNewer(i2ctHelperVer, HELPER_PKG.exe));
     if (i2ctStaleTab) {
@@ -3655,7 +3680,7 @@ async function i2ctConnect(takeover){
     i2ctRawFellBack = false;
     i2ctBanner('topbanner', '', '');
     /* 🔴 分頁過舊的提醒要在清空之後才畫，否則會被上一行清掉。一行就好。 */
-    if (i2ctStaleTab) i2ctBanner('topbanner', 'warn', i2ctT('i2c.bnStaleTab'));
+    if (i2ctStaleTab && !i2ctGate) i2ctBanner('topbanner', 'warn', i2ctT('i2c.bnStaleTab'));   /* v1.43.0：有共用模組 ⇒ 已改成彈窗，這行只剩模組沒載到時的備援 */
     /* v1.35.0：DP AUX 的兩個前提（Intel 官方：AUX 寫入要系統管理員、要先關 PSR）—— 不符合就一行提示。 */
     if (i2ctAuxInfo) {
       i2ctXportApply();   /* v1.37.0：知道 bridge 版本了 ⇒ EEPROM（IOA 讀）與 slave 下拉重算 */

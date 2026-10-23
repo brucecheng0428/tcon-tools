@@ -101,6 +101,10 @@ const dom = new JSDOM(html, {
 });
 const win = dom.window;
 const doc = win.document;
+/* 2026-10-24（i2c v1.43.0）：這支有大量「舊 bridge（proto 1～9）時頁面怎麼退」的測案，產品上這些 bridge 現在一律被
+   版本過舊彈窗擋住（common/i2c-bridge.js gate）。為了讓那些測案照舊驗到退路程式碼，夾具預設關掉 gate
+   （I2CBridge._testNoGate，只有 tools/ 會設、畫面上沒有任何略過）；第 45c／45d 組再打開 gate 專門驗彈窗。 */
+if (win.I2CBridge) win.I2CBridge._testNoGate = true;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 /* 換一組假 helper：一定要先斷線再接，否則頁面還握著上一個 MockWS 實例，
@@ -2906,30 +2910,106 @@ function baseScript(f) {
     CHECK(V('1.12', '1.11.9') === true,    '缺的段當 0');
     CHECK(V('unknown', '1.11.2') === false, '🔴 非數字一律不跳警告（不確定就不要吵他）');
 
+    /* v1.43.0：分頁過舊改成彈窗（common/i2c-bridge.js #i2cb-stale），不再是橫幅；這一組打開 gate 驗真的行為 */
+    win.I2CBridge._testNoGate = false;
     A._reset();
-    await useHelper((m) => {
+    const sStale = await useHelper((m) => {
       /* bridge 自報 99.0.0 ＝ 遠新於這份 version.js 預期的 ⇒ 這個分頁是舊的 */
-      if (m.type === 'ping') return { helper: '99.0.0', proto: 3, ok: true };
+      if (m.type === 'ping') return { helper: '99.0.0', proto: win.HELPER_PKG.proto, ok: true };
       if (m.type === 'open') return { ok: true, channels: 1 };
       if (m.type === 'close') return { ok: true };
       return { ok: true, status: 0 };
     });
-    const stale = doc.getElementById('topbanner').textContent;
-    CHECK(/Ctrl\+F5|重新整理/.test(stale), '🔴 一行字叫他重新整理：' + stale.slice(0, 40));
-    CHECK(stale.length < 40, '🔴 一行就好，不加說明段落（' + stale.length + ' 字）');
+    const stM = doc.getElementById('i2cb-stale');
+    const stale = stM ? stM.textContent : '';
+    CHECK(!!stM && !stM.hasAttribute('hidden'), '🔴 分頁過舊 ⇒ 跳彈窗');
+    CHECK(/Ctrl\+F5/.test(stale) && stale.indexOf('99.0.0') >= 0, '🔴 彈窗叫他按 Ctrl+F5，並寫出 Bridge 版本：' + stale.slice(0, 60));
+    CHECK(!/Ctrl\+F5/.test(doc.getElementById('topbanner').textContent), '有彈窗就不再重複畫橫幅');
+    CHECK(sStale.some(m => m.type === 'open'), '分頁過舊不擋連線（Bridge 比較新，照常可用）');
+    win.I2CBridge.hideStale();
     await win.__i2ct.disconnect();
-
-    /* 反面：版本相符時**不可以**跳這句話 */
+    /* 反面：版本相符時**不可以**跳 */
     A._reset();
     await useHelper((m) => {
-      if (m.type === 'ping') return { helper: win.HELPER_PKG.exe, proto: 3, ok: true };
+      if (m.type === 'ping') return { helper: win.HELPER_PKG.exe, proto: win.HELPER_PKG.proto, ok: true };
       if (m.type === 'open') return { ok: true, channels: 1 };
       if (m.type === 'close') return { ok: true };
       return { ok: true, status: 0 };
     });
-    CHECK(!/Ctrl\+F5/.test(doc.getElementById('topbanner').textContent),
-      '🔴 版本相符 ⇒ 不跳重新整理（不要沒事嚇他）');
+    { const a = doc.getElementById('i2cb-stale'), b = doc.getElementById('i2cb-old');
+      CHECK((!a || a.hasAttribute('hidden')) && (!b || b.hasAttribute('hidden')) && !/Ctrl\+F5/.test(doc.getElementById('topbanner').textContent),
+        '🔴 版本相符 ⇒ 不跳任何彈窗（不要沒事嚇他）'); }
     await win.__i2ct.disconnect();
+    win.I2CBridge._testNoGate = true;
+  }
+
+  /* ═════════════════════════════════════════════════════════════════════ */
+  G('45d. 🔴🔴 Bridge 不是最新 ⇒ 擋住操作的彈窗（Bruce 2026-10-24「如果他沒有下載最新的，就不讓他繼續使用」）');
+  {
+    win.I2CBridge._testNoGate = false;
+    const want = win.HELPER_PKG.exe, needP = win.HELPER_PKG.proto;
+    const pv = String(want).split('.'); pv[pv.length - 1] = String(Math.max(0, parseInt(pv[pv.length - 1], 10) - 1));
+    if (pv.join('.') === want) pv[1] = String(Math.max(0, parseInt(pv[1], 10) - 1));
+    const older = pv.join('.');
+    const cases = [
+      { n: '版本較舊、proto 相同', ping: { helper: older, proto: needP } },
+      { n: '版本相同、proto 較舊', ping: { helper: want, proto: needP - 1 } },
+      { n: '很舊（proto 2）', ping: { helper: '1.4.0', proto: 2 } },
+      { n: '沒有回報版本', ping: { proto: needP - 1 } }
+    ];
+    for (const c of cases) {
+      A._reset();
+      const s = await useHelper((m) => {
+        if (m.type === 'ping') return Object.assign({ ok: true }, c.ping);
+        if (m.type === 'open') return { ok: true, channels: 1 };
+        return { ok: true, status: 0 };
+      });
+      const M = doc.getElementById('i2cb-old');
+      CHECK(!!M && !M.hasAttribute('hidden'), '🔴 ' + c.n + ' ⇒ 跳擋用彈窗');
+      CHECK(!s.some(m => m.type === 'open'), '🔴 ' + c.n + ' ⇒ 不送 open（讀寫與連線都不能用）');
+      CHECK(win.__i2ct.state().linked === false, c.n + ' ⇒ 頁面不是已連線');
+      CHECK(win.I2CBridge.blocked() === true, c.n + ' ⇒ blocked()');
+      win.I2CBridge.hideOld();
+    }
+    /* 彈窗內容：一句話（目前／最新）、下載最新 zip、我已更新重新連線、沒有略過 */
+    A._reset();
+    await useHelper((m) => m.type === 'ping' ? { ok: true, helper: older, proto: needP } : { ok: true, channels: 1 });
+    const M = doc.getElementById('i2cb-old');
+    const txt = M.textContent;
+    CHECK(txt.indexOf('目前 ' + older) >= 0 && txt.indexOf('最新 ' + want) >= 0, '彈窗寫出目前／最新版本：' + txt.slice(0, 80));
+    CHECK(/請關閉舊程式，下載最新版後重新開啟/.test(txt), '彈窗一句話：請關閉舊程式，下載最新版後重新開啟');
+    const dl = doc.getElementById('i2cb-old-dl');
+    CHECK(!!dl && dl.getAttribute('href') === win.I2CBridge.dlHref() && dl.getAttribute('href').indexOf(win.HELPER_PKG.file) >= 0,
+      '下載按鈕指向最新 zip：' + (dl && dl.getAttribute('href')));
+    CHECK(!!doc.getElementById('i2cb-old-re'), '有「我已更新，重新連線」按鈕');
+    const btns = Array.from(M.querySelectorAll('button')).map(b => b.id);
+    EQ(btns, ['i2cb-old-re'], '🔴 彈窗只有「重新連線」一顆按鈕（沒有略過／關閉）');
+    M.dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
+    doc.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    CHECK(!M.hasAttribute('hidden'), '🔴 點背景、按 Esc 都關不掉');
+    const kids = Array.from(doc.body.children).filter(el => el.id !== 'i2cb-old' && el.id !== 'i2cb-howto' && el.id !== 'i2cb-stale');
+    CHECK(kids.length > 0 && kids.every(el => el.hasAttribute('inert')), '🔴 背後整頁 inert（鍵盤也按不到連線／讀寫鈕）');
+    /* 三語 */
+    doc.documentElement.lang = 'en'; await sleep(5);
+    CHECK(/out of date \(current /.test(M.textContent) && /reconnect/i.test(M.textContent), '英文：' + M.textContent.slice(0, 60));
+    doc.documentElement.lang = 'zh-CN'; await sleep(5);
+    CHECK(/版本过旧（目前 /.test(M.textContent) && /重新连接/.test(M.textContent), '簡中：' + M.textContent.slice(0, 40));
+    doc.documentElement.lang = 'zh-TW'; await sleep(5);
+    /* 換成新版 bridge 後按「我已更新，重新連線」⇒ 彈窗收掉、真的連上 */
+    await quiesce();
+    const s2 = makeMockWS(win, (m) => {
+      if (m.type === 'ping') return { ok: true, helper: want, proto: needP };
+      if (m.type === 'open') return { ok: true, channels: 1 };
+      if (m.type === 'close') return { ok: true };
+      return { ok: true, status: 0 };
+    });
+    doc.getElementById('i2cb-old-re').click();
+    await sleep(30); await quiesce(); await sleep(25);
+    CHECK(M.hasAttribute('hidden'), '更新後重新連線 ⇒ 彈窗收掉');
+    CHECK(s2.some(m => m.type === 'open') && win.__i2ct.state().linked === true, '更新後重新連線 ⇒ 送 open、已連線');
+    CHECK(kids.every(el => !el.hasAttribute('inert')), '彈窗收掉 ⇒ inert 還原');
+    await win.__i2ct.disconnect();
+    win.I2CBridge._testNoGate = true;
   }
 
   /* ═════════════════════════════════════════════════════════════════════ */
