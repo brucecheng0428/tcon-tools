@@ -2,6 +2,14 @@
 
 ---
 
+## I2C 讀寫測試 (i2c) v1.39.2 — 2026-10-23 ｜ PATCH ｜ DP AUX：slave 選 0x7C 時 offset 自動改成 1 byte（選 0x3E 改成 2 byte）
+
+判定依據：`docs/VERSIONING.md` R2：小修正。
+
+Bruce 2026-10-23 問：「i2c的頁面，我測試了 AUX 去讀，它沒有預設 7C 讓我可以讀，只有 3E，這是為什麼？」實機看到的情況：v1.39.1 的下拉已經有 0x7C，但 offset 寬度停在 2 byte，所以讀取會被 7C 的 1-byte 規則擋下。
+
+這一版改成：在 AUX 模式選 slave 時，依 T-CON 視窗格式自動帶入 offset 寬度。只在 `i2ctXport === 'aux'` 時動作，I2C 治具不受影響。
+
 ## I2C 讀寫測試 (i2c) v1.39.1 — 2026-10-23 ｜ PATCH ｜ DP AUX 一般暫存器頁可讀 0x7C（DPCD 431→434，不送 I2C over AUX）；7C 寫入、7D、7E 照擋並註明原因；I2C 路徑不變
 
 判定依據：`docs/VERSIONING.md` R2：放寬一個已有功能的限制，不是新功能。

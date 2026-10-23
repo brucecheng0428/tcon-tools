@@ -275,6 +275,12 @@ try {
     check('v1.39.1：7C 寫、7D、7E 一筆都沒送出', m2.length === 4, JSON.stringify(m2));
     const opt = await page.evaluate(() => ({ c: document.querySelector('#in-slave-sel option[value="0x7C"]').disabled, d: document.querySelector('#in-slave-sel option[value="0x7D"]').disabled }));
     check('v1.39.1：slave 下拉 0x7C 可選、0x7D 停用', !opt.c && opt.d, JSON.stringify(opt));
+    await page.selectOption('#in-slave-sel', '0x7C'); await sleep(200);
+    const aw7 = await page.$eval('#in-awid', e => e.value);
+    const g7 = await page.evaluate(() => i2ctDoRead(0x7C, parseInt(document.getElementById('in-awid').value, 10), 0x95, 1, true));
+    await page.selectOption('#in-slave-sel', '0x3E'); await sleep(200);
+    const aw3 = await page.$eval('#in-awid', e => e.value);
+    check('v1.39.2：AUX 選 0x7C ⇒ offset 1 byte（直接讀得到 7C:95）；選 0x3E ⇒ 2 byte', aw7 === '1' && aw3 === '2' && g7.ok && g7.bytes[0] === 0x24, aw7 + '/' + aw3 + ' ' + JSON.stringify(g7.bytes));
     const ci = await page.$eval('#conn-info', e => e.textContent);
     check('v1.39.1：連線資訊註明 AUX 範圍（7C 唯讀、7D／7E 不開放）', /7C 唯讀/.test(ci) && /7D／7E 不開放/.test(ci), ci.slice(0, 200));
     check('沒有 JS 錯誤', errs.length === 0, errs.join(' | ').slice(0, 300));
