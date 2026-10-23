@@ -2,6 +2,38 @@
 
 ---
 
+## TCON 自檢畫面量測 (dgself) v2.10.0 — 2026-10-23 ｜ MINOR ｜ NB 量測照 T-CON 內部 RGB LUT[n] 送 PAT0_USER（DG 開）、DG 關送等間隔值；新步驟「讀 LUT」
+
+判定依據：`docs/VERSIONING.md` R3（使用者多能做一件事：NB 量到的曲線會跟著 RGB LUT 變，可以調 gamma／色溫；新增「讀 LUT」步驟）⇒ MINOR。MNT 路線一行未動。
+⚠ 輸出變更（dgself，只限 NB：EN01／E503／E501A／E501B）：量測每一階寫進 PAT0_USER_R/G/B 的值改變 —— DG_EN 開：由 R=G=B＝L×4 改成 LUT[n] 的 R／G／B；DG_EN 關：仍是 n×4（與舊值相同）。量測前多讀 DGM_EN 1 byte＋LUT 960 byte。
+
+### 需求（Bruce 2026-10-23）
+「NB 在量測 L0 到 L255 灰階的時候，必須要先讀一次 TCON 內部 register 的 RGB LUT 並記下來…要打 128 的時候，假設 R 是 500、G 是 510、B 是 520，這樣它就可以把之前讀到的 LUT 記錄下來，照著這個值去送。」「DG_EN 關閉的情況下，其實你還是送 pat0_user 的 Pattern，但是你送的值就是 default 值，也就是它的間隔都是一樣的。」
+
+### 做法
+1. 每一輪量測開始（離開出圖、讀 DG_EN 之後）先讀 DGM_EN 與整張 RGB LUT，也可以按「讀 LUT」單獨讀。LUT 在 T-CON 暫存器（slave 0x3E、2-byte offset），960 byte＝R 256 筆 → G 256 筆 → B 256 筆，每筆 10 bit、byte 內高位先（4 筆／5 byte），分 256 byte 讀：
+   - EN01：DGM_EN 0x62B[0]，LUT 0x1400–0x17BF
+   - E503：DGM_EN 0x2BC[0]，LUT 0x0760–0x0B1F
+   - E501B：DGM_EN 0x39B[0]，LUT 0x0820–0x0BDF
+   - E501A：DGM_EN 0x39B[0]，LUT 0x0820–0x0BDF（沿用 RM81010 model 的 GAMMA LUT 頁，與 E501B 相同）
+   出處：原廠工具原始碼 ICDefine.cs（DGM_EN、DGM RangeItems）、DGMModule.cs（R→G→B、TransBit 高位先）、各 *.model。E503 的 model RegPage「GAMMA LUT」寫 0x820，與原始碼及 model 自己的 GammaBegin＝0x760 不一致，採 0x760。
+2. DGM_EN＝1：打 Ln ⇒ PAT0_USER_R/G/B＝LUT_R[n]／LUT_G[n]／LUT_B[n]（R／G／B 純色：該色 LUT[255]、其他兩色 LUT[0]）。DGM_EN＝0：送 n×4（10-bit 等間隔，R=G=B；同原廠 DefaultFRC 2^(10−8)×n）。
+3. DG 開啟但讀不到 LUT（I2C 失敗、全 0xFF、全 0、筆數不對）或 DGM_EN 讀不到 ⇒ 擋下量測並寫出原因，不改用預設值。DG 關閉時 LUT 用不到，只顯示原因、不擋。
+4. DG 頁寫入／匯入新 LUT 之後，手上那份標「已過期」；下一輪量測一定重讀。畫面顯示目前那份：筆數、讀到時間、校驗碼、L0／L128／L255 的值，以及「DG 開啟：Ln 送 PAT0_USER＝LUT[n]（用 hh:mm:ss 讀到的那一份，校驗 0x….）」或「DG 關閉：送預設等間隔值」。
+5. 步驟列（從 DG 開啟時）多一步「量測用 LUT」：讀到、沒過期才打勾；輪到量測還沒讀時它是目前這一步（按「開始量測」也會先自動讀）。不加進 ①②③④ 的依序鎖。
+6. DG_EN 摘要列在 NB 也顯示真實的 DGM_EN（只讀；NB 沒有開關、自動開啟、故障擋下這幾條 MNT 路線）。量測結果每一列記錄實際送出的 PAT0_USER（`nb10`）。
+7. 讀 LUT 不寫任何暫存器；寫入白名單沒動。
+
+### 限制
+- 只有讀碼＋模擬 I2C，**沒有實機**。位址、排列、NB aging 會不會再經過 DGM（若會，DG 開啟時會套兩次）都待上機確認。
+- 步驟 ①「讀回目前的 RGB LUT（回傳 DG）」在 NB 沒有改（DG 開啟時仍讀不到 NB 的表），這一版只改量測送值。
+
+### 測試
+- 新情境 `tests/dgself/scenarios/NB_lut_send.js`（NBL-EN01／E503／E501A／E501B／OFF／NEW／FAIL／SHORT／FAILOFF／EN／CN／MNT／DG／DG-390／DG-375／DG-1280）：模擬 I2C 放一張非線性 LUT（L128＝R500 G510 B520），跑真的 `dstRun()`：L0／L128／L255／純色送出的 PAT0_USER＝LUT[n]、256 階逐筆相同；DG 關＝n×4；寫入新 LUT 後標過期、下一輪送新值；全 0xFF／讀回不足 ⇒ 一筆都不量並講原因；DG 關讀不到 LUT 不擋；三語；手機 375／390、桌機 1280 不溢出；MNT（EM02）不出現。
+- 版號：common/version.js dgself v2.10.0；dg-selftest.html 的 version.js `?v=20261023dst2100`。
+
+---
+
 ## I2C 讀寫測試 (i2c) v1.36.0 — 2026-10-23 ｜ MINOR ｜ I2C 治具與 DP AUX 可以同時使用＋ I2C and AUX Bridge 1.19.0（exe 改名 i2c-aux-bridge.exe，proto 8）
 
 判定依據：`docs/VERSIONING.md` R3「使用者真的多能做一件事 → MINOR」：I2C 治具與 DP AUX 可以同時用（兩個分頁各接一種，或同一頁切換不斷線）。既有單一連線的流程、預設值、輸出都不變 ⇒ 不是 MAJOR，不帶 ⚠ 輸出變更。exe 檔名改變屬於下載包內容，說明頁三語同步。

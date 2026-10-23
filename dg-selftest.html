@@ -16,7 +16,7 @@
 <link rel="stylesheet" href="common/done-step.css?v=20261001dst275">
 <link rel="stylesheet" href="common/step-status.css?v=20261023sb2">
 <!-- 🔴 version.js 必須最先載入（common/version.js 開頭那條規則）。 -->
-<script src="common/version.js?v=20261023sim1360"></script>
+<script src="common/version.js?v=20261023dst2100"></script>
 <script src="common/i2c-bridge.js?v=20261023ib103"></script>
 <style>
   /* ═══ 本頁專屬樣式 ════════════════════════════════════════════════════════
@@ -1107,6 +1107,16 @@
              ④ 量完**兩項一起打勾**（見 dstDgSend）。
            🔴 兩列仍然分開列 —— 它們分別對應 DG 的第 2／第 3 部分，合成一列
               就沒有地方各自打勾了。 -->
+      <!-- v2.10.0：NB 才出現。量測前先讀 T-CON 內部 RGB LUT（DG 開啟時照 LUT[n] 送 PAT0_USER、關閉時送 n×4）。
+           字全部由 dstRenderNbLut() 填（不掛 data-i18n）。刻意不用 .dst-step：不加進 ①②③④ 的依序鎖。 -->
+      <div class="dst-box dst-hidden" id="dst-box-nblut">
+        <div class="dst-row" id="dst-nblut-row">
+          <span class="dst-step-tick" id="dst-tick-nblut">○</span>
+          <span style="flex:1 1 220px"><b id="dst-nblut-name"></b><br><span id="dst-v-nblut" class="dst-na">—</span></span>
+          <button class="dst-btn" id="dst-nblut-go"></button>
+        </div>
+        <div class="dst-note" id="dst-nb-send"></div>
+      </div>
       <div class="dst-box dst-group" id="dst-group23">
         <!-- ═══ 🔴 v1.10.1：量測的設定與收尾動作**搬進這一格** ════════════════════
              Bruce 2026-09-21：「把量測相關的操作一併放進『開始量測』那一格：換階
@@ -1959,6 +1969,40 @@ if (typeof I18N === 'object' && I18N) {
   I18N['dst.sbLut']  = { 'zh-TW': '讀 LUT', 'en': 'Read LUT', 'zh-CN': '读 LUT' };
   I18N['dst.sbMeas'] = { 'zh-TW': '量測', 'en': 'Measure', 'zh-CN': '量测' };
   I18N['dst.sbBack'] = { 'zh-TW': '回傳 DG', 'en': 'Back to DG', 'zh-CN': '回传 DG' };
+
+  /* v2.10.0：NB 量測照 T-CON 內部 RGB LUT[n] 送 PAT0_USER */
+  I18N['dst.sbNbLut']    = { 'zh-TW': '量測用 LUT', 'en': 'LUT for measuring', 'zh-CN': '量测用 LUT' };
+  I18N['dst.stepNbLut']  = { 'zh-TW': '讀 T-CON 裡的 RGB LUT（NB 量測用）', 'en': 'Read the RGB LUT inside the T-CON (used for NB measuring)', 'zh-CN': '读 T-CON 里的 RGB LUT（NB 量测用）' };
+  I18N['dst.nbLutGo']    = { 'zh-TW': '讀 LUT', 'en': 'Read LUT', 'zh-CN': '读 LUT' };
+  I18N['dst.pgNbLut']    = { 'zh-TW': '讀 DG_EN 與 RGB LUT…', 'en': 'Reading DG_EN and the RGB LUT…', 'zh-CN': '读 DG_EN 与 RGB LUT…' };
+  I18N['dst.nbLutReading'] = { 'zh-TW': '讀取中…', 'en': 'Reading…', 'zh-CN': '读取中…' };
+  I18N['dst.nbLutNone']  = { 'zh-TW': '還沒讀（按「開始量測」也會先自動讀一次）', 'en': 'Not read yet (Start measuring reads it first automatically)', 'zh-CN': '还没读（按「开始量测」也会先自动读一次）' };
+  I18N['dst.nbLutOk']    = { 'zh-TW': '已讀 {n} 筆 × RGB（{at}，校驗 {sum}）· L0 {l0}／L128 {l128}／L255 {l255}',
+                             'en': 'Read {n} entries × RGB ({at}, checksum {sum}) · L0 {l0} / L128 {l128} / L255 {l255}',
+                             'zh-CN': '已读 {n} 笔 × RGB（{at}，校验 {sum}）· L0 {l0}／L128 {l128}／L255 {l255}' };
+  I18N['dst.nbLutFail']  = { 'zh-TW': '讀 LUT 失敗：{why}', 'en': 'Reading the LUT failed: {why}', 'zh-CN': '读 LUT 失败：{why}' };
+  I18N['dst.nbLutStaleW'] = { 'zh-TW': '（之後寫入過新的 LUT，這份已過期；開始量測時會重新讀）', 'en': '(a new LUT was written after this read, so this copy is out of date; it is read again when measuring starts)', 'zh-CN': '（之后写入过新的 LUT，这份已过期；开始量测时会重新读）' };
+  I18N['dst.nbSendLut']  = { 'zh-TW': 'DG 開啟：Ln 送 PAT0_USER ＝ LUT[n] 的 R／G／B（用 {at} 讀到的那一份，校驗 {sum}）',
+                             'en': 'DG on: Ln sends PAT0_USER = R / G / B of LUT[n] (the copy read at {at}, checksum {sum})',
+                             'zh-CN': 'DG 开启：Ln 送 PAT0_USER ＝ LUT[n] 的 R／G／B（用 {at} 读到的那一份，校验 {sum}）' };
+  I18N['dst.nbSendDef']  = { 'zh-TW': 'DG 關閉：送預設等間隔值（Ln ＝ n×4，R＝G＝B）', 'en': 'DG off: sends the default evenly spaced values (Ln = n×4, R = G = B)', 'zh-CN': 'DG 关闭：送预设等间隔值（Ln ＝ n×4，R＝G＝B）' };
+  I18N['dst.nbSendBlocked'] = { 'zh-TW': 'DG 開啟但沒有讀到 LUT ⇒ 不能量（不會改用預設值）', 'en': 'DG is on but no LUT was read, so measuring is blocked (it will not fall back to default values)', 'zh-CN': 'DG 开启但没有读到 LUT ⇒ 不能量（不会改用预设值）' };
+  I18N['dst.nbSendUnk']  = { 'zh-TW': 'DG_EN 還沒讀：開始量測時會先讀 DG_EN 與 LUT', 'en': 'DG_EN not read yet: measuring reads DG_EN and the LUT first', 'zh-CN': 'DG_EN 还没读：开始量测时会先读 DG_EN 与 LUT' };
+  I18N['dst.nbLutOffNote'] = { 'zh-TW': '（DG 關閉時用不到 LUT；讀 LUT：{why}）', 'en': '(the LUT is not used while DG is off; LUT read: {why})', 'zh-CN': '（DG 关闭时用不到 LUT；读 LUT：{why}）' };
+  I18N['dst.nbLutBlock'] = { 'zh-TW': '不能開始量測：{why}。DG 開啟時要照 LUT[n] 送，讀不到就不量（不改用預設值）。',
+                             'en': 'Cannot start measuring: {why}. With DG on every level is sent as LUT[n]; without the LUT nothing is measured (no fallback to default values).',
+                             'zh-CN': '不能开始量测：{why}。DG 开启时要照 LUT[n] 送，读不到就不量（不改用预设值）。' };
+  I18N['dst.nbLutErrNoSpec'] = { 'zh-TW': '這一顆（{ic}）沒有 LUT 位址', 'en': 'no LUT address is known for this chip ({ic})', 'zh-CN': '这一颗（{ic}）没有 LUT 地址' };
+  I18N['dst.nbLutErrEn']  = { 'zh-TW': '讀不到 DGM_EN（{addr}）', 'en': 'DGM_EN ({addr}) could not be read', 'zh-CN': '读不到 DGM_EN（{addr}）' };
+  I18N['dst.nbLutErrShort'] = { 'zh-TW': '{addr} 只讀到 {got}／{want} byte', 'en': 'only {got} / {want} bytes came back at {addr}', 'zh-CN': '{addr} 只读到 {got}／{want} byte' };
+  I18N['dst.nbLutErrLen'] = { 'zh-TW': '筆數不對：讀到 {got} byte，應為 {want}', 'en': 'wrong size: {got} bytes read, {want} expected', 'zh-CN': '笔数不对：读到 {got} byte，应为 {want}' };
+  I18N['dst.nbLutErrFF']  = { 'zh-TW': '整張表都是 0xFF（I2C 沒有回應）', 'en': 'the whole table is 0xFF (no I2C response)', 'zh-CN': '整张表都是 0xFF（I2C 没有回应）' };
+  I18N['dst.nbLutErrZero'] = { 'zh-TW': '整張表都是 0（LUT 可能沒有載入）', 'en': 'the whole table is 0 (the LUT may not be loaded)', 'zh-CN': '整张表都是 0（LUT 可能没有载入）' };
+  I18N['dst.nbLutErrCount'] = { 'zh-TW': '筆數不對：R {r}／G {g}／B {b} 筆，應為 {want}', 'en': 'wrong count: R {r} / G {g} / B {b} entries, {want} expected', 'zh-CN': '笔数不对：R {r}／G {g}／B {b} 笔，应为 {want}' };
+  I18N['dst.nbLutErrRead'] = { 'zh-TW': '讀取失敗：{detail}', 'en': 'read failed: {detail}', 'zh-CN': '读取失败：{detail}' };
+  I18N['dst.nbDgWarnOn'] = { 'zh-TW': 'DG 開啟中 ⇒ NB 量測時每一階送 LUT[n] 的 R／G／B（PAT0_USER），量到的是套用這張 LUT 之後的曲線。',
+                             'en': 'DG is on, so on NB each level is sent as R / G / B of LUT[n] (PAT0_USER): the curve measured is the one with this LUT applied.',
+                             'zh-CN': 'DG 开启中 ⇒ NB 量测时每一阶送 LUT[n] 的 R／G／B（PAT0_USER），量到的是套用这张 LUT 之后的曲线。' };
   I18N['dst.stepBack']    = { 'zh-TW': '④ 資料自動回傳 DG', 'en': '④ The data goes back to DG automatically', 'zh-CN': '④ 资料自动回传 DG' };
   /* 這一頁不是從 DG 開的 ⇒ ④ 永遠不會打勾，要講清楚為什麼、以及那條路怎麼走。
      🔴 **不含任何「可能」「應該」**：沒有 opener 就是送不出去，這是事實不是風險。
@@ -3021,6 +3065,8 @@ function DST_NB_ICS() {
   }
   return [
     e({ key: 'EN01', family: 'EN01', name: 'EN01 (RM81008)', model: 'RM81008.model',
+        nbDgm: { en: { addr: 0x062B, bit: 0, src: 'RM81008.model:15434 DGM_EN; ICDefine.cs rm81008 DGM_EN 0x62B[0]' },
+                 lut: { base: 0x1400, src: 'ICDefine.cs rm81008 RangeItems DGM 0x1400-0x17BF' } },
         agInv:   { addr: 0x0226, bit: 0, src: 'RM81008.model:16228 RT0_AG_INV' },
         pgenEn:  { addr: 0x0241, bit: 7, src: 'RM81008.model:13215 AG_PGEN_EN' },
         pgenPat: { addr: 0x0239, mask: 0x7F, src: 'RM81008.model:13223 AG_PGEN_PAT[6:0]' },
@@ -3029,6 +3075,8 @@ function DST_NB_ICS() {
         nbCur: { ctl: 0x0600, xyHi: 0x0601, xLo: 0x0602, yLo: 0x0603, src: 'RM81008.model:15935-15972 CURSOR' },
         wr: [[0x0226, 0x0226], [0x0239, 0x023E], [0x0241, 0x0241], [0x0600, 0x0603]] }),
     e({ key: 'E503', family: 'E503', name: 'E503 (RM8100x)', model: 'RM8100x_for_FAE_20240925_20250311.model',
+        nbDgm: { en: { addr: 0x02BC, bit: 0, src: 'RM8100x_for_FAE:10683 DGM_EN; ICDefine.cs rm8100x DGM_EN 0x2BC[0]' },
+                 lut: { base: 0x0760, src: 'ICDefine.cs rm8100x RangeItems DGM Register 0x760-0xB1F (= model GammaBegin 0x760)' } },
         agInv:   { addr: 0x01F8, bit: 0, src: 'RM8100x_for_FAE:9192 AGING_INV' },
         pgenEn:  { addr: 0x0213, bit: 7, src: 'RM8100x_for_FAE:9199 AG_PGEN_EN' },
         pgenPat: { addr: 0x020B, mask: 0x7F, src: 'RM8100x_for_FAE:9206 AG_PGEN_PAT[6:0]' },
@@ -3037,6 +3085,8 @@ function DST_NB_ICS() {
         nbCur: { ctl: 0x0311, xyHi: 0x0312, xLo: 0x0313, yLo: 0x0314, src: 'RM8100x_for_FAE:10739-10776 CURSOR' },
         wr: [[0x01F8, 0x01F8], [0x020B, 0x0210], [0x0213, 0x0213], [0x0311, 0x0314]] }),
     e({ key: 'E501A', family: 'E501A', name: 'E501A (RM81010)', model: 'RM81010_for_FAE_20240509_20241127.model',
+        nbDgm: { en: { addr: 0x039B, bit: 0, src: 'RM81010_for_FAE:11958 DGM_EN' },
+                 lut: { base: 0x0820, src: 'RM81010_for_FAE RegPage10 GAMMA LUT 0x820-0xBDF (same as E501B; no ICDefine entry)' } },
         agInv:   { addr: 0x02E0, bit: 0, src: 'RM81010_for_FAE:10416 AGING_INV' },
         pgenEn:  { addr: 0x02FB, bit: 7, src: 'RM81010_for_FAE:10423 AG_PGEN_EN' },
         pgenPat: { addr: 0x02F3, mask: 0x7F, src: 'RM81010_for_FAE:10430 AG_PGEN_PAT[6:0]' },
@@ -3045,6 +3095,8 @@ function DST_NB_ICS() {
         nbCur: { ctl: 0x03E2, xyHi: 0x03E3, xLo: 0x03E4, yLo: 0x03E5, src: 'RM81010_for_FAE:12020-12057 CURSOR' },
         wr: [[0x02E0, 0x02E0], [0x02F3, 0x02F8], [0x02FB, 0x02FB], [0x03E2, 0x03E5]] }),
     e({ key: 'E501B', family: 'E501B', name: 'E501B (RM81011)', model: 'RM81011_for_FAE_20231025_20240509.model',
+        nbDgm: { en: { addr: 0x039B, bit: 0, src: 'RM81011_for_FAE:11764 DGM_EN; ICDefine.cs rm81011 DGM_EN 0x39B[0]' },
+                 lut: { base: 0x0820, src: 'ICDefine.cs rm81011 RangeItems DGM 0x820-0xBDF' } },
         agInv:   { addr: 0x02E0, bit: 0, src: 'RM81011_for_FAE:10273 AGING_INV' },
         pgenEn:  { addr: 0x02FB, bit: 7, src: 'RM81011_for_FAE:10280 AG_PGEN_EN' },
         pgenPat: { addr: 0x02F3, mask: 0x7F, src: 'RM81011_for_FAE:10287 AG_PGEN_PAT[6:0]' },
@@ -3071,6 +3123,191 @@ function dstNbPat0Writes(ic, r12, g12, b12, cur) {
   });
   Object.keys(lo).forEach(function (a) { out[a] = lo[a]; });
   return { v10: v, w: out };
+}
+
+/* ═══ v2.10.0：NB 量測照 T-CON 內部 RGB LUT[n] 送 PAT0_USER ═════════════════════════
+   Bruce 2026-10-23：「NB 在量測 L0 到 L255 灰階的時候，必須要先讀一次 TCON 內部 register 的 RGB LUT
+   並記下來…要打 128 的時候，假設 R 是 500、G 是 510、B 是 520，這樣它就可以把之前讀到的 LUT 記錄下來，
+   照著這個值去送。」「DG_EN 關閉的情況下，其實你還是送 pat0_user 的 Pattern，但是你送的值就是 default 值，
+   也就是它的間隔都是一樣的。」
+   ⇒ DGM_EN＝1：打 Ln ⇒ PAT0_USER_R/G/B ＝ LUT_R[n]／LUT_G[n]／LUT_B[n]（不再 R=G=B）。
+     DGM_EN＝0：一樣用 PAT0_USER，送預設等間隔值 n×4（10-bit；原廠 RCP2 DGMModule.DefaultFRC：2^(10−8)×level）。
+   🔴 MNT 不走這裡（MNT 打 index、IC 內部查 DG LUT，本來就對）。
+   LUT 在 T-CON 暫存器裡的位置（slave 0x3E、2-byte offset），960 byte ＝ R 256 筆 → G 256 筆 → B 256 筆，
+   每筆 10 bit，位元流每個 byte 高位先（4 筆／5 byte）——原廠工具原始碼 DGMModule.DataWrapperBytesToLevels＋
+   BitArrayExtension.TransBit（MsbFirst：RM81008／RM81011／RM8100x）：
+     EN01 0x1400–0x17BF、E503 0x0760–0x0B1F、E501B 0x0820–0x0BDF（ICDefine.cs DGM RangeItems）；
+     E501A 原始碼沒有自己的定義，沿用 RM81010 model「GAMMA LUT」頁 0x0820–0x0BDF（與 E501B 相同）。
+   🔴 讀 LUT 失敗／筆數不對 ⇒ DG 開啟時擋下量測並講原因，不默默改用預設值。DG 關閉時 LUT 用不到，只顯示不擋。
+   🔴 每一輪量測開始都重讀一次（DG 頁匯入／寫入新 LUT 之後一定用新的）；寫入後到重讀前畫面標「已過期」。 */
+var DST_NB_LUT_N = 256, DST_NB_LUT_BITS = 10, DST_NB_LUT_BYTES = 960, DST_NB_LUT_CHUNK = 256;
+var dstNbLut = null;          // { r:[], g:[], b:[], at, sum, why }：最近一次讀到、解得出來的那一份
+var dstNbEn = null;           // 'on'｜'off'｜null：最近一次讀到的 DGM_EN
+var dstNbLutErr = null;       // { key, vars }：最近一次讀取的問題
+var dstNbLutStale = false;    // 讀完之後又寫入過新的 LUT
+var dstNbLutBusy = false;
+var dstNbRunLut = null;       // 這一輪量測用的那一份 { en, lut }（掃描起點定案）
+
+/* 純函式：960 byte → { r, g, b } 各 256 筆 10-bit；不合格回 { err, vars }。 */
+function dstNbLutDecode(bytes) {
+  if (!bytes || bytes.length !== DST_NB_LUT_BYTES)
+    return { err: 'dst.nbLutErrLen', vars: { got: bytes ? bytes.length : 0, want: DST_NB_LUT_BYTES } };
+  var allFF = true, all0 = true, i;
+  for (i = 0; i < bytes.length; i++) {
+    var v = bytes[i] & 0xFF;
+    if (v !== 0xFF) allFF = false;
+    if (v !== 0) all0 = false;
+  }
+  if (allFF) return { err: 'dst.nbLutErrFF', vars: {} };
+  if (all0) return { err: 'dst.nbLutErrZero', vars: {} };
+  var per = DST_NB_LUT_BYTES / 3, out = {};
+  ['r', 'g', 'b'].forEach(function (c, ci) {
+    var vals = [], acc = 0, nb = 0;
+    for (var k = ci * per; k < (ci + 1) * per; k++) {
+      acc = ((acc << 8) | (bytes[k] & 0xFF)) >>> 0; nb += 8;
+      while (nb >= DST_NB_LUT_BITS) { nb -= DST_NB_LUT_BITS; vals.push((acc >>> nb) & 0x3FF); }
+      acc &= (1 << nb) - 1;
+    }
+    out[c] = vals;
+  });
+  if (out.r.length !== DST_NB_LUT_N || out.g.length !== DST_NB_LUT_N || out.b.length !== DST_NB_LUT_N)
+    return { err: 'dst.nbLutErrCount', vars: { r: out.r.length, g: out.g.length, b: out.b.length, want: DST_NB_LUT_N } };
+  return { r: out.r, g: out.g, b: out.b };
+}
+/* 校驗碼（畫面上辨認「是哪一份 LUT」用）：三色 768 筆值加總取低 16 bit。 */
+function dstNbLutSum(l) {
+  var s = 0; ['r', 'g', 'b'].forEach(function (c) { l[c].forEach(function (v) { s = (s + v) & 0xFFFF; }); });
+  return '0x' + ('000' + s.toString(16).toUpperCase()).slice(-4);
+}
+/* 純函式：這一階要送的 PAT0_USER（10-bit）。12-bit 掃描值 → 0…255 索引（dstIdxOf12，與 MNT 同一支）。
+   en＝'on' ⇒ LUT[索引]；'off' ⇒ 索引×4；其他 ⇒ null（不送）。 */
+function dstNbSendOf(lut, en, r12, g12, b12) {
+  function ix(v) { var i = dstIdxOf12(v); return Math.max(0, Math.min(DST_NB_LUT_N - 1, i == null ? 0 : i)); }
+  var i = { r: ix(r12), g: ix(g12), b: ix(b12) };
+  if (en === 'on') {
+    if (!lut) return null;
+    return { r: lut.r[i.r], g: lut.g[i.g], b: lut.b[i.b], from: 'lut' };
+  }
+  if (en === 'off') return { r: i.r * 4, g: i.g * 4, b: i.b * 4, from: 'def' };
+  return null;
+}
+/* 純函式：這一輪能不能開始量。回傳 null（可以）或 { key, vars }（擋下的原因）。 */
+function dstNbRunBlock(en, lut, err) {
+  if (en !== 'on' && en !== 'off') return err || { key: 'dst.nbLutErrEn', vars: { addr: '?' } };
+  if (en === 'on' && !lut) return err || { key: 'dst.nbLutErrRead', vars: { detail: '' } };
+  return null;
+}
+function dstNbLutWhyText(e) { return e ? dstT(e.key, e.vars || {}) : ''; }
+function dstNbHms(t) {
+  var d = new Date(t); function z(n) { return ('0' + n).slice(-2); }
+  return z(d.getHours()) + ':' + z(d.getMinutes()) + ':' + z(d.getSeconds());
+}
+/* 讀 DGM_EN 與整張 LUT。DGM_EN 讀不到 ⇒ en＝null；LUT 讀不到／解不出 ⇒ lut＝null，原因寫在 dstNbLutErr。 */
+async function dstNbReadLut(why) {
+  var ic = dstIc, cfg = ic && ic.nb && ic.nbDgm;
+  dstNbLutErr = null;
+  if (!cfg) {
+    dstNbEn = null; dstNbLut = null;
+    dstNbLutErr = { key: 'dst.nbLutErrNoSpec', vars: { ic: ic ? ic.key : '?' } };
+    dstRenderNbLut(); return { en: null, lut: null, err: dstNbLutErr };
+  }
+  dstNbLutBusy = true; dstRenderNbLut();
+  var en = null, lut = null, err = null;
+  try {
+    try {
+      var e = await dstReadReg(cfg.en.addr, 1);
+      if (!e || !e.length || dstIsBusIdle(e.slice(0, 1))) throw new Error('idle');
+      en = ((e[0] >> cfg.en.bit) & 1) ? 'on' : 'off';
+      dstDg = dstDgDecode(e[0], cfg.en);          // 同一個 byte：摘要列的 DG_EN 跟著更新
+    } catch (eEn) {
+      err = { key: 'dst.nbLutErrEn', vars: { addr: dstAddrText(cfg.en.addr) } };
+      dstDg = { state: 'unknown', raw: null, depth: null, target: null, whyKey: 'dst.dgWhyReadFail' };
+    }
+    dstRenderDg();
+    if (en !== null) {
+      try {
+        var bytes = [];
+        for (var done = 0; done < DST_NB_LUT_BYTES; ) {
+          var n = Math.min(DST_NB_LUT_CHUNK, DST_NB_LUT_BYTES - done);
+          var d = await dstReadReg(cfg.lut.base + done, n);
+          if (!d || d.length < n) {
+            err = { key: 'dst.nbLutErrShort', vars: { addr: dstAddrText(cfg.lut.base + done), got: d ? d.length : 0, want: n } };
+            break;
+          }
+          for (var j = 0; j < n; j++) bytes.push(d[j] & 0xFF);
+          done += n;
+        }
+        if (!err) {
+          var dec = dstNbLutDecode(bytes);
+          if (dec.err) err = { key: dec.err, vars: dec.vars || {} };
+          else lut = { r: dec.r, g: dec.g, b: dec.b, at: Date.now(), sum: dstNbLutSum(dec), why: why || 'btn' };
+        }
+      } catch (eL) {
+        err = { key: 'dst.nbLutErrRead', vars: { detail: dstErrMsg(eL) } };
+      }
+    }
+  } finally {
+    dstNbEn = en; dstNbLut = lut; dstNbLutErr = err; dstNbLutStale = false;
+    dstNbLutBusy = false;
+    dstLog('-- NB DGM_EN ' + dstAddrText(cfg.en.addr) + ' -> ' + (en || 'unreadable')
+      + ', LUT ' + dstAddrText(cfg.lut.base) + ' x' + DST_NB_LUT_BYTES + ' -> '
+      + (lut ? ('ok ' + DST_NB_LUT_N + ' x RGB, sum ' + lut.sum + ', L0 ' + lut.r[0] + '/' + lut.g[0] + '/' + lut.b[0]
+                + ', L128 ' + lut.r[128] + '/' + lut.g[128] + '/' + lut.b[128]
+                + ', L255 ' + lut.r[255] + '/' + lut.g[255] + '/' + lut.b[255])
+             : ('FAIL ' + dstNbLutWhyText(err))), lut ? 'o' : 'e');
+    dstRenderNbLut();
+  }
+  return { en: en, lut: lut, err: err };
+}
+async function dstNbReadLutBtn() { await dstNbReadLut('btn'); }
+/* DG 頁送來新的 LUT（匯入／寫入）之後：手上那份就舊了。量測起點本來就會重讀，這裡讓畫面講清楚。 */
+function dstNbLutMarkStale() {
+  if (!(dstIc && dstIc.nb)) return;
+  if (dstNbLut || dstNbEn) dstNbLutStale = true;
+  dstRenderNbLut();
+}
+function dstNbLutDone() {
+  if (dstNbLutStale) return false;
+  return dstNbEn === 'off' || (dstNbEn === 'on' && !!dstNbLut);
+}
+/* 畫面上那一行「LUT 狀態」＋「這一輪送什麼」。只在 NB 出現。 */
+function dstNbLutLine() {
+  if (dstNbLutBusy) return { t: dstT('dst.nbLutReading'), ok: true };
+  var t, ok = true;
+  if (dstNbLut) {
+    var l = dstNbLut;
+    var rgb = function (i) { return 'R' + l.r[i] + ' G' + l.g[i] + ' B' + l.b[i]; };
+    t = dstT('dst.nbLutOk', { n: DST_NB_LUT_N, at: dstNbHms(l.at), sum: l.sum, l0: rgb(0), l128: rgb(128), l255: rgb(255) });
+  } else if (dstNbLutErr) {
+    t = dstT('dst.nbLutFail', { why: dstNbLutWhyText(dstNbLutErr) }); ok = false;
+  } else {
+    t = dstT('dst.nbLutNone'); ok = false;
+  }
+  if (dstNbLutStale) { t += ' ' + dstT('dst.nbLutStaleW'); ok = false; }
+  return { t: t, ok: ok };
+}
+function dstNbSendLine() {
+  var src = dstNbRunLut || { en: dstNbEn, lut: dstNbLut };
+  if (src.en === 'off') return dstT('dst.nbSendDef') + ((dstNbLutErr && !src.lut) ? ' ' + dstT('dst.nbLutOffNote', { why: dstNbLutWhyText(dstNbLutErr) }) : '');
+  if (src.en === 'on' && src.lut) return dstT('dst.nbSendLut', { at: dstNbHms(src.lut.at), sum: src.lut.sum });
+  if (src.en === 'on') return dstT('dst.nbSendBlocked');
+  return dstT('dst.nbSendUnk');
+}
+function dstRenderNbLut() {
+  var box = $('dst-box-nblut'); if (!box) return;
+  var nb = !!(dstIc && dstIc.nb);
+  box.classList.toggle('dst-hidden', !nb);
+  if (!nb) return;
+  var nm = $('dst-nblut-name'); if (nm) nm.textContent = dstT('dst.stepNbLut');
+  var tk = $('dst-tick-nblut'); if (tk) tk.textContent = dstNbLutDone() ? '✓' : '○';
+  var ln = dstNbLutLine();
+  dstShow('dst-v-nblut', ln.t, ln.ok);
+  var sl = $('dst-nb-send'); if (sl) sl.textContent = dstNbSendLine();
+  var go = $('dst-nblut-go');
+  if (go) {
+    go.textContent = dstT('dst.nbLutGo');
+    go.disabled = !dstLinked || dstNbLutBusy || dstBusy || dstLutBusy || dstLutWriteBusy || dstRunning;
+  }
 }
 
 /* 🔴 這四個是 **7-bit** slave address（上游工具的 96/97/104/105）。
@@ -3420,6 +3657,7 @@ async function dstScanIdentify() {
   /* v2.9.0：0xFF00 沒認到 MNT ⇒ 用共用 TconDetect（A 段 7C／7D／3E）認 NB。認到就用 NB 那一筆，slave 0x3E。
      MNT 認到時一筆 NB 讀取都不做（MNT 原流程不變）。 */
   dstNbDet = null;
+  dstNbLut = null; dstNbEn = null; dstNbLutErr = null; dstNbLutStale = false; dstNbRunLut = null;   // v2.10.0
   if (!(chosen && dstMatchIc(chosen))) {
     var nbIc = await dstNbIdentify();
     if (nbIc) {
@@ -3567,7 +3805,8 @@ function dstDgDecode(byteVal, d) {
   return o;
 }
 async function dstReadDgEn() {
-  var d = dstIc && dstIc.dgEn;
+  /* v2.10.0：NB 讀自己的 DGM_EN（只讀；NB 沒有 dgEn，所以 DG_EN 開關、自動開啟、故障擋下都不會碰 NB） */
+  var d = dstIc && (dstIc.dgEn || (dstIc.nb && dstIc.nbDgm && dstIc.nbDgm.en));
   if (!d) {
     dstDg = { state: 'unknown', raw: null, depth: null, target: null,
               whyKey: dstIc ? 'dst.dgWhyNoAddr' : 'dst.dgWhyNoIc' };
@@ -5716,6 +5955,19 @@ async function dstRun() {
     /* v2.0.4：這一輪是在哪個 DG_EN 狀態下量的（結果標註、作廢判斷、回傳 DG 的名稱都讀它）。
        一輪之內不准改 DG_EN（dstDgEnApply 擋 dstRunning），所以起點這一次就代表整輪。 */
     dstRunDgEn = dstDg.state;
+    /* v2.10.0：NB ⇒ 這一輪開始先讀 DGM_EN＋整張 RGB LUT（見 dstNbReadLut）；DG 開啟卻讀不到 LUT ⇒ 擋下。 */
+    dstNbRunLut = null;
+    if (dstIc.nb) {
+      dstProg('step', 0, 0, dstT('dst.pgNbLut'));
+      var nbR = await dstNbReadLut('run');
+      if (dstAbort) throw new Error('__abort__');
+      var nbBlk = dstNbRunBlock(nbR.en, nbR.lut, nbR.err);
+      if (nbBlk) throw new Error(dstT('dst.nbLutBlock', { why: dstNbLutWhyText(nbBlk) }));
+      dstNbRunLut = { en: nbR.en, lut: nbR.lut };
+      dstRunDgEn = dstDg.state;
+      dstLog('== NB send mode: ' + (nbR.en === 'on' ? ('PAT0_USER = LUT[n] (sum ' + nbR.lut.sum + ')') : 'PAT0_USER = n*4 (DG off, default)'), 'o');
+      dstRenderNbLut();
+    }
 
     // ② 進出圖模式
     dstProg('step', 0, 0, dstT('dst.pgEnter'));
@@ -5803,7 +6055,11 @@ async function dstRun() {
         if (dstAbort) throw new Error('__abort__');
         dstProg(p.group, (p.group === 'prim') ? pi : gi, (p.group === 'prim') ? nPrim : nGray,
           tries ? dstT('dst.pgRetry', { key: p.key, k: tries, n: DST_MES_RETRY }) : p.key);
-        await dstSetRgb12(p.r, p.g, p.b);
+        /* v2.10.0：NB 送 LUT[n]（DG 開）或 n×4（DG 關），10-bit 值 ×4 交給同一支出圖（÷4 後逐值相同） */
+        var nbS = dstIc.nb ? dstNbSendOf(dstNbRunLut.lut, dstNbRunLut.en, p.r, p.g, p.b) : null;
+        if (dstIc.nb && !nbS) throw new Error(dstT('dst.nbLutBlock', { why: dstT('dst.nbSendUnk') }));
+        if (nbS) await dstSetRgb12(nbS.r * 4, nbS.g * 4, nbS.b * 4);
+        else await dstSetRgb12(p.r, p.g, p.b);
         if (!(await dstWaitOrAbort(dstSettleUsedMs))) throw new Error('__abort__');
         var res = await dstCaCmd('MES,1', DST_MES_MS);
         if (dstAbort) throw new Error('__abort__');
@@ -5814,7 +6070,8 @@ async function dstRun() {
              `drv` 取的是**這一輪開頭讀到的 DG 狀態**（不是每一階重讀）——
              一輪之內 DG_EN 不該變，重讀 256 次只是多 256 次 I2C。 */
           dstRows.push({ key: p.key, idx: p.idx, r12: p.r, g12: p.g, b12: p.b,
-                         drv: dstDriveOf(p.idx, p.r, p.g, p.b),
+                         drv: nbS ? { r: nbS.r * 4, g: nbS.g * 4, b: nbS.b * 4, from: 'sent' } : dstDriveOf(p.idx, p.r, p.g, p.b),
+                         nb10: nbS ? { r: nbS.r, g: nbS.g, b: nbS.b, from: nbS.from } : null,
                          x: m.x, y: m.y, lv: m.lv });
           dstRenderRows();
           break;                                  // 這一階成功，往下一階
@@ -5981,7 +6238,8 @@ function dstRenderDg() {
     w.classList.toggle('dst-hidden', !on);
     /* 第二句只在「DG 開著、而且讀不到 LUT」時出現 —— 那正是 Drive_R/G/B 會留空
        的情況。今天 dstDgLut 恆為 null（見它的宣告），所以 DG 一開就會看到。 */
-    w.textContent = on ? (dstT('dst.dgWarnOn') + (dstDgLut ? '' : ' ' + dstT('dst.dgNoLut'))) : '';
+    w.textContent = !on ? '' : (dstIc && dstIc.nb) ? dstT('dst.nbDgWarnOn')
+      : (dstT('dst.dgWarnOn') + (dstDgLut ? '' : ' ' + dstT('dst.dgNoLut')));
   }
   dstRenderDgSw();
   dstRenderDgAutoNote();   // v2.2.0：DG_EN 不再是 ON ⇒「已自動開啟」那一行收掉
@@ -6485,6 +6743,7 @@ function dstRunWhyKey() {
   return dstDgWhyKey();
 }
 function dstRenderBtns() {
+  dstRenderNbLut();   // v2.10.0：NB LUT 那一格（不回呼 dstRenderBtns）
   /* 🔴 v2.0.0：讀 LUT（dstLutBusy）也算忙。舊版讀表時色鈕、拉霸、DG_EN、連線鈕都還按得動，
      同一條 I2C 上會插進別的寫入（自檢頁檢討 高3）。 */
   var busyAny = dstBusy || dstLutBusy || dstLutWriteBusy;
@@ -7747,6 +8006,7 @@ function dstStepStatusSync() {
     { key: 'hw',   el: $('dst-hw-card'),   short: dstT('dst.sbHw'),   name: dstT('dst.hdHw'),   done: dstPgLive() >= 2 },
     { key: 'test', el: $('dst-test-card'), short: dstT('dst.sbTest'), name: dstT('dst.hdTest'), done: dstPgAligned() },
     { key: 'lut',  el: $('dst-box-lut'),   short: dstT('dst.sbLut'),  name: dstT('dst.stepLut'), done: dstStepIsDone('lut') },
+    { key: 'nblut', el: $('dst-box-nblut'), short: dstT('dst.sbNbLut'), name: dstT('dst.stepNbLut'), done: dstNbLutDone() },
     { key: 'g23',  el: $('dst-group23'),   short: dstT('dst.sbMeas'), name: gt ? String(gt.textContent || '') : '',
       done: dstStepIsDone('gray') && dstStepIsDone('prim') },
     { key: 'back', el: $('dst-box-back'),  short: dstT('dst.sbBack'), name: dstT('dst.stepBack'), done: dstBackSent() }
@@ -7756,9 +8016,18 @@ function dstStepStatusSync() {
     L.forEach(function (it) { TCONStepStatus.cur(it.el, null); });
     return;
   }
-  L = L.filter(function (it) { return it.key !== 'lut' || dstStepNeeded('lut'); });
+  L = L.filter(function (it) {
+    if (it.key === 'nblut') return !!(dstIc && dstIc.nb);   // v2.10.0：NB 才有「讀 LUT」這一步
+    return it.key !== 'lut' || dstStepNeeded('lut');
+  });
   var pc = dstPgCur(), curKey = (pc === 'steps') ? dstFsCurKey() : pc;
   L.forEach(function (it) { it.state = it.done ? 'done' : (it.key === curKey ? 'cur' : 'todo'); });
+  /* v2.10.0：輪到量測、但 NB 的 LUT 還沒讀（或讀完又寫了新的）⇒「讀 LUT」是目前這一步（開始量測也會先自動讀） */
+  var nbIt = L.filter(function (it) { return it.key === 'nblut'; })[0];
+  if (nbIt && nbIt.state === 'todo' && curKey === 'g23' && !dstRunning) {
+    nbIt.state = 'cur';
+    L.forEach(function (it) { if (it.key === 'g23' && it.state === 'cur') it.state = 'todo'; });
+  }
   TCONStepStatus.bar(bar, L);
   var n = TCONStepStatus.number(L);
   L.forEach(function (it, i) { TCONStepStatus.cur(it.el, i === n.curIdx ? n : null); });
@@ -9185,6 +9454,7 @@ async function dstDgOnLutWrite(d) {
         握手失敗，那是自己製造的不相容。 */
   post({ type: 'dg-lut-write-progress', stage: 'start', done: 0, total: 1 });
   dstSay('dst-say-steps', dstT('dst.lwGoing'));
+  dstNbLutMarkStale();   // v2.10.0：NB 手上那份 LUT 舊了（量測起點會重讀）
   var res = await dstWriteDgLut(d, function (stage, done, total) {
     post({ type: 'dg-lut-write-progress', stage: stage, done: done, total: total });
   });
@@ -9284,6 +9554,7 @@ function dstBind() {
      🔴 每一顆都包在 dstGuard 裡（與「重新識別」那一顆相同）—— 忙碌旗標是所有
         I2C 動作共用的那一個，不另開第二套。 */
   $('dst-go-lut').addEventListener('click', function () { dstGuard(dstStepLut); });
+  $('dst-nblut-go').addEventListener('click', function () { dstGuard(dstNbReadLutBtn); });   // v2.10.0
   /* ═══ 🔴 v1.10.0：②③ 只有這一顆（③ 那一顆已移除）══════════════════════════
      🔴 v1.14.0：兩段式取消 ⇒ 這裡沒有「現在是第幾段」可判，按下去就是開始量。
         `#dst-go-realign`（重新對位）整顆移除，連帶這一行的事件也刪掉 —— 不留
