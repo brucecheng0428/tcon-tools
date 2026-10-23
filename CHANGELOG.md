@@ -2,6 +2,21 @@
 
 ---
 
+## I2C 讀寫測試 (i2c) v1.38.1 — 2026-10-23 ｜ PATCH ｜ DP AUX 臨時止血：停用 Check T-CON（AUX 模式需手動選擇 TCON），AUX 只開放 0x3E 與 EEPROM 0x50 唯讀；I2C 路徑不變
+
+判定依據：`docs/VERSIONING.md` R2「修正、沒有新功能 → PATCH」。
+
+### 需求（Bruce 2026-10-23）
+
+「不可透過 i2c去讀 7C 跟 7D 喔。因為你用 i2c 的話，那是因為 Tcon的 M-bus 跟 C-bus 在我測試的那個環境上面是連在一起的…實際上客戶端應用不一定是這種解法，所以不可以用 i2c over aux的做法」。Dispatch 核准先止血、只改頁面；最終方案（A／B／C）待 Bruce 決定。
+
+### 改了什麼（只在 AUX）
+
+- **common/i2c-aux.js 1.4**：AUX 可用的 slave 只剩 0x3E（DPCD 視窗 430／431→435，不經 M-Bus）；EEPROM 0x50–0x57 照舊唯讀（DDC over AUX）。0x7C、0x7D、0x7E 的讀寫在頁面就擋下，一筆不送；三語提示。
+- **i2c.html v1.38.1**：AUX 模式 Check T-CON 停用，按鈕提示與連線橫幅都顯示三語「AUX 模式需手動選擇 TCON」。就算從程式呼叫，也不送任何讀寫，結果是手動選擇。
+- bridge 不換（1.22.0）。頁面不再送 7C／7D／7E，所以 bridge 不會走到 IOA 的 M-Bus 導通。
+- I2C 治具路徑、common/tcon-detect.js、common/i2c-mbus.js 都不動。
+
 ## I2C 讀寫測試 (i2c) v1.38.0 — 2026-10-23 ｜ MINOR ｜ DP AUX 照原廠 EN01 UI 逐步一致（連線、讀、寫、初始化、MbusConnect、End），AUX 也認得出 T-CON（序列同 I2C、讀法換成原廠 AUX 讀法），EEPROM 0x50 經 AUX 可讀 ＋ I2C and AUX Bridge 1.22.0（proto 9）；I2C 路徑不變
 
 判定依據：`docs/VERSIONING.md` R3「使用者真的多能做一件事 → MINOR」：DP AUX 模式認得出 T-CON、可讀 EEPROM。I2C 治具路徑不變。
