@@ -30,7 +30,7 @@
           出來」。那個前提**早就不成立**：bridge 的靜態檔服務拒絕子資料夾、而且自 v1.7.0
           起預設關閉 —— 詳細依據與行號寫在 body 末端那兩個 <script> 的上面。）
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="common/version.js?v=20261023ui1411"></script>
+<script src="common/version.js?v=20261023dp1420"></script>
 <script src="common/i2c-bridge.js?v=20261023ib104"></script>
 <style>
   * { box-sizing: border-box; }
@@ -729,6 +729,19 @@
   .mseg-b.on{background:#0c4a6e;color:#e0f2fe;font-weight:700;box-shadow:inset 0 0 0 1.5px var(--accent);}
   .mseg-b:disabled{opacity:.5;cursor:not-allowed;}
   #xport-seg .mseg-b{padding:5px 16px;}   /* v1.41.0：連線方式 I2C｜AUX */
+  /* v1.42.0：DPCD／IOA 工具 */
+  #dpcd-panel .note{margin:0 0 10px;color:var(--sub);}
+  #dpcd-panel .sub{color:var(--sub);font-size:12px;}
+  #dpcd-panel .ok{color:var(--ok);font-weight:700;} #dpcd-panel .err{color:#f87171;}
+  #dpcd-panel label.f{display:inline-flex;flex-direction:column;gap:3px;font-size:12px;color:var(--sub);}
+  #dpcd-panel label.f select,#dpcd-panel label.f input{font-size:14px;padding:4px 6px;}
+  #dpcd-panel textarea{font-size:13px;background:#0b1424;color:var(--text);border:1px solid var(--border);border-radius:6px;padding:6px;}
+  .dp-tw{max-height:320px;overflow:auto;margin-top:8px;border:1px solid var(--border);border-radius:6px;}
+  .dp-t{width:100%;border-collapse:collapse;font-size:13px;}
+  .dp-t th,.dp-t td{border-bottom:1px solid var(--border);padding:4px 6px;text-align:left;vertical-align:top;}
+  .dp-t tr.dp-int td{background:rgba(245,158,11,.10);} .dp-t tr.bad td{color:#f87171;} .dp-t tr.rx td{color:#86efac;}
+  .dp-warn{margin-top:8px;padding:6px 10px;border:1px solid #f59e0b;border-radius:6px;color:#fbbf24;font-weight:700;}
+  .dp-ioa{margin:0 0 6px;color:#fbbf24 !important;}
   .stp-res > .card{margin-top:0;}
   .stp-res > .card + .card{margin-top:12px;}
   /* Flash 起點／長度的換算行比較長（「= 0x400000（4,096 KB, 4,194,304 Byte）」）⇒ 這三格的提示列可以折行，不裁掉 */
@@ -785,6 +798,9 @@
   <div id="topbanner"></div>
   <!-- v1.32.0（Bruce 2026-10-06「仿照 DG 網頁的 TCON 自檢…使用者越知道自己該怎麼做越好」）：
        整頁一行「下一步」，內容由 i2ctStepsRender() 依連線／Check T-CON／功能／執行結果決定。 -->
+  <!-- v1.42.0（Bruce 2026-10-23「DPCD 分頁…跟我們 T-CON 完全沒有關係」）：AUX 模式才出現的分頁切換；工具內容由 common/aux-dpcd.js 畫 -->
+  <div class="mseg" id="aux-tabs" role="tablist" style="display:none;margin:0 0 10px"><button type="button" class="mseg-b" data-tab="flow">讀寫流程</button><button type="button" class="mseg-b" data-tab="tool">DPCD／IOA 工具</button></div>
+  <div id="dpcd-panel" style="display:none"></div>
   <div id="stp-bar" class="stp-bar"></div>
   <div id="stp-next" class="stp-next" role="status"></div>
 
@@ -1672,6 +1688,7 @@
 <script src="common/i18n.js?v=20261023ui1410"></script>
 <script src="common/i2c-mbus.js?v=20261023mb122"></script>
 <script src="common/i2c-aux.js?v=20261023ax191"></script>
+<script src="common/aux-dpcd.js?v=20261023dp100"></script>
 <script src="common/tcon-detect.js?v=20261023td130"></script>
 <script src="common/common.js?v=20261008i2c1341"></script>
 <script src="common/i2c-spiflash.js?v=20261022en01"></script>
@@ -3316,6 +3333,7 @@ function i2ctSyncButtons(){
   { var cp = $('btn-cmppath'); if (cp) cp.disabled = !i2ctLinked || i2ctBusy; }
   if (typeof i2ctSfSync === 'function') i2ctSfSync();   /* v1.29.0 */
   if (typeof i2ctStepsRender === 'function') i2ctStepsRender();   /* v1.32.0：步驟狀態 */
+  i2ctAuxRawGuard();   /* v1.42.0 */
 }
 
 /* ═══ WebSocket（I2C and AUX Bridge）═══════════════════════════════════════════════ */
@@ -3440,6 +3458,15 @@ function i2ctSetLink(on, txt, cls){
      —— 治具拔掉／換一塊板子之後還掛著上一顆的型號，比不顯示更糟。 */
   if (!on && i2ctCkResult) { i2ctCkResult = null; i2ctCkRender(); i2ctSfOnCk(); }   /* v1.31.0：Flash 型號同理 */
   i2ctSyncButtons();
+}
+/* v1.42.0：DPCD／IOA 工具的連線（bridge 1.23.0 raw：只 Initial 指定的那一台，不掃描、不初始化、不 End） */
+var i2ctAuxRawTarget = null;
+function i2ctAuxRawOpen(){ return (i2ctXport === 'aux' && i2ctAuxRawTarget) ? { raw: 1, card: i2ctAuxRawTarget.card, monitor: i2ctAuxRawTarget.monitor } : {}; }
+function i2ctAuxIsRaw(){ return !!(i2ctLinked && i2ctXport === 'aux' && i2ctAuxInfo && i2ctAuxInfo.raw); }
+function i2ctAuxRawGuard(){   /* raw 連線時，讀寫流程的 T-CON 操作一律停用（bridge 也會拒絕） */
+  if (window.AuxDpcd) AuxDpcd.sync(i2ctXport);
+  if (!i2ctAuxIsRaw()) return;
+  ['btn-checktcon', 'btn-read', 'btn-write', 'sf-auto', 'sf-recheck', 'sf-detect', 'sf-read', 'sf-write'].forEach(function (id) { var e = $(id); if (e) e.disabled = true; });
 }
 async function i2ctConnect(takeover){
   if (i2ctLinked || i2ctBusy) return;
@@ -3574,9 +3601,9 @@ async function i2ctConnect(takeover){
          做法刻意放在**網頁端**：他不必換 exe、不必打任何參數，重新整理就好。
          （exe 裡的預設仍是 1，但每次 open 都會被這一行覆蓋成 0。）
          fast 仍保留在 debug 區，供日後查清根因後實測用。 */
-      op = await i2ctSend({ type: 'open', page: I2CT_PAGE_VER, mode: i2ctMode, threephase: i2ctThreePhase ? 1 : 0, ckdelay: i2ctCkDelay, clockHz: i2ctClockHz(), takeover: takeover ? 1 : 0,
+      op = await i2ctSend(Object.assign({ type: 'open', page: I2CT_PAGE_VER, mode: i2ctMode, threephase: i2ctThreePhase ? 1 : 0, ckdelay: i2ctCkDelay, clockHz: i2ctClockHz(), takeover: takeover ? 1 : 0,
                             fastread: i2ctFastRead ? 1 : 0,
-                            rawmpsse: i2ctRawMpsse ? 1 : 0 });
+                            rawmpsse: i2ctRawMpsse ? 1 : 0 }, i2ctAuxRawOpen()));   /* v1.42.0：DPCD／IOA 工具 ⇒ raw:1＋指定螢幕（不初始化） */
       /* v1.35.0：DP AUX 開不起來（缺 DLL、找不到顯示卡…）bridge 會講原因 ⇒ 不重試，原因直接給他看。 */
       if (!op.ok && op.aux && !op.busy) throw new Error('DP AUX: ' + (op.err || 'open failed'));
       if (op.ok && op.aux) {
@@ -7706,7 +7733,7 @@ function i2ctInit(){
         那是「使用者主動中斷就不自動重連」的唯一依據（ws.onclose 讀它）。 */
   $('btn-link').addEventListener('click', function () {
     if (i2ctBusy) return;
-    if (i2ctLinked) i2ctDisconnect(); else i2ctConnect(false);
+    if (i2ctLinked) i2ctDisconnect(); else { i2ctAuxRawTarget = null; i2ctConnect(false); }   /* v1.42.0：① 的連線一律是一般 AUX（照原廠） */
   });
   $('btn-takeover').addEventListener('click', i2ctTakeover);
   $('btn-release').addEventListener('click', i2ctRelease);
@@ -9500,6 +9527,7 @@ function i2ctStepsRender(){
   /* v1.41.0（Bruce 2026-10-23「完成第二步卻沒有那種綠色、明顯一點的框框」）：② 原本做完交給 common/done-step 縮成一行，
      done-step.css 的 .tc-step-done 用 !important 把外框與底色拿掉 ⇒ 跟 ①③ 的 .stp.done 綠框不一樣。
      ② 改成跟 ①③ 一樣一律完整顯示、完成時套 .stp.done 綠框；不再呼叫 TCONDoneStep（dg、dg-selftest 的步驟全都用 done-step，各自一致，不動）。 */
+  if (typeof i2ctAuxRawGuard === 'function') i2ctAuxRawGuard();   /* v1.42.0 */
 }
 /* v1.32.1：① 底下常駐的一行。
    已連線 ⇒「I2C 時脈 N kHz」＋（② 有結果時）「T-CON：型號」；連線出錯 ⇒ 下一步該檢查什麼（紅字）；其他 ⇒ 空（不佔位）。
@@ -9515,7 +9543,8 @@ function i2ctConnInfoRender(ck, ckOk, err){
     var gpu = { INTEL: 'Intel', AMD: 'AMD', NVIDIA: 'NVIDIA', QCOM: 'Qualcomm' }[String(ai.card || '').toUpperCase()] || TconAux.text('cardUnk');
     parts.push(TconAux.text('info', { card: '<b>' + esc(gpu) + '</b>' }));   /* v1.41.1：螢幕內建／外接沒有可靠依據 ⇒ 不顯示 */
     if (ai.admin === false && /INTEL/i.test(ai.card || '')) parts.push(esc(TconAux.text('adminNo')));
-    parts.push(esc(TconAux.text('auxScope')));   /* v1.39.1：AUX 能做什麼一眼看到（三語） */
+    if (ai.raw && window.AuxDpcd) parts.push(esc(AuxDpcd.text('rawFlow')));   /* v1.42.0 */
+    else parts.push(esc(TconAux.text('auxScope')));   /* v1.39.1：AUX 能做什麼一眼看到（三語） */
     if (ck) parts.push(T('i2c.connTcon', { name: '<b>' + esc(ckOk ? (i2ctCkDispName(ck, false) || '?') : T('i2c.connTconBad')) + '</b>' }));
   } else if (i2ctLinked) {
     var k = i2ctOpenClockKHz || i2ctClockKHz();
@@ -9566,6 +9595,28 @@ function i2ctXportSegRender(){
     b.disabled = !!i2ctBusy;
   });
 }
+function i2ctAuxDpcdInit(){
+  if (!window.AuxDpcd) return;
+  AuxDpcd.init({
+    rawLinked: i2ctAuxIsRaw,
+    auxInfo: function () { return i2ctAuxInfo; },
+    send: function (o) { return i2ctSend(o); },
+    auxlist: function (tcon) {
+      if (i2ctLinked && i2ctXport === 'aux' && i2ctWs && i2ctWs.readyState === 1) return i2ctSend({ type: 'auxlist', tcon: tcon ? 1 : 0 });
+      return AuxDpcd.listTemp(I2CT_WS_URL, tcon);   /* 沒持有 AUX ⇒ 另開一條連線只問 auxlist（只讀、不碰治具） */
+    },
+    connectRaw: async function (card, monitor) {
+      if (i2ctLinked) await i2ctDisconnect();
+      i2ctAuxRawTarget = { card: card, monitor: monitor };
+      await i2ctConnect(false);
+      return i2ctAuxIsRaw();
+    },
+    disconnect: function () { return Promise.resolve(i2ctDisconnect()); },
+    lastErr: function () { var e = $('linktext'); return e ? e.textContent : ''; },
+    onTab: function () { i2ctStepsRender(); i2ctAuxRawGuard(); }
+  });
+  AuxDpcd.sync(i2ctXport);
+}
 function i2ctXportInit(){
   var sel = $('in-xport'); if (!sel) return;
   i2ctXportText();
@@ -9577,6 +9628,7 @@ function i2ctXportInit(){
     });
   });
   i2ctXportSegRender();
+  i2ctAuxDpcdInit();   /* v1.42.0 */
   sel.addEventListener('change', function () {
     var was = i2ctXport;
     i2ctXport = sel.value === 'aux' ? 'aux' : 'jig';

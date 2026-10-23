@@ -55,6 +55,14 @@ for (const f of files) {
   const loadsBridge = /src=["'][^"']*common\/i2c-bridge\.js/.test(src);
   const opensWs = /new\s+WebSocket\s*\(/.test(src);
   if (f.startsWith('common/') || f.startsWith('data/')) {
+    /* i2c v1.42.0 例外：common/aux-dpcd.js（DPCD／IOA 工具）沒持有 AUX 時另開一條連線只問 auxlist（bridge 端只讀：Initial／Release、
+       DPCD 0x000／0x400、EDID；不碰 I2C 匯流排、不碰治具）。條件：整支只有一處 new WebSocket、送出的只有 type:'auxlist'。 */
+    if (opensWs && f === 'common/aux-dpcd.js') {
+      const sends = [...src.matchAll(/\.send\(\s*JSON\.stringify\(\s*\{\s*type:\s*'([a-z]+)'/g)].map(m => m[1]);
+      const nWs = [...src.matchAll(/new\s+WebSocket\s*\(/g)].length;
+      ok(nWs === 1 && sends.length === 1 && sends[0] === 'auxlist', `${f}：自己開的 WebSocket 只送 auxlist（只讀，不碰 I2C）`, `new WebSocket ${nWs} 處、送出 ${JSON.stringify(sends)}`);
+      continue;
+    }
     if (opensWs && f !== 'common/i2c-mbus.js') ok(false, `${f}：共用 js 自己開 WebSocket（I2C 連線只能在頁面裡、經 TconMbus.session）`);
     continue;
   }

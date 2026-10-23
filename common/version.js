@@ -13,7 +13,7 @@ var TOOL_VERSIONS = {
   wfg:     'v4.59.2',     // 面板訊號模擬與取樣
   pattern: 'v3.9.0',       // Pattern Generator 畫面產生器
   dg:      'v2.8.2',       // Digital Gamma 迭代校正（含量測頁 dg-measure.html）
-  i2c:     'v1.41.1',       // I2C（讀寫測試）
+  i2c:     'v1.42.0',       // I2C（讀寫測試）
   nbdebug: 'v1.3.1',        // NB TCON Debug應用（E503／E501A／E501B／EN01 debug 輸出：選 IC、項目、GPIO → I2C 執行或匯出 Excel／.script）
   datamap: 'v1.37.3',       // Data Mapping（Python UI 的內容與規則、站內風格；DAZ／E501／E503／EN01／EM01／EM02／E512）// v1.20.0（Bruce 10/9）：新增 EN01（RM81008，依原廠 WPF RomCodeProcessUI）
   /* 🔴 TCON 自檢畫面量測（dg-selftest.html）。
@@ -212,12 +212,15 @@ var HELPER_PKG = {
   /* 🔴 v1.21.0（2026-10-23，Bruce「I2C 用到沒問題以後，就要接著用 AUX 啊」）：1.20.0＋1.20.1 的 DP AUX 改進重新發佈在 1.19.0 回復之後
      （版號只增不減）；治具路徑與 1.19.0 逐行相同。四支 DLL 原樣，只換 exe：PE32 Intel 80386，375,808 bytes。 */
   /* 🔴 v1.22.0（2026-10-23，Bruce「那就依照原廠 UI 的行為吧」）：DP AUX 開啟／讀／寫照原廠 EN01 UI 逐步一致（初始化、MbusConnect、End 照原廠，沒做的不加）；I2C 治具路徑不變 */
-  pkg:    'v1.22.0',                      // 下載包（zip）版本 ＝ 檔名
-  exe:    '1.22.0',                       // exe 內的 I2C_BRIDGE_VERSION（ping 回報值）
-  proto:  9,                             // wire protocol 版本（7 起有 DP AUX；8 起 I2C 治具與 DP AUX 可同時使用）
+  /* 🔴 v1.23.0（2026-10-23，Bruce「DPCD 分頁…跟我們 T-CON 完全沒有關係…monitor 也可以強制手動更改」）：只動 AUX 分支 —— auxlist（只讀：Initial、DPCD 0x000／0x400、
+     EDID、Windows DisplayConfig outputTechnology）、open raw:1（只 Initial 指定那台）、i2craw、ioaread；proto 9 ⇒ 10。治具路徑一行未改。
+     四支 DLL 從 v1.22.0 的包原樣搬過來，只換 exe：PE32 Intel 80386，385,536 bytes。不下內建／外接結論，只回 Windows 原話。 */
+  pkg:    'v1.23.0',                      // 下載包（zip）版本 ＝ 檔名
+  exe:    '1.23.0',                       // exe 內的 I2C_BRIDGE_VERSION（ping 回報值）
+  proto:  10,                             // wire protocol 版本（7 起有 DP AUX；8 起 I2C 治具與 DP AUX 可同時使用）
   exeName: 'i2c-aux-bridge.exe',         // 1.19.0 起的 exe 檔名（1.18.1 以前 i2c-bridge.exe）
-  file:   'data/i2c-aux-bridge-v1.22.0.zip',
-  bytes:  560282,                             // zip 位元組數（打包後填）
-  zipSha: 'b7c362ec51b6ef82929b1f6828499a685cd8af5456154b5e6225bfb5959eed1e',
-  exeSha: '7d7fd43f6429a9727d408a9ae38ea3b1e4e4c44a3f280b35aa40f41fe6d63143'
+  file:   'data/i2c-aux-bridge-v1.23.0.zip',
+  bytes:  564848,                             // zip 位元組數（打包後填）
+  zipSha: 'e062d3926a55ae8a726ea17e28b86e8795d35db3c2aa8adb8cae885a38b78026',
+  exeSha: '973139afa27f2d493729fcc3ae00e7eca918ad9fb298a992f9512e9eeb248430'
 };

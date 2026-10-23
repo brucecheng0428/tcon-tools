@@ -341,8 +341,15 @@
  *   - 寫：原廠 Tcon_Write_Register 逐 byte——3E 直接寫；其他 ① → CheckAndWriteRegisterRomWP → 寫 → ④（不再自己補 7C:0F）。
  *   - 每一筆 AUX 交易記錄到 log，並可用 {"type":"auxtx","from":N} 取回，供逐筆對照步驟表。
  *   - I2C 治具路徑不動（只改 dgh_mode==DGH_MODE_AUX 分支與 aux_* / i2c_bridge_aux.h）。wire format 不變 ⇒ proto 仍 9。 */
-#define I2C_BRIDGE_VERSION "1.22.0"
-#define I2C_BRIDGE_PROTO   9
+/* 1.23.0 / proto 10（2026-10-23，Bruce「DPCD 分頁…不管後端接的是哪一家的 TCON…不用下任何初始化條件」）：
+ *   - 只動 AUX 分支，治具路徑一行未改。
+ *   - 新增 auxlist：列出 Initial 成功的顯示卡／螢幕（只 Initial／Release，不送任何 DPCD）。
+ *   - open mode 4 新增 raw:1（需 card、monitor）：不掃描、不初始化、不 End，只 Initial 那一台。
+ *     raw 連線下 read／write／rawwrite／batchwrite（原廠 T-CON 序列）一律拒絕。
+ *   - 新增 i2craw（DLL I2C_Read／I2C_Write，帶 MOT；AMD 的 I2C_Read 是空函式 ⇒ 拒絕）與 ioaread（DLL IOA_Read）。
+ *     I2C over AUX 寫 0x50–0x57（EEPROM）照舊擋。照 AUX_GUI 1.48.0 DPCD 分頁（DpcdWrapper.cs）。 */
+#define I2C_BRIDGE_VERSION "1.23.0"
+#define I2C_BRIDGE_PROTO   10
 /* 🔴 AUX 模式 3E／7C 走 I2C over AUX、EEPROM 可讀（寫仍擋）需要的 proto 下限。 */
 #define I2C_BRIDGE_PROTO_AUX_IOA 9
 /* 🔴 I2C 治具與 DP AUX 同時使用（兩條路各自持有、T-CON 排隊）需要的 proto 下限。 */

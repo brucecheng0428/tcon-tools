@@ -117,6 +117,7 @@ HMODULE LoadLibraryA(const char* path){
     for(char* q=p; *q; q++) if(*q=='\\') *q='/';
     const char* base = strrchr(p,'/'); base = base?base+1:p;
     int isAux = (strcmp(base,"DLL_AUX_VC.dll")==0);
+    if(strcmp(base,"user32.dll")==0) return (HMODULE)(intptr_t)0x11E;   /* 1.23.0：假 DisplayConfig */
     if(strcmp(base,"libMPSSE.dll")!=0 && !isAux) return NULL;
     struct stat st; if(stat(p,&st)!=0) return NULL;
     return isAux ? (HMODULE)(intptr_t)0x11D : (HMODULE)(intptr_t)0x11B;
@@ -128,8 +129,10 @@ static void* shim_CreateWaitableTimerExW(void* sec, const void* name,
 static int   shim_SetWaitableTimer(void* h, const LARGE_INTEGER* due, long period,
                                    void* apc, void* arg, int resume);
 static void* shim_aux_proc(const char* name);
+static void* shim_user32_proc(const char* name);
 void* GetProcAddress(HMODULE m, const char* name){
     if(!m) return NULL;
+    if(m==(HMODULE)(intptr_t)0x11E) return shim_user32_proc(name);   /* user32.dll */
     if(m==(HMODULE)(intptr_t)0x11C){                     /* kernel32.dll */
         if(!strcmp(name,"CreateWaitableTimerExW")) return (void*)shim_CreateWaitableTimerExW;
         if(!strcmp(name,"SetWaitableTimer"))       return (void*)shim_SetWaitableTimer;
@@ -384,9 +387,12 @@ static int fa_DpcdWrite(int n, int a, unsigned char* d){
     }
     return 1; }
 static int fa_mbus_ok(void);
+/* 1.23.0：每台螢幕一份 EDID（dgh_fake_aux_edid_on＝1 時 slave 0x50 的讀取回這份，offset 由前一筆寫入決定） */
+int dgh_fake_aux_edid_on = 0; unsigned char dgh_fake_aux_edid[20][128]; static unsigned fa_ee_off = 0;
 static int fa_I2cWrite(int n, int slave, unsigned char* d, int mot){
     (void)mot;
     fx_enter('A'); fx_leave();
+    if(dgh_fake_aux_edid_on && slave==0x50 && n==1){ fa_ee_off=d[0]; return 1; }
     if(dgh_fake_aux_fail_writes) return 0;
     if((slave>=0x50 && slave<=0x57) || slave==0x10){ dgh_fake_aux_ee_hits++; return 1; }   /* 0x10＝Intel 改址後的 EEPROM（Tcon81008.cs:300） */
     dgh_fake_aux_i2c_writes++;
@@ -397,6 +403,7 @@ static int fa_I2cWrite(int n, int slave, unsigned char* d, int mot){
     return 0; /* NACK */ }
 static int fa_I2cRead(int n, int slave, unsigned char* d, int mot){
     int i; (void)mot;
+    if(dgh_fake_aux_edid_on && slave==0x50){ if(fa_cur_mon<0||fa_cur_mon>19) return 0; for(i=0;i<n;i++) d[i]=dgh_fake_aux_edid[fa_cur_mon][(fa_ee_off+(unsigned)i)&127]; fa_ee_off+=(unsigned)n; return 1; }
     if((slave>=0x50 && slave<=0x57) || slave==0x10){ dgh_fake_aux_ee_hits++; for(i=0;i<n;i++) d[i]=0xEE; return 1; }
     if(slave==0x7D){ if(!fa_mbus_ok()) return 0; for(i=0;i<n;i++) d[i]=dgh_fake_aux_r7d[(fa_ptr7d+(unsigned)i)&0xFFFF]; return 1; }
     if(slave==0x7E){ for(i=0;i<n;i++) d[i]=dgh_fake_aux_r7e[(fa_ptr7e+(unsigned)i)&0xFF]; return 1; }
@@ -407,6 +414,7 @@ static int fa_mbus_ok(void){ return !dgh_fake_aux_7d_needs_mbus || (dgh_fake_aux
 static unsigned char fa_IoaRead(DGH_AUX_IOA* st, unsigned char* d){
     int i, n = st->u8BytePerRead ? st->u8BytePerRead : 1; unsigned off = st->u16StartAddr;
     fx_enter('A'); fx_leave(); dgh_fake_aux_ioa_reads++;
+    if(dgh_fake_aux_edid_on && st->u8SlaveAddr==0x50){ if(fa_cur_mon<0||fa_cur_mon>19) return 0; for(i=0;i<n;i++) d[i]=dgh_fake_aux_edid[fa_cur_mon][(off+(unsigned)i)&127]; return 1; }
     if(st->u8SlaveAddr>=0x50 && st->u8SlaveAddr<=0x57){ dgh_fake_aux_ee_hits++; for(i=0;i<n;i++) d[i]=0xEE; return 1; }
     if(st->u8SlaveAddr==0x7D){ if(!fa_mbus_ok()) return 0; for(i=0;i<n;i++) d[i]=dgh_fake_aux_r7d[(off+(unsigned)i)&0xFFFF]; return 1; }
     if(st->u8SlaveAddr==0x7E){ for(i=0;i<n;i++) d[i]=dgh_fake_aux_r7e[(off+(unsigned)i)&0xFF]; return 1; }
@@ -433,5 +441,26 @@ static void* shim_aux_proc(const char* name){
     if(!strcmp(name,"FreeString")) return (void*)fa_FreeString;
     if(!strcmp(name,"IOA_Read")) return (void*)fa_IoaRead;
     if(!strcmp(name,"IOA_Write")) return (void*)fa_IoaWrite;
+    return NULL;
+}
+
+/* ── 1.23.0：假 user32 DisplayConfig（QueryDisplayConfig／DisplayConfigGetDeviceInfo）──────── */
+int dgh_fake_wd_n = 0; unsigned dgh_fake_wd_tech[8]; unsigned short dgh_fake_wd_mfg[8], dgh_fake_wd_prod[8]; char dgh_fake_wd_name[8][32];
+static long fu_gdcbs(uint32_t f, uint32_t* np, uint32_t* nm){ (void)f; *np=(uint32_t)dgh_fake_wd_n; *nm=(uint32_t)dgh_fake_wd_n*2u; return dgh_fake_wd_n?0:1; }
+static long fu_qdc(uint32_t f, uint32_t* np, void* P, uint32_t* nm, void* M, void* t){
+    uint32_t i; (void)f; (void)M; (void)nm; (void)t;
+    for(i=0;i<*np && (int)i<dgh_fake_wd_n;i++){ uint32_t* p=(uint32_t*)((char*)P + i*72u); memset(p,0,72); p[0]=0x77; p[2]=i; p[5]=0x77; p[6]=0; p[7]=i; }   /* tgt.adapterId lo=0x77, tgt.id=i（DGH_DC_PATH 偏移 20／28） */
+    return 0; }
+static long fu_dcgdi(void* hdr){
+    uint32_t* h=(uint32_t*)hdr; uint32_t id=h[4]; unsigned char* b=(unsigned char*)hdr; uint16_t* w; int k;
+    if(h[0]==1u && (int)id<dgh_fake_wd_n){ w=(uint16_t*)(b+20); { char g2[16]; snprintf(g2,sizeof(g2),"\\\\.\\DISPLAY%u",id+1); for(k=0;g2[k];k++) w[k]=(uint16_t)(unsigned char)g2[k]; w[k]=0; } return 0; }
+    if(h[0]!=2u || (int)id>=dgh_fake_wd_n) return 1;
+    *(uint32_t*)(b+24)=dgh_fake_wd_tech[id]; *(uint16_t*)(b+28)=dgh_fake_wd_mfg[id]; *(uint16_t*)(b+30)=dgh_fake_wd_prod[id];
+    w=(uint16_t*)(b+36); for(k=0;k<63 && dgh_fake_wd_name[id][k];k++) w[k]=(uint16_t)(unsigned char)dgh_fake_wd_name[id][k]; w[k]=0;
+    return 0; }
+static void* shim_user32_proc(const char* name){
+    if(!strcmp(name,"GetDisplayConfigBufferSizes")) return (void*)fu_gdcbs;
+    if(!strcmp(name,"QueryDisplayConfig")) return (void*)fu_qdc;
+    if(!strcmp(name,"DisplayConfigGetDeviceInfo")) return (void*)fu_dcgdi;
     return NULL;
 }

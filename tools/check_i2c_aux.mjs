@@ -66,9 +66,18 @@ const FAKE = (opt) => {
       if (m.type === 'dpcdread' || m.type === 'dpcdwrite') window.__dpcd = (window.__dpcd || []).concat([{ t: m.type, a: m.addr, d: m.data, n: m.len }]);
       const r = { id: m.id, ok: true, type: 'result', cmd: m.type };
       if (m.type === 'ping') Object.assign(r, { type: 'pong', helper: opt.proto >= 9 ? '1.20.0' : opt.proto >= 7 ? '1.18.0' : '1.17.0', proto: opt.proto, busy: false });
+      if (m.type === 'auxlist') {
+        Object.assign(r, { ok: true, displays: (opt.displays || []).map(d => Object.assign({}, d, { tcon43c: m.tcon ? (d.tcon43c || [0, 0]) : null })), windows: opt.windows || [] });
+        return reply(ws, r); }
+      if (m.type === 'i2craw' || m.type === 'ioaread') {
+        if (m.type === 'i2craw' && m.dir === 'r' && /AMD/.test(opt.card || '')) Object.assign(r, { ok: false, amd: true, err: 'AMD stub' });
+        else if (m.type === 'i2craw' && m.dir === 'w') Object.assign(r, { ok: true });
+        else { r.data = []; for (let i = 0; i < (m.len || 1); i++) r.data.push(0x5A); }
+        return reply(ws, r); }
       if (m.type === 'open') {
         aux = (m.mode === 4);
-        if (aux) Object.assign(r, { channels: 1, aux: true, card: opt.card || 'INTEL', monitor: 2, projic: 1, admin: opt.admin !== false, psrSupported: true, psrOn: false, psrTurnedOff: true, tconInit: opt.tconInit !== false },
+        window.__rawOpen = m.raw ? { card: m.card, monitor: m.monitor } : null;
+        if (aux) Object.assign(r, { channels: 1, aux: true, card: opt.card || 'INTEL', monitor: m.raw ? m.monitor : 2, projic: 1, admin: opt.admin !== false, psrSupported: true, psrOn: false, psrTurnedOff: true, tconInit: opt.tconInit !== false, raw: !!m.raw },
                                opt.proto >= 9 ? { regPath: 'auto', eeRead: true } : {});
         else Object.assign(r, { channels: 1 });
       }
@@ -352,6 +361,69 @@ try {
     check(`${xp}：按停用的外部 Flash 不會切過去`, await page.$eval('#in-devtype', e => e.value) !== 'sf');
     check(`${xp}：EEPROM 照常可選`, !(await page.$eval('#mode-seg [data-mode="ee"]', b => b.disabled)));
     if (SHOTS) await page.screenshot({ path: SHOTS + `/sf_e503_${xp}.png`, fullPage: false });
+    check('沒有 JS 錯誤', errs.length === 0, errs.join(' | ').slice(0, 300));
+    await ctx.close();
+  }
+  /* v1.42.0：DPCD／IOA 工具（照 AUX_GUI 1.48.0 DPCD 分頁）—— 照使用者操作：切 AUX → 分頁「DPCD／IOA 工具」→ 列出螢幕 → 選 → 連線（不初始化）→ 加入／執行 */
+  console.log('G. DPCD／IOA 工具');
+  {
+    const displays = [
+      { card: 1, cardName: 'AMD', monitor: 0, dpcdRev: 0x14, oui: '00001C', devId: 'eDP', edid: { mfg: 'BOE', prod: '09E5', name: 'NE160' }, win: { gdi: '\\\\.\\DISPLAY1', name: '', tech: 'DISPLAYPORT_EMBEDDED', techId: 11 } },
+      { card: 1, cardName: 'AMD', monitor: 1, dpcdRev: 0x12, oui: '000000', devId: '', edid: { mfg: 'BOE', prod: '0B21', name: '' }, win: { gdi: '\\\\.\\DISPLAY2', name: 'E503 board', tech: 'DISPLAYPORT_EXTERNAL', techId: 10 }, tcon43c: [0xE5, 0x03] }
+    ];
+    const { ctx, page, errs } = await open({ proto: 10, card: 'AMD', admin: false, displays, windows: [{ gdi: '\\\\.\\DISPLAY1', tech: 'DISPLAYPORT_EMBEDDED', techId: 11 }, { gdi: '\\\\.\\DISPLAY2', tech: 'DISPLAYPORT_EXTERNAL', techId: 10 }] });
+    check('I2C 模式沒有 DPCD 分頁', await page.$eval('#aux-tabs', e => e.style.display === 'none'));
+    await page.click('#xport-seg [data-x="aux"]'); await sleep(150);
+    check('AUX 模式出現「讀寫流程｜DPCD／IOA 工具」', await page.$eval('#aux-tabs', e => e.style.display !== 'none' && /讀寫流程/.test(e.textContent) && /DPCD／IOA 工具/.test(e.textContent)));
+    await page.click('#aux-tabs [data-tab="tool"]'); await sleep(150);
+    check('切到工具 ⇒ 讀寫流程的步驟藏起來、工具出現', await page.evaluate(() => document.getElementById('card-conn').style.display === 'none' && document.getElementById('dpcd-panel').style.display !== 'none'));
+    const m0 = await page.evaluate(() => window.__msgs.length);
+    await page.click('#dp-list'); await waitFor(page, () => document.querySelectorAll('input[name="dp-sel"]').length === 2);
+    const sel = await page.evaluate(() => { const r = document.querySelector('input[name="dp-sel"]:checked'); return r ? r.value : null; });
+    check('列出 2 台；沒 Check 時不替使用者選（不猜內建／外接）', sel === null, String(sel));
+    const tx = await page.$eval('#dpcd-panel', e => e.textContent);
+    check('清單只列事實：\\\\.\\DISPLAYn、EDID、Windows 回報接口原話（DisplayPort／內嵌 DisplayPort（eDP））', /\\\\\.\\DISPLAY2/.test(tx) && /BOE 09E5/.test(tx) && /E503 board/.test(tx) && /Windows 回報接口/.test(tx) && /內嵌 DisplayPort（eDP）/.test(tx) && /DISPLAYPORT_EXTERNAL/.test(tx), tx.slice(0, 300));
+    check('沒有「內建／外接」結論字樣', !/內建|外接|電腦本身/.test(tx));
+    const sent0 = await page.evaluate((n) => window.__msgs.slice(n).map(m => m.t), m0);
+    check('列出螢幕：只送 auxlist（沒有 open／寫入）', sent0.length === 1 && sent0[0] === 'auxlist', JSON.stringify(sent0));
+    await page.evaluate(() => { window.__cf = []; window.__cfAns = true; window.confirm = (m) => { window.__cf.push(m); return window.__cfAns; }; });
+    await page.click('input[name="dp-sel"][value="0"]'); await sleep(150);
+    check('手動選 monitor 0：直接選得到、不跳確認、不加結論', await page.evaluate(() => document.querySelector('input[name="dp-sel"]:checked').value === '0' && window.__cf.length === 0 && !/電腦本身/.test(document.getElementById('dpcd-panel').textContent)));
+    await page.click('#dp-check'); await waitFor(page, () => /找到我家 TCON/.test(document.getElementById('dp-msg').textContent));
+    check('Check 我家 TCON：0x43C＝E5 03 那台自動選、標「我家 TCON 回應（E503）」', await page.evaluate(() => document.querySelector('input[name="dp-sel"]:checked').value === '1' && /我家 TCON 回應（E503）/.test(document.getElementById('dpcd-panel').textContent)));
+    await page.click('#dp-conn'); await waitFor(page, () => i2ctAuxIsRaw());
+    const ro = await page.evaluate(() => window.__rawOpen);
+    check('連線（不初始化）⇒ open 帶 raw:1、card 1、monitor 1', ro && ro.card === 1 && ro.monitor === 1, JSON.stringify(ro));
+    check('raw 連線狀態寫出目標螢幕', /已連線（AUX · AMD · 螢幕 1/.test(await page.$eval('#dp-state', e => e.textContent)));
+    /* 加入一筆 DPCD read 0x00000 ×1 */
+    await page.selectOption('#dp-op', 'dr'); await page.fill('#dp-addr', '00000'); await page.selectOption('#dp-n', '1'); await page.click('#dp-add');
+    check('＋加入 ⇒ script「90 00 00 00」', /^90 00 00 00\n$/.test(await page.$eval('#dp-script', e => e.value)));
+    await page.fill('#dp-script', '// test\n90 00 00 00\n40 00 50 00 00\n10 00 50 07\nSleep 1 ms\n');
+    const m1 = await page.evaluate(() => window.__msgs.length);
+    await page.evaluate(() => { window.__cf = []; window.__cfAns = true; });
+    await page.click('#dp-run'); await waitFor(page, () => /完成/.test(document.getElementById('dp-msg').textContent), null, 8000);
+    const sent1 = await page.evaluate((n) => window.__msgs.slice(n).map(m => m.t), m1);
+    const dlg = await page.evaluate(() => window.__cf[0] || null);
+    check('有寫入（IOA write）⇒ 先確認，確認框只列事實：螢幕、\\\\.\\DISPLAY2、EDID、Windows 回報接口、我家 TCON 回應', dlg && /AMD · 螢幕 1/.test(dlg) && /DISPLAY2/.test(dlg) && /EDID BOE 0B21/.test(dlg) && /Windows 回報接口：DisplayPort/.test(dlg) && /我家 TCON 回應（E503）/.test(dlg) && !/內建|外接/.test(dlg) && /40 00 50 00 00/.test(dlg), dlg);
+    check('AMD：IOA 寫 offset＋讀 合併成一次 ioaread（照 AUX_GUI ScriptAmdRun）', JSON.stringify(sent1) === JSON.stringify(['dpcdread', 'ioaread']), JSON.stringify(sent1));
+    const lg = await page.$eval('#dp-log', e => e.textContent);
+    check('log：SYS DPCD RD、I2C over AUX、ACK', /SYS DPCD RD 1 bytes from \[0x00000\]/.test(lg) && /I2C over AUX/.test(lg) && /ACK \+ 0x/.test(lg), lg.slice(0, 200));
+    check('讀寫流程的 T-CON 操作在 raw 連線下停用', await page.evaluate(() => document.getElementById('btn-checktcon').disabled && document.getElementById('btn-read').disabled));
+    await page.fill('#dp-script', '80 00 01 00 0A\n');
+    await page.evaluate(() => { window.__cfAns = false; });
+    const m2 = await page.evaluate(() => window.__msgs.length);
+    await page.click('#dp-run'); await sleep(300);
+    check('寫入確認按取消 ⇒ 一筆都沒送', (await page.evaluate((n) => window.__msgs.length - n, m2)) === 0);
+    await page.fill('#dp-script', '90 00 00\n');
+    await page.click('#dp-run'); await sleep(150);
+    check('格式錯 ⇒ 指出第幾筆、不送', /第 1 筆 Script 格式不正確/.test(await page.$eval('#dp-msg', e => e.textContent)));
+    const pl = await page.evaluate(() => [AuxDpcd.parseLine('90 07 00 0F').n, AuxDpcd.parseLine('80 04 D2 00 AD').data[0], AuxDpcd.parseLine('81 00 00 01 AA'), AuxDpcd.makeLine('iwm', 0x50, 2, [0, 0])]);
+    check('script 規則：長度＝碼值＋1、寫入資料數要等於長度、ADD 格式', pl[0] === 16 && pl[1] === 0xAD && pl[2] === null && pl[3] === '40 00 50 01 00 00', JSON.stringify(pl));
+    await page.click('#aux-tabs [data-tab="flow"]'); await sleep(150);
+    check('回讀寫流程 ⇒ 步驟回來、連線資訊說明是工具的連線', await page.evaluate(() => document.getElementById('card-conn').style.display !== 'none' && /DPCD／IOA 工具的連線/.test(document.getElementById('conn-info').textContent)));
+    await page.click('#xport-seg [data-x="jig"]'); await sleep(150);
+    check('切回 I2C ⇒ 分頁切換消失', await page.$eval('#aux-tabs', e => e.style.display === 'none'));
+    if (SHOTS) await page.screenshot({ path: SHOTS + '/dpcd_tool.png', fullPage: true });
     check('沒有 JS 錯誤', errs.length === 0, errs.join(' | ').slice(0, 300));
     await ctx.close();
   }

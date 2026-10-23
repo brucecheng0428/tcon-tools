@@ -15,6 +15,12 @@
 #include <time.h>
 
 int dgh_main(int argc, char** argv);
+extern int dgh_fake_aux_edid_on; extern unsigned char dgh_fake_aux_edid[20][128];
+extern int dgh_fake_wd_n; extern unsigned dgh_fake_wd_tech[8]; extern unsigned short dgh_fake_wd_mfg[8], dgh_fake_wd_prod[8]; extern char dgh_fake_wd_name[8][32];
+static void mk_edid(unsigned char* e, const char* mfg, unsigned prod, const char* nm){
+    unsigned m=((unsigned)(mfg[0]-'@')<<10)|((unsigned)(mfg[1]-'@')<<5)|(unsigned)(mfg[2]-'@'); int i;
+    memset(e,0,128); e[1]=e[2]=e[3]=e[4]=e[5]=e[6]=0xFF; e[8]=(unsigned char)(m>>8); e[9]=(unsigned char)m; e[10]=(unsigned char)prod; e[11]=(unsigned char)(prod>>8);
+    e[72+3]=0xFC; for(i=0;nm[i]&&i<13;i++) e[72+5+i]=(unsigned char)nm[i]; if(i<13) e[72+5+i]=0x0A; }
 extern int dgh_fake_open_calls, dgh_fake_close_calls, dgh_fake_live, dgh_fake_writes, dgh_fake_reads;
 extern int dgh_serve_files;   /* v1.7.0：靜態檔服務的開關（預設 0） */
 extern int dgh_fast_read;     /* v1.8.0：讀取走不走 fast 路徑 */
@@ -158,7 +164,7 @@ int main(void){
     char b[16384], hello[1024];
     int s=ws_open(hello,sizeof(hello));
     CHECK(s>=0,"WebSocket 連得上"); if(s<0){ printf("%d/%d\n",total-fails,total); return 1; }
-    CHECKS(hello,"\"proto\":9","hello 回報 proto 9（1.20.0 起）");
+    CHECKS(hello,"\"proto\":10","hello 回報 proto 10（1.23.0 起）");
 
     G("1. DLL 不在：清楚的錯誤，治具功能不受影響");
     jcmd(s,"{\"type\":\"open\",\"id\":1,\"mode\":4}",b,sizeof(b));
@@ -354,6 +360,98 @@ int main(void){
     jcmd(s,"{\"type\":\"open\",\"id\":29,\"mode\":4}",b,sizeof(b));
     { int rel=dgh_fake_aux_release_calls; close(s); msleep(300);
       EQ_I(dgh_fake_aux_release_calls,rel+1,"分頁斷線 ⇒ Release()"); }
+
+    G("10. 1.23.0 raw（DPCD／IOA 工具）：auxlist 只 Initial／Release；raw open 不初始化；i2craw／ioaread");
+    {   char h3[1024]; int s3=ws_open(h3,sizeof(h3)), s4, dw0, ini0, rel0;
+        CHECK(s3>=0,"新連線");
+        dgh_fake_aux_ok_mask = 0x5;   /* monitor 0、2 Initial OK */
+        /* monitor 0 ＝ 筆電內建 BOE（Windows：internal）；monitor 2 ＝ 外接 DEL（Windows：DisplayPort external） */
+        dgh_fake_aux_edid_on=1; mk_edid(dgh_fake_aux_edid[0],"BOE",0x09E5,"NE160QDM"); mk_edid(dgh_fake_aux_edid[2],"DEL",0xA0F4,"DELL U2720Q");
+        dgh_fake_wd_n=2; dgh_fake_wd_tech[0]=0x80000000u; dgh_fake_wd_mfg[0]=(unsigned short)((dgh_fake_aux_edid[0][8]<<8)|dgh_fake_aux_edid[0][9]); dgh_fake_wd_prod[0]=0x09E5; snprintf(dgh_fake_wd_name[0],32,"%s","");
+        dgh_fake_wd_tech[1]=10u; dgh_fake_wd_mfg[1]=(unsigned short)((dgh_fake_aux_edid[2][9]<<8)|dgh_fake_aux_edid[2][8]); dgh_fake_wd_prod[1]=0xA0F4; snprintf(dgh_fake_wd_name[1],32,"%s","DELL U2720Q");
+        dw0=dgh_fake_aux_dpcd_writes; ini0=dgh_fake_aux_init_calls; rel0=dgh_fake_aux_release_calls;
+        jcmd(s3,"{\"type\":\"auxlist\",\"id\":1001}",b,sizeof(b));
+        CHECKS(b,"\"ok\":true","auxlist ok");
+        CHECKS(b,"{\"card\":0,\"cardName\":\"INTEL\",\"monitor\":0,","auxlist 列出 monitor 0（GPU INTEL）");
+        CHECKS(b,"{\"card\":0,\"cardName\":\"INTEL\",\"monitor\":2,","auxlist 列出 monitor 2");
+        CHECKS(b,"\"edid\":{\"mfg\":\"BOE\",\"prod\":\"09E5\",\"name\":\"NE160QDM\"},\"tcon43c\":null,\"win\":{\"gdi\":\"\\\\\\\\.\\\\DISPLAY1\",\"name\":\"\",\"tech\":\"INTERNAL\",\"techId\":2147483648}","monitor 0：EDID BOE，Windows 原話 INTERNAL、\\\\.\\DISPLAY1");
+        CHECK(strstr(b,"\"conn\"")==NULL && strstr(b,"internal\"")==NULL && strstr(b,"external\"")==NULL,"不下內建／外接結論（沒有 conn 欄、沒有 internal／external 字樣）");
+        CHECKS(b,"\"name\":\"DELL U2720Q\",\"tech\":\"DISPLAYPORT_EXTERNAL\",\"techId\":10}","monitor 2：Windows 名稱＋DISPLAYPORT_EXTERNAL（EDID 廠商碼兩種位元組順序都對得到）");
+        CHECKS(b,"\"windows\":[{\"gdi\":\"\\\\\\\\.\\\\DISPLAY1\",\"name\":\"\",\"tech\":\"INTERNAL\"","回覆附上 Windows 的輸出清單");
+        CHECKS(b,"\"tcon43c\":null","沒帶 tcon:1 ⇒ 不讀 0x43C");
+        EQ_I(dgh_fake_aux_dpcd_writes,dw0,"auxlist：0 筆 DPCD 寫入");
+        EQ_I(dgh_fake_aux_init_calls-ini0,20,"auxlist：20 台各試一次 Initial");
+        EQ_I(dgh_fake_aux_release_calls-rel0,2,"Initial OK 的兩台各 Release 一次");
+        dgh_fake_aux_dpcd[0x43C]=0xE5; dgh_fake_aux_dpcd[0x43D]=0x03;
+        jcmd(s3,"{\"type\":\"auxlist\",\"id\":1030,\"tcon\":1}",b,sizeof(b));
+        CHECKS(b,"\"tcon43c\":[229,3]","tcon:1 ⇒ 讀 0x43C（唯讀）＝ E5 03");
+        EQ_I(dgh_fake_aux_dpcd_writes,dw0,"Check 我家 TCON：0 筆 DPCD 寫入");
+        dgh_fake_wd_n=0;
+        jcmd(s3,"{\"type\":\"auxlist\",\"id\":1031}",b,sizeof(b));
+        CHECKS(b,"\"win\":null,\"winWhy\":\"no Windows display info\"","Windows API 沒資料 ⇒ win:null（網頁不顯示那一欄）");
+        dgh_fake_aux_edid_on=0;
+        jcmd(s3,"{\"type\":\"auxlist\",\"id\":1032}",b,sizeof(b));
+        CHECKS(b,"\"edid\":null","EDID 讀不到 ⇒ edid:null");
+        CHECKS(b,"\"win\":null","EDID 讀不到 ⇒ 不附 Windows 資訊");
+        jcmd(s3,"{\"type\":\"open\",\"id\":1002,\"mode\":4,\"raw\":1}",b,sizeof(b));
+        CHECKS(b,"\"ok\":false","raw open 沒帶 card／monitor ⇒ 拒絕");
+        dw0=dgh_fake_aux_dpcd_writes;
+        jcmd(s3,"{\"type\":\"open\",\"id\":1003,\"mode\":4,\"raw\":1,\"card\":0,\"monitor\":0}",b,sizeof(b));
+        CHECKS(b,"\"ok\":true","raw open monitor 0（不是 T-CON 那台也開得起來）");
+        CHECKS(b,"\"raw\":true","回覆 raw:true"); CHECKS(b,"\"vendorSeq\":false","回覆 vendorSeq:false"); CHECKS(b,"\"monitor\":0","monitor 0");
+        EQ_I(dgh_fake_aux_dpcd_writes,dw0,"raw open：0 筆 DPCD 寫入（不初始化、不 End）");
+        jcmd(s3,"{\"type\":\"read\",\"id\":1004,\"slave\":62,\"addr\":0,\"awid\":2,\"len\":1}",b,sizeof(b));
+        CHECKS(b,"\"raw\":true","raw 連線下 T-CON 序列讀取被拒"); EQ_I(dgh_fake_aux_dpcd_writes,dw0,"被拒：0 筆寫入");
+        jcmd(s3,"{\"type\":\"rawwrite\",\"id\":1005,\"slave\":62,\"addr\":0,\"awid\":2,\"data\":[1]}",b,sizeof(b));
+        CHECKS(b,"\"raw\":true","raw 連線下 rawwrite 被拒");
+        dgh_fake_aux_dpcd[0]=0x14;
+        jcmd(s3,"{\"type\":\"dpcdread\",\"id\":1006,\"addr\":0,\"len\":1}",b,sizeof(b));
+        CHECKS(b,"\"data\":[20]","dpcdread 0x000 ＝ 0x14（DPCD 1.4）");
+        jcmd(s3,"{\"type\":\"dpcdwrite\",\"id\":1007,\"addr\":257,\"data\":[7]}",b,sizeof(b));
+        CHECKS(b,"\"ok\":true","dpcdwrite 0x101"); EQ_I(dgh_fake_aux_dpcd[0x101],7,"寫進去");
+        dgh_fake_aux_r7e[0xAB]=0x5A;
+        jcmd(s3,"{\"type\":\"i2craw\",\"id\":1008,\"dir\":\"w\",\"addr\":126,\"data\":[171],\"mot\":1}",b,sizeof(b));
+        CHECKS(b,"\"ok\":true","i2craw 寫 0x7E offset AB（MOT=1）");
+        jcmd(s3,"{\"type\":\"i2craw\",\"id\":1009,\"dir\":\"r\",\"addr\":126,\"len\":1,\"mot\":0}",b,sizeof(b));
+        CHECKS(b,"\"data\":[90]","i2craw 讀 0x7E ＝ 5A");
+        { int ee=dgh_fake_aux_ee_hits;
+          jcmd(s3,"{\"type\":\"i2craw\",\"id\":1010,\"dir\":\"w\",\"addr\":80,\"data\":[0,0]}",b,sizeof(b));
+          CHECKS(b,"\"blocked\":true","i2craw 寫 0x50（EEPROM）擋"); EQ_I(dgh_fake_aux_ee_hits,ee,"假 EEPROM 沒被碰"); }
+        jcmd(s3,"{\"type\":\"i2craw\",\"id\":1011,\"dir\":\"r\",\"addr\":80,\"len\":8}",b,sizeof(b));
+        CHECKS(b,"238,238","i2craw 讀 0x50 放行（只讀）");
+        jcmd(s3,"{\"type\":\"ioaread\",\"id\":1012,\"slave\":126,\"obytes\":1,\"start\":171,\"len\":1}",b,sizeof(b));
+        CHECKS(b,"\"data\":[90]","ioaread 7E:AB ＝ 5A");
+        jcmd(s3,"{\"type\":\"i2craw\",\"id\":1013,\"dir\":\"x\",\"addr\":126,\"len\":1}",b,sizeof(b));
+        CHECKS(b,"\"ok\":false","dir 不合法 ⇒ 拒絕");
+        s4=ws_open(h3,sizeof(h3));
+        jcmd(s4,"{\"type\":\"auxlist\",\"id\":1014}",b,sizeof(b));
+        CHECKS(b,"\"busy\":true","別的連線持有 AUX ⇒ auxlist 不碰");
+        jcmd(s4,"{\"type\":\"i2craw\",\"id\":1015,\"dir\":\"r\",\"addr\":126,\"len\":1}",b,sizeof(b));
+        CHECKS(b,"\"busy\":true","非持有者不能 i2craw");
+        close(s4); msleep(150);
+        dw0=dgh_fake_aux_dpcd_writes;
+        jcmd(s3,"{\"type\":\"auxlist\",\"id\":1016}",b,sizeof(b));
+        CHECKS(b,"\"monitor\":2","持有者 auxlist：照樣列出");
+        jcmd(s3,"{\"type\":\"dpcdread\",\"id\":1017,\"addr\":0,\"len\":1}",b,sizeof(b));
+        CHECKS(b,"\"data\":[20]","auxlist 之後原本那台重新 Initial，照常讀得到");
+        EQ_I(dgh_fake_aux_dpcd_writes,dw0,"持有者 auxlist：0 筆 DPCD 寫入");
+        snprintf(dgh_shim_adapter,sizeof(dgh_shim_adapter),"%s","AMD Radeon(TM) Graphics");
+        jcmd(s3,"{\"type\":\"open\",\"id\":1018,\"mode\":4,\"raw\":1,\"card\":1,\"monitor\":2}",b,sizeof(b));
+        jcmd(s3,"{\"type\":\"close\",\"id\":1019}",b,sizeof(b));
+        jcmd(s3,"{\"type\":\"open\",\"id\":1020,\"mode\":4,\"raw\":1,\"card\":1,\"monitor\":2}",b,sizeof(b));
+        CHECKS(b,"\"card\":\"AMD\"","raw open AMD monitor 2");
+        jcmd(s3,"{\"type\":\"i2craw\",\"id\":1021,\"dir\":\"r\",\"addr\":126,\"len\":1}",b,sizeof(b));
+        CHECKS(b,"\"amd\":true","AMD：i2craw 讀拒絕（I2C_Read 是空函式），指向 ioaread");
+        jcmd(s3,"{\"type\":\"ioaread\",\"id\":1022,\"slave\":126,\"obytes\":1,\"start\":171,\"len\":1}",b,sizeof(b));
+        CHECKS(b,"\"data\":[90]","AMD：ioaread 照常");
+        dw0=dgh_fake_aux_dpcd_writes;
+        jcmd(s3,"{\"type\":\"open\",\"id\":1023,\"mode\":4}",b,sizeof(b));
+        CHECKS(b,"\"raw\":false","同一連線改回一般 AUX ⇒ 照原廠序列重開（raw:false）");
+        CHECK(dgh_fake_aux_dpcd_writes>dw0,"一般 AUX 重開才有初始化寫入");
+        snprintf(dgh_shim_adapter,sizeof(dgh_shim_adapter),"%s","Intel(R) Iris(R) Xe Graphics");
+        dgh_fake_aux_ok_mask = 0;
+        close(s3); msleep(200);
+    }
 
     printf("\n================================================================\n");
     printf("%s %d / %d\n", fails?"🔴 未通過":"✅ 全部通過", total-fails, total);

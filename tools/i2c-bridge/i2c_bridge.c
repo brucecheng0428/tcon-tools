@@ -1627,6 +1627,7 @@ static char g_auxPath[MAX_PATH] = "";
 static char g_auxLoadErr[400] = "";
 static int  g_auxCard = -1, g_auxMon = -1, g_auxProj = 1;
 static int  g_auxTconSeen = 0;   /* 1.21.0: the chosen display answered the vendor 3E probe */
+static int  g_auxRaw = 0;        /* 1.23.0: raw session (DPCD/IOA tool): Initial only, no T-CON sequence */
 static int  g_auxAdmin = -1;          /* -1 未知、0 否、1 是 */
 static int  g_auxPsrSup = -1, g_auxPsrOn = -1, g_auxPsrWeOff = 0;
 static char g_auxAdapters[300] = "";
@@ -1750,12 +1751,33 @@ static char g_auxOpenErr[600] = "";
      然後 Initial：Initial ＋ ① 初始化（AuxApi.cs:144–146），再 Tcon_End ④（AuxChannelModuleBase.cs:107–110）。
    原廠沒有的拿掉：PSR 關閉（GraphicsPsrEnable 在 EN01 UI 沒有呼叫）、舊的 tconinit（flash 版初始化留到關閉才收尾）。
    ⚠ 照原廠：掃描時每一台 Initial OK 的螢幕都會被寫 ①（Windows mini 的 monitor 0 是另一台 DP 螢幕，也會寫到，第一筆寫失敗就停）。 */
-static int aux_open(int cardReq, int monReq, int projReq, int rom){
+static int aux_open(int cardReq, int monReq, int projReq, int rom, int raw){
     int cards[4], nc, ci, m, lastCard=-1, lastMon=-1, nCand=0;
     char e[300]="";
     g_auxOpenErr[0]=0;
-    if(g_auxOpen) return 1;
+    if(g_auxOpen && g_auxRaw==(raw?1:0)) return 1;
+    if(g_auxOpen){ if(g_aux.Release) g_aux.Release(); g_auxOpen=0; logline("  aux     : switching %s -> %s session: released", g_auxRaw?"raw":"vendor", raw?"raw":"vendor"); }
     if(!aux_load()){ snprintf(g_auxOpenErr,sizeof(g_auxOpenErr),"%s",g_auxLoadErr); return 0; }
+    /* 1.23.0 raw：不掃描、不初始化、不 End —— 只對網頁指定的那一台做 Initial（DPCD／IOA 工具，任何廠牌的 sink） */
+    if(raw){
+        unsigned char c, mo, pj; char b[96];
+        if(cardReq<0||cardReq>3||monReq<0||monReq>19){ snprintf(g_auxOpenErr,sizeof(g_auxOpenErr),"DP AUX raw: card (0..3) and monitor (0..19) are required (use auxlist first)"); return 0; }
+        g_auxProj = (projReq>=0 && projReq<=3) ? projReq : 1;
+        c=(unsigned char)cardReq; mo=(unsigned char)monReq; pj=(unsigned char)g_auxProj;
+        g_aux.tx = aux_tx; g_aux.card = cardReq;
+        snprintf(b,sizeof(b),"== raw Initial card=%s monitor=%d (no T-CON init)", dgh_aux_card_name((unsigned)cardReq), monReq); aux_tx(b);
+        if(g_aux.Initial(&c,&mo,&pj)!=0){ snprintf(g_auxOpenErr,sizeof(g_auxOpenErr),"DP AUX raw: Initial(card %s, monitor %d) failed", dgh_aux_card_name((unsigned)cardReq), monReq); logline("  aux     : %s", g_auxOpenErr); return 0; }
+        g_auxCard=cardReq; g_auxMon=monReq; g_auxOpen=1; g_auxRaw=1; g_auxTconSeen=0;
+#ifdef _WIN32
+        g_auxAdmin = IsUserAnAdmin() ? 1 : 0;
+#else
+        g_auxAdmin = dgh_shim_is_admin ? 1 : 0;
+#endif
+        logline("  aux     : raw Initial(card=%s, monitor=%d) = OK (no scan, no T-CON init, no End)", dgh_aux_card_name((unsigned)cardReq), monReq);
+        aux_psr_read(); g_auxPsrWeOff = 0;
+        return 1;
+    }
+    g_auxRaw = 0;
     g_auxProj = (projReq>=0 && projReq<=3) ? projReq : 1;
     g_aux.rom = (rom==DGH_AUX_ROM_FLASH) ? DGH_AUX_ROM_FLASH : DGH_AUX_ROM_EEPROM;
     g_aux.tx = aux_tx;
@@ -1819,12 +1841,126 @@ static int aux_open(int cardReq, int monReq, int projReq, int rom){
     g_auxPsrWeOff = 0;
     return 1;
 }
+/* ═══ 1.23.0：Windows DisplayConfig（user32，執行時載入）══════════════════════════
+   Bruce 2026-10-23：螢幕要「很確定是外接的那一個」，避免誤寫電腦本身的螢幕。
+   QueryDisplayConfig ＋ DisplayConfigGetDeviceInfo(GET_TARGET_NAME／GET_SOURCE_NAME) ⇒ 每個作用中的輸出：
+   outputTechnology（Windows 回報的接口，照列舉名原樣回）、顯示名稱、\\.\DISPLAYn、EDID 廠商／產品碼。
+   🔴 Bruce 2026-10-23：不下「內建／外接」結論，只給事實，由使用者判斷。
+   DLL 的 monitor 編號跟 Windows 的輸出沒有公開的對應 ⇒ 用 AUX 讀到的 EDID（DDC over AUX，唯讀）
+   的廠商＋產品碼去對 Windows 的那一筆；對到唯一一筆（或對到的全是同一類）才採用，否則「不確定」。
+   結構照 wingdi.h（全部 4-byte 對齊；MODE_INFO 因 UINT64 是 64 byte）。 */
+typedef struct { uint32_t lo; int32_t hi; } DGH_LUID;
+typedef struct { DGH_LUID adapterId; uint32_t id, modeInfoIdx, statusFlags; } DGH_DC_SRC;
+typedef struct { DGH_LUID adapterId; uint32_t id, modeInfoIdx, outputTechnology, rotation, scaling, rrN, rrD, scanLineOrdering; int32_t targetAvailable; uint32_t statusFlags; } DGH_DC_TGT;
+typedef struct { DGH_DC_SRC src; DGH_DC_TGT tgt; uint32_t flags; } DGH_DC_PATH;
+typedef struct { uint32_t infoType, id; DGH_LUID adapterId; uint32_t u[12]; } DGH_DC_MODE;
+typedef struct { uint32_t type, size; DGH_LUID adapterId; uint32_t id; } DGH_DC_HDR;
+typedef struct { DGH_DC_HDR h; uint32_t flags, outputTechnology; uint16_t mfg, prod; uint32_t connectorInstance; uint16_t name[64]; uint16_t path[128]; } DGH_DC_TNAME;
+typedef long (WINAPI *PFN_DGH_GDCBS)(uint32_t, uint32_t*, uint32_t*);
+typedef long (WINAPI *PFN_DGH_QDC)(uint32_t, uint32_t*, DGH_DC_PATH*, uint32_t*, DGH_DC_MODE*, void*);
+typedef long (WINAPI *PFN_DGH_DCGDI)(DGH_DC_HDR*);
+typedef struct { DGH_DC_HDR h; uint16_t gdi[32]; } DGH_DC_SNAME;   /* GET_SOURCE_NAME：viewGdiDeviceName（\\.\DISPLAYn） */
+typedef struct { uint32_t tech; uint16_t mfg, prod; char name[130]; char gdi[40]; } DGH_WINDISP;
+static DGH_WINDISP g_wd[16]; static int g_nwd = 0;
+/* Windows DISPLAYCONFIG_VIDEO_OUTPUT_TECHNOLOGY 的列舉名（照 Windows 原話回給網頁，不轉譯成內建／外接 ——
+   Bruce 2026-10-23「是不是內建的由使用者自己來判斷」） */
+static const char* dgh_tech_name(uint32_t t){
+    switch(t){ case 0: return "HD15"; case 1: return "SVIDEO"; case 2: return "COMPOSITE_VIDEO"; case 3: return "COMPONENT_VIDEO"; case 4: return "DVI"; case 5: return "HDMI";
+      case 6: return "LVDS"; case 8: return "D_JPN"; case 9: return "SDI"; case 10: return "DISPLAYPORT_EXTERNAL"; case 11: return "DISPLAYPORT_EMBEDDED";
+      case 12: return "UDI_EXTERNAL"; case 13: return "UDI_EMBEDDED"; case 14: return "SDTVDONGLE"; case 15: return "MIRACAST"; case 16: return "INDIRECT_WIRED";
+      case 17: return "INDIRECT_VIRTUAL"; case 18: return "DISPLAYPORT_USB_TUNNEL"; case 0x80000000u: return "INTERNAL"; default: return "OTHER"; }
+}
+static void aux_windisp(void){
+    HMODULE u = LoadLibraryA("user32.dll");
+    PFN_DGH_GDCBS gs; PFN_DGH_QDC q; PFN_DGH_DCGDI gi;
+    uint32_t np=0, nm=0, i, k; DGH_DC_PATH* P=NULL; DGH_DC_MODE* M=NULL;
+    g_nwd = 0;
+    if(!u){ logline("  aux     : DisplayConfig: user32.dll not available"); return; }
+    gs=(PFN_DGH_GDCBS)GetProcAddress(u,"GetDisplayConfigBufferSizes"); q=(PFN_DGH_QDC)GetProcAddress(u,"QueryDisplayConfig"); gi=(PFN_DGH_DCGDI)GetProcAddress(u,"DisplayConfigGetDeviceInfo");
+    if(!gs||!q||!gi){ logline("  aux     : DisplayConfig API not found (Windows 7+ needed)"); return; }
+    if(gs(2u,&np,&nm)!=0 || np==0){ logline("  aux     : GetDisplayConfigBufferSizes failed"); return; }   /* QDC_ONLY_ACTIVE_PATHS */
+    P=(DGH_DC_PATH*)calloc(np,sizeof(*P)); M=(DGH_DC_MODE*)calloc(nm?nm:1,sizeof(*M));
+    if(P && M && q(2u,&np,P,&nm,M,NULL)==0){
+        for(i=0;i<np && g_nwd<16;i++){
+            DGH_DC_TNAME tn; memset(&tn,0,sizeof(tn));
+            tn.h.type=2u; tn.h.size=(uint32_t)sizeof(tn); tn.h.adapterId=P[i].tgt.adapterId; tn.h.id=P[i].tgt.id;   /* GET_TARGET_NAME */
+            if(gi(&tn.h)!=0) continue;
+            g_wd[g_nwd].tech=tn.outputTechnology; g_wd[g_nwd].mfg=tn.mfg; g_wd[g_nwd].prod=tn.prod; g_wd[g_nwd].gdi[0]=0;
+            {   DGH_DC_SNAME sn; memset(&sn,0,sizeof(sn)); sn.h.type=1u; sn.h.size=(uint32_t)sizeof(sn); sn.h.adapterId=P[i].src.adapterId; sn.h.id=P[i].src.id;   /* GET_SOURCE_NAME */
+                if(gi(&sn.h)==0){ uint32_t q=0; for(k=0;k<32 && sn.gdi[k] && q<(uint32_t)sizeof(g_wd[0].gdi)-3;k++){ uint16_t w=sn.gdi[k];   /* JSON 跳脫：反斜線寫兩次 */
+                    if(w=='\\'){ g_wd[g_nwd].gdi[q++]='\\'; g_wd[g_nwd].gdi[q++]='\\'; } else g_wd[g_nwd].gdi[q++]=(char)((w>=0x20&&w<0x7F&&w!='"')?w:'?'); } g_wd[g_nwd].gdi[q]=0; } }
+            for(k=0;k<64 && tn.name[k] && k<(uint32_t)sizeof(g_wd[0].name)-1;k++){ uint16_t w=tn.name[k]; g_wd[g_nwd].name[k]=(char)((w>=0x20&&w<0x7F&&w!='"'&&w!='\\')?w:'?'); }
+            g_wd[g_nwd].name[k]=0;
+            logline("  aux     : Windows display %d: %s \"%s\" outputTechnology=%s (%u) EDID mfg=%04X prod=%04X", g_nwd, g_wd[g_nwd].gdi, g_wd[g_nwd].name, dgh_tech_name(tn.outputTechnology), tn.outputTechnology, tn.mfg, tn.prod);
+            g_nwd++;
+        }
+    } else logline("  aux     : QueryDisplayConfig failed");
+    free(P); free(M);
+}
+static uint16_t dgh_swap16(uint16_t v){ return (uint16_t)((v>>8)|(v<<8)); }
+/* 1.23.0 auxlist：每張顯卡、monitor 0..19 只試 Initial（OK 就記下來）再 Release —— 不送任何 DPCD／IOA。
+   這條連線自己持有的 AUX 開著 ⇒ 先 Release，掃完照原本那一台重新 Initial（不做 T-CON 初始化）。 */
+static int aux_list(char* out, int cap, int reopen, int probeTcon){
+    int cards[4], nc, ci, m, o=0, n=0, savedCard=g_aux.card;
+    o += snprintf(out+o, cap-o, "[");
+    if(!aux_load()){ snprintf(g_auxOpenErr,sizeof(g_auxOpenErr),"%s",g_auxLoadErr); return -1; }
+    nc = aux_cards(cards,4);
+    aux_windisp();
+    g_aux.tx = aux_tx; if(!g_aux.sleep_ms) g_aux.sleep_ms = aux_sleep;
+    if(reopen && g_auxOpen && g_aux.Release) g_aux.Release();
+    aux_tx("== auxlist (Initial / Release only, no DPCD)");
+    for(ci=0;ci<nc;ci++) for(m=0;m<20;m++){
+        unsigned char c=(unsigned char)cards[ci], mo=(unsigned char)m, pj=(unsigned char)g_auxProj;
+        uint8_t rev=0, oui[12], tc[2], ed[128]; int okRev, okOui, okTc=0, okEd=1, k, w, match=-1, nmatch=0; char er[200]; uint16_t mfg=0, prod=0; char nm[16]="";
+        if(g_aux.Initial(&c,&mo,&pj)!=0) continue;
+        g_aux.card = cards[ci];
+        { char b[80]; snprintf(b,sizeof(b),"-- auxlist card=%s monitor=%d (reads only)", dgh_aux_card_name((unsigned)cards[ci]), m); aux_tx(b); }
+        /* 只讀：DPCD 0x000（版本）、0x400–0x40B（sink OUI／裝置 ID，DP 標準）、EDID（DDC over AUX，slave 0x50）；tcon:1 才讀 0x43C（瑞鼎 Tcon Name） */
+        memset(oui,0,sizeof(oui)); memset(tc,0,sizeof(tc)); memset(ed,0,sizeof(ed));
+        okRev = dgh_aux_b(g_aux.DpcdRead(1,0x000,&rev));
+        okOui = dgh_aux_b(g_aux.DpcdRead(12,0x400,oui));
+        if(probeTcon) okTc = dgh_aux_b(g_aux.DpcdRead(2,0x43C,tc));
+        for(k=0;k<8 && okEd;k++){ er[0]=0; okEd = dgh_v_ioa_read(&g_aux, 0x50u, (uint32_t)(k*16), 1u, 16u, ed+k*16, 1u, er, sizeof(er)); }
+        okEd = okEd && ed[0]==0x00 && ed[1]==0xFF && ed[2]==0xFF && ed[7]==0x00;
+        if(g_aux.Release) g_aux.Release();
+        if(okEd){
+            mfg = (uint16_t)((ed[8]<<8)|ed[9]); prod = (uint16_t)(ed[10]|(ed[11]<<8));
+            nm[0]=(char)('@'+((mfg>>10)&31)); nm[1]=(char)('@'+((mfg>>5)&31)); nm[2]=(char)('@'+(mfg&31)); nm[3]=0;
+            for(w=0;w<g_nwd;w++) if((g_wd[w].mfg==mfg || g_wd[w].mfg==dgh_swap16(mfg)) && g_wd[w].prod==prod){ if(nmatch==0) match=w; nmatch++; }
+        }
+        if(o < cap-700){
+            char edn[16]=""; int e2; char name[14]=""; int q2=0;
+            for(e2=54;okEd && e2<=108;e2+=18) if(ed[e2]==0&&ed[e2+1]==0&&ed[e2+3]==0xFC){ int t; for(t=5;t<18 && ed[e2+t]!=0x0A && q2<13;t++){ unsigned char ch=ed[e2+t]; name[q2++]=(char)((ch>=0x20&&ch<0x7F&&ch!='"'&&ch!='\\')?ch:'?'); } name[q2]=0; break; }
+            snprintf(edn,sizeof(edn),"%04X",prod);
+            o += snprintf(out+o, cap-o, "%s{\"card\":%d,\"cardName\":\"%s\",\"monitor\":%d,\"dpcdRev\":%s%d,\"oui\":\"%02X%02X%02X\",\"devId\":\"",
+                n?",":"", cards[ci], dgh_aux_card_name((unsigned)cards[ci]), m, okRev?"":"null,\"_r\":", okRev?rev:0, oui[0],oui[1],oui[2]);
+            for(k=3;k<9;k++){ unsigned char ch=oui[k]; if(okOui && ch>=0x20 && ch<0x7F && ch!='"' && ch!='\\' && o<cap-10) out[o++]=(char)ch; }
+            out[o]=0;
+            o += snprintf(out+o, cap-o, "\",\"edid\":%s", okEd?"{":"null");
+            if(okEd) o += snprintf(out+o, cap-o, "\"mfg\":\"%s\",\"prod\":\"%s\",\"name\":\"%s\"}", nm, edn, name);
+            o += snprintf(out+o, cap-o, ",\"tcon43c\":%s", (probeTcon&&okTc)?"[":"null");
+            if(probeTcon&&okTc) o += snprintf(out+o, cap-o, "%u,%u]", tc[0], tc[1]);
+            /* EDID 廠商＋產品碼只對到一筆 Windows 輸出才附 Windows 的資訊（對到多筆 ＝ 同型號螢幕，分不出是哪一台 ⇒ 不附） */
+            if(match>=0 && nmatch==1) o += snprintf(out+o, cap-o, ",\"win\":{\"gdi\":\"%s\",\"name\":\"%s\",\"tech\":\"%s\",\"techId\":%u}}",
+                    g_wd[match].gdi, g_wd[match].name, dgh_tech_name(g_wd[match].tech), g_wd[match].tech);
+            else o += snprintf(out+o, cap-o, ",\"win\":null,\"winWhy\":\"%s\"}",
+                    g_nwd==0 ? "no Windows display info" : (!okEd ? "EDID not readable over AUX" : (nmatch==0 ? "no Windows display has this EDID" : "several Windows displays have this EDID")));
+        }
+        n++;
+    }
+    snprintf(out+o, cap-o, "]");
+    g_aux.card = savedCard;
+    if(reopen && g_auxOpen){ unsigned char c=(unsigned char)g_auxCard, mo=(unsigned char)g_auxMon, pj=(unsigned char)g_auxProj;
+        if(g_aux.Initial(&c,&mo,&pj)!=0){ g_auxOpen=0; logline("  aux     : auxlist: re-Initial of monitor %d failed -> AUX closed", g_auxMon); } }
+    logline("  aux     : auxlist -> %d display(s)", n);
+    return n;
+}
 /* 原廠 AuxApi.Release（AuxApi.cs:163–175）：只 AuxRelease，不做 End。 */
 static void aux_close(void){
     if(!g_auxOpen) return;
     if(g_auxPsrWeOff){ aux_psr_set(1); g_auxPsrWeOff=0; logline("  aux     : PSR restored to ON"); }
     if(g_aux.Release) g_aux.Release();
-    g_auxOpen = 0;
+    g_auxOpen = 0; g_auxRaw = 0;
     logline("  close   : DP AUX released");
 }
 
@@ -3065,17 +3201,17 @@ static void handle_command_one(int idx, const char* json){
             (void)hz;   /* 🔴 1.19.0：不再呼叫 i2c_open() 讓出治具 —— 治具由另一條路各自持有 */
             g_aux.regPath = DGH_AUX_PATH_DPCD;   /* 1.22.0: regpath / psroff / tconinit no longer used (the vendor EN01 UI does none of these) */
             aok = aux_open((int)dgh_json_int(json,"card",-1), (int)dgh_json_int(json,"monitor",-1),
-                           (int)dgh_json_int(json,"projic",1), (int)dgh_json_int(json,"rom",0));
+                           (int)dgh_json_int(json,"projic",1), (int)dgh_json_int(json,"rom",0), dgh_json_int(json,"raw",0)==1);
             if(aok){ if(g_ownerIdx!=idx) g_lockOwner=-1; g_ownerIdx=idx; }
             if(aok)
                 snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"open\",\"ok\":true,\"channels\":1,"
                     "\"aux\":true,\"card\":\"%s\",\"monitor\":%d,\"projic\":%d,\"admin\":%s,"
-                    "\"psrSupported\":%s,\"psrOn\":%s,\"psrTurnedOff\":%s,\"tconInit\":%s,\"rom\":\"%s\",\"vendorSeq\":true,\"eeRead\":true,\"tconSeen\":%s}",
+                    "\"psrSupported\":%s,\"psrOn\":%s,\"psrTurnedOff\":%s,\"tconInit\":%s,\"rom\":\"%s\",\"vendorSeq\":%s,\"eeRead\":true,\"tconSeen\":%s,\"raw\":%s}",
                     id, dgh_aux_card_name((unsigned)g_auxCard), g_auxMon, g_auxProj,
                     g_auxAdmin==1?"true":(g_auxAdmin==0?"false":"null"),
                     g_auxPsrSup==1?"true":(g_auxPsrSup==0?"false":"null"),
                     g_auxPsrOn==1?"true":(g_auxPsrOn==0?"false":"null"),
-                    g_auxPsrWeOff?"true":"false", "false", g_aux.rom==DGH_AUX_ROM_FLASH?"flash":"eeprom", g_auxTconSeen?"true":"false");
+                    g_auxPsrWeOff?"true":"false", "false", g_aux.rom==DGH_AUX_ROM_FLASH?"flash":"eeprom", g_auxRaw?"false":"true", g_auxTconSeen?"true":"false", g_auxRaw?"true":"false");
             else
                 snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"open\",\"ok\":false,\"aux\":true,"
                     "\"auxDll\":%s,\"err\":\"%s\"}", id, g_auxOk?"true":"false", g_auxOpenErr);
@@ -3115,13 +3251,26 @@ static void handle_command_one(int idx, const char* json){
             id, ok?"true":"false", i2c_locked()?"true":"false");
         ws_send_text(c,rep); return;
     }
+    /* 1.23.0：{"type":"auxlist"} 列出 Initial 成功的螢幕（不需要持有；AUX 被別的連線持有時不碰）。 */
+    if(strcmp(type,"auxlist")==0){
+        static char lst[12000]; int n, mine = (g_own[DGH_PATH_AUX]==idx);
+        if(g_auxOpen && !mine){
+            snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"auxlist\",\"ok\":false,\"busy\":true,\"err\":\"AUX is held by another page; nothing was touched\"}", id);
+            ws_send_text(c,rep); return; }
+        n = aux_list(lst, (int)sizeof(lst), mine, dgh_json_int(json,"tcon",0)==1);
+        if(n<0) snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"auxlist\",\"ok\":false,\"auxDll\":false,\"err\":\"%s\"}", id, g_auxOpenErr);
+        else { int o2, w; o2=snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"auxlist\",\"ok\":true,\"adapters\":\"%s\",\"displays\":%s,\"windows\":[", id, g_auxAdapters, lst);
+          for(w=0;w<g_nwd && o2<(int)sizeof(rep)-300;w++) o2+=snprintf(rep+o2,sizeof(rep)-o2,"%s{\"gdi\":\"%s\",\"name\":\"%s\",\"tech\":\"%s\",\"techId\":%u}", w?",":"", g_wd[w].gdi, g_wd[w].name, dgh_tech_name(g_wd[w].tech), g_wd[w].tech);
+          snprintf(rep+o2,sizeof(rep)-o2,"]}"); }
+        ws_send_text(c,rep); return;
+    }
     /* 讀寫一律要求「你是持有者」。只看 g_opened 不夠：那樣另一個頁面會在
        不知情的狀況下操作別人開的 channel，錯得很安靜。 */
     /* 🔴 1.15.0：`batchwrite` 也要在這一關 —— 漏掉它等於開一個「不持有 channel
        也能寫」的後門，而且是最大的那一種寫入。 */
     if((strcmp(type,"read")==0||strcmp(type,"write")==0||strcmp(type,"rawwrite")==0
         ||strcmp(type,"batchwrite")==0||strcmp(type,"dpcdread")==0||strcmp(type,"dpcdwrite")==0
-        ||strcmp(type,"psr")==0)
+        ||strcmp(type,"psr")==0||strcmp(type,"i2craw")==0||strcmp(type,"ioaread")==0)
        && g_ownerIdx!=idx){
         snprintf(rep,sizeof(rep),
             "{\"type\":\"result\",\"id\":%ld,\"cmd\":\"%s\",\"ok\":false,\"busy\":true,"
@@ -3142,6 +3291,45 @@ static void handle_command_one(int idx, const char* json){
             rep[o++]='"'; rep[o]=0;
         }
         snprintf(rep+o,sizeof(rep)-o,"],\"next\":%lu}", k);
+        ws_send_text(c,rep); return;
+    }
+    /* 1.23.0：raw 連線（DPCD／IOA 工具）不做原廠 T-CON 序列 ⇒ 會觸發序列的讀寫一律拒絕 */
+    if(dgh_mode==DGH_MODE_AUX && g_auxOpen && g_auxRaw && (strcmp(type,"read")==0||strcmp(type,"write")==0||strcmp(type,"rawwrite")==0||strcmp(type,"batchwrite")==0)){
+        snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"%s\",\"ok\":false,\"raw\":true,\"err\":\"raw AUX session (DPCD/IOA tool, no T-CON init): T-CON register reads/writes are not available; reconnect normally\"}", id, type);
+        ws_send_text(c,rep); return; }
+    /* 1.23.0：{"type":"i2craw","dir":"r"|"w","addr":7-bit,"len":1..16,"data":[..],"mot":0|1} ⇒ DLL I2C_Read／I2C_Write（AUX_GUI ScriptRun）
+               {"type":"ioaread","slave":7-bit,"obytes":0..2,"start":N,"len":1..16} ⇒ DLL IOA_Read（AUX_GUI ScriptAmdRun，AMD 用） */
+    if(strcmp(type,"i2craw")==0||strcmp(type,"ioaread")==0){
+        uint8_t d[16]; int i, o, okk, n;
+        if(dgh_mode!=DGH_MODE_AUX || !g_auxOpen){
+            snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"%s\",\"ok\":false,\"err\":\"DP AUX is not open\"}",id,type); ws_send_text(c,rep); return; }
+        if(strcmp(type,"ioaread")==0){
+            DGH_AUX_IOA st; uint32_t sl=(uint32_t)dgh_json_int(json,"slave",-1), ob=(uint32_t)dgh_json_int(json,"obytes",0), sa=(uint32_t)dgh_json_int(json,"start",0);
+            n=(int)dgh_json_int(json,"len",1);
+            if(!g_aux.IoaRead || sl>0x7Fu || ob>2u || sa>0xFFFFu || n<1 || n>16){
+                snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"ioaread\",\"ok\":false,\"err\":\"slave 0..0x7F, obytes 0..2, start 0..0xFFFF, len 1..16%s\"}",id, g_aux.IoaRead?"":" (IOA_Read not in DLL)"); ws_send_text(c,rep); return; }
+            memset(&st,0,sizeof(st)); st.u8SlaveAddr=(unsigned char)sl; st.u8OffsetBytes=(unsigned char)ob; st.u16StartAddr=(unsigned short)sa;
+            st.u16I2cSleepTime=1; st.u8BytePerWrite=(unsigned char)(ob?1:0); st.u8BytePerRead=(unsigned char)n; st.au8Data=d; memset(d,0,sizeof(d));
+            okk=dgh_aux_b(g_aux.IoaRead(&st,d));
+            { char b2[96]; snprintf(b2,sizeof(b2),"IOA_Read %02X ob=%u start=%04X x%d -> %s", sl, ob, sa, n, okk?"ok":"FAIL"); aux_tx(b2); }
+        } else {
+            char dir[4]={0}; uint32_t a=(uint32_t)dgh_json_int(json,"addr",-1); int mot=(int)dgh_json_int(json,"mot",0)==1;
+            dgh_json_str(json,"dir",dir,sizeof(dir));
+            if(dir[0]=='w'){ n=dgh_json_int_array(json,"data",d,(int)sizeof(d)); }
+            else { n=(int)dgh_json_int(json,"len",1); memset(d,0,sizeof(d)); }
+            if((dir[0]!='r'&&dir[0]!='w') || a>0x7Fu || n<1 || n>16){
+                snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"i2craw\",\"ok\":false,\"err\":\"dir r|w, addr 0..0x7F (7-bit), 1..16 bytes. Nothing was sent.\"}",id); ws_send_text(c,rep); return; }
+            if(dir[0]=='w' && a>=0x50u && a<=0x57u){
+                snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"i2craw\",\"ok\":false,\"blocked\":true,\"err\":\"I2C over AUX write to 0x%02X (EEPROM range 0x50-0x57) is blocked. Nothing was written.\"}",id,a); ws_send_text(c,rep); return; }
+            if(dir[0]=='r' && g_auxCard==(int)DGH_AUX_CARD_AMD){
+                snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"i2craw\",\"ok\":false,\"amd\":true,\"err\":\"AMD: a plain I2C over AUX read returns no data on this card; use ioaread (offset write and read in one IOA read). Nothing was read.\"}",id); ws_send_text(c,rep); return; }
+            okk = dir[0]=='w' ? dgh_aux_b(g_aux.I2cWrite(n,(int)a,d,mot)) : dgh_aux_b(g_aux.I2cRead(n,(int)a,d,mot));
+            { char b2[96]; snprintf(b2,sizeof(b2),"I2C %s %02X x%d MOT=%d -> %s", dir[0]=='w'?"W":"R", a, n, mot, okk?"ok":"NACK"); aux_tx(b2); }
+            if(dir[0]=='w'){ snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"i2craw\",\"ok\":%s%s}",id,okk?"true":"false",okk?"":",\"err\":\"I2C_Write NACK / failed\""); ws_send_text(c,rep); return; }
+        }
+        o=snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"%s\",\"ok\":%s,%s\"data\":[", id, type, okk?"true":"false", okk?"":"\"err\":\"NACK / failed\",");
+        for(i=0;okk && i<n;i++) o+=snprintf(rep+o,sizeof(rep)-o,"%s%u",i?",":"",d[i]);
+        snprintf(rep+o,sizeof(rep)-o,"]}");
         ws_send_text(c,rep); return;
     }
     /* ═══ 1.18.0：DP AUX 專用命令（proto 7）═══════════════════════════════════
@@ -3814,7 +4002,8 @@ static void handle_command(int idx, const char* json){
 #define DGH_TCON_WAIT_MS 6000
 static int cmd_touches_hw(const char* t){
     return !strcmp(t,"read")||!strcmp(t,"write")||!strcmp(t,"rawwrite")||!strcmp(t,"batchwrite")
-         ||!strcmp(t,"dpcdread")||!strcmp(t,"dpcdwrite")||!strcmp(t,"psr")||!strcmp(t,"chandiag");
+         ||!strcmp(t,"dpcdread")||!strcmp(t,"dpcdwrite")||!strcmp(t,"psr")||!strcmp(t,"chandiag")
+         ||!strcmp(t,"i2craw")||!strcmp(t,"ioaread");
 }
 /* 1 ＝ 這則要排隊（呼叫端負責保存）。只有**持有者**的硬體命令要排；非持有者照舊直接回 busy。 */
 static int tcon_must_wait(int idx, const char* json){

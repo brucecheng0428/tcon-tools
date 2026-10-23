@@ -2,6 +2,35 @@
 
 ---
 
+## I2C / AUX 讀寫測試 (i2c) v1.42.0 — 2026-10-23 ｜ MINOR ｜ （＋ I2C and AUX Bridge 1.23.0）AUX 模式新增「DPCD／IOA 工具」（照 AUX_GUI 1.48.0 DPCD 分頁；不限廠牌、連線不初始化、可選螢幕）
+
+判定依據：`docs/VERSIONING.md` R2：新功能。
+
+### 需求（Bruce 2026-10-23）
+
+「我需要再多一個類似 DPCD 讀寫測試的功能…像 AUX_GUI 1.48.0 裡面的 DPCD 分頁」「它其實不管後端接的是哪一家的 TCON…不用下任何初始化條件」「最好要很確定是外接的那一個…monitor 也可以強制手動更改」「可能我們家的 T-Con 剛好是這台筆記型電腦本身的螢幕在用的…不能單純排除內建螢幕」。
+
+### AUX_GUI 1.48.0 怎麼做（ilspycmd 反編譯，只讀）
+
+- 操作（App/E_DPCD_OPERATION.cs）：DPCD Read 9｜DPCD Write 8｜IOA Read 1｜IOA Write 0｜IOA Read MOT 5｜IOA Write MOT 4｜Sleep。開頭碼就是 AUX request 的指令碼。
+- script（App/DpcdWrapper.cs:226–239）：`{碼}{位址19:16} {15:8} {7:0} {長度−1}[ 資料…]`、`Sleep N ms`、`// 註解`；例 `90 00 00 00` ＝ 讀 DPCD 0x00000 一個 byte。
+- 執行（DpcdWrapper.cs:891–1135）：非 AMD 逐行 DPCD_Read／Write、I2C_Read／Write；AMD 把「IOA 寫 offset ＋ 下一筆 IOA 讀」合成一次 IOA_Read（AMD 的 I2C_Read 是空函式）。
+- 連線（FormMain.cs:972–1060）：使用者選 Graphics／Monitor；「自動偵測」才逐台初始化。Run 前會關 PSR（本工具不碰 PSR：只送使用者列的那幾筆）。
+
+### 改了什麼
+
+- **bridge 1.23.0（proto 10），只動 AUX 分支**：
+  - `auxlist`：每張顯卡、monitor 0–19 只做 Initial／Release，並只讀：DPCD 0x000（版本）、0x400–0x40B（sink OUI／裝置 ID）、EDID（DDC over AUX，slave 0x50）；`tcon:1` 才讀 0x43C（瑞鼎 T-CON 名稱）。再用 Windows QueryDisplayConfig（outputTechnology 列舉名原樣、顯示名稱、\\.\DISPLAYn），以 EDID 廠商／產品碼對到唯一一筆才附上（對不到或對到多筆 ⇒ 不附）。🔴 不下「內建／外接」結論（Bruce 2026-10-23「是不是內建的由使用者自己來判斷」）。0 筆寫入。
+  - `open` mode 4 `raw:1`＋card＋monitor：不掃描、不初始化、不 End，只 Initial 那一台；raw 連線下原廠 T-CON 序列的 read／write／rawwrite／batchwrite 一律拒絕。
+  - `i2craw`（DLL I2C_Read／I2C_Write，帶 MOT；AMD 讀取拒絕並指向 ioaread）、`ioaread`（DLL IOA_Read）。I2C over AUX 寫 0x50–0x57、DPCD 寫 0x480–0x48F 照舊擋。
+  - 測試 test_server_aux 142／142（新增 raw／auxlist／EDID＋DisplayConfig 對應／i2craw／ioaread）；test_server_simul 88／88。
+- **i2c.html v1.42.0**：AUX 模式最上面出現「讀寫流程｜DPCD／IOA 工具」。工具（common/aux-dpcd.js）：
+  - ① 選螢幕：列出螢幕（編號、\\.\DISPLAYn、Windows 名稱、EDID、Windows 回報接口：DisplayPort／內嵌 DisplayPort（eDP）／HDMI／未知 —— Windows 拿不到就整欄不顯示、DPCD 版本）；「Check 我家 TCON」（只讀 0x43C＝E5 03 ⇒ 標「我家 TCON 回應（E503）」並自動選）。沒有 Check 結果時只有一台才自動選，其餘由使用者自己選。「連線（不初始化）」。
+  - ② Script：操作／位址／Bytes／資料 ＋加入（格式同 AUX_GUI）、可直接編輯、載入 .txt（可多檔）、存成 .txt、依序執行（進度、可中止）。有寫入就先確認：只列事實（螢幕編號、\\.\DISPLAYn、EDID、Windows 回報接口、我家 TCON 有沒有回應）與每一筆寫入。IOA 一律標「I2C over AUX」。
+  - ③ Log：Data／說明（同 AUX_GUI：SYS DPCD RD…、ACK + 0x…、NACK），可存 CSV。
+  - raw 連線時讀寫流程的 T-CON 操作停用；① 的「連線」一律是一般 AUX（照原廠）。
+  - tools/check_i2c_aux.mjs G 組（照使用者操作）：135／0。
+
 ## I2C / AUX 讀寫測試 (i2c) v1.41.1 — 2026-10-23 ｜ PATCH ｜ 拿掉 AUX 的「螢幕內建／外接」顯示（判斷不可靠）
 
 判定依據：`docs/VERSIONING.md` R2：修正錯誤。
