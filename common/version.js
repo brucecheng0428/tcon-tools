@@ -13,7 +13,7 @@ var TOOL_VERSIONS = {
   wfg:     'v4.59.2',     // 面板訊號模擬與取樣
   pattern: 'v3.9.0',       // Pattern Generator 畫面產生器
   dg:      'v2.8.2',       // Digital Gamma 迭代校正（含量測頁 dg-measure.html）
-  i2c:     'v1.39.4',       // I2C（讀寫測試）
+  i2c:     'v1.40.0',       // I2C（讀寫測試）
   nbdebug: 'v1.3.1',        // NB TCON Debug應用（E503／E501A／E501B／EN01 debug 輸出：選 IC、項目、GPIO → I2C 執行或匯出 Excel／.script）
   datamap: 'v1.37.3',       // Data Mapping（Python UI 的內容與規則、站內風格；DAZ／E501／E503／EN01／EM01／EM02／E512）// v1.20.0（Bruce 10/9）：新增 EN01（RM81008，依原廠 WPF RomCodeProcessUI）
   /* 🔴 TCON 自檢畫面量測（dg-selftest.html）。

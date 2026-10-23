@@ -305,6 +305,42 @@ try {
     check('沒有 JS 錯誤', errs.length === 0, errs.join(' | ').slice(0, 300));
     await ctx.close();
   }
+  /* v1.40.0：照 Bruce 的操作 —— 先選「外部 Flash」→ 接 E503 → 按「自動判斷」／「重新判斷」⇒ 警示並擋下；之後「外部 Flash」停用。I2C、AUX 兩種都驗。 */
+  for (const xp of ['i2c', 'aux']) {
+    console.log(`F. ${xp === 'aux' ? 'AUX' : 'I2C'}：外部 Flash × E503 ⇒ 警示、擋 Flash 操作、選項停用`);
+    const { ctx, page, errs } = await open({ proto: 9, card: 'AMD', admin: false, n43c: [0xE5, 0x03] });
+    await page.evaluate(() => { Object.assign(window.__mem, { '124:149': 0x24, '124:152': 0x00, '125:125': 0x04, '62:8318': 0x00 }); });
+    if (xp === 'aux') await page.selectOption('#in-xport', 'aux');
+    await page.click('#btn-link'); await waitFor(page, () => i2ctLinked === true);
+    await page.click('#mode-seg [data-mode="sf"]'); await sleep(200);
+    check(`${xp}：還沒辨認時可以選外部 Flash（照原本行為）`, await page.$eval('#in-devtype', e => e.value) === 'sf');
+    await page.click('#sf-auto'); await waitFor(page, () => !!i2ctCkResult && !i2ctBusy);
+    await sleep(200);
+    const nm = await page.evaluate(() => i2ctCkResult && i2ctCkResult.name);
+    const tb = await page.$eval('#topbanner', e => e.textContent).catch(() => '');
+    const ck = await page.$eval('#sf-cknote', e => ({ t: e.textContent, bad: e.classList.contains('bad') }));
+    check(`${xp}：自動判斷認出 E503`, /^E503/.test(nm || ''), String(nm));
+    check(`${xp}：自動判斷後跳警示「E503 不支援外部 Flash」`, /E503[A-Z0-9]* 不支援外部 Flash/.test(tb) && ck.bad && /只支援 EEPROM/.test(ck.t), tb.slice(0, 80) + ' | ' + ck.t);
+    const dis = await page.evaluate(() => ['sf-model', 'sf-detect', 'sf-read', 'sf-write'].map(id => document.getElementById(id).disabled));
+    check(`${xp}：Flash 操作全部停用（型號、讀 ID、讀出、寫入）`, dis.every(Boolean), JSON.stringify(dis));
+    const n0 = await page.evaluate(() => window.__msgs.length);
+    await page.evaluate(() => i2ctSfDetect());
+    const sent = await page.evaluate((n) => window.__msgs.slice(n).filter(m => ['read', 'rawwrite', 'write', 'batchwrite', 'dpcdwrite'].includes(m.t)), n0);
+    check(`${xp}：強制呼叫讀 Flash ID 也被擋（0 則送出）`, sent.length === 0, JSON.stringify(sent).slice(0, 160));
+    await page.evaluate(() => { document.getElementById('topbanner').innerHTML = ''; });
+    await page.click('#sf-recheck'); await waitFor(page, () => !i2ctBusy); await sleep(300);
+    check(`${xp}：重新判斷也觸發警示`, /E503[A-Z0-9]* 不支援外部 Flash/.test(await page.$eval('#topbanner', e => e.textContent)));
+    await page.click('#mode-seg [data-mode="gen"]'); await sleep(200);
+    const sfb = await page.$eval('#mode-seg [data-mode="sf"]', b => ({ d: b.disabled, t: b.title }));
+    const note = await page.$eval('#stp-mode-note', e => e.textContent);
+    check(`${xp}：離開後「外部 Flash」停用並寫原因`, sfb.d && /E503[A-Z0-9]* 不支援外部 Flash/.test(sfb.t) && /E503[A-Z0-9]* 不支援外部 Flash/.test(note), JSON.stringify(sfb) + ' | ' + note);
+    await page.click('#mode-seg [data-mode="sf"]', { force: true }).catch(() => {}); await sleep(150);
+    check(`${xp}：按停用的外部 Flash 不會切過去`, await page.$eval('#in-devtype', e => e.value) !== 'sf');
+    check(`${xp}：EEPROM 照常可選`, !(await page.$eval('#mode-seg [data-mode="ee"]', b => b.disabled)));
+    if (SHOTS) await page.screenshot({ path: SHOTS + `/sf_e503_${xp}.png`, fullPage: false });
+    check('沒有 JS 錯誤', errs.length === 0, errs.join(' | ').slice(0, 300));
+    await ctx.close();
+  }
   console.log('E3. DP AUX：3E／7C 讀不到 ⇒ 認不出（不錯判 E503）、序列同 I2C、log 有 bridge 的錯誤；IOA 讀 EEPROM 照常');
   {
     const { ctx, page, errs } = await open({ proto: 9, card: 'AMD', admin: false, tconInit: false, auxRegFail: true });

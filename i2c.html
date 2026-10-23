@@ -30,7 +30,7 @@
           出來」。那個前提**早就不成立**：bridge 的靜態檔服務拒絕子資料夾、而且自 v1.7.0
           起預設關閉 —— 詳細依據與行號寫在 body 末端那兩個 <script> 的上面。）
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="common/version.js?v=20261023aux1394"></script>
+<script src="common/version.js?v=20261023sf1400"></script>
 <script src="common/i2c-bridge.js?v=20261023ib103"></script>
 <style>
   * { box-sizing: border-box; }
@@ -1668,7 +1668,7 @@
      🔴 **CSS 沒有跟著載**（見 style 區塊頂端的說明）：common.css 有 `.card`／`.row`／
         無範圍的 `label{}` 等等，與本頁同名而語意完全不同，載進來會整頁走樣。
         頁首那四條宣告是逐字抄過來的，來源行號寫在各自上面。 -->
-<script src="common/i18n.js?v=20261023sim1360"></script>
+<script src="common/i18n.js?v=20261023sf1400"></script>
 <script src="common/i2c-mbus.js?v=20261023mb122"></script>
 <script src="common/i2c-aux.js?v=20261023ax180"></script>
 <script src="common/tcon-detect.js?v=20261023td130"></script>
@@ -8907,6 +8907,39 @@ var I2CT_SF_DEF_LEN = 0x40000;    /* 還沒選型號時（頁面載入）的值 
                    AppHeaderView.xaml:103 的 Read Length 欄）。與其他三顆不同，照原廠值，待 Bruce 決定。 */
 var I2CT_SF_DEF_LEN_BY = { E501A: 0x40000, E501B: 0x40000, EM01: 0x40000, EN01: 0x20000 };
 function i2ctSfDefLen(p){ return (p && I2CT_SF_DEF_LEN_BY[p.id]) || I2CT_SF_DEF_LEN; }
+/* v1.40.0（Bruce 2026-10-23「如果 TCON 是不可以用 Flash 的 TCON，那就不應該讓使用者可以選到外部 Flash」）：
+   各顆支援的 ROM 類型，依原廠 DLL_Raydium_CommonLibrary/Raydium.Core/Models/ICDefine.cs 的 SupportedROMTypes：
+     RM81008（EN01）EEPROM＋FLASH :49｜RM81011（E501）FLASH :1116｜RM8100x（E503）EEPROM :1694｜
+     DAZ6111 EEPROM :2927｜EM01 EEPROM＋FLASH :3293｜EM02 EEPROM :3312。
+   表裡沒有的顆（DAZ613x、E512、V007、V512、VM02）原廠沒有資料 ⇒ 不擋（照原本行為）。
+   認不出／分不出（unknown、conflict、ambiguous，例如 AUX 的 E503／EN01 分不出）也不擋：EN01 支援 Flash。 */
+var I2CT_ROM_BY_FAMILY = { EN01: ['EEPROM', 'FLASH'], E501A: ['FLASH'], E501B: ['FLASH'], E503: ['EEPROM'],
+                           DAZ6111: ['EEPROM'], EM01: ['EEPROM', 'FLASH'], EM02: ['EEPROM'] };
+function i2ctSfNoFlash(){
+  var r = i2ctCkResult;
+  if (!r || !r.name || r.unknown || r.conflict || r.ambiguous) return null;
+  var f = r.family || (window.TconDetect && TconDetect.familyOfName ? TconDetect.familyOfName(r.name) : null);
+  var roms = f ? I2CT_ROM_BY_FAMILY[f] : null;
+  if (!roms || roms.indexOf('FLASH') >= 0) return null;
+  return { n: r.name, r: roms.join(' / ') };
+}
+/* 已在外部 Flash 模式時才辨認出不支援 ⇒ 警示（頂部橫幅＋面板紅字＋log），Flash 操作由 i2ctSfSync／i2ctSfGate 擋下 */
+function i2ctSfWarnNoFlash(nf){
+  var msg = i2ctSfT('i2c.sfRomBlock', nf);
+  i2ctSfLog('✕ ' + msg, 'e');
+  i2ctBanner('topbanner', 'err', i2ctEsc(msg));
+  var el = $('sf-progtxt'); if (el) { el.textContent = msg; el.style.color = '#f87171'; }
+}
+/* 每一個 Flash 操作的入口：還沒辨認 ⇒ 先跑一次 Check T-CON；辨認出不支援 ⇒ 警示並擋下（回 false） */
+async function i2ctSfGate(){
+  if (!i2ctCkResult && i2ctLinked) {
+    i2ctSfLog(i2ctSfT('i2c.sfLogGateCk'), 'n');
+    try { await i2ctCheckTcon(); } catch (e) { i2ctSfLog('✕ ' + i2ctSfErr(e), 'e'); }
+  }
+  var nf = i2ctSfNoFlash();
+  if (nf) { i2ctSfWarnNoFlash(nf); i2ctSfRender(); return false; }
+  return true;
+}
 var i2ctSfSrc = '';               /* 目前型號怎麼來的：'ck' Check T-CON｜'auto' 自動判斷｜'manual' 手選｜'' 還沒選 */
 function i2ctSfCkModel(){
   var r = i2ctCkResult;
@@ -8915,6 +8948,13 @@ function i2ctSfCkModel(){
 }
 function i2ctSfOnCk(){
   if (!$('sf-model')) return;
+  var nf = i2ctSfNoFlash();
+  if (nf) {                        /* v1.40.0：不支援外部 Flash 的顆 ⇒ 型號清掉；正在外部 Flash 模式就警示 */
+    $('sf-model').value = ''; i2ctSfSrc = ''; i2ctSfDet = null;
+    if (i2ctSfMode) i2ctSfWarnNoFlash(nf); else i2ctLog(i2ctSfT('i2c.sfRomNo', nf), 'w');
+    i2ctSfRender();
+    return;
+  }
   var r = i2ctCkResult, m = i2ctSfCkModel();
   if (m) {
     var changed = $('sf-model').value !== m || i2ctSfSrc !== 'ck';
@@ -8938,6 +8978,8 @@ function i2ctSfRenderCk(){
   var el = $('sf-cknote'); if (!el) return;
   var r = i2ctCkResult, m = i2ctSfCkModel(), cur = $('sf-model').value;
   el.className = 'sfnote';
+  var nf = i2ctSfNoFlash();
+  if (nf) { el.className = 'sfnote bad'; el.textContent = i2ctSfT('i2c.sfRomBlock', nf); return; }
   if (m && cur === m) { el.className = 'sfnote ok'; el.textContent = i2ctSfT('i2c.sfCkFrom', { n: r.name }); return; }
   if (m && cur !== m) { el.className = 'sfnote bad'; el.textContent = i2ctSfT('i2c.sfCkDiff', { m: cur || '—', n: r.name, cm: m }); return; }
   el.textContent = r ? i2ctSfT('i2c.sfCkNoMap', { n: r.name }) : i2ctSfT('i2c.sfCkNone');
@@ -9026,6 +9068,7 @@ function i2ctSfSync(){
   $('sf-write').disabled = !idle || !ok || !cw || !i2ctSfFile;
   $('sf-eraseall').disabled = !idle || !ok || !(p && p.eraseAll);
   $('sf-abort').disabled = !i2ctSfRunning;
+  if (i2ctSfNoFlash()) ['sf-model', 'sf-detect', 'sf-read', 'sf-write', 'sf-eraseall', 'sf-pick'].forEach(function (id) { if ($(id)) $(id).disabled = true; });   /* v1.40.0 */
   if (typeof i2ctStepsRender === 'function') i2ctStepsRender();   /* v1.32.0：型號／Flash ID 變了，④ 的提示跟著 */
 }
 function i2ctSfModelChanged(){
@@ -9064,11 +9107,12 @@ async function i2ctSfAuto(force){
   i2ctSfLog(i2ctSfT(force ? 'i2c.sfLogAutoRecheck' : 'i2c.sfLogAutoRunCk'), 'n');
   var res = null;
   try { res = await i2ctCheckTcon(); } catch (e) { i2ctSfLog('✕ ' + i2ctSfErr(e), 'e'); }
-  if (!i2ctSfCkModel()) i2ctSfLog(i2ctSfT('i2c.sfLogAutoNoModel', { n: res ? res.name : '—' }), 'w');
+  if (!i2ctSfCkModel() && !i2ctSfNoFlash()) i2ctSfLog(i2ctSfT('i2c.sfLogAutoNoModel', { n: res ? res.name : '—' }), 'w');
   i2ctSfRender();
 }
 async function i2ctSfDetect(){
   var p = i2ctSfProfile(); if (!p) return;
+  if (!(await i2ctSfGate())) return;   /* v1.40.0 */
   i2ctSfBegin();
   i2ctSfLog(i2ctSfT(p.jedec ? 'i2c.sfLogDetStart' : 'i2c.sfLogDetStartEn01', { m: p.id }), 'n');
   try {
@@ -9143,6 +9187,7 @@ function i2ctSfToDump(set, src){
 }
 async function i2ctSfRead(){
   var p = i2ctSfProfile(); if (!p || !i2ctSfDet || !i2ctSfDet.ok) return;
+  if (!(await i2ctSfGate())) return;   /* v1.40.0 */
   var rg = $('sf-rd-all').checked ? { start: 0, len: i2ctSfCap() } : i2ctSfRange('sf-rd-start', 'sf-rd-len');
   if (rg.err) { i2ctSfLog('✕ ' + rg.err, 'e'); i2ctSfToast(rg.err, true); return; }
   /* 讀出會換掉 Dump 上的內容 ⇒ 有未寫入的修改就問一次（與一般讀取同一支） */
@@ -9212,6 +9257,7 @@ function i2ctSfAsk(rows, warn, erase){
 }
 function i2ctSfAnswer(yes){ $('sf-confirm').style.display = 'none'; var f = i2ctSfCfResolve; i2ctSfCfResolve = null; if (f) f(!!yes); }
 async function i2ctSfWrite(){
+  if (!(await i2ctSfGate())) return;   /* v1.40.0 */
   var p = i2ctSfProfile(); if (!p || !p.canWrite || !i2ctSfFile || !i2ctSfDet || !i2ctSfDet.ok) return;
   var pw = I2CSF.prepWrite(p, i2ctSfFile.bytes);
   if (pw.err) { var m0 = i2ctSfT(pw.err.k, pw.err.v); i2ctSfLog('✕ ' + m0, 'e'); i2ctSfToast(m0, true); return; }
@@ -9269,6 +9315,7 @@ async function i2ctSfWrite(){
 }
 /* v1.30.0：整顆抹除（EN01，序列在 I2CSF.PROFILES.EN01.eraseAll）。確認窗只問一次；中止＝停止輪詢。 */
 async function i2ctSfEraseAll(){
+  if (!(await i2ctSfGate())) return;   /* v1.40.0 */
   var p = i2ctSfProfile(); if (!p || !p.eraseAll || !i2ctSfDet || !i2ctSfDet.ok) return;
   var rows = [
     [i2ctSfT('i2c.sfCfTcon'), p.id + '（' + p.chip + '）'],
@@ -9413,12 +9460,15 @@ function i2ctStepsRender(){
        寫入另外擋（i2ctAuxEeRO）。還沒連線、不知道 bridge 版本時先停用，連上 1.20.0 後開放。 */
     var isEe = b.getAttribute('data-mode') === 'ee';
     var auxEe = (i2ctXport === 'aux' && isEe && !i2ctAuxEeReadable());
-    b.disabled = !!i2ctSfRunning || auxEe;
+    var sfNo = (b.getAttribute('data-mode') === 'sf' && mode !== 'sf') ? i2ctSfNoFlash() : null;   /* v1.40.0 */
+    b.disabled = !!i2ctSfRunning || auxEe || !!sfNo;
+    if (b.getAttribute('data-mode') === 'sf') { if (sfNo) b.title = i2ctSfT('i2c.sfRomNo', sfNo); else b.removeAttribute('title'); }
     if (auxEe) b.title = TconAux.text('eeOff');
     else if (isEe && i2ctXport === 'aux') b.title = TconAux.text('eeRO');
     else if (isEe) b.removeAttribute('title');
   });
-  if ($('stp-mode-note')) $('stp-mode-note').textContent = T({ gen: 'i2c.modeGenNote', ee: 'i2c.modeEeNote', sf: 'i2c.modeSfNote' }[mode] || 'i2c.modeGenNote');
+  if ($('stp-mode-note')) { var nfN = i2ctSfNoFlash();   /* v1.40.0：停用原因寫在功能說明這一行 */
+    $('stp-mode-note').textContent = (nfN ? T('i2c.sfRomNo', nfN) + i2ctListSep() : '') + T({ gen: 'i2c.modeGenNote', ee: 'i2c.modeEeNote', sf: 'i2c.modeSfNote' }[mode] || 'i2c.modeGenNote'); }
   /* v1.34.7：頂部步驟列（common/step-status.js）。三步：連線（i2ctLinked）→ 認出 T-CON（Check T-CON 認出型號）→
      設定並執行（最後一次讀／寫成功）。② 沒做就直接執行成功（一般暫存器可以略過 ②）⇒ ② 標「不需要」。 */
   if (window.TCONStepStatus) {

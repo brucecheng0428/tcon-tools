@@ -2588,6 +2588,9 @@ var I18N = {
   'i2c.sfLogAutoRunCk':   { 'zh-TW': '自動判斷：還沒有 Check T-CON 結果，執行 ② Check T-CON…', 'en': 'Auto-detect: no Check T-CON result yet, running step ② Check T-CON…', 'zh-CN': '自动判断：还没有 Check T-CON 结果，执行 ② Check T-CON…' },
   'i2c.sfLogAutoRecheck': { 'zh-TW': '重新判斷：重新執行 ② Check T-CON…', 'en': 'Re-detect: running step ② Check T-CON again…', 'zh-CN': '重新判断：重新执行 ② Check T-CON…' },
   'i2c.sfLogAutoReuse':   { 'zh-TW': '自動判斷：沿用 ② Check T-CON 結果 {n}（換過板子請按「重新判斷」）', 'en': 'Auto-detect: reusing the step ② Check T-CON result {n} (press “Re-detect” after changing the board)', 'zh-CN': '自动判断：沿用 ② Check T-CON 结果 {n}（换过板子请按「重新判断」）' },
+  'i2c.sfRomNo':        { 'zh-TW': '{n} 不支援外部 Flash', 'en': '{n} does not support external Flash', 'zh-CN': '{n} 不支持外部 Flash' },
+  'i2c.sfRomBlock':     { 'zh-TW': '{n} 不支援外部 Flash（只支援 {r}），Flash 操作已停用', 'en': '{n} does not support external Flash (only {r}); Flash operations are disabled', 'zh-CN': '{n} 不支持外部 Flash（只支持 {r}），Flash 操作已停用' },
+  'i2c.sfLogGateCk':    { 'zh-TW': '第一次 Flash 操作前先 Check T-CON', 'en': 'Running Check T-CON before the first Flash operation', 'zh-CN': '第一次 Flash 操作前先 Check T-CON' },
   'i2c.sfLogAutoNoModel': { 'zh-TW': 'Check T-CON 結果「{n}」對不到外部 Flash 型號，請手選', 'en': 'Check T-CON result “{n}” does not map to an external-Flash model; pick it by hand', 'zh-CN': 'Check T-CON 结果「{n}」对不到外部 Flash 型号，请手选' },
   /* v1.33.1：讀 ID 後的長度與容量（容量確定才縮長度） */
   'i2c.sfLogIdRaw':     { 'zh-TW': 'JEDEC ID 原始 3 byte：{id}；容量碼 0x{c} ⇒ {code}；原廠型號表：{tbl}', 'en': 'JEDEC ID raw 3 bytes: {id}; capacity code 0x{c} ⇒ {code}; vendor table: {tbl}', 'zh-CN': 'JEDEC ID 原始 3 byte：{id}；容量码 0x{c} ⇒ {code}；原厂型号表：{tbl}' },

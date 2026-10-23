@@ -2,6 +2,36 @@
 
 ---
 
+## I2C 讀寫測試 (i2c) v1.40.0 — 2026-10-23 ｜ MINOR ｜「外部 Flash」跟 T-CON 辨認結果連動：不支援 Flash 的顆（如 E503）停用並寫原因；已在 Flash 模式才認出就警示並擋下
+
+判定依據：`docs/VERSIONING.md` R2：新增一條防呆規則（使用者可見的行為改變）。
+
+### 需求（Bruce 2026-10-23）
+
+「選外部 Flash；第三步我故意接著 E503，然後按自動判斷或是重新判斷，它都不會跳出警示…如果 TCON 是不可以用 Flash 的 TCON，那就不應該讓使用者可以選到外部 Flash 的這個選項。」
+
+### 各顆支援的 ROM（原廠 DLL_Raydium_CommonLibrary/Raydium.Core/Models/ICDefine.cs 的 SupportedROMTypes）
+
+| T-CON | 原廠 IC | 支援 | 出處 |
+|---|---|---|---|
+| EN01 | RM81008 | EEPROM、FLASH | :49 |
+| E501A／E501B | RM81011 | FLASH | :1116 |
+| E503（A1／A2／A3） | RM8100x | EEPROM | :1694 |
+| DAZ6111 | DAZ6111 | EEPROM | :2927 |
+| EM01 | EM01 | EEPROM、FLASH | :3293 |
+| EM02 | EM02 | EEPROM | :3312 |
+
+DAZ613x、E512、V007、V512、VM02 在原廠表裡沒有資料 ⇒ 不擋（照原本行為）。認不出、分不出（例如 AUX 的 E503／EN01 分不出）也不擋，因為候選裡有支援 Flash 的顆。
+
+### 改了什麼（只有 i2c.html 與三個新字串）
+
+- 辨認出不支援 Flash 的顆 ⇒ ③「外部 Flash」按鈕停用，提示與功能說明那一行寫「E503 不支援外部 Flash」。
+- 先選了外部 Flash、之後才認出（Check T-CON、自動判斷、重新判斷、手選 T-CON 都走 `i2ctSfOnCk`）⇒ 頂部橫幅與面板紅字「E503 不支援外部 Flash（只支援 EEPROM），Flash 操作已停用」，型號清空，型號、讀 ID、讀出、寫入、整顆清除、選檔全部停用。
+- 每個 Flash 操作（讀 ID、讀出、寫入、整顆清除）入口都過 `i2ctSfGate()`：還沒辨認 ⇒ 先跑一次 Check T-CON；認出不支援 ⇒ 警示並不送任何一則。
+- I2C、AUX 兩種連線方式同一套規則。
+- `common/i18n.js` 新增 `i2c.sfRomNo`、`i2c.sfRomBlock`、`i2c.sfLogGateCk`（三語），12 頁的 i18n.js cache buster 一起換。
+- **tools/check_i2c_aux.mjs**：新增 F 組（I2C、AUX 各一次）照 Bruce 的操作：選外部 Flash → E503 → 自動判斷／重新判斷 ⇒ 警示、Flash 操作 0 則送出、離開後按鈕停用並寫原因、EEPROM 照常可選。
+
 ## I2C 讀寫測試 (i2c) v1.39.4 — 2026-10-23 ｜ PATCH ｜ AUX 讀 EEPROM 改為每則 256 byte，修正「選 EEPROM → 讀取」逾時失敗；I2C 路徑不變
 
 判定依據：`docs/VERSIONING.md` R2：修正錯誤。
