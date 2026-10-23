@@ -151,4 +151,22 @@ extern unsigned long dgh_fake_addr;         /* 目前的裝置位址指標 */
 extern unsigned char dgh_fake_mem[65536];
 void dgh_fake_eeprom_reset(int page, int awid, unsigned char fill);
 
+/* ── 1.18.0：DP AUX（DLL_AUX_VC.dll）假實作 ──────────────────────────────────
+   假的只到 DLL 的函式邊界：一顆「T-CON」——DPCD 0x430/0x431 位址、0x435 讀寫 3E 暫存器、
+   0x434 讀寫 7C 暫存器、0x436 MCU 記憶體；I2C-over-AUX 的 0x7D／0x7E；0x50–0x57 是 EEPROM，
+   任何一筆打到它都記在 dgh_fake_aux_ee_hits（測試要求必須是 0）。
+   顯示卡驅動、真 AUX 波形、真 PSR 一律沒有被模擬。 */
+typedef struct { DWORD cb; char DeviceName[32]; char DeviceString[128]; DWORD StateFlags; char DeviceID[128]; char DeviceKey[128]; } DISPLAY_DEVICEA;
+BOOL EnumDisplayDevicesA(const char* dev, DWORD i, DISPLAY_DEVICEA* dd, DWORD flags);
+extern int  dgh_shim_is_admin;              /* IsUserAnAdmin 的回答 */
+extern char dgh_shim_adapter[128];          /* EnumDisplayDevicesA 第 0 個介面卡名稱（空＝沒有） */
+extern int  dgh_fake_aux_ok_monitor;        /* Initial 只有這個 monitor 回 0 */
+extern int  dgh_fake_aux_init_calls, dgh_fake_aux_release_calls, dgh_fake_aux_last_card, dgh_fake_aux_last_proj;
+extern int  dgh_fake_aux_ee_hits;           /* 打到 EEPROM 0x50–0x57 的 I2C-over-AUX 次數 */
+extern int  dgh_fake_aux_dpcd_writes, dgh_fake_aux_i2c_writes, dgh_fake_aux_fail_writes;
+extern int  dgh_fake_aux_psr_sup, dgh_fake_aux_psr_on, dgh_fake_aux_psr_sets;
+extern unsigned char dgh_fake_aux_r3e[65536], dgh_fake_aux_r7c[256], dgh_fake_aux_r7d[65536], dgh_fake_aux_r7e[256];
+extern unsigned char dgh_fake_aux_dpcd[0x1000], dgh_fake_aux_mcu[65536];
+void dgh_fake_aux_reset(void);
+
 #endif

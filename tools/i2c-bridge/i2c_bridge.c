@@ -44,6 +44,7 @@
 
 #include "i2c_bridge_version.h"
 #include "i2c_bridge_proto.h"   /* SHA1 / Base64 / JSON / whitelist / Origin (shared with test_proto.c) */
+#include "i2c_bridge_aux.h"     /* 1.18.0: DP AUX routing + T-CON-only whitelist (shared with test/test_aux.c) */
 
 /* ---- I2C transfer options (from ftdi_i2c.h / the combos PQ Tool uses) ----
  *
@@ -136,6 +137,10 @@ int dgh_ck_delay = 3;
 #define DGH_MODE_FAST   1
 #define DGH_MODE_SLOW   2
 #define DGH_MODE_RAW    3
+/* 1.18.0（Bruce 2026-10-23「AUX bridge 跟 i2c bridge 做在一起，用一套轉發」）：
+   4 = DP AUX（DLL_AUX_VC.dll，經顯示卡驅動）。不碰 FTDI 治具；只到得了 T-CON
+   （0x3E／0x7C／0x7D／0x7E），EEPROM 0x50–0x57 一律擋（i2c_bridge_aux.h）。 */
+#define DGH_MODE_AUX    4
 /* ═══ 🔴🔴 預設 ＝ **vendor（DLL_I2C_BCB.dll）** ════════════════════════════════════
    為什麼是它：AN2232C-01（這顆 FT2232C/D 自己的手冊）證實它的 MPSSE
    **沒有三相時脈、沒有開汲極** —— 那正是 I2C 需要的兩樣東西
@@ -1580,8 +1585,236 @@ static void i2c_apply_mode(uint32_t hz) {
     if (p_FT_Purge && g_handle) { p_FT_Purge(g_handle, 3 /* RX|TX */);
                                   logline("  purge   : FT_Purge(RX|TX) done"); }
 }
+/* ═══ 1.18.0：DP AUX 後端（DLL_AUX_VC.dll）════════════════════════════════════
+   Bruce 2026-10-23：AUX 與 I2C Bridge 用同一支、同一套轉發；I2C 網頁加 AUX 控制，
+   一定要透過 T-CON 控制 I2C，不能直接寫 EEPROM。
+   ・DLL 只在網頁選 DP AUX（open mode 4）時才載入 ⇒ 不選 AUX 的人行為一個 byte 都沒變。
+   ・搜尋：exe 同目錄（zip 內附）→ 環境變數 I2C_BRIDGE_AUX_DLL_DIR → 目前目錄。
+     本程式是 32 位元 ⇒ 用 x86 的 DLL_AUX_VC.dll（x64 那份載不進 32 位元行程）。
+   ・Initial(card, monitor, projectIc)：card 依 EnumDisplayDevices 的介面卡名稱判斷
+     （同原廠 Common.cs AutoDetectGetGraphicsCardName，名稱含 INTEL／AMD／NVIDIA），
+     monitor 0..19 逐一試，第一個 Initial 回 0 的就用（原廠是試完取最後一個並另做
+     register checksum；網頁可帶 card／monitor 指定）。projectIc 預設 1
+     （E_PROJECT_IC.RAD_8100x_613x，EN01＝RAD81008 的 ProjectId）。
+   ・Intel IGCL 規定：AUX 寫入要系統管理員、要先關 PSR ⇒ 回報 admin／PSR 狀態，
+     網頁要求時（psroff:1）用 Set_PSR_State 關掉，關閉連線時還原。
+   ・T-CON 初始化（tconinit:1）：照原廠 Tcon81008.FlashInitialize（不是 EepromInitialize ——
+     後者會把 EEPROM 寫保護打開，DPCD 0x482=0x80 與 3E:0065）；收尾照 FlashEnd。
+   🔴 全部未在 Windows 實機驗證（沒有實機）；mock DLL 測試見 test/test_server_aux.c。 */
+#ifndef DISPLAY_DEVICE_ACTIVE
+#define DISPLAY_DEVICE_ACTIVE 0x00000001
+#endif
+#ifdef _WIN32
+__declspec(dllimport) BOOL WINAPI IsUserAnAdmin(void);   /* shell32（mingw 的 shlobj.h 也這樣宣告） */
+#endif
+static DGH_AUX_API g_aux;
+static int  g_auxOk = 0;              /* DLL 載入且 exports 齊全 */
+static int  g_auxOpen = 0;            /* Initial 成功、目前持有 */
+static int  g_auxTried = 0;           /* 這次執行有沒有試過載入 */
+static char g_auxPath[MAX_PATH] = "";
+static char g_auxLoadErr[400] = "";
+static int  g_auxCard = -1, g_auxMon = -1, g_auxProj = 1;
+static int  g_auxAdmin = -1;          /* -1 未知、0 否、1 是 */
+static int  g_auxPsrSup = -1, g_auxPsrOn = -1, g_auxPsrWeOff = 0;
+static int  g_auxInitDone = 0;        /* 做過 T-CON 初始化 ⇒ 關閉時要做收尾 */
+static char g_auxAdapters[300] = "";
+static void aux_sleep(unsigned ms){ Sleep((DWORD)ms); }
+static int aux_try_dir(const char* dirIn){
+    char dir[MAX_PATH], full[MAX_PATH]; HMODULE h;
+    if(!dirIn || !dirIn[0]) return 0;
+    snprintf(dir,sizeof(dir),"%s",dirIn); ensure_slash(dir);
+    snprintf(full,sizeof(full),"%s%s",dir,DGH_AUX_DLL);
+    { DWORD a=GetFileAttributesA(full);
+      if(a==INVALID_FILE_ATTRIBUTES || (a&FILE_ATTRIBUTE_DIRECTORY)){ logline("  aux     : %-50s not here", full); return 0; } }
+    h = LoadLibraryA(full);
+    if(!h){ DWORD le=GetLastError();
+        snprintf(g_auxLoadErr,sizeof(g_auxLoadErr),"%s is there but LoadLibrary failed (Windows error %lu). "
+                 "This program is 32-bit, so it needs the 32-bit DLL_AUX_VC.dll (not DLL_AUX_VC_x64.dll).", full, (unsigned long)le);
+        logline("  aux     : %s", g_auxLoadErr); return 0; }
+    memset(&g_aux,0,sizeof(g_aux));
+    g_aux.Initial        =(PFN_AUX_Initial)        GetProcAddress(h,"Initial");
+    g_aux.Release        =(PFN_AUX_Release)        GetProcAddress(h,"Release");
+    g_aux.GetInitialState=(PFN_AUX_GetInitialState)GetProcAddress(h,"Get_InitialState");
+    g_aux.GetGraphCard   =(PFN_AUX_GetGraphCard)   GetProcAddress(h,"Get_GraphCard");
+    g_aux.GetPsr         =(PFN_AUX_Psr)            GetProcAddress(h,"Get_PSR_State");
+    g_aux.SetPsr         =(PFN_AUX_Psr)            GetProcAddress(h,"Set_PSR_State");
+    g_aux.DpcdRead       =(PFN_AUX_Dpcd)           GetProcAddress(h,"DPCD_Read");
+    g_aux.DpcdWrite      =(PFN_AUX_Dpcd)           GetProcAddress(h,"DPCD_Write");
+    g_aux.I2cRead        =(PFN_AUX_I2c)            GetProcAddress(h,"I2C_Read");
+    g_aux.I2cWrite       =(PFN_AUX_I2c)            GetProcAddress(h,"I2C_Write");
+    g_aux.FreeString     =(PFN_AUX_FreeString)     GetProcAddress(h,"FreeString");
+    g_aux.sleep_ms = aux_sleep; g_aux.delayMs = 1;
+    if(!g_aux.Initial||!g_aux.Release||!g_aux.DpcdRead||!g_aux.DpcdWrite||!g_aux.I2cRead||!g_aux.I2cWrite){
+        snprintf(g_auxLoadErr,sizeof(g_auxLoadErr),"%s loaded but it is missing functions "
+                 "(Initial/Release/DPCD_Read/DPCD_Write/I2C_Read/I2C_Write) -- not the expected DLL.", full);
+        logline("  aux     : %s", g_auxLoadErr); return 0; }
+    snprintf(g_auxPath,sizeof(g_auxPath),"%s",full);
+    { WIN32_FIND_DATAA fd; HANDLE fh=FindFirstFileA(full,&fd); unsigned long sz=0;
+      if(fh!=INVALID_HANDLE_VALUE){ sz=(unsigned long)fd.nFileSizeLow; FindClose(fh); }
+      logline("  aux     : OK  loaded %s (%lu bytes)%s", full, sz, g_aux.GetPsr?"":"  (no PSR functions)"); }
+    g_auxOk = 1; g_auxLoadErr[0]=0;
+    return 1;
+}
+static int aux_load(void){
+    char buf[MAX_PATH];
+    if(g_auxOk) return 1;
+    g_auxTried = 1;
+    logline("Looking for %s (exe dir [bundled], env I2C_BRIDGE_AUX_DLL_DIR, cwd):", DGH_AUX_DLL);
+    if(aux_try_dir(g_exeDir)) return 1;
+    if(GetEnvironmentVariableA("I2C_BRIDGE_AUX_DLL_DIR",buf,sizeof(buf)) && buf[0] && aux_try_dir(buf)) return 1;
+    if(GetCurrentDirectoryA(sizeof(buf),buf) && aux_try_dir(buf)) return 1;
+    if(!g_auxLoadErr[0])
+        snprintf(g_auxLoadErr,sizeof(g_auxLoadErr),"%s not found. It ships in the same zip as i2c-bridge.exe: "
+                 "put it next to i2c-bridge.exe (or set I2C_BRIDGE_AUX_DLL_DIR), then reconnect. "
+                 "The I2C jig path is not affected.", DGH_AUX_DLL);
+    logline("  aux     : %s", g_auxLoadErr);
+    return 0;
+}
+/* 介面卡名稱 → 要試的 card 清單（不重複）。回傳個數。 */
+static int aux_cards(int* out, int cap){
+    int n=0; DWORD i; DISPLAY_DEVICEA dd;
+    g_auxAdapters[0]=0;
+    for(i=0;i<16;i++){
+        int c,k,dup=0; size_t L;
+        memset(&dd,0,sizeof(dd)); dd.cb=sizeof(dd);
+        if(!EnumDisplayDevicesA(NULL,i,&dd,0)) break;
+        { char* q; for(q=dd.DeviceString; *q; q++) if(*q=='"'||*q=='\\'||(unsigned char)*q<0x20) *q='\''; }
+        L=strlen(g_auxAdapters);
+        if(L+strlen(dd.DeviceString)+4<sizeof(g_auxAdapters))
+            snprintf(g_auxAdapters+L,sizeof(g_auxAdapters)-L,"%s%s",L?" | ":"",dd.DeviceString);
+        c=dgh_aux_card_from_name(dd.DeviceString);
+        if(c<0) continue;
+        for(k=0;k<n;k++) if(out[k]==c) dup=1;
+        if(!dup && n<cap) out[n++]=c;
+    }
+    return n;
+}
+static void aux_psr_read(void){
+    DGH_AUX_PSR st;
+    g_auxPsrSup=-1; g_auxPsrOn=-1;
+    if(!g_aux.GetPsr) return;
+    memset(&st,0,sizeof(st)); st.iResult=-1;
+    g_aux.GetPsr(&st);
+    if(st.strMsg){ logline("  aux     : Get_PSR_State message: %.200s", st.strMsg); if(g_aux.FreeString) g_aux.FreeString(st.strMsg); }
+    if(st.iResult==0){ g_auxPsrSup=st.u8Supported?1:0; g_auxPsrOn=st.u8Enabled?1:0; }
+    logline("  aux     : PSR iResult=%d supported=%d enabled=%d", st.iResult, (int)st.u8Supported, (int)st.u8Enabled);
+}
+/* 照 RaydiumAuxWrapper.cs GraphicsPsrEnable：先讀，OK 且支援才設定。 */
+static int aux_psr_set(int enable){
+    DGH_AUX_PSR st;
+    if(!g_aux.GetPsr || !g_aux.SetPsr) return 0;
+    memset(&st,0,sizeof(st)); st.iResult=-1;
+    g_aux.GetPsr(&st);
+    if(st.strMsg){ if(g_aux.FreeString) g_aux.FreeString(st.strMsg); st.strMsg=NULL; }
+    if(st.iResult!=0 || !st.u8Supported){ logline("  aux     : PSR set(%d) skipped (iResult=%d supported=%d)", enable, st.iResult, (int)st.u8Supported); return 0; }
+    st.iResult=-1; st.u8Enabled=(unsigned char)(enable?1:0);
+    g_aux.SetPsr(&st);
+    if(st.strMsg){ logline("  aux     : Set_PSR_State message: %.200s", st.strMsg); if(g_aux.FreeString) g_aux.FreeString(st.strMsg); }
+    logline("  aux     : Set_PSR_State(enabled=%d) -> iResult=%d", enable, st.iResult);
+    aux_psr_read();
+    return st.iResult==0;
+}
+static int aux_dw1(int addr, unsigned char v){ int ok=dgh_aux_b(g_aux.DpcdWrite(1,addr,&v)); Sleep(1); return ok; }
+/* Tcon81008.FlashInitialize（Simple sequence = No）——逐步寫進 log。 */
+static int aux_tcon_init(char* err, size_t ecap){
+    unsigned char v=0xAA, ab[2], m=0;
+    int okAll=1;
+    logline("  aux     : T-CON init (vendor AUX tool, flash-type sequence)");
+    okAll &= aux_dw1(0x4D2,0xAD); okAll &= aux_dw1(0x4D1,0xDA);           /* AuxTconEnable */
+    if(!dgh_aux_b(g_aux.DpcdRead(1,0x43B,&v))){ snprintf(err,ecap,"T-CON init: DPCD_Read 0x43B failed"); return 0; }
+    Sleep(1);
+    {   /* AuxDvcomKbpsSel(v==0)：MCU mem 0x9C |= 0x40（1435）或 0xC3 |= 0x02 */
+        int is1435 = (v==0x00); unsigned short mem = is1435?0x9C:0xC3;
+        ab[0]=(unsigned char)(mem>>8); ab[1]=(unsigned char)(mem&0xFF);
+        okAll &= dgh_aux_b(g_aux.DpcdWrite(2,0x430,ab)); Sleep(1);
+        okAll &= dgh_aux_b(g_aux.DpcdRead(1,0x436,&m)); Sleep(1);
+        m = (unsigned char)(m | (is1435?0x40:0x02));
+        okAll &= dgh_aux_b(g_aux.DpcdWrite(2,0x430,ab)); Sleep(1);
+        okAll &= aux_dw1(0x436,m);
+        logline("  aux     :   0x43B=%02X -> DVCOM kbps sel: MCU mem 0x%02X |= 0x%02X (now %02X)", v, mem, is1435?0x40:0x02, m);
+    }
+    okAll &= aux_dw1(0x431,0x00); okAll &= aux_dw1(0x439,0x08);           /* McuCtrlClk(true) */
+    okAll &= aux_dw1(0x431,0x03); okAll &= aux_dw1(0x439,0x80);           /* CbusMbusSelect */
+    okAll &= aux_dw1(0x480,0xFF);
+    if(!okAll){ snprintf(err,ecap,"T-CON init over AUX: one or more DPCD writes failed (see i2c-bridge.log)"); return 0; }
+    g_auxInitDone = 1;
+    return 1;
+}
+static void aux_tcon_end(void){
+    if(!g_auxInitDone) return;
+    logline("  aux     : T-CON end (flash-type: CbusMbusSelect, McuCtrlClk(false), update settings)");
+    aux_dw1(0x431,0x03); aux_dw1(0x439,0x80);
+    aux_dw1(0x431,0x00); aux_dw1(0x439,0x04);
+    aux_dw1(0x4D2,0xAD);
+    g_auxInitDone = 0;
+}
+static char g_auxOpenErr[600] = "";
+static int aux_open(int cardReq, int monReq, int projReq, int psrOff, int tconInit){
+    int cards[4], nc, ci, m;
+    g_auxOpenErr[0]=0;
+    if(g_auxOpen) return 1;
+    if(!aux_load()){ snprintf(g_auxOpenErr,sizeof(g_auxOpenErr),"%s",g_auxLoadErr); return 0; }
+    g_auxProj = (projReq>=0 && projReq<=3) ? projReq : 1;
+    if(cardReq>=0 && cardReq<=3){ cards[0]=cardReq; nc=1; aux_cards(cards+1,0); }
+    else nc = aux_cards(cards,4);
+    logline("  aux     : display adapters: %s", g_auxAdapters[0]?g_auxAdapters:"(none listed)");
+    if(nc==0){
+        snprintf(g_auxOpenErr,sizeof(g_auxOpenErr),"no Intel / AMD / NVIDIA display adapter found (adapters: %s). "
+                 "DP AUX needs the panel on the laptop's own eDP / DP output.", g_auxAdapters[0]?g_auxAdapters:"none");
+        logline("  aux     : %s", g_auxOpenErr); return 0; }
+    for(ci=0;ci<nc && !g_auxOpen;ci++){
+        int m0 = (monReq>=0)?monReq:0, m1 = (monReq>=0)?monReq:19;
+        for(m=m0;m<=m1;m++){
+            unsigned char c=(unsigned char)cards[ci], mo=(unsigned char)m, pj=(unsigned char)g_auxProj;
+            unsigned char r = g_aux.Initial(&c,&mo,&pj);
+            if(r==0){ g_auxCard=cards[ci]; g_auxMon=m; g_auxOpen=1;
+                logline("  aux     : Initial(card=%s, monitor=%d, projectIc=%d) = OK", dgh_aux_card_name((unsigned)cards[ci]), m, g_auxProj);
+                break; }
+        }
+        if(!g_auxOpen) logline("  aux     : Initial failed on card %s, monitors %d..%d", dgh_aux_card_name((unsigned)cards[ci]), m0, m1);
+    }
+    if(!g_auxOpen){
+        snprintf(g_auxOpenErr,sizeof(g_auxOpenErr),"DP AUX: Initial() failed on every display tried (adapters: %s). "
+                 "Check the panel is lit on this computer's eDP / DP port and the graphics driver is installed.",
+                 g_auxAdapters[0]?g_auxAdapters:"none");
+        return 0; }
+    if(g_aux.GetInitialState) logline("  aux     : Get_InitialState = %d", dgh_aux_b(g_aux.GetInitialState()));
+#ifdef _WIN32
+    g_auxAdmin = IsUserAnAdmin() ? 1 : 0;
+#else
+    g_auxAdmin = dgh_shim_is_admin ? 1 : 0;
+#endif
+    logline("  aux     : administrator = %s%s", g_auxAdmin?"yes":"NO",
+            (!g_auxAdmin && g_auxCard==(int)DGH_AUX_CARD_INTEL)?"  <- Intel IGCL: AUX writes need admin (right-click i2c-bridge.exe -> Run as administrator)":"");
+    aux_psr_read();
+    g_auxPsrWeOff = 0;
+    if(psrOff && g_auxPsrSup==1 && g_auxPsrOn==1){
+        if(aux_psr_set(0) && g_auxPsrOn==0){ g_auxPsrWeOff = 1; logline("  aux     : PSR turned OFF for this session (will be restored on close)"); }
+    }
+    if(tconInit){
+        char e[200]="";
+        if(!aux_tcon_init(e,sizeof(e))) logline("  aux     : %s (continuing; register reads will tell)", e);
+    }
+    return 1;
+}
+static void aux_close(void){
+    if(!g_auxOpen) return;
+    aux_tcon_end();
+    if(g_auxPsrWeOff){ aux_psr_set(1); g_auxPsrWeOff=0; logline("  aux     : PSR restored to ON"); }
+    if(g_aux.Release) g_aux.Release();
+    g_auxOpen = 0;
+    logline("  close   : DP AUX released");
+}
+
 static int i2c_open(uint32_t clockHz) {
     double t0 = now_ms(), t;
+    /* 1.18.0：AUX 模式完全不碰 FTDI 治具；先讓出治具（若這個 bridge 之前開著它）。 */
+    if (dgh_mode == DGH_MODE_AUX) {
+        if (g_vendorOpen) vendor_close();
+        if (g_opened && g_handle) { p_Close(g_handle); g_handle=NULL; g_opened=0; logline("  open    : released the jig for DP AUX"); }
+        return g_auxOpen;   /* 真正的開啟在 handle_command 的 open（要帶 card/monitor 等參數） */
+    }
+    if (g_auxOpen) aux_close();   /* 回到治具模式 ⇒ 放掉 AUX */
     /* 🔴🔴 互斥：DLL_I2C_BCB.dll 與 libMPSSE 都會開**同一個** FTDI channel，不能同時持有。
        選了 DLL_I2C_BCB 就完全不碰 `I2C_OpenChannel`，反之亦然。 */
     if (dgh_mode == DGH_MODE_VENDOR) {
@@ -1688,11 +1921,13 @@ static int i2c_open(uint32_t clockHz) {
       邏輯使用，那樣會把兩套資源的狀態混在一起。
    ⇒ 改成問「**目前啟用的後端**是否已開啟」。 */
 static int backend_is_open(void){
+    if (dgh_mode == DGH_MODE_AUX) return g_auxOpen;
     return (dgh_mode == DGH_MODE_VENDOR) ? g_vendorOpen : g_opened;
 }
 /* 🔴 依後端釋放治具。原本只關 libMPSSE，vendor 開著的話治具不會被放掉 ——
    分頁中斷／主動 close／接手都會留著不放，下一個使用者就開不起來。 */
 static void i2c_close(void){
+    if(g_auxOpen) aux_close();
     if(g_vendorOpen){ vendor_close(); logline("  close   : vendor Close() done"); }
     if(g_opened&&g_handle) p_Close(g_handle);
     g_handle=NULL; g_opened=0;
@@ -1931,6 +2166,18 @@ static FT_STATUS i2c_read_ex(uint32_t slave, uint32_t addr, uint32_t awid, uint3
     FT_STATUS s;
     if(n<0) return 0xFFFFFFFEu;
     g_lastRaw = 0; g_lastUsbRt = 0;
+    /* 1.18.0：DP AUX —— 只到得了 T-CON，其餘 slave（含 EEPROM）在送出前擋下 */
+    if(dgh_mode == DGH_MODE_AUX){
+        char e[300]=""; int ok;
+        if(!g_auxOpen){ lasterr_set("DP AUX is not open"); if(got)*got=0; return 0xFFFFFFF4u; }
+        ok = dgh_aux_reg_read(&g_aux, slave, addr, awid, len, out, got, e, sizeof(e));
+        g_lastUs = (now_ms() - t0) * 1000.0;
+        if(!ok) lasterr_set("%s", e);
+        if(!g_ioQuiet || !ok)
+        logline("  i2c_read: slave=0x%02X addr=0x%X awid=%u len=%u mode=AUX -> %s, %u bytes, %.0f us%s%s",
+                slave, addr, awid, len, ok?"ok":"FAILED", got?*got:0, g_lastUs, ok?"":"  ", ok?"":e);
+        return ok ? 0 : 0xFFFFFFF4u;
+    }
     /* 🔴 DLL_I2C_BCB.dll 優先：一次讀完，不分段（DLL_I2C_BCB 那套 Python UI 的標準操作就是一次 4096）。 */
     if(dgh_mode == DGH_MODE_VENDOR && g_vendorOk && g_vendorOpen){
         int vok = vendor_read(slave, addr, awid, len, out, got);
@@ -1981,6 +2228,32 @@ static FT_STATUS i2c_write_ex(uint32_t slave, uint32_t addr, uint32_t awid, cons
     t0 = now_ms();
     uint32_t tr=0; FT_STATUS s;
     g_lastRaw = 0; g_lastUsbRt = 0;
+    /* 1.18.0：DP AUX 寫入。白名單在 dgh_aux_reg_write 裡（EEPROM 0x50–0x57 一律擋，送出前）。
+       7E:AB←CD（M-Bus 導通 C-Bus）成功後，照原廠 AUX 工具的 MbusConnect 補 7C:0F bit7。 */
+    if(dgh_mode == DGH_MODE_AUX){
+        char e[300]=""; int ok;
+        if(!g_auxOpen){ lasterr_set("DP AUX is not open"); if(got)*got=0; return 0xFFFFFFF4u; }
+        ok = dgh_aux_reg_write(&g_aux, slave, addr, awid, data, (uint32_t)dlen, &tr, e, sizeof(e));
+        if(ok && dgh_aux_is_mbus_cmd(slave, addr, data, (uint32_t)dlen)){
+            uint8_t b0=0, b1=0; char e2[200]="";
+            if(dgh_aux_mbus_follow(&g_aux, &b0, &b1, e2, sizeof(e2)))
+                logline("  aux     : M-Bus connect follow-up 7C:0F %02X -> %02X (vendor AUX tool MbusConnect)", b0, b1);
+            else logline("  aux     : M-Bus connect follow-up 7C:0F failed: %s", e2);
+        }
+        g_lastUs = (now_ms() - t0) * 1000.0;
+        if(!ok){
+            if(!g_auxAdmin && g_auxCard==(int)DGH_AUX_CARD_INTEL && strstr(e,"AUX ")==e)
+                lasterr_set("%s. Intel graphics need administrator rights for AUX writes: close i2c-bridge.exe and start it with right-click -> Run as administrator.", e);
+            else if(g_auxPsrOn==1 && strstr(e,"AUX ")==e)
+                lasterr_set("%s. PSR (panel self refresh) is ON; AUX writes need it OFF -- reconnect with PSR off.", e);
+            else lasterr_set("%s", e);
+        }
+        if(!g_ioQuiet || !ok)
+        logline("  i2c_write: slave=0x%02X addr=0x%X awid=%u dlen=%d mode=AUX -> %s, %u byte, %.0f us%s%s",
+                slave, addr, awid, dlen, ok?"ok":"FAILED", tr, g_lastUs, ok?"":"  ", ok?"":e);
+        if(got)*got=tr;
+        return ok ? 0 : 0xFFFFFFF4u;
+    }
     /* 🔴 DLL_I2C_BCB.dll 優先，與讀取同一個判斷式（v1.12.0）。
        在這之前這條分支不存在 ⇒ vendor 模式下**整個寫入功能都不能用**。 */
     if(dgh_mode == DGH_MODE_VENDOR && g_vendorOk && g_vendorOpen){
@@ -2685,13 +2958,13 @@ static void handle_command(int idx, const char* json){
         /* 🔴 v1.11.7：`mode` 是新的單一入口（0=DLL_I2C_BCB 1=官方快速 2=一般 3=自建）。
            沒給就沿用舊的 fastread/rawmpsse 組合，維持相容。 */
         { long md = dgh_json_int(json,"mode",-1);
-          if(md >= DGH_MODE_VENDOR && md <= DGH_MODE_RAW){
+          if(md >= DGH_MODE_VENDOR && md <= DGH_MODE_AUX){
               dgh_mode = (int)md;
               dgh_fast_read  = (dgh_mode == DGH_MODE_FAST);
               dgh_raw_mpsse  = (dgh_mode == DGH_MODE_RAW);
           }
           logline("  open    : mode=%d (%s)  vendorDll=%s", dgh_mode,
-                  dgh_mode==DGH_MODE_VENDOR?"vendor DLL":dgh_mode==DGH_MODE_FAST?"libMPSSE FAST_TRANSFER":
+                  dgh_mode==DGH_MODE_AUX?"DP AUX (DLL_AUX_VC)":dgh_mode==DGH_MODE_VENDOR?"vendor DLL":dgh_mode==DGH_MODE_FAST?"libMPSSE FAST_TRANSFER":
                   dgh_mode==DGH_MODE_SLOW?"libMPSSE per-byte":"raw MPSSE",
                   g_vendorOk?g_vendorPath:"(not found)"); }
         /* 🔴 三相開關也由網頁帶（預設開）。Bruce 要一次量完開／關兩種。 */
@@ -2737,6 +3010,29 @@ static void handle_command(int idx, const char* json){
                 "{\"type\":\"taken\",\"err\":\"another page took over the I2C channel\"}");
             cl_drop(g_ownerIdx);
         }
+        /* ═══ 1.18.0：DP AUX 開啟 ═══ 擁有權規則與治具完全相同（上面那段沒有改）。 */
+        if(dgh_mode==DGH_MODE_AUX){
+            int aok;
+            i2c_open(hz);                                    /* 只負責讓出治具 */
+            aok = aux_open((int)dgh_json_int(json,"card",-1), (int)dgh_json_int(json,"monitor",-1),
+                           (int)dgh_json_int(json,"projic",1), (int)dgh_json_int(json,"psroff",1),
+                           (int)dgh_json_int(json,"tconinit",1));
+            if(aok){ if(g_ownerIdx!=idx) g_lockOwner=-1; g_ownerIdx=idx; }
+            if(aok)
+                snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"open\",\"ok\":true,\"channels\":1,"
+                    "\"aux\":true,\"card\":\"%s\",\"monitor\":%d,\"projic\":%d,\"admin\":%s,"
+                    "\"psrSupported\":%s,\"psrOn\":%s,\"psrTurnedOff\":%s,\"tconInit\":%s}",
+                    id, dgh_aux_card_name((unsigned)g_auxCard), g_auxMon, g_auxProj,
+                    g_auxAdmin==1?"true":(g_auxAdmin==0?"false":"null"),
+                    g_auxPsrSup==1?"true":(g_auxPsrSup==0?"false":"null"),
+                    g_auxPsrOn==1?"true":(g_auxPsrOn==0?"false":"null"),
+                    g_auxPsrWeOff?"true":"false", g_auxInitDone?"true":"false");
+            else
+                snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"open\",\"ok\":false,\"aux\":true,"
+                    "\"auxDll\":%s,\"err\":\"%s\"}", id, g_auxOk?"true":"false", g_auxOpenErr);
+            logline("[cmd] open(AUX) from #%d -> %s", idx, aok?"OK":"FAIL");
+            ws_send_text(c,rep); return;
+        }
         int wasOpen = g_opened;
         int ok=i2c_open(hz);
         /* 🔴 已經開著時 i2c_open() 直接 return，不會重跑 init ——
@@ -2775,12 +3071,59 @@ static void handle_command(int idx, const char* json){
     /* 🔴 1.15.0：`batchwrite` 也要在這一關 —— 漏掉它等於開一個「不持有 channel
        也能寫」的後門，而且是最大的那一種寫入。 */
     if((strcmp(type,"read")==0||strcmp(type,"write")==0||strcmp(type,"rawwrite")==0
-        ||strcmp(type,"batchwrite")==0)
+        ||strcmp(type,"batchwrite")==0||strcmp(type,"dpcdread")==0||strcmp(type,"dpcdwrite")==0
+        ||strcmp(type,"psr")==0)
        && g_ownerIdx!=idx){
         snprintf(rep,sizeof(rep),
             "{\"type\":\"result\",\"id\":%ld,\"cmd\":\"%s\",\"ok\":false,\"busy\":true,"
             "\"err\":\"this page does not hold the I2C channel\"}", id, type);
         ws_send_text(c,rep); return;
+    }
+    /* ═══ 1.18.0：DP AUX 專用命令（proto 7）═══════════════════════════════════
+         {"type":"dpcdread","addr":N,"len":1..16}            -> data[]
+         {"type":"dpcdwrite","addr":N,"data":[..1..16]}      -> 0x480..0x48F 一律擋（T-CON 的 EEPROM 控制窗）
+         {"type":"psr","set":0|1}  （不帶 set ＝ 只讀）       -> supported / on
+       只在 AUX 模式、而且是持有者時可用。 */
+    if(strcmp(type,"dpcdread")==0||strcmp(type,"dpcdwrite")==0||strcmp(type,"psr")==0){
+        if(dgh_mode!=DGH_MODE_AUX || !g_auxOpen){
+            snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"%s\",\"ok\":false,\"err\":\"DP AUX is not open (connect with the DP AUX option first)\"}",id,type);
+            ws_send_text(c,rep); return; }
+        if(strcmp(type,"psr")==0){
+            long sv=dgh_json_int(json,"set",-1);
+            if(sv==0||sv==1){ if(aux_psr_set((int)sv)){ if(sv==1) g_auxPsrWeOff=0; } }
+            else aux_psr_read();
+            snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"psr\",\"ok\":%s,\"supported\":%s,\"on\":%s}",
+                id, g_auxPsrSup>=0?"true":"false", g_auxPsrSup==1?"true":(g_auxPsrSup==0?"false":"null"),
+                g_auxPsrOn==1?"true":(g_auxPsrOn==0?"false":"null"));
+            ws_send_text(c,rep); return; }
+        { uint32_t a=(uint32_t)dgh_json_int(json,"addr",-1);
+          uint8_t d[DGH_AUX_DPCD_MAX]; int i, o, okk;
+          if(strcmp(type,"dpcdread")==0){
+              uint32_t n=(uint32_t)dgh_json_int(json,"len",1);
+              if(n<1||n>DGH_AUX_DPCD_MAX||a>0xFFFFFu){
+                  snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"dpcdread\",\"ok\":false,\"err\":\"len must be 1..16 and addr 0..0xFFFFF\"}",id);
+                  ws_send_text(c,rep); return; }
+              okk=dgh_aux_b(g_aux.DpcdRead((int)n,(int)a,d));
+              logline("[cmd] dpcdread 0x%05X x%u -> %s", a, n, okk?"ok":"FAILED");
+              o=snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"dpcdread\",\"ok\":%s,%s\"data\":[",
+                  id, okk?"true":"false", okk?"":"\"err\":\"DPCD_Read failed\",");
+              for(i=0;okk && i<(int)n;i++) o+=snprintf(rep+o,sizeof(rep)-o,"%s%u",i?",":"",d[i]);
+              snprintf(rep+o,sizeof(rep)-o,"]}");
+              ws_send_text(c,rep); return; }
+          { int dn=dgh_json_int_array(json,"data",d,(int)sizeof(d));
+            if(dn<1 || !dgh_aux_dpcd_write_ok(a,(uint32_t)dn)){
+                snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"dpcdwrite\",\"ok\":false,\"blocked\":%s,\"err\":\"%s\"}",
+                    id, (dn>=1 && a<=0xFFFFFu)?"true":"false",
+                    (dn>=1 && a<=0xFFFFFu)?"DPCD 0x480-0x48F is the T-CON EEPROM control window (EEPROM read/write init and write protect). Writing it from here is blocked: the EEPROM may only be reached through the T-CON. Nothing was written."
+                                          :"data must be 1..16 bytes and addr 0..0xFFFFF. Nothing was written.");
+                logline("[cmd] dpcdwrite REFUSED addr=0x%05X x%d", a, dn);
+                ws_send_text(c,rep); return; }
+            { char hex[64]; int ho=0; for(i=0;i<dn;i++) ho+=snprintf(hex+ho,sizeof(hex)-ho,"%s%02X",i?" ":"",d[i]);
+              logline("[cmd] dpcdwrite 0x%05X x%d: %s", a, dn, hex); }
+            okk=dgh_aux_b(g_aux.DpcdWrite(dn,(int)a,d));
+            snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"dpcdwrite\",\"ok\":%s%s}",
+                id, okk?"true":"false", okk?"":",\"err\":\"DPCD_Write failed (Intel graphics: run i2c-bridge.exe as administrator; PSR must be off)\"");
+            ws_send_text(c,rep); return; } }
     }
     if(strcmp(type,"read")==0){
         uint32_t slave=(uint32_t)dgh_json_int(json,"slave",0x60);
@@ -3336,15 +3679,19 @@ static void handle_command(int idx, const char* json){
         ws_send_text(c,rep); return;
     }
     /* 1.17.0：治具通道診斷（唯讀）。持有者檢查在 cd_run 裡面自己做。 */
-    if(strcmp(type,"chandiag")==0){ cd_run(idx, id); return; }
+    if(strcmp(type,"chandiag")==0){
+        if(dgh_mode==DGH_MODE_AUX){
+            snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"chandiag\",\"ok\":false,\"err\":\"jig channel diagnostics are not available in DP AUX mode\"}",id);
+            ws_send_text(c,rep); return; }
+        cd_run(idx, id); return; }
     if(strcmp(type,"ping")==0){
         /* 🔴 wire 欄位仍叫 `helper`（不是 `bridge`）：改名只為了讓人看得懂，
            而這個欄位是**協定**。改掉它，手上還拿著舊 exe 的人配新頁面、或舊頁面
            配新 exe，版本欄位都會變成 undefined ⇒ 顯示與相容性判斷一起壞。
            使用者看不到這個字串，所以留舊名沒有任何代價。 */
-        snprintf(rep,sizeof(rep),"{\"type\":\"pong\",\"id\":%ld,\"helper\":\"%s\",\"proto\":%d,\"dll\":%s,\"owner\":%s,\"locked\":%s}",
+        snprintf(rep,sizeof(rep),"{\"type\":\"pong\",\"id\":%ld,\"helper\":\"%s\",\"proto\":%d,\"dll\":%s,\"owner\":%s,\"locked\":%s,\"auxOpen\":%s}",
                  id,I2C_BRIDGE_VERSION,I2C_BRIDGE_PROTO,g_dllOk?"true":"false",
-                 (g_ownerIdx==idx)?"true":"false", i2c_locked()?"true":"false");
+                 (g_ownerIdx==idx)?"true":"false", i2c_locked()?"true":"false", g_auxOpen?"true":"false");
         ws_send_text(c,rep); return;
     }
 }
@@ -3733,6 +4080,14 @@ int main(int argc, char** argv){
             " libMPSSE per-byte (the fallback is logged, never silent).");
     diag_dll();
     diag_ftdi();
+    {   /* 1.18.0：DP AUX 只在網頁選它時才載入；這裡只報「檔案在不在」，不載入、不呼叫。 */
+        char ap[MAX_PATH]; DWORD at;
+        snprintf(ap,sizeof(ap),"%s%s",g_exeDir,DGH_AUX_DLL);
+        at=GetFileAttributesA(ap);
+        logline("  aux dll   : %s %s (loaded only when a page picks DP AUX; DP AUX does not need the I2C jig)",
+                ap, (at!=INVALID_FILE_ATTRIBUTES && !(at&FILE_ATTRIBUTE_DIRECTORY))?"present":"NOT present");
+        (void)g_auxTried;
+    }
 
     WSADATA w;
     char url[256]; snprintf(url,sizeof(url),"http://127.0.0.1:%d/%s", port, page);

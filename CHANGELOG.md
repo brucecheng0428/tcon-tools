@@ -2,6 +2,37 @@
 
 ---
 
+## I2C 讀寫測試 (i2c) v1.35.0 — 2026-10-23 ｜ MINOR ｜ 連線方式加「DP AUX（顯示卡）」＋ I2C Bridge v1.18.0（proto 7）：同一支 bridge、同一套轉發，只到得了 T-CON，不能直接寫 EEPROM
+
+判定依據：`docs/VERSIONING.md` R3「使用者真的多能做一件事 → MINOR」：不用治具、經筆電顯示卡的 DP AUX 讀寫面板 T-CON。既有操作（I2C 治具）的流程、預設值、輸出都不變（預設仍是 I2C 治具）⇒ 不是 MAJOR，不帶 ⚠ 輸出變更。I2C Bridge 多一個 mode 與三個命令 ⇒ proto 6 → 7，exe 重編。
+
+### 需求（Bruce 2026-10-23 06:44，AUX 評估報告留言）
+
+「AUX bridge 可以的話跟 i2c bridge 做在一起，用一套轉發就好」「先用 I2C 網頁加入 AUX 控制（但一定要透過 tcon 來控制 i2c，不能直接對 eeprom 也寫入）」；06:46「可以先看（人名略）的 EN01 UI，就可以有 AUX 相關的 dll」。
+
+### 做法
+
+- **I2C Bridge 1.18.0**（tools/i2c-bridge）：不另做 aux-bridge。網頁 open 帶 `mode:4` ⇒ 不碰 FTDI 治具，改載 `DLL_AUX_VC.dll`（x86，cdecl，函式簽章照 RAD_AUX_DLL 原始碼 App/NativeApi/AuxNativeApi.cs:20–109、結構照 App/Models.cs）。既有 `read／rawwrite／write／batchwrite` 訊息一個欄位都沒改，bridge 依 slave 路由，照原廠 AUX 工具原始碼（App/ICs/TconBase.cs）：
+  - 0x3E：DPCD 0x430／0x431 寫 2-byte 位址、0x435 讀寫資料（逐 byte）；0x7C：0x431 位址、0x434 資料；0x7D／0x7E：I2C-over-AUX（先寫 offset 再讀，16 byte 一段）。
+  - 7E:AB←CD（M-Bus 導通 C-Bus）之後照原廠 MbusConnect 補 7C:0F bit7（讀改寫）。
+  - 新命令：`dpcdread`、`dpcdwrite`、`psr`。open 回 card／monitor／admin／PSR 狀態。
+  - 選卡：EnumDisplayDevices 的介面卡名稱判 INTEL／AMD／NVIDIA（同原廠 Common.cs），monitor 0..19 第一個 `Initial()` 成功的；projectIc 預設 1（EN01＝RAD81008）。
+  - Intel IGCL 規定 AUX 寫入要系統管理員、要先關 PSR：回報 admin；PSR 開著就用 `Set_PSR_State` 關掉，關閉連線時還原。
+  - 連線時照原廠 Tcon81008 的 flash 型初始化（4D2／4D1 enable、DVCOM kbps、MCU clock、C-Bus／M-Bus select、0x480），收尾照 FlashEnd。**不用** EEPROM 型初始化（它會把 EEPROM 寫保護打開：DPCD 0x482=0x80、3E:0065）。
+  - DLL 不在、載不起來、找不到顯示卡 ⇒ open 回清楚的錯誤；治具路徑（mode 0..3）行為未動，DLL 只在選 AUX 時才載入。
+- **🔴 只到得了 T-CON（Bruce 指定）**：兩道一樣的白名單——bridge `i2c_bridge_aux.h dgh_aux_check`（送出前擋，網頁壞掉也擋得住）＋網頁 `common/i2c-aux.js TconAux.check`（送出前擋、三語訊息）。AUX 模式只放行 slave 0x3E／0x7C／0x7D／0x7E；EEPROM 0x50–0x57 讀寫都擋，其他 slave 也擋；`dpcdwrite` 擋 0x480–0x48F（T-CON 的 EEPROM 讀寫初始化與寫保護窗）。
+- **i2c.html v1.35.0**：① 連線卡多一個「連線方式：I2C 治具／DP AUX（顯示卡）」下拉（預設 I2C 治具）。選 DP AUX ⇒ EEPROM 功能鈕停用、slave 常用下拉的 0x50 停用、slave 不在白名單就改 0x3E；連線後那一行顯示「DP AUX：INTEL · 螢幕 N · 系統管理員 ✔ · PSR 已關」；Intel 且不是系統管理員 ⇒ 上方一行提示怎麼用系統管理員執行。舊 I2C Bridge（proto < 7）選 DP AUX ⇒ 叫他下載新版。換連線方式 ⇒ 先中斷、請他重新連線。Check T-CON、M-Bus 導通、一般暫存器讀寫、外部 Flash 都走原本的程式（同一組訊息）。
+- 下載包 `data/i2c-bridge-v1.18.0.zip`：五個檔（多 `DLL_AUX_VC.dll`）。DLL 檔內 PDB 除錯路徑含一個人名，打包的那份把那 5 個字元換成 XXXXX（程式碼段未動）。說明文字「四個檔」改「五個檔」（common/i18n.js、common/i2c-bridge.js、i2c.html）。`v1.17.0.zip` 與更舊的包保留。
+- 共用檔改動 ⇒ 所有頁面的 `common/version.js`／`common/i18n.js`／`common/i2c-bridge.js` cache buster 一起換（`?v=20261023aux135`、`?v=20261023ib101`）。
+
+### 測試（🔴 全部是模擬，未在 Windows 實機驗證；實機等 Bruce 10/27 進公司）
+
+- bridge（Mac，shim＋假 DLL_AUX_VC）：新 `test/test_aux.c` 45/0（白名單逐一 0x00–0x7F、EEPROM 讀寫 DLL 0 次呼叫、3E／7C 視窗、7D 分段 ≤16、M-Bus 後續讀改寫、bool 只看低位、DPCD 0x480–0x48F、卡名判斷、PSR 結構 x86 16 byte）；新 `test/test_server_aux.c` 64/0（真 WebSocket：DLL 不在 ⇒ 清楚錯誤且治具照常、AUX open／PSR 關閉與還原／T-CON 初始化沒碰 EEPROM 寫保護、rawwrite／read／batchwrite／write 打 0x50–0x57 全擋且假 EEPROM 0 次被碰、dpcdwrite 0x482 擋、非持有者擋、非系統管理員寫入失敗訊息、切回治具 AUX 被放掉、斷線 Release）；既有 test_proto 248/0、test_server 270/0（hello proto 改 7）、test_wait 32/0、test_ackguard 32/0、test_vendor_len 43/0。
+- exe：`zig cc -target x86-windows-gnu`（build.sh 多 `-luser32`）⇒ PE32 Intel 80386、367,104 bytes；import 有 USER32 EnumDisplayDevicesA、SHELL32 IsUserAnAdmin。
+- 網頁：新 `tools/check_i2c_aux.mjs` 42/0（假 bridge 1.18.0；選 AUX → 連線 mode 4 → Check T-CON 認 EN01 → 3E 讀寫 → 直接讀寫 EEPROM 單筆／整批全擋且一則都沒送到 bridge → 舊 bridge 提示 → 非系統管理員提示 → 切回治具照常讀 EEPROM → 三語 → 375 寬；並比對網頁與 bridge 兩份白名單一致）。回歸：見本次 commit 訊息。
+
+---
+
 ## NB TCON Debug應用 (nbdebug) v1.2.1 — 2026-10-23 ｜ PATCH ｜ KOSC 引導步驟完成狀態（與下面 i2c v1.34.7、wfg v4.59.1 同一件）
 
 判定依據：同下面 wfg v4.59.1 那一條（只改步驟狀態的顯示 ⇒ PATCH，不帶 ⚠ 輸出變更）。需求、做法、測試見那一條。

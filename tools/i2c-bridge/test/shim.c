@@ -102,9 +102,10 @@ HMODULE LoadLibraryA(const char* path){
     char p[MAX_PATH*2]; snprintf(p,sizeof(p),"%s",path);
     for(char* q=p; *q; q++) if(*q=='\\') *q='/';
     const char* base = strrchr(p,'/'); base = base?base+1:p;
-    if(strcmp(base,"libMPSSE.dll")!=0) return NULL;
+    int isAux = (strcmp(base,"DLL_AUX_VC.dll")==0);
+    if(strcmp(base,"libMPSSE.dll")!=0 && !isAux) return NULL;
     struct stat st; if(stat(p,&st)!=0) return NULL;
-    return (HMODULE)(intptr_t)0x11B;
+    return isAux ? (HMODULE)(intptr_t)0x11D : (HMODULE)(intptr_t)0x11B;
 }
 /* 1.15.1 的高解析度計時器假實作定義在本檔最後（它要用 clock_gettime），
    這裡先宣告，GetProcAddress 才交得出指標。 */
@@ -112,6 +113,7 @@ static void* shim_CreateWaitableTimerExW(void* sec, const void* name,
                                          unsigned long flags, unsigned long access);
 static int   shim_SetWaitableTimer(void* h, const LARGE_INTEGER* due, long period,
                                    void* apc, void* arg, int resume);
+static void* shim_aux_proc(const char* name);
 void* GetProcAddress(HMODULE m, const char* name){
     if(!m) return NULL;
     if(m==(HMODULE)(intptr_t)0x11C){                     /* kernel32.dll */
@@ -119,6 +121,7 @@ void* GetProcAddress(HMODULE m, const char* name){
         if(!strcmp(name,"SetWaitableTimer"))       return (void*)shim_SetWaitableTimer;
         return NULL;
     }
+    if(m==(HMODULE)(intptr_t)0x11D) return shim_aux_proc(name);   /* DLL_AUX_VC.dll */
     if(!strcmp(name,"Init_libMPSSE"))      return (void*)fake_Init;
     if(!strcmp(name,"Cleanup_libMPSSE"))   return (void*)fake_Cleanup;
     if(!strcmp(name,"I2C_GetNumChannels")) return (void*)fake_GetNum;
@@ -299,3 +302,93 @@ DWORD WaitForSingleObject(HANDLE h, DWORD ms){
     return 0;                                  /* WAIT_OBJECT_0 */
 }
 BOOL CloseHandle(HANDLE h){ (void)h; g_shim_timer_armed=0; return 1; }
+
+/* ── 1.18.0：假 DLL_AUX_VC.dll（說明見 shim/windows.h）────────────────────── */
+#include "../i2c_bridge_aux.h"
+int  dgh_shim_is_admin = 1;
+char dgh_shim_adapter[128] = "Intel(R) Iris(R) Xe Graphics";
+int  dgh_fake_aux_ok_monitor = 2;
+int  dgh_fake_aux_init_calls = 0, dgh_fake_aux_release_calls = 0, dgh_fake_aux_last_card = -1, dgh_fake_aux_last_proj = -1;
+int  dgh_fake_aux_ee_hits = 0, dgh_fake_aux_dpcd_writes = 0, dgh_fake_aux_i2c_writes = 0, dgh_fake_aux_fail_writes = 0;
+int  dgh_fake_aux_psr_sup = 1, dgh_fake_aux_psr_on = 1, dgh_fake_aux_psr_sets = 0;
+unsigned char dgh_fake_aux_r3e[65536], dgh_fake_aux_r7c[256], dgh_fake_aux_r7d[65536], dgh_fake_aux_r7e[256];
+unsigned char dgh_fake_aux_dpcd[0x1000], dgh_fake_aux_mcu[65536];
+static unsigned fa_ptr7d = 0, fa_ptr7e = 0;
+void dgh_fake_aux_reset(void){
+    memset(dgh_fake_aux_r3e,0,sizeof(dgh_fake_aux_r3e)); memset(dgh_fake_aux_r7c,0,sizeof(dgh_fake_aux_r7c));
+    memset(dgh_fake_aux_r7d,0,sizeof(dgh_fake_aux_r7d)); memset(dgh_fake_aux_r7e,0,sizeof(dgh_fake_aux_r7e));
+    memset(dgh_fake_aux_dpcd,0,sizeof(dgh_fake_aux_dpcd)); memset(dgh_fake_aux_mcu,0,sizeof(dgh_fake_aux_mcu));
+    dgh_fake_aux_ee_hits=0; dgh_fake_aux_dpcd_writes=0; dgh_fake_aux_i2c_writes=0; dgh_fake_aux_fail_writes=0;
+    dgh_fake_aux_psr_sup=1; dgh_fake_aux_psr_on=1; dgh_fake_aux_psr_sets=0;
+    dgh_fake_aux_init_calls=0; dgh_fake_aux_release_calls=0;
+    fa_ptr7d=0; fa_ptr7e=0;
+}
+BOOL EnumDisplayDevicesA(const char* dev, DWORD i, DISPLAY_DEVICEA* dd, DWORD flags){
+    (void)dev; (void)flags;
+    if(i!=0 || !dgh_shim_adapter[0] || !dd) return 0;
+    snprintf(dd->DeviceString,sizeof(dd->DeviceString),"%s",dgh_shim_adapter);
+    snprintf(dd->DeviceName,sizeof(dd->DeviceName),"\\\\.\\DISPLAY1");
+    dd->StateFlags = 1; return 1;
+}
+static unsigned fa_ptr(void){ return ((unsigned)dgh_fake_aux_dpcd[0x430]<<8) | dgh_fake_aux_dpcd[0x431]; }
+static unsigned char fa_Initial(unsigned char* c, unsigned char* m, unsigned char* p){
+    dgh_fake_aux_init_calls++; dgh_fake_aux_last_card=*c; dgh_fake_aux_last_proj=*p;
+    return (*m == (unsigned char)dgh_fake_aux_ok_monitor) ? 0x00 : 0xFF; }
+static void fa_Release(void){ dgh_fake_aux_release_calls++; }
+static int  fa_GetInitialState(void){ return 1; }
+static unsigned char fa_GetGraphCard(void){ return (unsigned char)dgh_fake_aux_last_card; }
+static unsigned char fa_GetPsr(DGH_AUX_PSR* s){ s->iResult=0; s->u8Supported=(unsigned char)dgh_fake_aux_psr_sup; s->u8Enabled=(unsigned char)dgh_fake_aux_psr_on; s->strMsg=NULL; return 0; }
+static unsigned char fa_SetPsr(DGH_AUX_PSR* s){ dgh_fake_aux_psr_sets++; if(dgh_fake_aux_psr_sup) dgh_fake_aux_psr_on=s->u8Enabled?1:0; s->iResult=0; return 0; }
+static int fa_DpcdRead(int n, int a, unsigned char* d){
+    int i; if(a<0||a+n>0x1000) return 0;
+    for(i=0;i<n;i++){
+        int x=a+i;
+        if(x==0x435) d[i]=dgh_fake_aux_r3e[fa_ptr()];
+        else if(x==0x434) d[i]=dgh_fake_aux_r7c[dgh_fake_aux_dpcd[0x431]];
+        else if(x==0x436) d[i]=dgh_fake_aux_mcu[fa_ptr()];
+        else d[i]=dgh_fake_aux_dpcd[x];
+    }
+    return 1; }
+static int fa_DpcdWrite(int n, int a, unsigned char* d){
+    int i; if(dgh_fake_aux_fail_writes) return 0;
+    if(a<0||a+n>0x1000) return 0;
+    dgh_fake_aux_dpcd_writes++;
+    for(i=0;i<n;i++){
+        int x=a+i;
+        if(x==0x435) dgh_fake_aux_r3e[fa_ptr()]=d[i];
+        else if(x==0x434) dgh_fake_aux_r7c[dgh_fake_aux_dpcd[0x431]]=d[i];
+        else if(x==0x436) dgh_fake_aux_mcu[fa_ptr()]=d[i];
+        else dgh_fake_aux_dpcd[x]=d[i];
+    }
+    return 1; }
+static int fa_I2cWrite(int n, int slave, unsigned char* d, int mot){
+    (void)mot;
+    if(dgh_fake_aux_fail_writes) return 0;
+    if(slave>=0x50 && slave<=0x57){ dgh_fake_aux_ee_hits++; return 1; }
+    dgh_fake_aux_i2c_writes++;
+    if(slave==0x7D){ int i; if(n<2) return 0; fa_ptr7d=((unsigned)d[0]<<8)|d[1];
+        for(i=2;i<n;i++) dgh_fake_aux_r7d[(fa_ptr7d+(unsigned)(i-2))&0xFFFF]=d[i]; return 1; }
+    if(slave==0x7E){ int i; if(n<1) return 0; fa_ptr7e=d[0];
+        for(i=1;i<n;i++) dgh_fake_aux_r7e[(fa_ptr7e+(unsigned)(i-1))&0xFF]=d[i]; return 1; }
+    return 0; /* NACK */ }
+static int fa_I2cRead(int n, int slave, unsigned char* d, int mot){
+    int i; (void)mot;
+    if(slave>=0x50 && slave<=0x57){ dgh_fake_aux_ee_hits++; for(i=0;i<n;i++) d[i]=0xEE; return 1; }
+    if(slave==0x7D){ for(i=0;i<n;i++) d[i]=dgh_fake_aux_r7d[(fa_ptr7d+(unsigned)i)&0xFFFF]; return 1; }
+    if(slave==0x7E){ for(i=0;i<n;i++) d[i]=dgh_fake_aux_r7e[(fa_ptr7e+(unsigned)i)&0xFF]; return 1; }
+    return 0; }
+static void fa_FreeString(void* p){ (void)p; }
+static void* shim_aux_proc(const char* name){
+    if(!strcmp(name,"Initial")) return (void*)fa_Initial;
+    if(!strcmp(name,"Release")) return (void*)fa_Release;
+    if(!strcmp(name,"Get_InitialState")) return (void*)fa_GetInitialState;
+    if(!strcmp(name,"Get_GraphCard")) return (void*)fa_GetGraphCard;
+    if(!strcmp(name,"Get_PSR_State")) return (void*)fa_GetPsr;
+    if(!strcmp(name,"Set_PSR_State")) return (void*)fa_SetPsr;
+    if(!strcmp(name,"DPCD_Read")) return (void*)fa_DpcdRead;
+    if(!strcmp(name,"DPCD_Write")) return (void*)fa_DpcdWrite;
+    if(!strcmp(name,"I2C_Read")) return (void*)fa_I2cRead;
+    if(!strcmp(name,"I2C_Write")) return (void*)fa_I2cWrite;
+    if(!strcmp(name,"FreeString")) return (void*)fa_FreeString;
+    return NULL;
+}

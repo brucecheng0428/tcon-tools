@@ -117,7 +117,7 @@
     'i2c.gotIt': ['知道了', 'Got it', '知道了'],
     'i2c.dlShared': ['「TCON 自檢畫面量測」用的是<b>同一支程式</b>，兩邊只要下載一次。', 'The T-CON self-test measurement uses <b>the same program</b>; download it once.', '「TCON 自检画面测量」用的是<b>同一支程序</b>，两边只要下载一次。'],
     'i2c.tsTitle': ['跑不起來 / 連不上？', 'Will not start / cannot connect?', '跑不起来 / 连不上？'],
-    'i2c.tsBody': ['四個檔要在同一個資料夾：<code class="mono">i2c-bridge.exe</code>、<code class="mono">libMPSSE.dll</code>、<code class="mono">ftd2xx.dll</code>、<code class="mono">DLL_I2C_BCB.dll</code>。', 'All four files must sit in the same folder.', '四个文件要在同一个文件夹。']
+    'i2c.tsBody': ['五個檔要在同一個資料夾：<code class="mono">i2c-bridge.exe</code>、<code class="mono">libMPSSE.dll</code>、<code class="mono">ftd2xx.dll</code>、<code class="mono">DLL_I2C_BCB.dll</code>、<code class="mono">DLL_AUX_VC.dll</code>（DP AUX 用）。', 'All five files must sit in the same folder.', '五个文件要在同一个文件夹。']
   };
   var LANGS = ['zh-TW', 'en', 'zh-CN'];
   /* i2c.html 用的同一份字（HTML 片段，字典是本站自己的、不含使用者輸入） */

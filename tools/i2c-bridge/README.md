@@ -6,6 +6,26 @@
 網頁 ──WebSocket(127.0.0.1)──> i2c-bridge.exe ──libMPSSE(D2XX)──> 治具 ──I2C──> TCON
 ```
 
+## DP AUX（1.18.0 起，proto 7）
+
+Bruce 2026-10-23：「AUX bridge 可以的話跟 i2c bridge 做在一起，用一套轉發就好」「一定要透過 tcon 來控制 i2c，不能直接對 eeprom 也寫入」。
+
+```
+網頁 ──同一條 WebSocket──> i2c-bridge.exe ──DLL_AUX_VC.dll──> 顯示卡驅動 ──DP AUX──> T-CON
+```
+
+- 網頁 `open` 帶 `"mode":4`（可選 `card` 0 Intel／1 AMD／2 NVIDIA、`monitor`、`projic`（預設 1）、`psroff`（預設 1）、`tconinit`（預設 1））。
+  回覆多 `aux:true, card, monitor, projic, admin, psrSupported, psrOn, psrTurnedOff, tconInit`；失敗回 `aux:true, auxDll, err`。
+- 既有 `read／rawwrite／write／batchwrite` 不變；bridge 依 slave 路由（`i2c_bridge_aux.h`）：
+  3E＝DPCD 0x430/0x431 位址＋0x435 資料、7C＝0x431 位址＋0x434 資料、7D／7E＝I2C-over-AUX（16 byte 一段）。
+  7E:AB←CD 之後補 7C:0F bit7（原廠 AUX 工具 MbusConnect）。
+- 🔴 白名單：AUX 模式只放行 slave 0x3E／0x7C／0x7D／0x7E；EEPROM 0x50–0x57 讀寫一律擋（送出前）；`dpcdwrite` 擋 0x480–0x48F。網頁端 `common/i2c-aux.js` 同一份規則，`tools/check_i2c_aux.mjs` 比對兩份一致。
+- 新命令：`{"type":"dpcdread","addr":N,"len":1..16}`、`{"type":"dpcdwrite","addr":N,"data":[…]}`、`{"type":"psr"[,"set":0|1]}`（都要持有者、要在 AUX 模式）。
+- DLL：exe 同目錄的 `DLL_AUX_VC.dll`（x86；zip 內附）→ 環境變數 `I2C_BRIDGE_AUX_DLL_DIR` → 目前目錄。只在選 AUX 時才載入。
+- Intel IGCL：AUX 寫入要系統管理員（open 回 `admin`）、要先關 PSR（`psroff:1` 自動關、關閉連線時還原）。
+- T-CON 初始化照原廠 Tcon81008 FlashInitialize（不是 EepromInitialize——那個會打開 EEPROM 寫保護）。
+- 🔴 未在 Windows 實機驗證。測試：`test/test_aux.c`（純函式）、`test/test_server_aux.c`（真 WebSocket＋假 DLL，見下方「測試」）。
+
 ## 使用者流程（v1.3.0，Bruce 2026-09-17 回饋後）
 
 1. **下載**（不加密 zip，Windows 內建就解得開）
@@ -121,6 +141,11 @@ cc -O2 -I test/shim -I . test/test_ackguard.c test/shim.c -o test_ackguard -lpth
 # 原廠 DLL 的長度守衛
 cc -O2 -I test/shim -I . test/test_vendor_len.c test/shim.c -o test_vendor_len -lpthread
 ./test_vendor_len                                   # 43/43
+
+# 1.18.0 DP AUX：白名單／路由（純函式）與真 WebSocket＋假 DLL_AUX_VC
+cc -O2 -I . test/test_aux.c -o test_aux && ./test_aux   # 45/45
+cc -O2 -I test -c test/test_server_aux.c -o /tmp/tsa.o
+cc /tmp/tsa.o /tmp/bo.o /tmp/sh.o -o test_server_aux -lpthread && ./test_server_aux   # 64/64
 ```
 
 🔴 `build.sh` 需要 zig 做交叉編譯。**更正（2026-09-20）：這台 Mac 上已經有

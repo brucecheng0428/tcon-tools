@@ -264,8 +264,24 @@
  *   - 🔴 未在硬體上驗證：原廠 DLL 在 offBytes=0 時的實際波形、NACK 時的回傳值，
  *     以及 FT2232C/D 的 B 通道在全輸入 bit-bang 模式下讀到的腳位，只有 Bruce 的
  *     治具能確認。 */
-#define I2C_BRIDGE_VERSION "1.17.0"
-#define I2C_BRIDGE_PROTO   6
+/* ═══ 1.18.0（2026-10-23）══════════════════════════════════════════════════
+ *   - 🔴 **DP AUX 併入同一支 bridge**（Bruce 2026-10-23「AUX bridge 可以的話跟 i2c bridge
+ *     做在一起，用一套轉發就好」）：open 帶 `mode:4` ⇒ 改走 DLL_AUX_VC.dll（顯示卡 AUX），
+ *     既有 read／rawwrite／write／batchwrite 原封不動，由 bridge 依 slave 路由
+ *     （3E／7C 走 DPCD 0x430/0x435、0x431/0x434 視窗，7D／7E 走 I2C-over-AUX），
+ *     照原廠 AUX 工具原始碼（RAD_AUX_DLL App/ICs/TconBase.cs）。
+ *   - 🔴 **只到得了 T-CON**（Bruce「一定要透過 tcon 來控制 i2c，不能直接對 eeprom 也寫入」）：
+ *     AUX 模式下 slave 白名單 {3E,7C,7D,7E}，EEPROM 0x50–0x57 讀寫都在送出前擋下；
+ *     raw `dpcdwrite` 擋 0x480–0x48F（T-CON 的 EEPROM 控制窗）。
+ *   - 新命令 `dpcdread`／`dpcdwrite`／`psr`；open 回 card／monitor／admin／PSR 狀態。
+ *   - 治具路徑（mode 0..3）行為未動；DLL_AUX_VC.dll 只在選 AUX 時才載入。
+ *   - 多一個 mode 與三個命令 ⇒ **proto 6 → 7**（I2C_BRIDGE_PROTO_AUX）。
+ *   - 🔴 未在 Windows 實機驗證：Initial 選卡、AUX 波形、Intel 系統管理員／PSR 行為，
+ *     只有 mock DLL 測試（test/test_aux.c、test/test_server_aux.c）。 */
+#define I2C_BRIDGE_VERSION "1.18.0"
+#define I2C_BRIDGE_PROTO   7
+/* 🔴 DP AUX（open mode 4、dpcdread／dpcdwrite／psr）需要的 proto 下限。 */
+#define I2C_BRIDGE_PROTO_AUX 7
 /* 🔴 `chandiag` 需要的 proto 下限。 */
 #define I2C_BRIDGE_PROTO_CHANDIAG 6
 /* 🔴 24 位元 offset（awid=3）與目標段間距（`gap`）需要的 proto 下限。
@@ -282,8 +298,9 @@
        1.14.0 的上一個是 **v1.13.0**。 */
 /* 🔴 1.16.0：上一個版本是 **v1.15.1**（1.15.1 時這裡指 v1.15.0）。
    🔴 1.17.0：上一個版本是 **v1.16.0**。 */
+/* 🔴 1.18.0：上一個版本是 **v1.17.0**。 */
 #define I2C_BRIDGE_PREV_PKG \
-    "https://brucecheng0428.github.io/tcon-tools/data/i2c-bridge-v1.16.0.zip"
+    "https://brucecheng0428.github.io/tcon-tools/data/i2c-bridge-v1.17.0.zip"
 /* (2) 「**沒有 ACK 守衛**的那一版」——只出現在 ACK 守衛擋下讀寫時的錯誤訊息裡。
        它的意思不是「上一版」，而是「**這道守衛不存在的那一版**」：使用者若判斷
        是守衛誤殺，他要的是一個不做這個檢查的 exe。

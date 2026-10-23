@@ -30,8 +30,8 @@
           出來」。那個前提**早就不成立**：bridge 的靜態檔服務拒絕子資料夾、而且自 v1.7.0
           起預設關閉 —— 詳細依據與行號寫在 body 末端那兩個 <script> 的上面。）
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="common/version.js?v=20261023i2c1347"></script>
-<script src="common/i2c-bridge.js?v=20261012ib100"></script>
+<script src="common/version.js?v=20261023aux135"></script>
+<script src="common/i2c-bridge.js?v=20261023ib101"></script>
 <style>
   * { box-sizing: border-box; }
   :root{
@@ -805,6 +805,10 @@
            🔴 `disabled` 只綁 `i2ctBusy`（不再綁 linked）：兩個方向都由同一顆負責，
               忙碌中照舊擋住重複點擊。中斷會**釋放治具讓別的程式能用**，那個語意
               移到 ON 狀態的 tooltip（見 i2ctSyncButtons）。 -->
+      <!-- v1.35.0（Bruce 2026-10-23「先用 I2C 網頁加入 AUX 控制（但一定要透過 tcon 來控制 i2c，不能直接對 eeprom 也寫入）」）：
+           連線方式二選一。DP AUX 走同一支 I2C Bridge、同一條連線（open mode 4），只到得了 T-CON；規則在 common/i2c-aux.js。 -->
+      <label class="kv" id="xport-wrap" style="display:inline-flex;align-items:center;gap:6px"><span id="xport-lbl">連線方式</span>
+        <select id="in-xport" class="mono" style="font-size:14px;padding:4px 6px"><option value="jig">I2C 治具</option><option value="aux">DP AUX（顯示卡）</option></select></label>
       <button id="btn-link" class="linkbtn" aria-pressed="false" data-i18n="i2c.connect">連線</button>
       <!-- ═══ 🔴 v1.24.0：`#helperinfo` 從頁首右上角搬到**這裡**（Bruce 2026-09-20 定案）══
            理由（他的）：它是「這條連線的屬性」—— 沒連線時是空字串、根本沒有意義；
@@ -1545,8 +1549,8 @@
         <!-- 🔴 v1.18.2：這一行本來寫「exe、dg-measure.html、i2c.html、libMPSSE.dll」——
              **從 v1.7.0 起就不對了**（那一版把 html 移出下載包），而且它點名了另一頁。
              改成解壓之後實際會有的四個檔。 -->
-        四個檔要在同一個資料夾：<code class="mono">i2c-bridge.exe</code>、<code class="mono">libMPSSE.dll</code>、
-        <code class="mono">ftd2xx.dll</code>、<code class="mono">DLL_I2C_BCB.dll</code>。<br>
+        五個檔要在同一個資料夾：<code class="mono">i2c-bridge.exe</code>、<code class="mono">libMPSSE.dll</code>、
+        <code class="mono">ftd2xx.dll</code>、<code class="mono">DLL_I2C_BCB.dll</code>、<code class="mono">DLL_AUX_VC.dll</code>（DP AUX 用）。<br>
         exe 內容一變 SHA 就變，Windows 會再擋一次。<br>
         同一時間只有一個頁面握著 I2C：切到哪一頁哪一頁就自動接手，不必按任何東西；
         對方正在量測時不會被搶走。要把治具交回去給別的工具就按「釋放 I2C」。<br>
@@ -1664,8 +1668,9 @@
      🔴 **CSS 沒有跟著載**（見 style 區塊頂端的說明）：common.css 有 `.card`／`.row`／
         無範圍的 `label{}` 等等，與本頁同名而語意完全不同，載進來會整頁走樣。
         頁首那四條宣告是逐字抄過來的，來源行號寫在各自上面。 -->
-<script src="common/i18n.js?v=20261023i2c1347"></script>
+<script src="common/i18n.js?v=20261023aux135"></script>
 <script src="common/i2c-mbus.js?v=20261022mb110"></script>
+<script src="common/i2c-aux.js?v=20261023ax100"></script>
 <script src="common/tcon-detect.js?v=20261022td120"></script>
 <script src="common/common.js?v=20261008i2c1341"></script>
 <script src="common/i2c-spiflash.js?v=20261022en01"></script>
@@ -3313,6 +3318,11 @@ function i2ctMbus(){
 }
 function i2ctSend(obj){ return i2ctMbus().send(obj); }
 function i2ctSendRaw(obj){
+  /* v1.35.0：DP AUX ⇒ 只到得了 T-CON；EEPROM 與其他 slave 在送出前擋下（bridge 端也會擋，這裡是第一道）。 */
+  if (i2ctXport === 'aux') {
+    var ax = TconAux.check(obj);
+    if (ax) { i2ctLog('✕ ' + ax.msg, 'e'); return Promise.reject(new Error(ax.msg)); }
+  }
   return new Promise(function (resolve, reject) {
     if (!i2ctWs || i2ctWs.readyState !== 1) { reject(new Error(i2ctT('i2c.errNotLinked'))); return; }
     var id = ++i2ctSeq; obj.id = id;
@@ -3339,6 +3349,10 @@ function i2ctSendLong(obj, onProgress, idleMs){
 }
 function i2ctSendLongRaw(obj, onProgress, idleMs){
   var idle = idleMs || I2CT_TIMEOUT_MS;
+  if (i2ctXport === 'aux') {        /* v1.35.0：整批寫入同樣只到得了 T-CON（EEPROM 擋） */
+    var ax = TconAux.check(obj);
+    if (ax) { i2ctLog('✕ ' + ax.msg, 'e'); return Promise.reject(new Error(ax.msg)); }
+  }
   return new Promise(function (resolve, reject) {
     if (!i2ctWs || i2ctWs.readyState !== 1) { reject(new Error(i2ctT('i2c.errNotLinked'))); return; }
     var id = obj.id || ++i2ctSeq; obj.id = id;
@@ -3398,6 +3412,7 @@ var i2ctOpenClockKHz = 0;          /* v1.32.1：最近一次成功 open 時送�
 function i2ctSetLink(on, txt, cls){
   i2ctLinkState = { on: on, txt: txt, cls: cls };
   i2ctLinked = on;
+  if (!on && cls !== 'busy') i2ctAuxInfo = null;
   $('dot').className = 'dot' + (cls ? ' ' + cls : (on ? ' on' : ''));
   $('linktext').textContent = i2ctSrcTxt(txt);
   $('helperinfo').textContent = i2ctHelperVer ? ('I2C Bridge ' + i2ctHelperVer + ' · proto ' + i2ctHelperProto) : '';
@@ -3431,6 +3446,10 @@ async function i2ctConnect(takeover){
     var cbR2 = $('chk-rawmpsse'); if (cbR2) cbR2.checked = false;
     var cbF2 = $('chk-fastread'); if (cbF2) cbF2.checked = false;
   }
+  /* v1.35.0：連線方式決定 mode（放在上面「還原預設」之後，debug 手動模式也不能把 AUX 蓋掉）。 */
+  if (i2ctXport === 'aux') i2ctMode = I2CT_MODE_AUX;
+  else if (i2ctMode === I2CT_MODE_AUX) i2ctMode = I2CT_MODE_VENDOR;
+  i2ctAuxInfo = null;
   i2ctUserClosing = false;
   i2ctBusy = true; i2ctSetLink(false, { k: 'i2c.stConnecting' }, 'busy');
   i2ctLog(i2ctT('i2c.logConnecting', { url: I2CT_WS_URL }) + (takeover ? i2ctT('i2c.logAskTakeover') : ''), 'n');
@@ -3508,6 +3527,11 @@ async function i2ctConnect(takeover){
       eOld.i2ctOldBridge = true;
       throw eOld;
     }
+    if (i2ctXport === 'aux' && i2ctHelperProto < TconAux.NEED_PROTO) {
+      var eAux = new Error(TconAux.text('oldBridge', { have: (i2ctHelperVer || '?') }));
+      eAux.i2ctOldBridge = true;
+      throw eAux;
+    }
     var op = null;
     for (var a = 1; a <= I2CT_OPEN_RETRIES; a++) {
       /* ═══ 🔴 fastread 預設 0（2026-09-19 實機回歸）═══════════════════════
@@ -3526,6 +3550,13 @@ async function i2ctConnect(takeover){
       op = await i2ctSend({ type: 'open', page: I2CT_PAGE_VER, mode: i2ctMode, threephase: i2ctThreePhase ? 1 : 0, ckdelay: i2ctCkDelay, clockHz: i2ctClockHz(), takeover: takeover ? 1 : 0,
                             fastread: i2ctFastRead ? 1 : 0,
                             rawmpsse: i2ctRawMpsse ? 1 : 0 });
+      /* v1.35.0：DP AUX 開不起來（缺 DLL、找不到顯示卡…）bridge 會講原因 ⇒ 不重試，原因直接給他看。 */
+      if (!op.ok && op.aux && !op.busy) throw new Error('DP AUX: ' + (op.err || 'open failed'));
+      if (op.ok && op.aux) {
+        i2ctAuxInfo = op;
+        i2ctLog('DP AUX: card=' + op.card + ' monitor=' + op.monitor + ' admin=' + op.admin + ' PSR supported=' + op.psrSupported +
+                ' on=' + op.psrOn + (op.psrTurnedOff ? ' (turned off for this session)' : '') + ' T-CON init=' + op.tconInit, 'o');
+      }
       if (op.ok) { i2ctOpenClockKHz = i2ctClockKHz();   /* v1.32.1：① 常駐顯示「這一次連線用的時脈」（改設定要重連才生效） */
                    i2ctLog(i2ctT('i2c.logChannelOpen', { i: a, ch: op.channels }), 'o'); break; }
       /* 🔴 被另一個頁面佔住是**可判別**的狀態，不是一般失敗：不要重試、不要
@@ -3564,6 +3595,11 @@ async function i2ctConnect(takeover){
     i2ctBanner('topbanner', '', '');
     /* 🔴 分頁過舊的提醒要在清空之後才畫，否則會被上一行清掉。一行就好。 */
     if (i2ctStaleTab) i2ctBanner('topbanner', 'warn', i2ctT('i2c.bnStaleTab'));
+    /* v1.35.0：DP AUX 的兩個前提（Intel 官方：AUX 寫入要系統管理員、要先關 PSR）—— 不符合就一行提示。 */
+    if (i2ctAuxInfo) {
+      if (i2ctAuxInfo.admin === false && i2ctAuxInfo.card === 'INTEL') i2ctBanner('topbanner', 'warn', TconAux.text('bnAdmin'));
+      else if (i2ctAuxInfo.psrOn === true) i2ctBanner('topbanner', 'warn', TconAux.text('bnPsr'));
+    }
     i2ctGotHelper();                 // 連上了 ⇒ 下載鈕收起來（他已經有 I2C Bridge）
     /* 🔴 連線**不做任何 I2C 傳輸**（Bruce 2026-09-18：「i2c 頁完全去 TCON 化」）。
        這一頁是通用的 I2C 讀寫工具，不該假設線上掛的是哪一顆晶片 —— 連上就去讀
@@ -3950,6 +3986,11 @@ var I2CT_MODE_VENDOR = 0, I2CT_MODE_FAST = 1, I2CT_MODE_SLOW = 2, I2CT_MODE_RAW 
      · DLL_I2C_BCB 那套 Python UI 走的就是 `DLL_I2C_BCB.dll`，256 byte 約 12.6 ms。
    ⇒ 沒有東西需要在使用者的第一次讀取上「試」。預設直接用唯一走得通的那條。 */
 var i2ctMode = I2CT_MODE_VENDOR;
+/* v1.35.0：DP AUX（I2C Bridge 1.18.0／proto 7 起）。i2ctXport＝'jig'（I2C 治具，原本的一切）或 'aux'。
+   選 aux ⇒ open 送 mode 4；每一則碰匯流排的訊息送出前先過 TconAux.check（只到得了 T-CON，EEPROM 一律擋）。 */
+var I2CT_MODE_AUX = 4;
+var i2ctXport = 'jig';
+var i2ctAuxInfo = null;           /* AUX open 的回覆（card／monitor／admin／PSR），斷線清掉 */
 /* v1.27.0：讀取結果存到哪一槽。'auto' | 'A' | 'B'（select 不在時一律 auto）。 */
 function i2ctReadSlot(){
   var e = $('rd-slot');
@@ -7350,6 +7391,7 @@ function i2ctInit(){
   $('in-devtype').addEventListener('change', function () { var v = this.value; i2ctRunState = null;   /* v1.32.0：換功能 ⇒ ④ 的結果重來 */ i2ctSfSetMode(v === 'sf'); i2ctEeSetMode(v === 'ee'); i2ctStepsRender(); });
   i2ctSfInit();
   i2ctModeSegInit();               /* v1.32.0：③ 分段鈕 */
+  i2ctXportInit();                 /* v1.35.0：連線方式（I2C 治具／DP AUX） */
   i2ctStepsRender();
   $('in-eemodel').addEventListener('change', function () { i2ctEeSetModel(this.value); });
   ['in-off', 'wr-twr'].forEach(function (id) {
@@ -9196,7 +9238,9 @@ function i2ctStepsRender(){
   Array.prototype.forEach.call(document.querySelectorAll('#mode-seg .mseg-b'), function (b) {
     var on = b.getAttribute('data-mode') === mode;
     b.classList.toggle('on', on); b.setAttribute('aria-pressed', on ? 'true' : 'false');
-    b.disabled = !!i2ctSfRunning;
+    var auxEe = (i2ctXport === 'aux' && b.getAttribute('data-mode') === 'ee');   /* v1.35.0：AUX 不能直寫 EEPROM */
+    b.disabled = !!i2ctSfRunning || auxEe;
+    if (auxEe) b.title = TconAux.text('eeOff'); else if (b.getAttribute('data-mode') === 'ee') b.removeAttribute('title');
   });
   if ($('stp-mode-note')) $('stp-mode-note').textContent = T({ gen: 'i2c.modeGenNote', ee: 'i2c.modeEeNote', sf: 'i2c.modeSfNote' }[mode] || 'i2c.modeGenNote');
   /* v1.34.7：頂部步驟列（common/step-status.js）。三步：連線（i2ctLinked）→ 認出 T-CON（Check T-CON 認出型號）→
@@ -9228,7 +9272,13 @@ function i2ctConnInfoRender(ck, ckOk, err){
   var el = $('conn-info'); if (!el) return;
   var T = i2ctT, esc = function (s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
   var parts = [];
-  if (i2ctLinked) {
+  if (i2ctLinked && i2ctAuxInfo) {
+    var ai = i2ctAuxInfo;
+    parts.push(esc(TconAux.text('info', { card: ai.card, mon: ai.monitor })).replace(esc(ai.card), '<b>' + esc(ai.card) + '</b>'));
+    if (ai.admin != null) parts.push(esc(TconAux.text(ai.admin ? 'adminOk' : 'adminNo')));
+    if (ai.psrSupported) parts.push(esc(TconAux.text(ai.psrTurnedOff ? 'psrOff' : (ai.psrOn ? 'psrOn' : 'psrOffNat'))));
+    if (ck) parts.push(T('i2c.connTcon', { name: '<b>' + esc(ckOk ? (i2ctCkDispName(ck, false) || '?') : T('i2c.connTconBad')) + '</b>' }));
+  } else if (i2ctLinked) {
     var k = i2ctOpenClockKHz || i2ctClockKHz();
     parts.push(T('i2c.connClock', { k: '<b>' + esc(i2ctGrp(k)) + '</b>' }));
     if (ck) parts.push(T('i2c.connTcon', { name: '<b>' + esc(ckOk ? (i2ctCkDispName(ck, false) || '?') : T('i2c.connTconBad')) + '</b>' }));
@@ -9237,6 +9287,42 @@ function i2ctConnInfoRender(ck, ckOk, err){
   }
   el.innerHTML = parts.join(' · ');
   el.classList.toggle('err', !i2ctLinked && !!err);
+}
+/* v1.35.0：連線方式。換方式 ⇒ 已連線就先中斷（mode 只在 open 時決定），請他重新按連線。
+   換成 AUX ⇒ EEPROM 功能關掉、slave 不在 T-CON 白名單就改成 0x3E（offset 2）。 */
+function i2ctXportText(){
+  var lbl = $('xport-lbl'); if (lbl) lbl.textContent = TconAux.text('xport');
+  var sel = $('in-xport'); if (!sel) return;
+  sel.options[0].textContent = TconAux.text('jig'); sel.options[1].textContent = TconAux.text('aux');
+  sel.title = TconAux.text('tipX');
+}
+function i2ctXportApply(){
+  if (i2ctXport !== 'aux') return;
+  var dt = $('in-devtype');
+  if (dt && dt.value === 'ee') { dt.value = 'gen'; dt.dispatchEvent(new Event('change')); }
+  var si = $('in-slave'), sv = si ? i2ctParseAddr(si.value) : null;
+  if (si && !TconAux.allowed(sv)) {
+    si.value = '0x3E'; i2ctSlaveSync('s7', true);
+    var aw = $('in-awid'); if (aw) { aw.value = '2'; aw.dispatchEvent(new Event('input')); }
+  }
+  var ss = $('in-slave-sel');
+  if (ss) Array.prototype.forEach.call(ss.options, function (o) { if (o.value) o.disabled = !TconAux.allowed(parseInt(o.value, 16)); });
+  i2ctUpdateHints();
+}
+function i2ctXportInit(){
+  var sel = $('in-xport'); if (!sel) return;
+  i2ctXportText();
+  sel.addEventListener('change', function () {
+    var was = i2ctXport;
+    i2ctXport = sel.value === 'aux' ? 'aux' : 'jig';
+    if (was === i2ctXport) return;
+    i2ctLog((i2ctXport === 'aux' ? 'Connection: DP AUX' : 'Connection: I2C jig'), 'n');
+    var ss = $('in-slave-sel');
+    if (ss && i2ctXport === 'jig') Array.prototype.forEach.call(ss.options, function (o) { o.disabled = false; });
+    i2ctXportApply();
+    if (i2ctLinked || i2ctWs) { i2ctDisconnect().then(function () { i2ctBanner('topbanner', 'warn', TconAux.text('reconnect')); }); }
+    i2ctStepsRender(); i2ctSyncButtons();
+  });
 }
 function i2ctModeSegInit(){
   Array.prototype.forEach.call(document.querySelectorAll('#mode-seg .mseg-b'), function (b) {
@@ -9270,6 +9356,7 @@ window._onLangChange = function () {
     i2ctCdRender();             /* v1.28.0：診斷結果是從原始資料組出來的，換語言就重組 */
     i2ctSfRender();             /* v1.29.0：外部 Flash 面板（位址卡、說明、偵測結果） */
     i2ctCkRender();             /* v1.33.0：② 型號字（EN01「版本讀不到」跟著換語言） */
+    i2ctXportText();            /* v1.35.0：連線方式下拉 */
     /* 🔴 slave 那三格的小字（`= 0x68·104 · 十進位 +d`）**不在 i2ctUpdateHints 裡** ——
        它們由 i2ctSlaveSync 寫。第一版漏掉這一行，切成英文後那三行仍停在
        「十進位 +d」，而旁邊 offset 的那一行已經是 "decimal: add d" ——

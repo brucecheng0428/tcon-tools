@@ -13,7 +13,7 @@ var TOOL_VERSIONS = {
   wfg:     'v4.59.1',     // 面板訊號模擬與取樣
   pattern: 'v3.9.0',       // Pattern Generator 畫面產生器
   dg:      'v2.8.1',       // Digital Gamma 迭代校正（含量測頁 dg-measure.html）
-  i2c:     'v1.34.7',       // I2C（讀寫測試）
+  i2c:     'v1.35.0',       // I2C（讀寫測試）
   nbdebug: 'v1.2.1',        // NB TCON Debug應用（E503／E501A／E501B／EN01 debug 輸出：選 IC、項目、GPIO → I2C 執行或匯出 Excel／.script）
   datamap: 'v1.37.3',       // Data Mapping（Python UI 的內容與規則、站內風格；DAZ／E501／E503／EN01／EM01／EM02／E512）// v1.20.0（Bruce 10/9）：新增 EN01（RM81008，依原廠 WPF RomCodeProcessUI）
   /* 🔴 TCON 自檢畫面量測（dg-selftest.html）。
@@ -182,11 +182,20 @@ var HELPER_PKG = {
      libMPSSE 916584df…、ftd2xx 46cff89a…、DLL_I2C_BCB d441d08e…），只有 exe 換掉。
      exe 驗證：`file` ⇒ PE32 executable (console) Intel 80386；348,160 bytes；
      zip 解出來後四個檔的 SHA256 逐一重算相同。 */
-  pkg:    'v1.17.0',                      // 下載包（zip）版本 ＝ 檔名
-  exe:    '1.17.0',                       // exe 內的 I2C_BRIDGE_VERSION（ping 回報值）
-  proto:  6,                             // wire protocol 版本（6 起有 chandiag）
-  file:   'data/i2c-bridge-v1.17.0.zip',
-  bytes:  410470,                             // zip 位元組數（打包後填）
-  zipSha: 'b3f46a83373e725d307e58dd707c2d96c3ae1b4caaf691ed28dc057d0a6a1859',
-  exeSha: '0ef2d20fa4343a1caef871fa89022a58426d01022c5e934003afba001b747898'
+  /* 🔴 v1.18.0（2026-10-23）：exe **有重編** —— DP AUX 併入同一支 bridge（Bruce 2026-10-23
+     「AUX bridge 可以的話跟 i2c bridge 做在一起，用一套轉發就好」）。open mode 4 ⇒ 經顯示卡 AUX
+     讀寫 T-CON，只到得了 T-CON（EEPROM 0x50–0x57 一律擋）。治具路徑行為未動。proto 6 ⇒ **7**。
+     包內從四個檔變**五個**：多 `DLL_AUX_VC.dll`（x86，來源 RAD_AUX_DLL 原始碼資料夾；
+     只把檔內 PDB 除錯路徑裡的一個人名換成 XXXXX，5 byte，程式碼段未動；原檔 SHA 39d5f560…，
+     包內這份 2c4cb1bc…）。其他三支 DLL 從 v1.17.0 原樣搬過來（SHA 相同）。
+     exe：`file` ⇒ PE32 executable (console) Intel 80386；367,104 bytes；import 多 USER32
+     EnumDisplayDevicesA、SHELL32 IsUserAnAdmin。🔴 未在 Windows 實機驗證。
+     `data/i2c-bridge-v1.17.0.zip` 與更舊的包一律保留不刪。 */
+  pkg:    'v1.18.0',                      // 下載包（zip）版本 ＝ 檔名
+  exe:    '1.18.0',                       // exe 內的 I2C_BRIDGE_VERSION（ping 回報值）
+  proto:  7,                             // wire protocol 版本（7 起有 DP AUX）
+  file:   'data/i2c-bridge-v1.18.0.zip',
+  bytes:  556431,                             // zip 位元組數（打包後填）
+  zipSha: 'b8291f9049843f6889ae562c4b2d888e8e23200a3d97893ba12628828f69b2b9',
+  exeSha: '5b27a0ac37715dd806b9659eea43e234202164b2b4652baadc0af4623d6d350b'
 };

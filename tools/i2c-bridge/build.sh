@@ -13,7 +13,7 @@ OUT="${1:-$DIR/i2c-bridge.exe}"
 "$ZIG" cc -target x86-windows-gnu -O2 \
     "$DIR/i2c_bridge.c" \
     -o "$OUT" \
-    -lws2_32 -lkernel32 -lshell32 -ladvapi32 \
+    -lws2_32 -lkernel32 -lshell32 -ladvapi32 -luser32 \
     -Wl,--subsystem,console
 
 echo "built: $OUT"
