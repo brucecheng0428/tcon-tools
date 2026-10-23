@@ -389,8 +389,8 @@ try {
     await page.evaluate(() => { window.__cf = []; window.__cfAns = true; window.confirm = (m) => { window.__cf.push(m); return window.__cfAns; }; });
     await page.click('input[name="dp-sel"][value="0"]'); await sleep(150);
     check('手動選 monitor 0：直接選得到、不跳確認、不加結論', await page.evaluate(() => document.querySelector('input[name="dp-sel"]:checked').value === '0' && window.__cf.length === 0 && !/電腦本身/.test(document.getElementById('dpcd-panel').textContent)));
-    await page.click('#dp-check'); await waitFor(page, () => /找到我家 TCON/.test(document.getElementById('dp-msg').textContent));
-    check('Check 我家 TCON：0x43C＝E5 03 那台自動選、標「我家 TCON 回應（E503）」', await page.evaluate(() => document.querySelector('input[name="dp-sel"]:checked').value === '1' && /我家 TCON 回應（E503）/.test(document.getElementById('dpcd-panel').textContent)));
+    await page.click('#dp-check'); await waitFor(page, () => /RAD TCON 有回應：/.test(document.getElementById('dp-msg').textContent));
+    check('Check RAD TCON：0x43C＝E5 03 那台自動選、標「RAD TCON 有回應（E503）」', await page.evaluate(() => document.querySelector('input[name="dp-sel"]:checked').value === '1' && /RAD TCON 有回應（E503）/.test(document.getElementById('dpcd-panel').textContent)));
     await page.click('#dp-conn'); await waitFor(page, () => i2ctAuxIsRaw());
     const ro = await page.evaluate(() => window.__rawOpen);
     check('連線（不初始化）⇒ open 帶 raw:1、card 1、monitor 1', ro && ro.card === 1 && ro.monitor === 1, JSON.stringify(ro));
@@ -404,7 +404,7 @@ try {
     await page.click('#dp-run'); await waitFor(page, () => /完成/.test(document.getElementById('dp-msg').textContent), null, 8000);
     const sent1 = await page.evaluate((n) => window.__msgs.slice(n).map(m => m.t), m1);
     const dlg = await page.evaluate(() => window.__cf[0] || null);
-    check('有寫入（IOA write）⇒ 先確認，確認框只列事實：螢幕、\\\\.\\DISPLAY2、EDID、Windows 回報接口、我家 TCON 回應', dlg && /AMD · 螢幕 1/.test(dlg) && /DISPLAY2/.test(dlg) && /EDID BOE 0B21/.test(dlg) && /Windows 回報接口：DisplayPort/.test(dlg) && /我家 TCON 回應（E503）/.test(dlg) && !/內建|外接/.test(dlg) && /40 00 50 00 00/.test(dlg), dlg);
+    check('有寫入（IOA write）⇒ 先確認，確認框只列事實：螢幕、\\\\.\\DISPLAY2、EDID、Windows 回報接口、我家 TCON 回應', dlg && /AMD · 螢幕 1/.test(dlg) && /DISPLAY2/.test(dlg) && /EDID BOE 0B21/.test(dlg) && /Windows 回報接口：DisplayPort/.test(dlg) && /RAD TCON 有回應（E503）/.test(dlg) && !/內建|外接/.test(dlg) && /40 00 50 00 00/.test(dlg), dlg);
     check('AMD：IOA 寫 offset＋讀 合併成一次 ioaread（照 AUX_GUI ScriptAmdRun）', JSON.stringify(sent1) === JSON.stringify(['dpcdread', 'ioaread']), JSON.stringify(sent1));
     const lg = await page.$eval('#dp-log', e => e.textContent);
     check('log：SYS DPCD RD、I2C over AUX、ACK', /SYS DPCD RD 1 bytes from \[0x00000\]/.test(lg) && /I2C over AUX/.test(lg) && /ACK \+ 0x/.test(lg), lg.slice(0, 200));

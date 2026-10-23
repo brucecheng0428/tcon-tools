@@ -2,7 +2,7 @@
    common/aux-dpcd.js — i2c.html「DPCD／IOA 工具」（只在 AUX 模式出現）
    Bruce 2026-10-23：照 AUX_GUI 1.48.0 的 DPCD 分頁；跟我們家 T-CON 無關，任何廠牌的 sink 都能用；
    連線不送任何初始化；螢幕要能自己選。🔴 不下「內建／外接」結論（Bruce 2026-10-23「是不是內建的由使用者自己來判斷」），
-   只列事實：編號、\\.\DISPLAYn、EDID、Windows 回報接口（outputTechnology 原話）、我家 TCON 有沒有回應（實測）。
+   只列事實：編號、\\.\DISPLAYn、EDID、Windows 回報接口（outputTechnology 原話）、RAD TCON 有沒有回應（實測）。
    出處（反編譯 Raydium_AUX_GUI 1.48.0，只讀）：
      App/E_DPCD_OPERATION.cs        操作與 script 開頭碼：9 DPCD Read｜8 DPCD Write｜1 IOA Read｜0 IOA Write｜5 IOA Read MOT｜4 IOA Write MOT｜Sleep
      App/DpcdWrapper.cs:226–239     script 正規式（RegexDpcdFormat／RegexScriptComment／RegexScriptSleep）
@@ -21,19 +21,19 @@
     intro: ['通用 DPCD／IOA 測試：不限廠牌、連線不送任何初始化，只送你列的那幾筆。', 'Generic DPCD / IOA test: any sink, no initialisation on connect; only the lines you list are sent.', '通用 DPCD／IOA 测试：不限厂牌、连接不送任何初始化，只送你列的那几笔。'],
     secDisp: ['① 選螢幕', '① Pick the display', '① 选屏幕'],
     btnList: ['列出螢幕', 'List displays', '列出屏幕'],
-    btnCheck: ['Check 我家 TCON', 'Check our TCON', 'Check 我家 TCON'],
+    btnCheck: ['Check RAD TCON', 'Check RAD TCON', 'Check RAD TCON'],
     checkTip: ['只讀 DPCD 0x43C（瑞鼎 T-CON 名稱），不寫任何東西', 'Reads DPCD 0x43C only (Raydium T-CON name); writes nothing', '只读 DPCD 0x43C（瑞鼎 T-CON 名称），不写任何东西'],
     listTip: ['只讀：每台 Initial、讀 DPCD 0x000／0x400 與 EDID，不寫入', 'Read-only: Initial, DPCD 0x000 / 0x400 and EDID on each display; nothing is written', '只读：每台 Initial、读 DPCD 0x000／0x400 与 EDID，不写入'],
     listing: ['列出中…', 'Listing…', '列出中…'],
     none: ['沒有 AUX 開得起來的螢幕', 'No display opens over AUX', '没有 AUX 打得开的屏幕'],
     needBridge: ['要 I2C and AUX Bridge 1.23.0 以上', 'Needs I2C and AUX Bridge 1.23.0 or later', '要 I2C and AUX Bridge 1.23.0 以上'],
     colNo: ['編號', 'No.', '编号'], colGpu: ['GPU', 'GPU', 'GPU'], colName: ['名稱（Windows／EDID）', 'Name (Windows / EDID)', '名称（Windows／EDID）'],
-    colConn: ['Windows 回報接口', 'Connector (reported by Windows)', 'Windows 回报接口'], colDpcd: ['DPCD', 'DPCD', 'DPCD'], colTcon: ['我家 TCON', 'Our TCON', '我家 TCON'],
+    colConn: ['Windows 回報接口', 'Connector (reported by Windows)', 'Windows 回报接口'], colDpcd: ['DPCD', 'DPCD', 'DPCD'], colTcon: ['RAD TCON', 'RAD TCON', 'RAD TCON'],
     techDp: ['DisplayPort', 'DisplayPort', 'DisplayPort'], techEdp: ['內嵌 DisplayPort（eDP）', 'Embedded DisplayPort (eDP)', '内嵌 DisplayPort（eDP）'],
     techHdmi: ['HDMI', 'HDMI', 'HDMI'], techUnk: ['未知', 'unknown', '未知'],
     connTag: ['Windows 回報接口：{v}', 'Connector reported by Windows: {v}', 'Windows 回报接口：{v}'],
     mon: ['螢幕 {m}', 'display {m}', '屏幕 {m}'],
-    isOurs: ['我家 TCON 回應（{n}）', 'our TCON answered ({n})', '我家 TCON 回应（{n}）'], notChecked: ['—', '—', '—'], notOurs: ['沒有回應', 'no answer', '没有回应'],
+    isOurs: ['RAD TCON 有回應（{n}）', 'RAD TCON answered ({n})', 'RAD TCON 有回应（{n}）'], notChecked: ['—', '—', '—'], notOurs: ['沒有回應', 'no answer', '没有回应'],
     btnConn: ['連線（不初始化）', 'Connect (no init)', '连接（不初始化）'],
     btnDisc: ['中斷', 'Disconnect', '断开'],
     linked: ['已連線（AUX · {d}）', 'Connected (AUX · {d})', '已连接（AUX · {d}）'],
@@ -62,8 +62,8 @@
     done: ['完成 {n} 筆（{ms} ms）', 'Done: {n} line(s) ({ms} ms)', '完成 {n} 笔（{ms} ms）'],
     stopped: ['已中止（做完 {n} 筆）', 'Stopped after {n} line(s)', '已中止（做完 {n} 笔）'],
     rawFlow: ['目前是 DPCD／IOA 工具的連線（不初始化），讀寫流程的 T-CON 操作已停用；要用請先中斷，再按 ① 的「連線」。', 'This is a DPCD / IOA tool connection (no init); T-CON operations in the read/write flow are disabled. Disconnect, then press “Connect” in ①.', '目前是 DPCD／IOA 工具的连接（不初始化），读写流程的 T-CON 操作已停用；要用请先断开，再按 ① 的「连接」。'],
-    oursFound: ['找到我家 TCON：{d}（已自動選這台）', 'Found our TCON: {d} (selected)', '找到我家 TCON：{d}（已自动选这台）'],
-    oursNone: ['沒有螢幕回應我家 TCON（0x43C 不是 E5 03）', 'No display answered as our TCON (0x43C is not E5 03)', '没有屏幕回应我家 TCON（0x43C 不是 E5 03）']
+    oursFound: ['RAD TCON 有回應：{d}（已自動選這台）', 'RAD TCON answered: {d} (selected)', 'RAD TCON 有回应：{d}（已自动选这台）'],
+    oursNone: ['沒有螢幕有 RAD TCON 回應（0x43C 不是 E5 03）', 'No display answered as a RAD TCON (0x43C is not E5 03)', '没有屏幕有 RAD TCON 回应（0x43C 不是 E5 03）']
   };
   var OPS = [
     { k: 'dr', c: '9', n: 'DPCD Read' }, { k: 'dw', c: '8', n: 'DPCD Write' },
@@ -297,7 +297,7 @@
       if (!r || !r.ok) { msg((r && r.err) || t('needBridge'), true); return; }
       S.disp = (r.displays || []).map(function (d) { d.ours = d.tcon43c ? oursName(d) : ''; return d; });
       S.win = r.windows || []; S.checked = !!checkTcon; S.winApi = S.win.length > 0;
-      /* 預設：Check 找到我家 TCON 回應的那台；否則只有一台就選它；其餘由使用者自己選（不替他猜內建／外接） */
+      /* 預設：Check 找到 RAD TCON 有回應的那台；否則只有一台就選它；其餘由使用者自己選（不替他猜內建／外接） */
       var ours = S.disp.map(function (d, i) { return d.ours ? i : -1; }).filter(function (i) { return i >= 0; });
       S.sel = ours.length === 1 ? ours[0] : (S.disp.length === 1 ? 0 : -1);
       render();

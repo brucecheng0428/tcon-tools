@@ -2,6 +2,13 @@
 
 ---
 
+## I2C / AUX 讀寫測試 (i2c) v1.42.1 — 2026-10-24 ｜ PATCH ｜ DPCD／IOA 工具：「我家 TCON」改「RAD TCON」；不初始化的連線不再跳「T-CON 初始化沒成功」
+
+判定依據：`docs/VERSIONING.md` R2：文案修正。
+
+- Bruce 2026-10-24：「直接寫『RAD TCON』就好了」。按鈕「Check RAD TCON」、欄位「RAD TCON」、標示「RAD TCON 有回應（E503）」，三語一致。全站再搜「我家／自家／our TCON」：只有 DPCD 工具用到；wfg 說明頁的「TCON 自家介面」指 TCON 原廠介面，意思不同，不動。
+- 實機（Windows mini，bridge 1.23.0）：raw 連線回覆 tconInit:false，頁面照舊跳「T-CON 初始化沒成功」橫幅 ⇒ raw 連線不跳（本來就不初始化）。
+
 ## I2C / AUX 讀寫測試 (i2c) v1.42.0 — 2026-10-23 ｜ MINOR ｜ （＋ I2C and AUX Bridge 1.23.0）AUX 模式新增「DPCD／IOA 工具」（照 AUX_GUI 1.48.0 DPCD 分頁；不限廠牌、連線不初始化、可選螢幕）
 
 判定依據：`docs/VERSIONING.md` R2：新功能。
