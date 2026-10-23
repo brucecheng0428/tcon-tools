@@ -14,7 +14,8 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 (function (g) {
   'use strict';
-  var VERSION = '1.1';   /* 1.1（Bruce 2026-10-24）：第一步沒連線前，第二步「依序執行」停用＋提示；第一步完成套綠框 */
+  var VERSION = '1.2';   /* 1.2（Bruce 2026-10-24）：script「讀取面板 EDID」快捷＋讀回進 Dump＋另存 EDID */
+  var EDID_MARK = '// EDID';   /* 1.1（Bruce 2026-10-24）：第一步沒連線前，第二步「依序執行」停用＋提示；第一步完成套綠框 */
   var T = {
     tabFlow: ['讀寫流程', 'Read/write flow', '读写流程'],
     tabTool: ['DPCD／IOA 工具', 'DPCD / IOA tool', 'DPCD／IOA 工具'],
@@ -50,6 +51,23 @@
     chkInitTip: ['Check RAD TCON 會對每台螢幕做 AUX 初始化（原廠 DLL Initial）再讀 0x43C；不送 T-CON 初始化序列、不寫 DPCD', 'Check RAD TCON runs the AUX initialisation (vendor DLL Initial) on every display and reads 0x43C; no T-CON init sequence, no DPCD writes', 'Check RAD TCON 会对每台屏幕做 AUX 初始化（原厂 DLL Initial）再读 0x43C；不送 T-CON 初始化序列、不写 DPCD'],
     initDone: ['已初始化（Check RAD TCON）', 'Initialised (Check RAD TCON)', '已初始化（Check RAD TCON）'],
     rowLinked: ['已連線', 'Connected', '已连接'], rowSel: ['已選', 'Selected', '已选'],
+    /* v1.2（Bruce 2026-10-24「我還要有一個可以讀 EDID 的選項在 script 這邊…直接下 DPCD 就可以知道這個面板的 EDID」）：
+       讀法照 RM8100X IOA app note 第 1 章「EDID Read from TCON IC」＝VESA E-DDC 的 I2C over AUX（slave 0x50：MOT 寫 offset → MOT 讀 … → 最後一筆 MOT=0）。 */
+    btnEdid: ['讀取面板 EDID', 'Read panel EDID', '读取面板 EDID'],
+    edidTip: ['填入 VESA E-DDC 讀法：I2C over AUX、slave 0x50，先寫 offset 再讀 128 byte（不送 RAD 初始化）；讀完 byte 0x7E 有擴充區塊就自動接著讀 block 1。讀完放進「讀寫流程」的 16×16 Dump', 'Fills the VESA E-DDC read: I2C over AUX, slave 0x50, write the offset then read 128 bytes (no RAD initialisation); if byte 0x7E reports an extension block, block 1 is read automatically. The result goes to the 16×16 dump of the read/write flow', '填入 VESA E-DDC 读法：I2C over AUX、slave 0x50，先写 offset 再读 128 byte（不送 RAD 初始化）；读完 byte 0x7E 有扩展区块就自动接着读 block 1。读完放进「读写流程」的 16×16 Dump'],
+    btnSaveEdid: ['另存 EDID', 'Save EDID', '另存 EDID'],
+    edidFilled: ['已填入「讀取面板 EDID」script（block 0，128 byte）；按「▶ 依序執行」', 'The "Read panel EDID" script is filled in (block 0, 128 bytes); press "▶ Run"', '已填入「读取面板 EDID」script（block 0，128 byte）；按「▶ 依序执行」'],
+    edidCard: ['{c} 顯示卡：目前的 I2C and AUX Bridge 1.23.0 會擋 I2C over AUX 寫入 0x50–0x57（EDID 的 offset 也算），這個 script 在 Intel／NVIDIA 第一筆就會被擋。AMD 卡照用；Intel／NVIDIA 改用 Windows 的 EDID（登錄檔 Enum\\DISPLAY\\…\\Device Parameters\\EDID，或 WMI WmiMonitorDescriptorMethods），或等 Bridge 放行「只寫 1 byte offset」。', '{c} card: I2C and AUX Bridge 1.23.0 blocks I2C-over-AUX writes to 0x50–0x57 (the EDID offset included), so on Intel / NVIDIA this script stops at the first line. AMD works; on Intel / NVIDIA use the EDID Windows already has (registry Enum\\DISPLAY\\…\\Device Parameters\\EDID or WMI WmiMonitorDescriptorMethods), or wait for a bridge that allows a 1-byte offset write.', '{c} 显卡：目前的 I2C and AUX Bridge 1.23.0 会挡 I2C over AUX 写入 0x50–0x57（EDID 的 offset 也算），这个 script 在 Intel／NVIDIA 第一笔就会被挡。AMD 卡照用；Intel／NVIDIA 改用 Windows 的 EDID（注册表 Enum\\DISPLAY\\…\\Device Parameters\\EDID，或 WMI WmiMonitorDescriptorMethods），或等 Bridge 放行「只写 1 byte offset」。'],
+    edidExtRun: ['byte 0x7E＝{n}：有擴充區塊，接著讀 block 1（0x80–0xFF）…', 'Byte 0x7E = {n}: extension present, reading block 1 (0x80–0xFF)…', 'byte 0x7E＝{n}：有扩展区块，接着读 block 1（0x80–0xFF）…'],
+    edidOk: ['EDID {n} byte（{id}）：header 00 FF FF FF FF FF FF 00 ✓、checksum {c}；已放進「讀寫流程」的 16×16 Dump，可在那裡或按「另存 EDID」存檔', 'EDID {n} bytes ({id}): header 00 FF FF FF FF FF FF 00 ✓, checksum {c}; placed in the 16×16 dump of the read/write flow — save it there or with "Save EDID"', 'EDID {n} byte（{id}）：header 00 FF FF FF FF FF FF 00 ✓、checksum {c}；已放进「读写流程」的 16×16 Dump，可在那里或按「另存 EDID」存档'],
+    edidBadHdr: ['讀回的不是 EDID：header 應為 00 FF FF FF FF FF FF 00，讀到 {h}', 'This is not an EDID: the header should be 00 FF FF FF FF FF FF 00, read {h}', '读回的不是 EDID：header 应为 00 FF FF FF FF FF FF 00，读到 {h}'],
+    edidShort: ['EDID 沒讀完整（block 0 只拿到 {n}／128 byte）', 'EDID incomplete (block 0: {n} / 128 bytes)', 'EDID 没读完整（block 0 只拿到 {n}／128 byte）'],
+    edidMore: ['byte 0x7E＝{n}：block 2 以上要 E-DDC segment pointer（0x30），這條路沒讀；只存 block 0–1', 'Byte 0x7E = {n}: blocks 2+ need the E-DDC segment pointer (0x30) and were not read; only blocks 0–1 are kept', 'byte 0x7E＝{n}：block 2 以上要 E-DDC segment pointer（0x30），这条路没读；只存 block 0–1'],
+    edidNone: ['還沒有讀到 EDID：先按「讀取面板 EDID」再執行', 'No EDID yet: press "Read panel EDID", then Run', '还没有读到 EDID：先按「读取面板 EDID」再执行'],
+    edidCksBad: ['checksum 不對（{c}），還是要存嗎？', 'Checksum is wrong ({c}). Save anyway?', 'checksum 不对（{c}），还是要存吗？'],
+    edidSaved: ['已存 {f}', 'Saved {f}', '已存 {f}'],
+    edidSrc: ['EDID（DPCD／IOA 工具 · slave 0x50）', 'EDID (DPCD / IOA tool · slave 0x50)', 'EDID（DPCD／IOA 工具 · slave 0x50）'],
+    cksOk: ['正確', 'OK', '正确'], cksBad: ['錯誤', 'wrong', '错误'],
     needConn: ['請先在第一步選螢幕並連線', 'Pick a display in step 1 and connect first', '请先在第一步选屏幕并连接'],
     stepDone: ['已完成', 'Done', '已完成'],
     btnRun: ['▶ 依序執行', '▶ Run', '▶ 依序执行'], btnStop: ['中止', 'Stop', '中止'],
@@ -233,6 +251,8 @@
       + '<div class="row" style="gap:8px;flex-wrap:wrap;margin-top:6px">'
       + '<button id="dp-run" class="pri"' + (S.running || !linked ? ' disabled' : '') + '>' + esc(t('btnRun')) + '</button>'
       + '<button id="dp-stop"' + (S.running ? '' : ' disabled') + '>' + esc(t('btnStop')) + '</button>'
+      + '<button id="dp-edid" title="' + esc(t('edidTip')) + '"' + (S.running ? ' disabled' : '') + '>' + esc(t('btnEdid')) + '</button>'
+      + '<button id="dp-edid-save"' + (S.edidBytes ? '' : ' disabled') + '>' + esc(t('btnSaveEdid')) + '</button>'
       + '<button id="dp-load">' + esc(t('btnLoad')) + '</button><input type="file" id="dp-file" accept=".txt,text/plain" multiple hidden>'
       + '<button id="dp-save">' + esc(t('btnSave')) + '</button>'
       + '<span id="dp-prog" class="sub"></span>'
@@ -300,9 +320,11 @@
       r.onchange = function () { pick(parseInt(r.value, 10), true); };
     });
     $('dp-conn').onclick = function () { if (H.rawLinked()) H.disconnect().then(render); else connect(); };
-    $('dp-run').onclick = run;
+    $('dp-run').onclick = function () { run(); };
     $('dp-stop').onclick = function () { S.abort = true; };
     $('dp-load').onclick = function () { $('dp-file').click(); };
+    $('dp-edid').onclick = function () { fillEdid(); };
+    $('dp-edid-save').onclick = function () { saveEdid(); };
     $('dp-file').onchange = function () { loadFiles(this.files); this.value = ''; };
     $('dp-save').onclick = function () { download('dpcd_script.txt', $('dp-script').value, 'text/plain'); };
     $('dp-clear').onclick = function () { S.log = []; render(); };
@@ -355,15 +377,19 @@
   /* ── 執行 ── */
   function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
   function hexs(a) { return (a || []).map(h2).join(' '); }
-  function run() {
+  function run(auto) {
     if (S.running) return;
     if (!H.rawLinked()) { msg(t('errNotLinked'), true); return; }
-    var p = parseScript($('dp-script').value);
+    var text = auto ? auto.text : $('dp-script').value;
+    var isEdid = /^\s*\/\/ EDID/.test(text);
+    S.edidRun = isEdid; if (isEdid && !auto) { S.edid = []; S.edidPtr = null; }
+    var p = parseScript(text);
     if (p.err) { msg(p.err, true); return; }
     if (!p.list.length) { msg(t('errEmpty'), true); return; }
     var info = H.auxInfo() || {}, amd = /AMD/i.test(info.card || '');
     var pl = plan(p.list, amd); if (pl.err) { msg(pl.err, true); return; }
-    var writes = p.list.filter(function (x) { return x.w; });
+    /* v1.2：I2C over AUX 對 0x50–0x57 只寫 1 byte ＝ 設定讀取位址（EDID offset），不是寫資料 ⇒ 不跳確認 */
+    var writes = p.list.filter(function (x) { return x.w && !(x.ioa && x.addr >= 0x50 && x.addr <= 0x57 && x.n === 1); });
     if (writes.length) {
       var d = S.target || {}, txt = t('confirmHead', { d: dispName(d) })
         + writes.slice(0, 20).map(function (x) { return '  ' + x.src; }).join('\n') + (writes.length > 20 ? '\n  …' : '') + t('confirmTail', { n: writes.length });
@@ -373,11 +399,17 @@
     var t0 = Date.now(), k = 0;
     var step = function () {
       if (S.abort) { S.running = false; render(); msg(t('stopped', { n: k })); return; }
-      if (k >= pl.steps.length) { S.running = false; render(); msg(t('done', { n: p.list.length, ms: Date.now() - t0 })); return; }
+      if (k >= pl.steps.length) { S.running = false; render(); msg(t('done', { n: p.list.length, ms: Date.now() - t0 })); if (S.edidRun) edidAfter(); return; }
       var s = pl.steps[k++], a = s.src, pr = $('dp-prog'); if (pr) pr.textContent = k + ' / ' + pl.steps.length;
-      return exec(s, a).then(step, function (e) { addLog('', String(e && e.message || e), true); S.running = false; render(); msg(String(e && e.message || e), true); });
+      return exec(s, a).then(step, function (e) { addLog('', String(e && e.message || e), true); S.running = false; render(); msg(String(e && e.message || e), true); if (S.edidRun) edidFail(); });
     };
     step();
+  }
+  /* 同 exec，但把 bridge 回覆傳回來（EDID 收集用）；log 照 exec 的寫法 */
+  function execRaw(s, a) {
+    if (s.pre) addLog('0x ' + s.pre.src, 'SYS I2C WR(MOT = ' + (s.pre.mot ? 1 : 0) + ') ' + s.pre.n + ' bytes to [0x' + h2(s.slave) + '] + 0x' + s.pre.data.map(h2).join('') + ' (I2C over AUX)');
+    addLog('0x ' + a.src, 'SYS I2C RD(MOT = ' + (a.mot ? 1 : 0) + ') ' + s.n + ' bytes from [0x' + h2(s.slave) + '] (I2C over AUX' + (s.obytes ? ', AMD IOA_Read offset 0x' + s.start.toString(16).toUpperCase() : ', AMD IOA_Read') + ')');
+    return H.send({ type: 'ioaread', slave: s.slave, obytes: s.obytes, start: s.start, len: s.n }).then(function (r) { if (r.ok) addLog('0x 00 ' + hexs(r.data), 'ACK + 0x' + (r.data || []).map(h2).join(''), false, true); else addLog('', 'NACK' + (r.err ? '（' + r.err + '）' : ''), true); return r; });
   }
   function exec(s, a) {
     if (s.kind === 'sl') return sleep(a.ms);
@@ -385,6 +417,9 @@
       return H.send({ type: 'dpcdread', addr: a.addr, len: a.n }).then(function (r) { if (r.ok) addLog('0x 00 ' + hexs(r.data), 'ACK + 0x' + (r.data || []).map(h2).join(''), false, true, bytesL(a.addr, r.data)); else addLog('', 'NACK' + (r.err ? '（' + r.err + '）' : ''), true); }); }
     if (s.kind === 'dw') { addLog('0x ' + a.src, 'SYS DPCD WR ' + a.n + ' bytes to [0x' + ('0000' + a.addr.toString(16).toUpperCase()).slice(-5) + '] + 0x' + a.data.map(h2).join(''), false, false, bytesL(a.addr, a.data));
       return H.send({ type: 'dpcdwrite', addr: a.addr, data: a.data }).then(function (r) { addLog(r.ok ? '0x 00' : '', r.ok ? 'ACK' : ('NACK' + (r.err ? '（' + r.err + '）' : '')), !r.ok, r.ok); }); }
+    if (s.kind === 'ioaread' && s.slave === 0x50) {
+      return execRaw(s, a).then(function (r) { if (r && r.ok) (r.data || []).forEach(function (v, k) { S.edid[s.start + k] = v & 0xFF; }); });
+    }
     if (s.kind === 'ioaread') {
       if (s.pre) addLog('0x ' + s.pre.src, 'SYS I2C WR(MOT = ' + (s.pre.mot ? 1 : 0) + ') ' + s.pre.n + ' bytes to [0x' + h2(s.slave) + '] + 0x' + s.pre.data.map(h2).join('') + ' (I2C over AUX)');
       addLog('0x ' + a.src, 'SYS I2C RD(MOT = ' + (a.mot ? 1 : 0) + ') ' + s.n + ' bytes from [0x' + h2(s.slave) + '] (I2C over AUX' + (s.obytes ? ', AMD IOA_Read offset 0x' + s.start.toString(16).toUpperCase() : ', AMD IOA_Read') + ')');
@@ -392,11 +427,66 @@
     }
     if (a.ioa) {
       if (a.w) { addLog('0x ' + a.src, 'SYS I2C WR(MOT = ' + (a.mot ? 1 : 0) + ') ' + a.n + ' bytes to [0x' + h2(a.addr) + '] + 0x' + a.data.map(h2).join('') + ' (I2C over AUX)');
-        return H.send({ type: 'i2craw', dir: 'w', addr: a.addr, data: a.data, mot: a.mot ? 1 : 0 }).then(function (r) { addLog(r.ok ? '0x 00' : '', r.ok ? 'ACK' : ('NACK' + (r.err ? '（' + r.err + '）' : '')), !r.ok, r.ok); }); }
+        return H.send({ type: 'i2craw', dir: 'w', addr: a.addr, data: a.data, mot: a.mot ? 1 : 0 }).then(function (r) { if (r.ok && a.addr === 0x50 && a.n === 1) S.edidPtr = a.data[0]; addLog(r.ok ? '0x 00' : '', r.ok ? 'ACK' : ('NACK' + (r.err ? '（' + r.err + '）' : '')), !r.ok, r.ok); }); }
       addLog('0x ' + a.src, 'SYS I2C RD(MOT = ' + (a.mot ? 1 : 0) + ') ' + a.n + ' bytes from [0x' + h2(a.addr) + '] (I2C over AUX)');
-      return H.send({ type: 'i2craw', dir: 'r', addr: a.addr, len: a.n, mot: a.mot ? 1 : 0 }).then(function (r) { if (r.ok) addLog('0x 00 ' + hexs(r.data), 'ACK + 0x' + (r.data || []).map(h2).join(''), false, true); else addLog('', 'NACK' + (r.err ? '（' + r.err + '）' : ''), true); });
+      return H.send({ type: 'i2craw', dir: 'r', addr: a.addr, len: a.n, mot: a.mot ? 1 : 0 }).then(function (r) { if (r.ok && a.addr === 0x50 && S.edidPtr != null) { (r.data || []).forEach(function (v, k) { S.edid[S.edidPtr + k] = v & 0xFF; }); S.edidPtr += (r.data || []).length; } if (r.ok) addLog('0x 00 ' + hexs(r.data), 'ACK + 0x' + (r.data || []).map(h2).join(''), false, true); else addLog('', 'NACK' + (r.err ? '（' + r.err + '）' : ''), true); });
     }
     return Promise.resolve();
+  }
+
+  /* ── v1.2：讀取面板 EDID ── */
+  function edidLines(block) {
+    var off = block * 128, L = [EDID_MARK + ' block ' + block + '（VESA E-DDC：I2C over AUX，slave 0x50；先寫 offset 再讀，不送 RAD 初始化）', '40 00 50 00 ' + h2(off)];
+    for (var i = 0; i < 7; i++) L.push('50 00 50 0F');
+    L.push('10 00 50 0F');
+    return L.join('\n') + '\n';
+  }
+  function cardName() { var c = String(((H && H.auxInfo && H.auxInfo()) || {}).card || (S.target && S.target.cardName) || '').toUpperCase(); return c; }
+  function fillEdid() {
+    $('dp-script').value = edidLines(0);
+    S.edid = []; S.edidPtr = null; S.edidBytes = null;
+    var c = cardName();
+    if (c && !/AMD/.test(c)) msg(t('edidCard', { c: c }), true);
+    else msg(t('edidFilled'));
+    var b = $('dp-edid-save'); if (b) b.disabled = true;
+  }
+  function edidFail() { var c = cardName(); if (c && !/AMD/.test(c)) msg(t('edidCard', { c: c }), true); }
+  function edidId(b) {
+    var mfg = (b[8] << 8) | b[9], prod = b[10] | (b[11] << 8);
+    var s = String.fromCharCode(64 + ((mfg >> 10) & 31), 64 + ((mfg >> 5) & 31), 64 + (mfg & 31));
+    return s.replace(/[^A-Z]/g, '_') + ('000' + prod.toString(16).toUpperCase()).slice(-4);
+  }
+  function blockCks(b, k) { var s = 0; for (var i = 0; i < 128; i++) s += b[k * 128 + i]; return s & 0xFF; }
+  function edidAfter() {
+    var b = S.edid || [], n0 = 0; for (var i = 0; i < 128; i++) if (b[i] != null) n0++;
+    if (n0 < 128) { var cn = cardName(); msg((cn && !/AMD/.test(cn)) ? t('edidCard', { c: cn }) : t('edidShort', { n: n0 }), true); return; }
+    var hdr = b.slice(0, 8);
+    if (hdr.map(h2).join(' ') !== '00 FF FF FF FF FF FF 00') { msg(t('edidBadHdr', { h: hdr.map(h2).join(' ') }), true); return; }
+    var ext = b[126];
+    var has1 = true; for (var j = 128; j < 256; j++) if (b[j] == null) { has1 = false; break; }
+    if (ext >= 1 && !has1) {
+      var more = edidLines(1); $('dp-script').value = $('dp-script').value.replace(/\s*$/, '\n') + more;
+      msg(t('edidExtRun', { n: ext }));
+      return run({ text: more });
+    }
+    var n = ext >= 1 ? 256 : 128, bytes = b.slice(0, n);
+    var cks = []; for (var k = 0; k < n / 128; k++) cks.push('block ' + k + ' ' + h2(blockCks(bytes, k)) + ' ' + (blockCks(bytes, k) === 0 ? t('cksOk') : t('cksBad')));
+    S.edidBytes = bytes; S.edidCksOk = (function () { for (var k = 0; k < n / 128; k++) if (blockCks(bytes, k) !== 0) return false; return true; })();
+    var id = edidId(bytes);
+    if (H && H.toDump) H.toDump(bytes, { prefix: 'EDID_' + id, src: t('edidSrc') + ' · ' + id });
+    var m = t('edidOk', { n: n, id: id, c: cks.join('、') });
+    if (ext >= 2) m += '｜' + t('edidMore', { n: ext });
+    msg(m, !S.edidCksOk);
+    var sb = $('dp-edid-save'); if (sb) sb.disabled = false;
+  }
+  function saveEdid() {
+    var b = S.edidBytes; if (!b) { msg(t('edidNone'), true); return; }
+    if (!S.edidCksOk) { var c = []; for (var k = 0; k < b.length / 128; k++) c.push(h2(blockCks(b, k))); if (!g.confirm(t('edidCksBad', { c: c.join(' ') }))) return; }
+    var d = new Date(), p2 = function (x) { return ('0' + x).slice(-2); };
+    var name = 'EDID_' + edidId(b) + '_' + b.length + 'B_' + d.getFullYear() + p2(d.getMonth() + 1) + p2(d.getDate()) + '-' + p2(d.getHours()) + p2(d.getMinutes()) + p2(d.getSeconds()) + '.bin';
+    var a = g.document.createElement('a'); a.href = URL.createObjectURL(new Blob([new Uint8Array(b)], { type: 'application/octet-stream' })); a.download = name;
+    g.document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+    msg(t('edidSaved', { f: name }));
   }
 
   /* ── 分頁切換（只在 AUX 模式出現） ── */
@@ -423,5 +513,5 @@
   }
 
   g.AuxDpcd = { VERSION: VERSION, init: init, listTemp: listTemp, sync: sync, render: render, setTab: setTab, text: t,
-    parseLine: parseLine, parseScript: parseScript, makeLine: makeLine, plan: plan, state: function () { return S; } };
+    parseLine: parseLine, parseScript: parseScript, makeLine: makeLine, plan: plan, edidLines: edidLines, edidId: edidId, state: function () { return S; } };
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -72,6 +72,8 @@ const FAKE = (opt) => {
         Object.assign(r, { ok: true, displays: (opt.displays || []).map(d => Object.assign({}, d, { tcon43c: m.tcon ? (d.tcon43c || [0, 0]) : null })), windows: opt.windows || [] });
         return reply(ws, r); }
       if (m.type === 'i2craw' || m.type === 'ioaread') {
+        if (m.type === 'i2craw' && m.dir === 'w' && m.addr >= 0x50 && m.addr <= 0x57) { Object.assign(r, { ok: false, blocked: true, err: 'I2C over AUX write to 0x' + m.addr.toString(16).toUpperCase() + ' (EEPROM range 0x50-0x57) is blocked. Nothing was written.' }); return reply(ws, r); }
+        if (m.type === 'ioaread' && m.slave === 0x50 && opt.edid) { window.__ioa50 = (window.__ioa50 || []).concat([[m.obytes, m.start, m.len]]); r.data = opt.edid.slice(m.start, m.start + (m.len || 1)); return reply(ws, r); }
         if (m.type === 'i2craw' && m.dir === 'r' && /AMD/.test(opt.card || '')) Object.assign(r, { ok: false, amd: true, err: 'AMD stub' });
         else if (m.type === 'i2craw' && m.dir === 'w') Object.assign(r, { ok: true });
         else { r.data = []; for (let i = 0; i < (m.len || 1); i++) r.data.push(0x5A); }
@@ -400,13 +402,13 @@ try {
     /* 加入一筆 DPCD read 0x00000 ×1 */
     await page.selectOption('#dp-op', 'dr'); await page.fill('#dp-addr', '00000'); await page.selectOption('#dp-n', '1'); await page.click('#dp-add');
     check('＋加入 ⇒ script「90 00 00 00」', /^90 00 00 00\n$/.test(await page.$eval('#dp-script', e => e.value)));
-    await page.fill('#dp-script', '// test\n90 00 00 00\n40 00 50 00 00\n10 00 50 07\nSleep 1 ms\n');
+    await page.fill('#dp-script', '// test\n90 00 00 00\n40 00 50 01 00 00\n10 00 50 07\nSleep 1 ms\n');   /* 2026-10-24：1 byte 寫 0x50 ＝ EDID offset 不再跳確認，這裡改 2 byte 驗確認框 */
     const m1 = await page.evaluate(() => window.__msgs.length);
     await page.evaluate(() => { window.__cf = []; window.__cfAns = true; });
     await page.click('#dp-run'); await waitFor(page, () => /完成/.test(document.getElementById('dp-msg').textContent), null, 8000);
     const sent1 = await page.evaluate((n) => window.__msgs.slice(n).map(m => m.t), m1);
     const dlg = await page.evaluate(() => window.__cf[0] || null);
-    check('有寫入（IOA write）⇒ 先確認，確認框只列事實：螢幕、\\\\.\\DISPLAY2、EDID、Windows 回報接口、我家 TCON 回應', dlg && /AMD · 螢幕 1/.test(dlg) && /DISPLAY2/.test(dlg) && /EDID BOE 0B21/.test(dlg) && /Windows 回報接口：DisplayPort/.test(dlg) && /RAD TCON 有回應（E503）/.test(dlg) && !/內建|外接/.test(dlg) && /40 00 50 00 00/.test(dlg), dlg);
+    check('有寫入（IOA write）⇒ 先確認，確認框只列事實：螢幕、\\\\.\\DISPLAY2、EDID、Windows 回報接口、我家 TCON 回應', dlg && /AMD · 螢幕 1/.test(dlg) && /DISPLAY2/.test(dlg) && /EDID BOE 0B21/.test(dlg) && /Windows 回報接口：DisplayPort/.test(dlg) && /RAD TCON 有回應（E503）/.test(dlg) && !/內建|外接/.test(dlg) && /40 00 50 01 00 00/.test(dlg), dlg);
     check('AMD：IOA 寫 offset＋讀 合併成一次 ioaread（照 AUX_GUI ScriptAmdRun）', JSON.stringify(sent1) === JSON.stringify(['dpcdread', 'ioaread']), JSON.stringify(sent1));
     const lg = await page.$eval('#dp-log', e => e.textContent);
     check('log：SYS DPCD RD、I2C over AUX、ACK', /SYS DPCD RD 1 bytes from \[0x00000\]/.test(lg) && /I2C over AUX/.test(lg) && /ACK \+ 0x/.test(lg), lg.slice(0, 200));
@@ -512,6 +514,84 @@ try {
     check('英文提示', /Pick a display in step 1 and connect first/.test(await page.$eval('#dpcd-panel', e => e.textContent)));
     await page.evaluate(() => { document.documentElement.lang = 'zh-CN'; AuxDpcd.render(); });
     check('簡中提示', /请先在第一步选屏幕并连接/.test(await page.$eval('#dpcd-panel', e => e.textContent)));
+    check('沒有 JS 錯誤', errs.length === 0, errs.join(' | ').slice(0, 300));
+    await ctx.close();
+  }
+
+  console.log('E2c. 讀取面板 EDID（Bruce 2026-10-24）：快捷填 script → 執行 → 有擴充區塊自動讀 block 1 → 進讀寫流程 Dump → 另存 EDID；Intel 明確提示');
+  {
+    const mk = (ext) => { const e = new Array(256).fill(0); [0x00,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0x00].forEach((v, i) => e[i] = v); e[8] = 0x09; e[9] = 0xE5; e[10] = 0x21; e[11] = 0x0B; e[18] = 1; e[19] = 4; for (let i = 20; i < 126; i++) e[i] = (i * 7) & 0xFF; e[126] = ext;
+      let sm = 0; for (let i = 0; i < 127; i++) sm += e[i]; e[127] = (256 - (sm & 0xFF)) & 0xFF; e[128] = 0x02; e[129] = 0x03; for (let i = 130; i < 255; i++) e[i] = (i * 3) & 0xFF; let s2 = 0; for (let i = 128; i < 255; i++) s2 += e[i]; e[255] = (256 - (s2 & 0xFF)) & 0xFF; return e; };
+    const displays = [{ card: 1, cardName: 'AMD', monitor: 1, dpcdRev: 0x12, oui: '000000', devId: '', edid: { mfg: 'BOE', prod: '0B21', name: '' }, win: null, tcon43c: [0xE5, 0x03] }];
+    const EDID = mk(1);
+    const { ctx, page, errs } = await open({ proto: 10, card: 'AMD', admin: false, displays, windows: [], edid: EDID });
+    await page.click('#xport-seg [data-x="aux"]'); await sleep(150);
+    await page.click('#aux-tabs [data-tab="tool"]'); await sleep(150);
+    await page.click('#dp-list'); await waitFor(page, () => document.querySelectorAll('input[name="dp-sel"]').length === 1);
+    await page.click('#dpcd-panel tr[data-i="0"] td:nth-child(3)'); await sleep(100);
+    await page.click('#dp-conn'); await waitFor(page, () => i2ctAuxIsRaw()); await sleep(200);
+    check('Script 區有「讀取面板 EDID」與「另存 EDID」按鈕；沒讀前另存停用', await page.evaluate(() => /讀取面板 EDID/.test(document.getElementById('dp-edid').textContent) && document.getElementById('dp-edid-save').disabled));
+    await page.click('#dp-edid'); await sleep(100);
+    const sc = await page.$eval('#dp-script', e => e.value);
+    check('按快捷 ⇒ 填入 RM8100X IOA 第 1 章／VESA E-DDC 讀法（40 00 50 00 00 → 50 00 50 0F ×7 → 10 00 50 0F），沒有 RAD 初始化', /^\/\/ EDID block 0/.test(sc) && /\n40 00 50 00 00\n(50 00 50 0F\n){7}10 00 50 0F\n$/.test(sc) && !/43[0-9A-F]|4D[12]/.test(sc.split('\n').slice(1).join('\n')), sc);
+    await page.evaluate(() => { window.__cf = []; window.confirm = (m) => { window.__cf.push(m); return true; }; });
+    const m0 = await page.evaluate(() => window.__msgs.length);
+    await page.click('#dp-run');
+    await waitFor(page, () => /EDID 256 byte/.test(document.getElementById('dp-msg').textContent), null, 10000);
+    const ms = await page.$eval('#dp-msg', e => e.textContent);
+    const io = await page.evaluate(() => window.__ioa50);
+    const sent = await page.evaluate((n) => window.__msgs.slice(n).map(m => m.t), m0);
+    check('只送 IOA 讀（AMD：offset 併進 IOA_Read），沒有 dpcdwrite／RAD 初始化、沒有跳寫入確認', sent.every(t => t === 'ioaread') && sent.length === 16 && (await page.evaluate(() => window.__cf.length)) === 0, JSON.stringify(sent));
+    check('byte 0x7E＝1 ⇒ 自動接著讀 block 1（offset 0x80～0xF0）', io.length === 16 && io[8][1] === 0x80 && io[15][1] === 0xF0, JSON.stringify(io));
+    check('訊息：256 byte、header ✓、兩個 block checksum 正確、已放進 Dump', /EDID 256 byte（BOE0B21）/.test(ms) && /header 00 FF FF FF FF FF FF 00 ✓/.test(ms) && /block 0 00 正確/.test(ms) && /block 1 00 正確/.test(ms) && /Dump/.test(ms), ms);
+    const dump = await page.evaluate(() => { const s = i2ctCurSet(); return s ? { n: s.bytes.length, slave: s.slave, b: Array.from(s.bytes) } : null; });
+    check('讀寫流程的 16×16 Dump＝讀回的 256 byte EDID（slave 0x50）', dump && dump.n === 256 && dump.slave === 0x50 && JSON.stringify(dump.b) === JSON.stringify(EDID), dump && dump.n);
+    check('script 框也補上 block 1 那幾行（看得到實際送了什麼）', /\/\/ EDID block 1/.test(await page.$eval('#dp-script', e => e.value)) && /40 00 50 00 80/.test(await page.$eval('#dp-script', e => e.value)));
+    if (SHOTS) await page.screenshot({ path: SHOTS + '/edid_tool.png', fullPage: false });
+    const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#dp-edid-save')]);
+    const fp = await dl.path(); const { readFileSync } = await import('node:fs'); const fb = Array.from(readFileSync(fp));
+    check('另存 EDID ⇒ EDID_BOE0B21_256B_*.bin、內容＝讀回的 256 byte', /^EDID_BOE0B21_256B_\d{8}-\d{6}\.bin$/.test(dl.suggestedFilename()) && JSON.stringify(fb) === JSON.stringify(EDID), dl.suggestedFilename());
+    /* 讀寫流程那邊：Dump 看得到、另存新檔檔名也是 EDID */
+    await page.click('#aux-tabs [data-tab="flow"]'); await sleep(200);
+    const nm = await page.evaluate(() => i2ctExportBuild(i2ctCurSet(), 'bin').name);
+    check('讀寫流程「另存新檔」檔名 EDID_BOE0B21_256B_…（與 Dump 另存同一支）', /^EDID_BOE0B21_256B_\d{8}-\d{6}\.bin$/.test(nm), nm);
+    if (SHOTS) await page.screenshot({ path: SHOTS + '/edid_dump.png', fullPage: true });
+    check('沒有 JS 錯誤', errs.length === 0, errs.join(' | ').slice(0, 300));
+    await ctx.close();
+  }
+  {
+    /* 沒有擴充區塊 ⇒ 只讀 128；checksum 錯 ⇒ 標錯、存檔先問 */
+    const e = new Array(256).fill(0); [0x00,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0x00].forEach((v, i) => e[i] = v); e[8] = 0x09; e[9] = 0xE5; e[10] = 0x21; e[11] = 0x0B; e[126] = 0; e[127] = 0x12;
+    const displays = [{ card: 1, cardName: 'AMD', monitor: 1, dpcdRev: 0x12, oui: '000000', devId: '', edid: null, win: null }];
+    const { ctx, page, errs } = await open({ proto: 10, card: 'AMD', displays, windows: [], edid: e });
+    await page.click('#xport-seg [data-x="aux"]'); await sleep(150); await page.click('#aux-tabs [data-tab="tool"]'); await sleep(150);
+    await page.click('#dp-list'); await waitFor(page, () => document.querySelectorAll('input[name="dp-sel"]').length === 1);
+    await page.click('#dpcd-panel tr[data-i="0"] td:nth-child(3)'); await page.click('#dp-conn'); await waitFor(page, () => i2ctAuxIsRaw()); await sleep(150);
+    await page.click('#dp-edid'); await page.click('#dp-run'); await waitFor(page, () => /EDID 128 byte/.test(document.getElementById('dp-msg').textContent), null, 8000);
+    const ms = await page.$eval('#dp-msg', x => x.textContent);
+    check('byte 0x7E＝0 ⇒ 只讀 128 byte（不讀 block 1）', /EDID 128 byte/.test(ms) && (await page.evaluate(() => window.__ioa50.length)) === 8, ms);
+    check('checksum 錯 ⇒ 訊息標「錯誤」', /block 0 [0-9A-F]{2} 錯誤/.test(ms) && !/block 0 00/.test(ms), ms);
+    await page.evaluate(() => { window.__cf = []; window.confirm = (m) => { window.__cf.push(m); return false; }; });
+    await page.click('#dp-edid-save'); await sleep(200);
+    check('checksum 錯時按另存 ⇒ 先問（取消就不存）', await page.evaluate(() => window.__cf.length === 1 && /checksum 不對/.test(window.__cf[0])));
+    check('沒有 JS 錯誤', errs.length === 0, errs.join(' | ').slice(0, 300));
+    await ctx.close();
+  }
+  {
+    /* Intel：快捷就講清楚會被擋＋替代做法；真的執行 ⇒ 第一筆被 bridge 擋、什麼都沒寫 */
+    const displays = [{ card: 0, cardName: 'INTEL', monitor: 0, dpcdRev: 0x14, oui: '000000', devId: '', edid: null, win: null }];
+    const { ctx, page, errs } = await open({ proto: 10, card: 'INTEL', displays, windows: [] });
+    await page.click('#xport-seg [data-x="aux"]'); await sleep(150); await page.click('#aux-tabs [data-tab="tool"]'); await sleep(150);
+    await page.click('#dp-list'); await waitFor(page, () => document.querySelectorAll('input[name="dp-sel"]').length === 1);
+    await page.click('#dpcd-panel tr[data-i="0"] td:nth-child(3)'); await page.click('#dp-conn'); await waitFor(page, () => i2ctAuxIsRaw()); await sleep(150);
+    await page.click('#dp-edid'); await sleep(100);
+    const m1 = await page.$eval('#dp-msg', x => x.textContent);
+    check('Intel：按快捷就明講 Bridge 1.23.0 擋 0x50 寫入、AMD 可用、Intel 改用 Windows 的 EDID（登錄檔／WMI）', /INTEL 顯示卡/.test(m1) && /0x50–0x57/.test(m1) && /Device Parameters/.test(m1) && /WmiMonitorDescriptorMethods/.test(m1), m1);
+    await page.click('#dp-run'); await sleep(600);
+    const m2 = await page.$eval('#dp-msg', x => x.textContent);
+    const lg = await page.$eval('#dp-log', x => x.textContent);
+    check('Intel：執行 ⇒ 第一筆被擋（log 有 blocked）、停下、訊息同上', /blocked/.test(lg) && /INTEL 顯示卡/.test(m2), m2.slice(0, 120));
+    if (SHOTS) await page.screenshot({ path: SHOTS + '/edid_intel.png', fullPage: false });
     check('沒有 JS 錯誤', errs.length === 0, errs.join(' | ').slice(0, 300));
     await ctx.close();
   }

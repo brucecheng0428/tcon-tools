@@ -2,6 +2,26 @@
 
 ---
 
+## I2C / AUX 讀寫測試 (i2c) v1.44.0 — 2026-10-24 ｜ MINOR ｜ DPCD／IOA 工具：script「讀取面板 EDID」快捷、讀回進「讀寫流程」16×16 Dump、另存 EDID（含 checksum）
+
+判定依據：`docs/VERSIONING.md` R2：新功能。
+
+### 需求（Bruce 2026-10-24）
+「我還要有一個可以讀 EDID 的選項在 script 這邊。請去查一下 81003 或叫 8100X 的 IOA 文件…裡面的 chapter 1 就是…這是一個公定的規範…我記得有些 intel 的顯卡好像會卡 slave address 0x50，如果是這樣，要如何透過 aux 讀取 EDID? 也請查清楚…它不用下瑞鼎 T-CON 初始化的設定…做一個『讀取面板 EDID』的快捷 script。按下去以後它會直接填上這個 script，讀完的值會反過來存在『讀寫流程』分頁裡面的 16×16 dump，這時候也可以把這個 dump 另存成 code（或是在 script 那邊也有一個另存 EDID 的按鈕）」
+
+### 讀法（出處）
+- RM8100X IOA app note v1.0（2025-05-14）第 1 章「EDID Read from TCON IC」：`40 00 50 00 00`（I2C over AUX 寫、MOT=1、slave 50h、offset 00h）→ `50 00 50 00`×256（I2C over AUX 讀 1 byte、MOT=1）→ `10 00 50`（MOT=0 結束）。沒有任何 RAD 初始化。＝VESA E-DDC 的 DDC over AUX（slave 0x50；>256 byte 要 segment pointer 0x30）。
+- 本工具照這個順序，讀一次 16 byte（script 每行上限）：`40 00 50 00 <offset>` → `50 00 50 0F`×7 → `10 00 50 0F`＝128 byte；byte 0x7E（擴充區塊數）≥1 ⇒ 自動接著讀 block 1（offset 0x80）。byte 0x7E≥2 ⇒ block 2 以上要 segment pointer，這條路不讀、訊息寫明。
+- AMD：bridge 把「寫 offset＋讀」併成一次 IOA_Read（AUX_GUI ScriptAmdRun 的做法）。Intel／NVIDIA：bridge 1.23.0 擋 I2C over AUX 寫 0x50–0x57（offset 也算）⇒ 第一筆就會被擋；快捷一按就明講，並列替代做法（Windows 登錄檔 `Enum\DISPLAY\…\Device Parameters\EDID`、WMI `WmiMonitorDescriptorMethods`，或等 Bridge 放行 1 byte offset 寫入）。原廠 RAD TCON 流程在 Intel 會把 0x50 換成 0x10（`ReplaceIntelSlaveAddress`，要寫 T-CON MCU mem 0x98）—— 推論 Intel 驅動擋 0x50，公開文件沒查到明文。
+
+### 改了什麼（common/aux-dpcd.js v1.2）
+- Script 區加「讀取面板 EDID」（填 script）與「另存 EDID」（.bin，檔名 `EDID_<廠商><產品>_<n>B_<時間>.bin`；checksum 錯先問）。
+- 讀完：header（00 FF FF FF FF FF FF 00）與每個 block 的 checksum 都檢查；結果放進「讀寫流程」的 16×16 Dump（slave 0x50，與 Flash 讀出同一支，A／B 規則照用），那邊「另存新檔」檔名也是 `EDID_…`。
+- I2C over AUX 對 0x50–0x57 只寫 1 byte＝設定讀取位址（不是寫資料）⇒ 不跳寫入確認。
+
+### 驗證
+- check_i2c_aux 新增 E2c（AMD 有擴充區塊 256 byte、無擴充 128 byte、checksum 錯、Intel 被擋與提示、另存檔名與內容、Dump 內容）。實機結果見完成回報。
+
 ## I2C / AUX 讀寫測試 (i2c) v1.43.0 — 2026-10-24 ｜ MINOR ｜ DPCD／IOA 工具：沒連線不能執行、log 連到 aux.html 說明、Check RAD TCON 標示已初始化、清單持續 highlight 已選／已連線的螢幕（＋ wfg v4.59.3：LA 的 DPCD 連結改用共用 common/dpcd-link.js）
 
 判定依據：`docs/VERSIONING.md` R2：新功能（與上一段版本檢查同一版 v1.43.0、同一批推）。wfg 只換成呼叫共用函式、網址不變 ⇒ PATCH。

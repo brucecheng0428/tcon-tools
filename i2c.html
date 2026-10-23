@@ -30,7 +30,7 @@
           出來」。那個前提**早就不成立**：bridge 的靜態檔服務拒絕子資料夾、而且自 v1.7.0
           起預設關閉 —— 詳細依據與行號寫在 body 末端那兩個 <script> 的上面。）
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="common/version.js?v=20261024bv143"></script>
+<script src="common/version.js?v=20261024edid144"></script>
 <script src="common/i2c-bridge.js?v=20261024bv143"></script>
 <style>
   * { box-sizing: border-box; }
@@ -1703,7 +1703,7 @@
 <script src="common/i2c-mbus.js?v=20261023mb122"></script>
 <script src="common/i2c-aux.js?v=20261023ax191"></script>
 <script src="common/dpcd-link.js?v=20261024dl100"></script>
-<script src="common/aux-dpcd.js?v=20261024dp110"></script>
+<script src="common/aux-dpcd.js?v=20261024dp120"></script>
 <script src="common/tcon-detect.js?v=20261023td130"></script>
 <script src="common/common.js?v=20261008i2c1341"></script>
 <script src="common/i2c-spiflash.js?v=20261022en01"></script>
@@ -2797,6 +2797,7 @@ function i2ctExportName(set, ext){
   if (set.kind === 'file') return 'i2c_' + set.bytes.length + 'B_' + ts + '.' + ext;
   /* v1.31.0：外部 Flash 讀出 ⇒ 沿用 v1.30.0 的檔名（型號、[Demura]、起點、長度、CKS）。
      CKS 存檔當下重算：Dump 上改過值的話，檔名跟著內容走。 */
+  if (set.edid) return set.edid.prefix + '_' + set.bytes.length + 'B_' + ts + '.' + ext;   /* v1.44.0：DPCD／IOA 工具讀的 EDID */
   if (set.sf) return set.sf.prefix + '_CKS_' + i2ctHex((i2ctChecksum(set.bytes) || 0) & 0xFFFFFF, 6) + '.' + ext;
   return 'i2c_S' + i2ctHex(set.slave) + '_off' + i2ctHex(set.base, set.awid === 4 ? 8 : 4)
        + '_' + set.bytes.length + 'B_' + ts + '.' + ext;
@@ -9638,6 +9639,12 @@ function i2ctAuxDpcdInit(){
     },
     disconnect: function () { return Promise.resolve(i2ctDisconnect()); },
     lastErr: function () { var e = $('linktext'); return e ? e.textContent : ''; },
+    /* v1.44.0（Bruce 2026-10-24「讀完的值會反過來存在『讀寫流程』分頁裡面的 16×16 dump」）：EDID 進 Dump，與 Flash 讀出同一支（A／B 規則照用） */
+    toDump: function (bytes, info) {
+      var set = i2ctMakeSet('dev', 0x50, 1, 0, new Uint8Array(bytes)); set.edid = { prefix: info.prefix };
+      i2ctSfToDump(set, info.src);
+      i2ctLog('EDID ' + bytes.length + ' byte → Dump（' + info.prefix + '）', 'o');
+    },
     onTab: function () { i2ctStepsRender(); i2ctAuxRawGuard(); }
   });
   AuxDpcd.sync(i2ctXport);
