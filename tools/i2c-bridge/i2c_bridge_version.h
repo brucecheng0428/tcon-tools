@@ -332,7 +332,16 @@
  *     open 回覆多 tconSeen。
  *   - 🔴 治具（I2C）路徑與 1.19.0 逐行相同：git diff 只落在 dgh_mode==DGH_MODE_AUX 分支、aux_* 函式與 i2c_bridge_aux.h。
  */
-#define I2C_BRIDGE_VERSION "1.21.0"
+/* 1.22.0（2026-10-23）：DP AUX 照原廠 EN01 UI（Wpf.RomCodeProcessUI → RAD_AUX_DLL，Tcon81008）逐步一致。
+ *   Bruce 2026-10-23「那就依照原廠 UI 的行為吧」「原廠 UI 有做還原的動作嗎？」：原廠做什麼就做什麼，沒做的一律不加。
+ *   - 開啟：原廠 Detect（每台 Initial OK 的螢幕：① 初始化 → 3E:0000 checksum → ④ End → Release；取最後一台通過的）→ Initial＋① → Tcon_End ④。
+ *     不再關 PSR、不再做 flash 型 tconinit；關閉只 Release（原廠 AuxApi.Release）。
+ *   - 讀：原廠 Tcon_Read_Register 逐 byte——3E 只走 DPCD 430／435；7C／7D ① → MbusConnect（7E:AB←CD 走 IOA_Write、7C:0F←80）→ 讀 → ④；
+ *     其他 slave ① → 讀 → ④；EEPROM 0x50 原廠 Tcon_Read_Rom（① → 每 8 byte 480=FF＋IOA 讀 → ④）。
+ *   - 寫：原廠 Tcon_Write_Register 逐 byte——3E 直接寫；其他 ① → CheckAndWriteRegisterRomWP → 寫 → ④（不再自己補 7C:0F）。
+ *   - 每一筆 AUX 交易記錄到 log，並可用 {"type":"auxtx","from":N} 取回，供逐筆對照步驟表。
+ *   - I2C 治具路徑不動（只改 dgh_mode==DGH_MODE_AUX 分支與 aux_* / i2c_bridge_aux.h）。wire format 不變 ⇒ proto 仍 9。 */
+#define I2C_BRIDGE_VERSION "1.22.0"
 #define I2C_BRIDGE_PROTO   9
 /* 🔴 AUX 模式 3E／7C 走 I2C over AUX、EEPROM 可讀（寫仍擋）需要的 proto 下限。 */
 #define I2C_BRIDGE_PROTO_AUX_IOA 9

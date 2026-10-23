@@ -1629,7 +1629,6 @@ static int  g_auxCard = -1, g_auxMon = -1, g_auxProj = 1;
 static int  g_auxTconSeen = 0;   /* 1.21.0: the chosen display answered the vendor 3E probe */
 static int  g_auxAdmin = -1;          /* -1 未知、0 否、1 是 */
 static int  g_auxPsrSup = -1, g_auxPsrOn = -1, g_auxPsrWeOff = 0;
-static int  g_auxInitDone = 0;        /* 做過 T-CON 初始化 ⇒ 關閉時要做收尾 */
 static char g_auxAdapters[300] = "";
 static void aux_sleep(unsigned ms){ Sleep((DWORD)ms); }
 static int aux_try_dir(const char* dirIn){
@@ -1653,6 +1652,7 @@ static int aux_try_dir(const char* dirIn){
     g_aux.SetPsr         =(PFN_AUX_Psr)            GetProcAddress(h,"Set_PSR_State");
     g_aux.DpcdRead       =(PFN_AUX_Dpcd)           GetProcAddress(h,"DPCD_Read");
     g_aux.IoaRead        =(PFN_AUX_Ioa)            GetProcAddress(h,"IOA_Read");   /* 1.20.1: AMD reads */
+    g_aux.IoaWrite       =(PFN_AUX_Ioa)            GetProcAddress(h,"IOA_Write");  /* 1.22.0: vendor MbusConnect / register writes */
     g_aux.DpcdWrite      =(PFN_AUX_Dpcd)           GetProcAddress(h,"DPCD_Write");
     g_aux.I2cRead        =(PFN_AUX_I2c)            GetProcAddress(h,"I2C_Read");
     g_aux.I2cWrite       =(PFN_AUX_I2c)            GetProcAddress(h,"I2C_Write");
@@ -1728,94 +1728,85 @@ static int aux_psr_set(int enable){
     aux_psr_read();
     return st.iResult==0;
 }
-static int aux_dw1(int addr, unsigned char v){ int ok=dgh_aux_b(g_aux.DpcdWrite(1,addr,&v)); Sleep(1); return ok; }
-/* Tcon81008.FlashInitialize（Simple sequence = No）——逐步寫進 log。 */
-static int aux_tcon_init(char* err, size_t ecap){
-    unsigned char v=0xAA, ab[2], m=0;
-    int okAll=1;
-    logline("  aux     : T-CON init (vendor AUX tool, flash-type sequence)");
-    okAll &= aux_dw1(0x4D2,0xAD); okAll &= aux_dw1(0x4D1,0xDA);           /* AuxTconEnable */
-    if(!dgh_aux_b(g_aux.DpcdRead(1,0x43B,&v))){ snprintf(err,ecap,"T-CON init: DPCD_Read 0x43B failed"); return 0; }
-    Sleep(1);
-    {   /* AuxDvcomKbpsSel(v==0)：MCU mem 0x9C |= 0x40（1435）或 0xC3 |= 0x02 */
-        int is1435 = (v==0x00); unsigned short mem = is1435?0x9C:0xC3;
-        ab[0]=(unsigned char)(mem>>8); ab[1]=(unsigned char)(mem&0xFF);
-        okAll &= dgh_aux_b(g_aux.DpcdWrite(2,0x430,ab)); Sleep(1);
-        okAll &= dgh_aux_b(g_aux.DpcdRead(1,0x436,&m)); Sleep(1);
-        m = (unsigned char)(m | (is1435?0x40:0x02));
-        okAll &= dgh_aux_b(g_aux.DpcdWrite(2,0x430,ab)); Sleep(1);
-        okAll &= aux_dw1(0x436,m);
-        logline("  aux     :   0x43B=%02X -> DVCOM kbps sel: MCU mem 0x%02X |= 0x%02X (now %02X)", v, mem, is1435?0x40:0x02, m);
-    }
-    okAll &= aux_dw1(0x431,0x00); okAll &= aux_dw1(0x439,0x08);           /* McuCtrlClk(true) */
-    okAll &= aux_dw1(0x431,0x03); okAll &= aux_dw1(0x439,0x80);           /* CbusMbusSelect */
-    okAll &= aux_dw1(0x480,0xFF);
-    if(!okAll){ snprintf(err,ecap,"T-CON init over AUX: one or more DPCD writes failed (see i2c-aux-bridge.log)"); return 0; }
-    g_auxInitDone = 1;
-    return 1;
-}
-static void aux_tcon_end(void){
-    if(!g_auxInitDone) return;
-    logline("  aux     : T-CON end (flash-type: CbusMbusSelect, McuCtrlClk(false), update settings)");
-    aux_dw1(0x431,0x03); aux_dw1(0x439,0x80);
-    aux_dw1(0x431,0x00); aux_dw1(0x439,0x04);
-    aux_dw1(0x4D2,0xAD);
-    g_auxInitDone = 0;
+/* 1.22.0：每一筆 AUX 交易的紀錄（dgh_v_tx）。寫進 i2c-aux-bridge.log，另存環狀緩衝給 {"type":"auxtx"} 取回，
+   用來和原廠 EN01 UI 的步驟表逐筆對照。 */
+#define AUX_TX_N   4096
+#define AUX_TX_LEN 112
+static char g_auxTx[AUX_TX_N][AUX_TX_LEN];
+static unsigned long g_auxTxSeq = 0;      /* 已記錄的總筆數（第 k 筆在 g_auxTx[k % AUX_TX_N]） */
+static void aux_tx(const char* line){
+    snprintf(g_auxTx[g_auxTxSeq % AUX_TX_N], AUX_TX_LEN, "%s", line);
+    g_auxTxSeq++;
+    logline("  auxtx #%lu: %s", g_auxTxSeq, line);
 }
 static char g_auxOpenErr[600] = "";
-static int aux_open(int cardReq, int monReq, int projReq, int psrOff, int tconInit){
-    int cards[4], nc, ci, m;
+/* 1.22.0：開啟照原廠 EN01 UI（Bruce 2026-10-23「那就依照原廠 UI 的行為吧」）：
+   AuxChannelModuleBase.cs:53–124 Connect
+     沒指定 monitor ⇒ Detect（AuxApi.cs:80–103 → Common.cs:288–347 AutoDetectGetGraphicsCardName）：
+       每張顯卡、monitor 0..19：Initial OK ⇒ ① 初始化 → CheckRegisterChecksum（3E:0000 ×2）→ 通過才列候選 → ④ End → Release。
+       中途 DPCD 失敗（原廠丟例外、被 catch）⇒ 這台跳過，不做 End、不 Release（照原廠）。
+       候選取最後一台（AuxApi.cs:98–99）；沒有候選 ⇒ 開啟失敗（原廠「Aux Open Fail」）。
+     有指定 monitor ⇒ SelectCandidate（不掃描）。
+     然後 Initial：Initial ＋ ① 初始化（AuxApi.cs:144–146），再 Tcon_End ④（AuxChannelModuleBase.cs:107–110）。
+   原廠沒有的拿掉：PSR 關閉（GraphicsPsrEnable 在 EN01 UI 沒有呼叫）、舊的 tconinit（flash 版初始化留到關閉才收尾）。
+   ⚠ 照原廠：掃描時每一台 Initial OK 的螢幕都會被寫 ①（Windows mini 的 monitor 0 是另一台 DP 螢幕，也會寫到，第一筆寫失敗就停）。 */
+static int aux_open(int cardReq, int monReq, int projReq, int rom){
+    int cards[4], nc, ci, m, lastCard=-1, lastMon=-1, nCand=0;
+    char e[300]="";
     g_auxOpenErr[0]=0;
     if(g_auxOpen) return 1;
     if(!aux_load()){ snprintf(g_auxOpenErr,sizeof(g_auxOpenErr),"%s",g_auxLoadErr); return 0; }
     g_auxProj = (projReq>=0 && projReq<=3) ? projReq : 1;
+    g_aux.rom = (rom==DGH_AUX_ROM_FLASH) ? DGH_AUX_ROM_FLASH : DGH_AUX_ROM_EEPROM;
+    g_aux.tx = aux_tx;
     if(cardReq>=0 && cardReq<=3){ cards[0]=cardReq; nc=1; aux_cards(cards+1,0); }
     else nc = aux_cards(cards,4);
-    logline("  aux     : display adapters: %s", g_auxAdapters[0]?g_auxAdapters:"(none listed)");
+    logline("  aux     : display adapters: %s; ROM type %s (vendor default EEPROM, ICDefine.cs:49)", g_auxAdapters[0]?g_auxAdapters:"(none listed)",
+            g_aux.rom==DGH_AUX_ROM_FLASH?"FLASH":"EEPROM");
     if(nc==0){
         snprintf(g_auxOpenErr,sizeof(g_auxOpenErr),"no Intel / AMD / NVIDIA display adapter found (adapters: %s). "
                  "DP AUX needs the panel on the laptop's own eDP / DP output.", g_auxAdapters[0]?g_auxAdapters:"none");
         logline("  aux     : %s", g_auxOpenErr); return 0; }
-    /* 1.21.0: pick the display the way the vendor AUX tool does (RAD_AUX_DLL Common.cs:288 AutoDetectGetGraphicsCardName,
-       AuxApi.cs:98-99): try every monitor, keep only those whose T-CON answers, use the LAST one.
-       Measured 2026-10-23 (Windows test box, AMD): monitor 0 = another DP display (Initial OK, every write to the
-       Raydium DPCD window 0x430 fails), monitor 1 = the Raydium T-CON (0x4D1 = DA, 3E reads fine, no admin needed).
-       Old rule "first monitor whose Initial() is OK" picked monitor 0 => "connected" but no T-CON.
-       Probe = the vendor 3E read itself (DPCD_Write(2,0x430,[00,00]) + DPCD_Read(1,0x435)): read flow only, no T-CON setting
-       is written. An explicit `monitor` from the page is used as-is. No T-CON on any display => first Initial-OK one. */
     g_auxTconSeen = 0;
-    for(ci=0;ci<nc && !g_auxOpen;ci++){
-        int m0 = (monReq>=0)?monReq:0, m1 = (monReq>=0)?monReq:19, firstOk = -1, bestTcon = -1;
-        for(m=m0;m<=m1;m++){
-            unsigned char c=(unsigned char)cards[ci], mo=(unsigned char)m, pj=(unsigned char)g_auxProj;
-            unsigned char r = g_aux.Initial(&c,&mo,&pj);
-            if(r!=0) continue;
-            if(firstOk<0) firstOk = m;
-            if(monReq>=0){ bestTcon = m; break; }
-            {   unsigned char ab[2] = {0,0}, v = 0; int t;
-                t = dgh_aux_b(g_aux.DpcdWrite(2,0x430,ab)) && dgh_aux_b(g_aux.DpcdRead(1,0x435,&v));
-                logline("  aux     : probe card=%s monitor=%d: Initial OK, T-CON (3E via DPCD 0x430/0x435) %s", dgh_aux_card_name((unsigned)cards[ci]), m, t?"answers":"no answer");
-                if(t) bestTcon = m;
+    if(monReq>=0){ lastCard = cards[0]; lastMon = monReq; nCand = 1; }
+    else {
+        aux_tx("== Detect scan (Common.cs:288-347)");
+        for(ci=0;ci<nc;ci++){
+            for(m=0;m<20;m++){
+                unsigned char c=(unsigned char)cards[ci], mo=(unsigned char)m, pj=(unsigned char)g_auxProj, ck[2]={0,0};
+                int r;
+                g_aux.card = cards[ci];
+                if(g_aux.Initial(&c,&mo,&pj)!=0) continue;
+                aux_tx("");
+                { char b[80]; snprintf(b,sizeof(b),"-- card=%s monitor=%d: Initial OK", dgh_aux_card_name((unsigned)cards[ci]), m); aux_tx(b); }
+                e[0]=0;
+                if(!dgh_v_init(&g_aux, e, sizeof(e))){ logline("  aux     : monitor %d: init stopped: %s (vendor: exception, monitor skipped)", m, e); continue; }
+                r = dgh_v_checksum(&g_aux, ck, e, sizeof(e));
+                if(e[0]){ logline("  aux     : monitor %d: checksum read stopped: %s (vendor: exception, monitor skipped)", m, e); continue; }
+                logline("  aux     : monitor %d: 3E:0000 = %02X %02X -> %s", m, ck[0], ck[1], r?"candidate":"no register checksum");
+                if(r){ lastCard=cards[ci]; lastMon=m; nCand++; }
+                if(!dgh_v_end(&g_aux, e, sizeof(e))){ logline("  aux     : monitor %d: end stopped: %s (vendor: exception)", m, e); continue; }
+                if(g_aux.Release) g_aux.Release();
             }
-            if(g_aux.Release) g_aux.Release();
         }
-        if(firstOk>=0){
-            int use = (bestTcon>=0) ? bestTcon : firstOk;
-            if(monReq<0){
-                unsigned char c=(unsigned char)cards[ci], mo=(unsigned char)use, pj=(unsigned char)g_auxProj;
-                if(g_aux.Initial(&c,&mo,&pj)!=0){ logline("  aux     : re-Initial monitor %d failed", use); continue; }
-            }
-            g_auxCard=cards[ci]; g_auxMon=use; g_auxOpen=1; g_aux.card=cards[ci]; g_auxTconSeen = (bestTcon>=0);
-            logline("  aux     : Initial(card=%s, monitor=%d, projectIc=%d) = OK%s", dgh_aux_card_name((unsigned)cards[ci]), use, g_auxProj,
-                    bestTcon>=0 ? " (T-CON answers on this display)" : " (no display answered as a T-CON; using the first one)");
-        }
-        if(!g_auxOpen) logline("  aux     : Initial failed on card %s, monitors %d..%d", dgh_aux_card_name((unsigned)cards[ci]), m0, m1);
+        if(nCand==0){
+            snprintf(g_auxOpenErr,sizeof(g_auxOpenErr),"DP AUX: no display answered as a Raydium T-CON (vendor Detect: Initial + register checksum 3E:0000 on every monitor; adapters: %s). "
+                     "Check the panel is lit on this computer's eDP / DP port.", g_auxAdapters[0]?g_auxAdapters:"none");
+            logline("  aux     : %s", g_auxOpenErr); return 0; }
     }
-    if(!g_auxOpen){
-        snprintf(g_auxOpenErr,sizeof(g_auxOpenErr),"DP AUX: Initial() failed on every display tried (adapters: %s). "
-                 "Check the panel is lit on this computer's eDP / DP port and the graphics driver is installed.",
-                 g_auxAdapters[0]?g_auxAdapters:"none");
-        return 0; }
+    {   unsigned char c=(unsigned char)lastCard, mo=(unsigned char)lastMon, pj=(unsigned char)g_auxProj;
+        char b[96];
+        g_aux.card = lastCard;
+        snprintf(b,sizeof(b),"== Initial card=%s monitor=%d (AuxApi.cs:138-161)", dgh_aux_card_name((unsigned)lastCard), lastMon); aux_tx(b);
+        if(g_aux.Initial(&c,&mo,&pj)!=0){ snprintf(g_auxOpenErr,sizeof(g_auxOpenErr),"DP AUX: Initial(card %s, monitor %d) failed", dgh_aux_card_name((unsigned)lastCard), lastMon); logline("  aux     : %s", g_auxOpenErr); return 0; }
+        e[0]=0;
+        if(!dgh_v_init(&g_aux, e, sizeof(e))){ snprintf(g_auxOpenErr,sizeof(g_auxOpenErr),"DP AUX: Tcon Initial failed on monitor %d: %s", lastMon, e); logline("  aux     : %s", g_auxOpenErr); return 0; }
+        aux_tx("== Tcon_End (AuxChannelModuleBase.cs:107-110)");
+        if(!dgh_v_end(&g_aux, e, sizeof(e))){ snprintf(g_auxOpenErr,sizeof(g_auxOpenErr),"DP AUX: Tcon End failed on monitor %d: %s", lastMon, e); logline("  aux     : %s", g_auxOpenErr); return 0; }
+        g_auxCard=lastCard; g_auxMon=lastMon; g_auxOpen=1; g_auxTconSeen = (monReq<0);
+        logline("  aux     : Initial(card=%s, monitor=%d, projectIc=%d) = OK (%s)", dgh_aux_card_name((unsigned)lastCard), lastMon, g_auxProj,
+                monReq<0 ? "last display that passed the vendor register checksum" : "monitor chosen by the page");
+    }
     if(g_aux.GetInitialState) logline("  aux     : Get_InitialState = %d", dgh_aux_b(g_aux.GetInitialState()));
 #ifdef _WIN32
     g_auxAdmin = IsUserAnAdmin() ? 1 : 0;
@@ -1826,18 +1817,11 @@ static int aux_open(int cardReq, int monReq, int projReq, int psrOff, int tconIn
             (!g_auxAdmin && g_auxCard==(int)DGH_AUX_CARD_INTEL)?"  <- Intel IGCL: AUX writes need admin (right-click i2c-aux-bridge.exe -> Run as administrator)":"");
     aux_psr_read();
     g_auxPsrWeOff = 0;
-    if(psrOff && g_auxPsrSup==1 && g_auxPsrOn==1){
-        if(aux_psr_set(0) && g_auxPsrOn==0){ g_auxPsrWeOff = 1; logline("  aux     : PSR turned OFF for this session (will be restored on close)"); }
-    }
-    if(tconInit){
-        char e[200]="";
-        if(!aux_tcon_init(e,sizeof(e))) logline("  aux     : %s (continuing; register reads will tell)", e);
-    }
     return 1;
 }
+/* 原廠 AuxApi.Release（AuxApi.cs:163–175）：只 AuxRelease，不做 End。 */
 static void aux_close(void){
     if(!g_auxOpen) return;
-    aux_tcon_end();
     if(g_auxPsrWeOff){ aux_psr_set(1); g_auxPsrWeOff=0; logline("  aux     : PSR restored to ON"); }
     if(g_aux.Release) g_aux.Release();
     g_auxOpen = 0;
@@ -2209,13 +2193,13 @@ static FT_STATUS i2c_read_ex(uint32_t slave, uint32_t addr, uint32_t awid, uint3
     if(dgh_mode == DGH_MODE_AUX){
         char e[300]=""; int ok;
         if(!g_auxOpen){ lasterr_set("DP AUX is not open"); if(got)*got=0; return 0xFFFFFFF4u; }
-        ok = dgh_aux_reg_read(&g_aux, slave, addr, awid, len, out, got, e, sizeof(e));
+        ok = dgh_aux_v_read(&g_aux, slave, addr, awid, len, out, got, e, sizeof(e));   /* 1.22.0: vendor Tcon_Read_Register */
         g_lastUs = (now_ms() - t0) * 1000.0;
         if(!ok) lasterr_set("%s", e);
         if(!g_ioQuiet || !ok)
         logline("  i2c_read: slave=0x%02X addr=0x%X awid=%u len=%u mode=AUX path=%s -> %s, %u bytes, %.0f us%s%s",
                 slave, addr, awid, len,
-                (slave==0x3Eu||slave==0x7Cu)?(g_aux.lastPath==DGH_AUX_PATH_IOA?"i2c-over-aux":"dpcd-window"):"i2c-over-aux",
+                slave==0x3Eu?"vendor 3E window":(slave==0x7Cu||slave==0x7Du)?"vendor init+MbusConnect+read+end":"vendor init+read+end",
                 ok?"ok":"FAILED", got?*got:0, g_lastUs, ok?"":"  ", ok?"":e);
         return ok ? 0 : 0xFFFFFFF4u;
     }
@@ -2274,13 +2258,7 @@ static FT_STATUS i2c_write_ex(uint32_t slave, uint32_t addr, uint32_t awid, cons
     if(dgh_mode == DGH_MODE_AUX){
         char e[300]=""; int ok;
         if(!g_auxOpen){ lasterr_set("DP AUX is not open"); if(got)*got=0; return 0xFFFFFFF4u; }
-        ok = dgh_aux_reg_write(&g_aux, slave, addr, awid, data, (uint32_t)dlen, &tr, e, sizeof(e));
-        if(ok && dgh_aux_is_mbus_cmd(slave, addr, data, (uint32_t)dlen)){
-            uint8_t b0=0, b1=0; char e2[200]="";
-            if(dgh_aux_mbus_follow(&g_aux, &b0, &b1, e2, sizeof(e2)))
-                logline("  aux     : M-Bus connect follow-up 7C:0F %02X -> %02X (vendor AUX tool MbusConnect)", b0, b1);
-            else logline("  aux     : M-Bus connect follow-up 7C:0F failed: %s", e2);
-        }
+        ok = dgh_aux_v_write(&g_aux, slave, addr, awid, data, (uint32_t)dlen, &tr, e, sizeof(e));   /* 1.22.0: vendor Tcon_Write_Register (no 7C:0F follow-up) */
         g_lastUs = (now_ms() - t0) * 1000.0;
         if(!ok){
             if(!g_auxAdmin && strstr(e,"AUX ")==e)
@@ -3085,22 +3063,19 @@ static void handle_command_one(int idx, const char* json){
         if(dgh_mode==DGH_MODE_AUX){
             int aok;
             (void)hz;   /* 🔴 1.19.0：不再呼叫 i2c_open() 讓出治具 —— 治具由另一條路各自持有 */
-            {   long rp = dgh_json_int(json,"regpath",0);
-                g_aux.regPath = (rp==1)?DGH_AUX_PATH_IOA:(rp==2)?DGH_AUX_PATH_DPCD:DGH_AUX_PATH_AUTO;
-                logline("  open    : AUX register path for 3E/7C reads = %s", dgh_aux_path_name(g_aux.regPath)); }
+            g_aux.regPath = DGH_AUX_PATH_DPCD;   /* 1.22.0: regpath / psroff / tconinit no longer used (the vendor EN01 UI does none of these) */
             aok = aux_open((int)dgh_json_int(json,"card",-1), (int)dgh_json_int(json,"monitor",-1),
-                           (int)dgh_json_int(json,"projic",1), (int)dgh_json_int(json,"psroff",1),
-                           (int)dgh_json_int(json,"tconinit",1));
+                           (int)dgh_json_int(json,"projic",1), (int)dgh_json_int(json,"rom",0));
             if(aok){ if(g_ownerIdx!=idx) g_lockOwner=-1; g_ownerIdx=idx; }
             if(aok)
                 snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"open\",\"ok\":true,\"channels\":1,"
                     "\"aux\":true,\"card\":\"%s\",\"monitor\":%d,\"projic\":%d,\"admin\":%s,"
-                    "\"psrSupported\":%s,\"psrOn\":%s,\"psrTurnedOff\":%s,\"tconInit\":%s,\"regPath\":\"%s\",\"eeRead\":true,\"tconSeen\":%s}",
+                    "\"psrSupported\":%s,\"psrOn\":%s,\"psrTurnedOff\":%s,\"tconInit\":%s,\"rom\":\"%s\",\"vendorSeq\":true,\"eeRead\":true,\"tconSeen\":%s}",
                     id, dgh_aux_card_name((unsigned)g_auxCard), g_auxMon, g_auxProj,
                     g_auxAdmin==1?"true":(g_auxAdmin==0?"false":"null"),
                     g_auxPsrSup==1?"true":(g_auxPsrSup==0?"false":"null"),
                     g_auxPsrOn==1?"true":(g_auxPsrOn==0?"false":"null"),
-                    g_auxPsrWeOff?"true":"false", g_auxInitDone?"true":"false", dgh_aux_path_name(g_aux.regPath), g_auxTconSeen?"true":"false");
+                    g_auxPsrWeOff?"true":"false", "false", g_aux.rom==DGH_AUX_ROM_FLASH?"flash":"eeprom", g_auxTconSeen?"true":"false");
             else
                 snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"open\",\"ok\":false,\"aux\":true,"
                     "\"auxDll\":%s,\"err\":\"%s\"}", id, g_auxOk?"true":"false", g_auxOpenErr);
@@ -3151,6 +3126,22 @@ static void handle_command_one(int idx, const char* json){
         snprintf(rep,sizeof(rep),
             "{\"type\":\"result\",\"id\":%ld,\"cmd\":\"%s\",\"ok\":false,\"busy\":true,"
             "\"err\":\"this page does not hold the I2C channel\"}", id, type);
+        ws_send_text(c,rep); return;
+    }
+    /* 1.22.0: {"type":"auxtx","from":N} -> up to 150 AUX transaction lines from #N (no hardware access) */
+    if(strcmp(type,"auxtx")==0){
+        unsigned long from=(unsigned long)dgh_json_int(json,"from",0), k, lo = g_auxTxSeq>AUX_TX_N ? g_auxTxSeq-AUX_TX_N : 0;
+        int o, cnt=0;
+        if(from<lo) from=lo;
+        o=snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"auxtx\",\"ok\":true,\"total\":%lu,\"from\":%lu,\"lines\":[", id, g_auxTxSeq, from);
+        for(k=from;k<g_auxTxSeq && cnt<150 && o<(int)sizeof(rep)-300;k++,cnt++){
+            const char* q=g_auxTx[k % AUX_TX_N];
+            if(cnt) rep[o++]=',';
+            rep[o++]='"';
+            for(;*q && o<(int)sizeof(rep)-200;q++){ rep[o++] = (*q=='"'||*q=='\\'||(unsigned char)*q<0x20) ? '\'' : *q; }
+            rep[o++]='"'; rep[o]=0;
+        }
+        snprintf(rep+o,sizeof(rep)-o,"],\"next\":%lu}", k);
         ws_send_text(c,rep); return;
     }
     /* ═══ 1.18.0：DP AUX 專用命令（proto 7）═══════════════════════════════════

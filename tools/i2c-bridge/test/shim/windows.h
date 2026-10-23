@@ -162,6 +162,7 @@ BOOL EnumDisplayDevicesA(const char* dev, DWORD i, DISPLAY_DEVICEA* dd, DWORD fl
 extern int  dgh_shim_is_admin;              /* IsUserAnAdmin 的回答 */
 extern char dgh_shim_adapter[128];          /* EnumDisplayDevicesA 第 0 個介面卡名稱（空＝沒有） */
 extern int  dgh_fake_aux_ok_mask;
+extern int  dgh_fake_aux_7d_needs_mbus, dgh_fake_aux_ioa_reads, dgh_fake_aux_ioa_writes, dgh_fake_aux_7e_cd;
 extern int  dgh_fake_aux_tcon_monitor;
 extern int  dgh_fake_aux_ok_monitor;        /* Initial 只有這個 monitor 回 0 */
 extern int  dgh_fake_aux_init_calls, dgh_fake_aux_release_calls, dgh_fake_aux_last_card, dgh_fake_aux_last_proj;

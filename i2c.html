@@ -30,7 +30,7 @@
           出來」。那個前提**早就不成立**：bridge 的靜態檔服務拒絕子資料夾、而且自 v1.7.0
           起預設關閉 —— 詳細依據與行號寫在 body 末端那兩個 <script> 的上面。）
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="common/version.js?v=20261023aux1381"></script>
+<script src="common/version.js?v=20261023aux1382"></script>
 <script src="common/i2c-bridge.js?v=20261023ib103"></script>
 <style>
   * { box-sizing: border-box; }
@@ -1670,7 +1670,7 @@
         頁首那四條宣告是逐字抄過來的，來源行號寫在各自上面。 -->
 <script src="common/i18n.js?v=20261023sim1360"></script>
 <script src="common/i2c-mbus.js?v=20261023mb122"></script>
-<script src="common/i2c-aux.js?v=20261023ax130"></script>
+<script src="common/i2c-aux.js?v=20261023ax131"></script>
 <script src="common/tcon-detect.js?v=20261022td120"></script>
 <script src="common/common.js?v=20261008i2c1341"></script>
 <script src="common/i2c-spiflash.js?v=20261022en01"></script>
@@ -3316,7 +3316,9 @@ function i2ctMbus(){
   if (!i2ctMbusSess) i2ctMbusSess = TconMbus.session(i2ctSendRaw, { log: function (r) { i2ctLog(TconMbus.autoText(r), r.ok ? 'o' : 'n'); } });
   return i2ctMbusSess;
 }
-function i2ctSend(obj){ return i2ctMbus().send(obj); }
+/* v1.38.0（只在 DP AUX）：原廠 EN01 UI 的 AUX 沒有「連線後第一次讀寫前先送 7E:AB←CD」——它只在讀 7C／7D 的每個 byte 時做 MbusConnect
+   （AuxApi.cs:442–446），由 bridge 1.22.0 照做。⇒ AUX 不經共用 M-Bus session，直接送；I2C 治具照舊經 session。 */
+function i2ctSend(obj){ if (i2ctXport === 'aux') return i2ctSendRaw(obj); return i2ctMbus().send(obj); }
 function i2ctSendRaw(obj){
   /* v1.35.0：DP AUX ⇒ 只到得了 T-CON；EEPROM 與其他 slave 在送出前擋下（bridge 端也會擋，這裡是第一道）。 */
   if (i2ctXport === 'aux') {
@@ -3345,6 +3347,7 @@ function i2ctSendRaw(obj){
 /* v1.34.6：batchwrite 也先經過共用 M-Bus 導通；id 仍在呼叫當下同步回填（中止鈕要用） */
 function i2ctSendLong(obj, onProgress, idleMs){
   obj.id = ++i2ctSeq;
+  if (i2ctXport === 'aux') return i2ctSendLongRaw(obj, onProgress, idleMs);   /* v1.38.0：同 i2ctSend，AUX 不經 session */
   return i2ctMbus().ensure(obj).then(function () { return i2ctSendLongRaw(obj, onProgress, idleMs); });
 }
 function i2ctSendLongRaw(obj, onProgress, idleMs){
@@ -6058,33 +6061,23 @@ async function i2ctCheckTconRun(){
   i2ctCkResult = null; i2ctCkRender();
   i2ctBanner('topbanner', null, null);
   i2ctCkLog(i2ctT('i2c.logCkStart'));
-  /* v1.38.0（只在 DP AUX）：照原廠 AUX 工具讀 T-CON（RAD_AUX_DLL AuxApi.cs:420 Tcon_Read_Register：讀 0x3E 不做 Initialize／
-     TconEnable／MbusConnect，直接 DPCD 0x430/0x431 寫 offset、0x435 讀；bridge 1.21.0 預設就是這條）。
-     🔴 AUX 這段一律不寫：不下 7E:AB←CD、不做 E503 的 WP 前置；訊息直接送 bridge（i2ctSendRaw），不經共用 M-Bus session。
-     先讀 3E:207E 當閘：讀不到（DPCD 位址暫存器寫不進去，AMD 非系統管理員常見）⇒ 畫面寫「AUX 讀不到 T-CON」，不辨認、不錯判。
-     I2C 治具不走這段。 */
+  /* v1.38.0（只在 DP AUX）：序列與判斷和 I2C 一模一樣（下面 I2C 那段：先 7E:AB←CD，再 TconDetect.detect），
+     只有每一筆的讀法換成原廠 EN01 UI 的 AUX 讀法，由 bridge 1.22.0 執行（Bruce 2026-10-23「I2C 不就已經知道要怎麼去辨別晶片了嗎？…
+     如果它有讀 7C 跟 7D 的話，你也看一下原廠 UI 的 aux 要如何去讀 7C 跟 7D」）：
+       3E          DPCD 430／431 → 435，不初始化（AuxApi.cs:434、TconBase.cs:373–391）
+       7C／7D      每個 byte：初始化 → MbusConnect（7E:AB←CD、7C:0F←80）→ 讀 → End（AuxApi.cs:436–458）
+       7E:AB←CD    原廠寫暫存器：初始化 → CheckAndWriteRegisterRomWP → IOA 寫 → End（AuxApi.cs:464–497）
+     MNT 的 ICID 掃描（60／61／68／69:FF00）不做：MNT T-CON 不是 eDP，沒有 AUX（Bruce 2026-10-23「MNT 的 T-CON 沒有，它不是 eDP 的介面，就不用比對了」）。
+     E503 的 WP 前置（3E:0059←1E）是 I2C 治具的動作，原廠 AUX 沒有 ⇒ AUX 不做。 */
   if (i2ctXport === 'aux') {
-    var auxRead = async function (slave, awid, addr, len) {
-      try { var rr = await i2ctSendRaw({ type: 'read', slave: slave, addr: addr, awid: awid, len: len });   /* aux-raw-ok：DP AUX 只讀，不經 M-Bus session（不送 7E:AB←CD） */ return (rr && rr.ok !== false && rr.data && rr.data.length) ? rr.data : null; }
-      catch (e) { return null; }
-    };
-    var auxIo = { read: auxRead, write: async function () { return { ok: false, err: 'DP AUX: Check T-CON does not write' }; } };
-    var gate = await auxRead(0x3E, 2, 0x207E, 1);
-    if (!gate) {
-      var why = (i2ctLastAuxErr || '').slice(0, 160);
-      i2ctLog(TconAux.text('noTconLog', { v: why || '?' }), 'w');
-      i2ctCkResult = { name: TconAux.text('noTcon', { v: '3E' }), ext: '', alts: TconDetect.ALL_NAMES.slice(), isE503: false, unknown: true, auxNoTcon: true, src: 'aux-gate', raw: {}, rawText: '3E:207E = —' };
-      i2ctCkRender();
-      i2ctBanner('topbanner', 'warn', TconAux.text('noTcon', { v: '3E' }));
-      i2ctBusy = false; i2ctSyncButtons();
-      if (typeof i2ctSfOnCk === 'function') i2ctSfOnCk();
-      return i2ctCkResult;
-    }
+    i2ctCkLog(i2ctT('tcon.mbusLog'));
+    var mbusA = await TconMbus.open(i2ctDoWrite);
+    i2ctLog(mbusA.ok ? i2ctT('tcon.mbusOk') : i2ctT('tcon.mbusFail', { err: mbusA.err }), mbusA.ok ? 'o' : 'e');
     var detA = null;
-    try { detA = await TconDetect.detect(auxIo, { mbus: false, icid: false, log: i2ctCkLog }); } catch (e) { detA = null; }
+    try { detA = await TconDetect.detect(i2ctCkIo, { mbus: false, icid: false, log: i2ctCkLog }); } catch (e) { detA = null; }
     var ra = detA || { name: null, unknown: true, alts: TconDetect.ALL_NAMES.slice() };
     if (ra.unknown && !ra.name) ra.name = i2ctT('i2c.ckUnknown');
-    ra.isE503 = false;   /* AUX 不做 E503 的 M-Bus／WP 前置（寫入） */
+    ra.isE503 = false;   /* AUX 不做 E503 的 WP 前置（原廠 AUX 沒有這一步） */
     i2ctCkResult = ra; i2ctCkRender();
     i2ctLog(i2ctT('i2c.logCkDone', { name: ra.name }), 'o');
     i2ctBusy = false; i2ctSyncButtons();

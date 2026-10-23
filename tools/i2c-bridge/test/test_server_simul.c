@@ -163,7 +163,7 @@ int main(void){
         if(!f){ printf("   FATAL  無法寫入 %s\n",p); return 2; } fputs(body,f); fclose(f); }while(0)
     MKFILE("libMPSSE.dll","fake"); MKFILE("DLL_AUX_VC.dll","fake");
     dgh_shim_set_exe_dir(dir);
-    dgh_fake_aux_reset();
+    dgh_fake_aux_reset(); dgh_fake_aux_r3e[0]=0x65; dgh_fake_aux_r3e[1]=0x07;   /* 1.22.0：原廠 Detect 要 3E:0000 checksum 不是 0000/FFFF */
     pthread_t th; pthread_create(&th,NULL,server_thread,NULL);
     msleep(400);
     char b[16384], hello[1024];

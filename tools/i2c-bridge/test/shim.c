@@ -339,6 +339,7 @@ void dgh_fake_aux_reset(void){
     dgh_fake_aux_ee_hits=0; dgh_fake_aux_dpcd_writes=0; dgh_fake_aux_i2c_writes=0; dgh_fake_aux_fail_writes=0;
     dgh_fake_aux_psr_sup=1; dgh_fake_aux_psr_on=1; dgh_fake_aux_psr_sets=0;
     dgh_fake_aux_init_calls=0; dgh_fake_aux_release_calls=0;
+    dgh_fake_aux_7d_needs_mbus=0; dgh_fake_aux_ioa_reads=0; dgh_fake_aux_ioa_writes=0; dgh_fake_aux_7e_cd=0;
     fa_ptr7d=0; fa_ptr7e=0;
 }
 BOOL EnumDisplayDevicesA(const char* dev, DWORD i, DISPLAY_DEVICEA* dd, DWORD flags){
@@ -382,22 +383,40 @@ static int fa_DpcdWrite(int n, int a, unsigned char* d){
         else dgh_fake_aux_dpcd[x]=d[i];
     }
     return 1; }
+static int fa_mbus_ok(void);
 static int fa_I2cWrite(int n, int slave, unsigned char* d, int mot){
     (void)mot;
     fx_enter('A'); fx_leave();
     if(dgh_fake_aux_fail_writes) return 0;
-    if(slave>=0x50 && slave<=0x57){ dgh_fake_aux_ee_hits++; return 1; }
+    if((slave>=0x50 && slave<=0x57) || slave==0x10){ dgh_fake_aux_ee_hits++; return 1; }   /* 0x10＝Intel 改址後的 EEPROM（Tcon81008.cs:300） */
     dgh_fake_aux_i2c_writes++;
     if(slave==0x7D){ int i; if(n<2) return 0; fa_ptr7d=((unsigned)d[0]<<8)|d[1];
         for(i=2;i<n;i++) dgh_fake_aux_r7d[(fa_ptr7d+(unsigned)(i-2))&0xFFFF]=d[i]; return 1; }
-    if(slave==0x7E){ int i; if(n<1) return 0; fa_ptr7e=d[0];
+    if(slave==0x7E){ int i; if(n<1) return 0; fa_ptr7e=d[0]; if(n>=2 && d[0]==0xAB && d[1]==0xCD) dgh_fake_aux_7e_cd++;
         for(i=1;i<n;i++) dgh_fake_aux_r7e[(fa_ptr7e+(unsigned)(i-1))&0xFF]=d[i]; return 1; }
     return 0; /* NACK */ }
 static int fa_I2cRead(int n, int slave, unsigned char* d, int mot){
     int i; (void)mot;
-    if(slave>=0x50 && slave<=0x57){ dgh_fake_aux_ee_hits++; for(i=0;i<n;i++) d[i]=0xEE; return 1; }
-    if(slave==0x7D){ for(i=0;i<n;i++) d[i]=dgh_fake_aux_r7d[(fa_ptr7d+(unsigned)i)&0xFFFF]; return 1; }
+    if((slave>=0x50 && slave<=0x57) || slave==0x10){ dgh_fake_aux_ee_hits++; for(i=0;i<n;i++) d[i]=0xEE; return 1; }
+    if(slave==0x7D){ if(!fa_mbus_ok()) return 0; for(i=0;i<n;i++) d[i]=dgh_fake_aux_r7d[(fa_ptr7d+(unsigned)i)&0xFFFF]; return 1; }
     if(slave==0x7E){ for(i=0;i<n;i++) d[i]=dgh_fake_aux_r7e[(fa_ptr7e+(unsigned)i)&0xFF]; return 1; }
+    return 0; }
+/* 1.22.0：IOA_Read／IOA_Write（AMD）＋「7D 要先 M-Bus 導通」的模型 */
+int dgh_fake_aux_7d_needs_mbus = 0, dgh_fake_aux_ioa_reads = 0, dgh_fake_aux_ioa_writes = 0, dgh_fake_aux_7e_cd = 0;
+static int fa_mbus_ok(void){ return !dgh_fake_aux_7d_needs_mbus || (dgh_fake_aux_r7e[0xAB]==0xCD && (dgh_fake_aux_r7c[0x0F]&0x80)); }
+static unsigned char fa_IoaRead(DGH_AUX_IOA* st, unsigned char* d){
+    int i, n = st->u8BytePerRead ? st->u8BytePerRead : 1; unsigned off = st->u16StartAddr;
+    fx_enter('A'); fx_leave(); dgh_fake_aux_ioa_reads++;
+    if(st->u8SlaveAddr>=0x50 && st->u8SlaveAddr<=0x57){ dgh_fake_aux_ee_hits++; for(i=0;i<n;i++) d[i]=0xEE; return 1; }
+    if(st->u8SlaveAddr==0x7D){ if(!fa_mbus_ok()) return 0; for(i=0;i<n;i++) d[i]=dgh_fake_aux_r7d[(off+(unsigned)i)&0xFFFF]; return 1; }
+    if(st->u8SlaveAddr==0x7E){ for(i=0;i<n;i++) d[i]=dgh_fake_aux_r7e[(off+(unsigned)i)&0xFF]; return 1; }
+    return 0; }
+static unsigned char fa_IoaWrite(DGH_AUX_IOA* st, unsigned char* d){
+    fx_enter('A'); fx_leave(); dgh_fake_aux_ioa_writes++;
+    if(dgh_fake_aux_fail_writes) return 0;
+    if(st->u8SlaveAddr>=0x50 && st->u8SlaveAddr<=0x57){ dgh_fake_aux_ee_hits++; return 1; }
+    if(st->u8SlaveAddr==0x7E){ dgh_fake_aux_r7e[st->u16StartAddr & 0xFF] = d[0]; if((st->u16StartAddr&0xFF)==0xAB && d[0]==0xCD) dgh_fake_aux_7e_cd++; return 1; }
+    if(st->u8SlaveAddr==0x7D){ dgh_fake_aux_r7d[st->u16StartAddr] = d[0]; return 1; }
     return 0; }
 static void fa_FreeString(void* p){ (void)p; }
 static void* shim_aux_proc(const char* name){
@@ -412,5 +431,7 @@ static void* shim_aux_proc(const char* name){
     if(!strcmp(name,"I2C_Read")) return (void*)fa_I2cRead;
     if(!strcmp(name,"I2C_Write")) return (void*)fa_I2cWrite;
     if(!strcmp(name,"FreeString")) return (void*)fa_FreeString;
+    if(!strcmp(name,"IOA_Read")) return (void*)fa_IoaRead;
+    if(!strcmp(name,"IOA_Write")) return (void*)fa_IoaWrite;
     return NULL;
 }

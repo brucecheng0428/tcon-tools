@@ -171,72 +171,111 @@ int main(void){
     CHECKS(b,"\"ok\":true","治具讀取照常");
     EQ_I(dgh_fake_live,1,"治具 channel 開著（1）");
 
-    G("2. 放好 DLL ⇒ AUX 開啟（卡、monitor、系統管理員、PSR、T-CON 初始化）");
+    G("2. 放好 DLL ⇒ AUX 開啟照原廠 EN01 UI：Detect 掃描（① 初始化＋3E:0000 checksum＋④ End）→ Initial＋① → Tcon_End ④");
     MKFILE("DLL_AUX_VC.dll","fake");
+    dgh_fake_aux_r3e[0x0000]=0x65; dgh_fake_aux_r3e[0x0001]=0x07;   /* E503A3 實測的 3E:0000 開頭 */
+    { int ps0=dgh_fake_aux_psr_sets;
     jcmd(s,"{\"type\":\"open\",\"id\":4,\"mode\":4}",b,sizeof(b));
     CHECKS(b,"\"ok\":true","AUX open 成功");
     CHECKS(b,"\"card\":\"INTEL\"","依介面卡名稱判成 INTEL");
-    CHECKS(b,"\"monitor\":2","monitor 0..19 逐一試，第一個 OK 的是 2");
+    CHECKS(b,"\"monitor\":2","候選＝通過 checksum 的最後一台（假驅動只有 monitor 2）");
     CHECKS(b,"\"admin\":true","回報系統管理員");
-    CHECKS(b,"\"psrTurnedOff\":true","PSR 原本開著 ⇒ 關掉（Intel 規定 AUX 寫入前要關）");
-    CHECKS(b,"\"tconInit\":true","做了 T-CON 初始化");
-    EQ_I(dgh_fake_aux_psr_on,0,"假驅動的 PSR 真的被關了");
+    CHECKS(b,"\"psrTurnedOff\":false","1.22.0：不動 PSR（EN01 UI 沒有呼叫 GraphicsPsrEnable）");
+    CHECKS(b,"\"rom\":\"eeprom\"","ROM 類型預設 EEPROM（ICDefine.cs:49）");
+    CHECKS(b,"\"vendorSeq\":true","回報照原廠序列");
+    EQ_I(dgh_fake_aux_psr_sets,ps0,"Set_PSR_State 一次都沒呼叫"); }
     EQ_I(dgh_fake_aux_last_proj,1,"projectIc 預設 1（EN01＝RAD81008 的 ProjectId）");
     EQ_I(dgh_fake_live,0,"切到 AUX 時治具已讓出");
-    EQ_I(dgh_fake_aux_dpcd[0x4D1],0xDA,"T-CON enable：DPCD 0x4D1=DA");
-    EQ_I(dgh_fake_aux_dpcd[0x480],0xFF,"flash 型初始化：0x480=FF");
-    EQ_I(dgh_fake_aux_dpcd[0x482],0x00,"沒有碰 EEPROM 寫保護（0x482 仍 0）");
-    EQ_I(dgh_fake_aux_r3e[0x0065],0x00,"沒有寫 3E:0065（EEPROM 型初始化的 GPIO WP）");
+    EQ_I(dgh_fake_aux_r3e[0x0065],0x1E,"① EEPROM 初始化寫了 3E:0065←1E（GPIO WP，Tcon81008.cs:333–355）");
+    EQ_I(dgh_fake_aux_dpcd[0x482],0xC0,"④ End 之後 EEPROM 寫保護上鎖 482=C0");
+    EQ_I(dgh_fake_aux_dpcd[0x4D1],0x00,"④ End：4D1=00");
+    EQ_I(dgh_fake_aux_dpcd[0x480],0x00,"④ End：480=00");
+    EQ_I(dgh_fake_aux_dpcd[0x439],0x04,"④ End：439=04");
+    EQ_I(dgh_fake_aux_7e_cd,0,"開啟時不送 7E:AB←CD");
+    {   char t[16384];
+        jcmd(s,"{\"type\":\"auxtx\",\"id\":40,\"from\":0}",t,sizeof(t));
+        CHECKS(t,"Detect scan","auxtx：有 Detect 掃描");
+        CHECKS(t,"DPCD W 4D2=AD ok\",\"DPCD W 4D1=DA ok\",\"DPCD W 430=00 ok\",\"DPCD W 431=C3 ok\",\"DPCD W 436=A2 ok\",\"DPCD W 480=FF ok\",\"DPCD W 431=00 ok\",\"DPCD W 439=08 ok\",\"DPCD W 431=03 ok\",\"DPCD W 439=C0 ok\",\"DPCD W 430=00 65 ok\",\"DPCD W 435=1E ok\",\"DPCD W 482=80 ok\"",
+               "auxtx：① 初始化 13 筆逐筆＝Tcon81008.cs:16–32");
+        CHECKS(t,"DPCD W 430=00 00 ok\",\"DPCD R 435 -> 65 ok\",\"DPCD W 430=00 01 ok\",\"DPCD R 435 -> 07 ok\"","auxtx：checksum 讀 3E:0000、0001");
+        CHECKS(t,"DPCD W 431=C3 ok\",\"DPCD W 436=A0 ok\",\"DPCD W 431=00 ok\",\"DPCD W 439=04 ok\",\"DPCD W 430=00 ok\",\"DPCD W 431=00 ok\",\"DPCD W 482=C0 ok\",\"DPCD W 4D1=00 ok\",\"DPCD W 480=00 ok\"",
+               "auxtx：④ End 9 筆逐筆＝Tcon81008.cs:86–105");
+        CHECKS(t,"Tcon_End (AuxChannelModuleBase.cs:107-110)","auxtx：連線最後做 Tcon_End");
+    }
 
-    G("2b. 1.21.0：多台螢幕 ⇒ 照原廠逐台試，選 T-CON 有回應的那台（不是第一台 Initial OK）");
+    G("2b. 多台螢幕：照原廠每台都初始化＋checksum，取最後一台通過的；別台第一筆寫失敗就跳過");
     {   int oldOk = dgh_fake_aux_ok_monitor;
         jcmd(s,"{\"type\":\"close\",\"id\":901}",b,sizeof(b));
         dgh_fake_aux_ok_mask = 0x3; dgh_fake_aux_tcon_monitor = 1;
-        jcmd(s,"{\"type\":\"open\",\"id\":902,\"mode\":4,\"tconinit\":0,\"psroff\":0}",b,sizeof(b));
+        jcmd(s,"{\"type\":\"open\",\"id\":902,\"mode\":4}",b,sizeof(b));
         CHECKS(b,"\"ok\":true","兩台螢幕都 Initial OK ⇒ 開啟成功");
-        CHECKS(b,"\"monitor\":1","選到 T-CON 那台（monitor 1），不是 monitor 0");
+        CHECKS(b,"\"monitor\":1","選到 T-CON 那台（monitor 1）");
         CHECKS(b,"\"tconSeen\":true","回覆 tconSeen:true");
         dgh_fake_aux_r3e[0x207E]=0x11;
         jcmd(s,"{\"type\":\"read\",\"id\":903,\"slave\":62,\"addr\":8318,\"awid\":2,\"len\":1}",b,sizeof(b));
         CHECKS(b,"\"data\":[17]","在選到的那台讀 3E:207E＝11");
         jcmd(s,"{\"type\":\"close\",\"id\":904}",b,sizeof(b));
         dgh_fake_aux_tcon_monitor = 5;   /* 沒有一台是 T-CON */
-        jcmd(s,"{\"type\":\"open\",\"id\":905,\"mode\":4,\"tconinit\":0,\"psroff\":0}",b,sizeof(b));
-        CHECKS(b,"\"monitor\":0","沒有 T-CON 回應 ⇒ 用第一台 Initial OK 的（舊行為）");
-        CHECKS(b,"\"tconSeen\":false","回覆 tconSeen:false");
-        jcmd(s,"{\"type\":\"close\",\"id\":906}",b,sizeof(b));
-        jcmd(s,"{\"type\":\"open\",\"id\":907,\"mode\":4,\"monitor\":0,\"tconinit\":0,\"psroff\":0}",b,sizeof(b));
-        CHECKS(b,"\"monitor\":0","網頁指定 monitor ⇒ 照用");
-        jcmd(s,"{\"type\":\"close\",\"id\":908}",b,sizeof(b));
+        jcmd(s,"{\"type\":\"open\",\"id\":905,\"mode\":4}",b,sizeof(b));
+        CHECKS(b,"\"ok\":false","沒有一台通過 checksum ⇒ 開啟失敗（原廠 Aux Open Fail）");
+        CHECKS(b,"register checksum","錯誤訊息講原因");
+        jcmd(s,"{\"type\":\"open\",\"id\":907,\"mode\":4,\"monitor\":0}",b,sizeof(b));
+        CHECKS(b,"\"ok\":false","網頁指定別台螢幕 ⇒ ① 初始化寫不進去 ⇒ 開啟失敗");
         dgh_fake_aux_ok_mask = 0; dgh_fake_aux_tcon_monitor = -1; dgh_fake_aux_ok_monitor = oldOk;
         jcmd(s,"{\"type\":\"open\",\"id\":909,\"mode\":4}",b,sizeof(b));
         CHECKS(b,"\"ok\":true","還原單台設定後重新開啟（後面的測試照舊）");
     }
-    G("3. 同一套 read／rawwrite：依 slave 路由");
-    jcmd(s,"{\"type\":\"rawwrite\",\"id\":5,\"slave\":126,\"addr\":171,\"awid\":1,\"data\":[205]}",b,sizeof(b));
-    CHECKS(b,"\"ok\":true","7E:AB←CD 經 I2C-over-AUX");
-    EQ_I(dgh_fake_aux_r7e[0xAB],0xCD,"7E:AB 真的是 CD");
-    EQ_I(dgh_fake_aux_r7c[0x0F],0x80,"M-Bus 後續：7C:0F bit7 已設（原廠 MbusConnect）");
-    jcmd(s,"{\"type\":\"rawwrite\",\"id\":6,\"slave\":62,\"addr\":89,\"awid\":2,\"data\":[30,34]}",b,sizeof(b));
-    CHECKS(b,"\"ok\":true","3E:0059 寫 2 byte");
-    EQ_I(dgh_fake_aux_r3e[0x59],0x1E,"3E:0059=1E"); EQ_I(dgh_fake_aux_r3e[0x5A],0x22,"3E:005A=22");
-    dgh_fake_aux_r3e[0x207E]=0x11;
-    jcmd(s,"{\"type\":\"read\",\"id\":7,\"slave\":62,\"addr\":8318,\"awid\":2,\"len\":1}",b,sizeof(b));
-    CHECKS(b,"\"data\":[17]","3E:207E 讀回 0x11（EN01 A2 辨認位）");
-    dgh_fake_aux_r7c[0x98]=0x22; dgh_fake_aux_r7c[0x95]=0x10;
-    jcmd(s,"{\"type\":\"read\",\"id\":8,\"slave\":124,\"addr\":149,\"awid\":1,\"len\":4}",b,sizeof(b));
-    CHECKS(b,"\"data\":[16,0,0,34]","7C:95..98 讀 4 byte");
-    { int i; for(i=0;i<20;i++) dgh_fake_aux_r7d[0x7D+i]=(unsigned char)(0x30+i); }
-    jcmd(s,"{\"type\":\"read\",\"id\":9,\"slave\":125,\"addr\":125,\"awid\":2,\"len\":20}",b,sizeof(b));
-    CHECKS(b,"\"ok\":true","7D:007D 讀 20 byte（I2C-over-AUX 分段）");
-    CHECKS(b,"48,49,50","資料順序正確"); CHECKS(b,"67]","最後一個 byte 正確");
+    G("3. 讀取照原廠 Tcon_Read_Register：3E 只走 DPCD 視窗；7C／7D 每個 byte ①＋MbusConnect＋讀＋④");
+    {   char t[16384]; unsigned long n0; const char* q;
+        jcmd(s,"{\"type\":\"auxtx\",\"id\":41,\"from\":0}",t,sizeof(t));
+        q=strstr(t,"\"total\":"); n0 = q ? strtoul(q+8,NULL,10) : 0;
+        dgh_fake_aux_r3e[0x207E]=0x11;
+        jcmd(s,"{\"type\":\"read\",\"id\":7,\"slave\":62,\"addr\":8318,\"awid\":2,\"len\":1}",b,sizeof(b));
+        CHECKS(b,"\"data\":[17]","3E:207E 讀回 0x11");
+        { char j[96]; snprintf(j,sizeof(j),"{\"type\":\"auxtx\",\"id\":42,\"from\":%lu}",n0); jcmd(s,j,t,sizeof(t)); }
+        CHECKS(t,"\"lines\":[\"== read 3E:207E (AuxApi.cs:420)\",\"DPCD W 430=20 7E ok\",\"DPCD R 435 -> 11 ok\"]","3E 讀：只有 430／435 兩筆，不初始化、不 End");
+        q=strstr(t,"\"total\":"); n0 = q ? strtoul(q+8,NULL,10) : 0;
+        dgh_fake_aux_r7c[0x95]=0x24; dgh_fake_aux_r7c[0x98]=0x00; dgh_fake_aux_r7c[0x0F]=0x00; dgh_fake_aux_r7e[0xAB]=0x00;
+        { int cd0=dgh_fake_aux_7e_cd;
+          jcmd(s,"{\"type\":\"read\",\"id\":8,\"slave\":124,\"addr\":149,\"awid\":1,\"len\":1}",b,sizeof(b));
+          CHECKS(b,"\"data\":[36]","7C:95 讀回 24");
+          EQ_I(dgh_fake_aux_7e_cd,cd0+1,"7C 讀一個 byte ⇒ 7E:AB←CD 送 1 次");
+          EQ_I(dgh_fake_aux_r7c[0x0F],0x80,"MbusConnect 寫了 7C:0F←80"); }
+        { char j[96]; snprintf(j,sizeof(j),"{\"type\":\"auxtx\",\"id\":43,\"from\":%lu}",n0); jcmd(s,j,t,sizeof(t)); }
+        CHECKS(t,"\"== read 7C:95 (AuxApi.cs:420)\",\"-- init (eeprom, Tcon81008.cs:16-32)\",\"DPCD W 4D2=AD ok\"","7C 讀：先 ① 初始化");
+        CHECKS(t,"\"DPCD W 482=80 ok\",\"-- MbusConnect (Tcon81008.cs:687-714)\",\"IOA W 7E:AB=CD ok\",\"DPCD W 431=0F ok\",\"DPCD W 434=80 ok\",\"DPCD W 431=95 ok\",\"DPCD R 434 -> 24 ok\",\"-- end (eeprom, Tcon81008.cs:86-105)\"","7C 讀：① → ③ → 431／434 → ④");
+        CHECKS(t,"\"DPCD W 480=00 ok\"]","7C 讀：最後一筆是 ④ 的 480=00");
+        { int cd0=dgh_fake_aux_7e_cd;
+          jcmd(s,"{\"type\":\"read\",\"id\":81,\"slave\":124,\"addr\":149,\"awid\":1,\"len\":4}",b,sizeof(b));
+          CHECKS(b,"\"ok\":true","7C:95..98 讀 4 byte");
+          EQ_I(dgh_fake_aux_7e_cd,cd0+4,"4 個 byte ⇒ 7E:AB←CD 送 4 次（原廠每個 byte 都送）"); }
+        dgh_fake_aux_7d_needs_mbus=1; dgh_fake_aux_r7d[0x7D]=0x04;
+        { int cd0=dgh_fake_aux_7e_cd;
+          jcmd(s,"{\"type\":\"read\",\"id\":9,\"slave\":125,\"addr\":125,\"awid\":2,\"len\":1}",b,sizeof(b));
+          CHECKS(b,"\"data\":[4]","7D:007D＝04（E503A3）——要 M-Bus 導通的假板子也讀得到");
+          EQ_I(dgh_fake_aux_7e_cd,cd0+1,"7D 讀一個 byte ⇒ 7E:AB←CD 送 1 次"); }
+        dgh_fake_aux_7d_needs_mbus=0;
+    }
+    G("3b. 寫入照原廠 Tcon_Write_Register：3E 直接寫；7E 是 ①＋CheckAndWriteRegisterRomWP＋寫＋④，不補 7C:0F");
+    {   int cd0=dgh_fake_aux_7e_cd;
+        dgh_fake_aux_r7c[0x0F]=0x00;
+        jcmd(s,"{\"type\":\"rawwrite\",\"id\":5,\"slave\":126,\"addr\":171,\"awid\":1,\"data\":[205]}",b,sizeof(b));
+        CHECKS(b,"\"ok\":true","7E:AB←CD 寫入");
+        EQ_I(dgh_fake_aux_r7e[0xAB],0xCD,"7E:AB 真的是 CD");
+        EQ_I(dgh_fake_aux_7e_cd,cd0+1,"只送 1 次");
+        EQ_I(dgh_fake_aux_r7c[0x0F],0x00,"不再自己補 7C:0F（原廠寫入不做 MbusConnect）");
+        jcmd(s,"{\"type\":\"rawwrite\",\"id\":6,\"slave\":62,\"addr\":89,\"awid\":2,\"data\":[30,34]}",b,sizeof(b));
+        CHECKS(b,"\"ok\":true","3E:0059 寫 2 byte");
+        EQ_I(dgh_fake_aux_r3e[0x59],0x1E,"3E:0059=1E"); EQ_I(dgh_fake_aux_r3e[0x5A],0x22,"3E:005A=22");
+    }
 
     G("4. 🔴 不能直接寫 EEPROM（Bruce 2026-10-23）");
     jcmd(s,"{\"type\":\"rawwrite\",\"id\":10,\"slave\":80,\"addr\":0,\"awid\":2,\"data\":[1,2,3]}",b,sizeof(b));
     CHECKS(b,"\"ok\":false","rawwrite 0x50 被擋"); CHECKS(b,"EEPROM","錯誤訊息講明是 EEPROM");
+    dgh_fake_aux_ee_hits=0;
     jcmd(s,"{\"type\":\"read\",\"id\":11,\"slave\":80,\"addr\":0,\"awid\":2,\"len\":8}",b,sizeof(b));
-    CHECKS(b,"\"ok\":true","1.20.0：read 0x50 經 I2C over AUX 放行（只讀）"); CHECKS(b,"238,238","讀回假 EEPROM 的資料");
-    EQ_I(dgh_fake_aux_ee_hits,2,"讀 0x50 ＝ 一次 offset＋一次讀"); dgh_fake_aux_ee_hits=0;
+    CHECKS(b,"\"ok\":true","read 0x50 照原廠 Tcon_Read_Rom（只讀）"); CHECKS(b,"238,238","讀回假 EEPROM 的資料");
+    EQ_I(dgh_fake_aux_ee_hits,2,"8 byte ＝ 一個 8 byte 區塊（Intel：offset＋讀）"); dgh_fake_aux_ee_hits=0;
     jcmd(s,"{\"type\":\"batchwrite\",\"id\":12,\"slave\":80,\"addr\":0,\"awid\":2,\"page\":16,\"twr\":5,\"len\":32,\"data\":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16]}",b,sizeof(b));
     while(strstr(b,"\"type\":\"progress\"")) { if(!ws_recv(s,b,sizeof(b))) break; }
     CHECKS(b,"\"ok\":false","batchwrite 0x50 被擋"); CHECKS(b,"\"done\":0","一個 byte 都沒寫");
@@ -249,17 +288,17 @@ int main(void){
     EQ_I(dgh_fake_aux_ee_hits,0,"寫入：假 EEPROM 一次都沒被碰到");
     jcmd(s,"{\"type\":\"dpcdwrite\",\"id\":16,\"addr\":1154,\"data\":[128]}",b,sizeof(b));
     CHECKS(b,"\"blocked\":true","dpcdwrite 0x482（EEPROM 寫保護）擋");
-    EQ_I(dgh_fake_aux_dpcd[0x482],0,"0x482 沒被改");
+    EQ_I(dgh_fake_aux_dpcd[0x482],0xC0,"0x482 沒被網頁改（仍是 End 後的 C0）");
     jcmd(s,"{\"type\":\"dpcdwrite\",\"id\":17,\"addr\":1150,\"data\":[1,2,3]}",b,sizeof(b));
     CHECKS(b,"\"blocked\":true","跨進 0x480 的也擋");
 
     G("5. dpcdread／dpcdwrite／psr");
-    jcmd(s,"{\"type\":\"dpcdread\",\"id\":18,\"addr\":1233,\"len\":1}",b,sizeof(b));
-    CHECKS(b,"\"data\":[218]","dpcdread 0x4D1 = DA");
+    jcmd(s,"{\"type\":\"dpcdread\",\"id\":18,\"addr\":1213,\"len\":1}",b,sizeof(b));
+    CHECKS(b,"\"ok\":true","dpcdread 0x4BD");
     jcmd(s,"{\"type\":\"dpcdwrite\",\"id\":19,\"addr\":256,\"data\":[10]}",b,sizeof(b));
     CHECKS(b,"\"ok\":true","dpcdwrite 0x100 放行"); EQ_I(dgh_fake_aux_dpcd[0x100],10,"真的寫進去");
     jcmd(s,"{\"type\":\"psr\",\"id\":20}",b,sizeof(b));
-    CHECKS(b,"\"supported\":true","psr 讀：supported"); CHECKS(b,"\"on\":false","psr 讀：目前關");
+    CHECKS(b,"\"supported\":true","psr 讀：supported");
     { char h2[1024]; int s2=ws_open(h2,sizeof(h2));
       jcmd(s2,"{\"type\":\"dpcdread\",\"id\":21,\"addr\":0,\"len\":1}",b,sizeof(b));
       CHECKS(b,"\"busy\":true","非持有者不能用 dpcdread");
@@ -269,13 +308,12 @@ int main(void){
     jcmd(s,"{\"type\":\"chandiag\",\"id\":23}",b,sizeof(b));
     CHECKS(b,"not available in DP AUX mode","chandiag 在 AUX 模式明確拒絕");
 
-    G("6. 關閉：T-CON 收尾、PSR 還原、Release");
-    { int rel=dgh_fake_aux_release_calls;
+    G("6. 關閉：照原廠 AuxApi.Release，只 Release，不另外做 End／還原");
+    { int rel=dgh_fake_aux_release_calls, dw=dgh_fake_aux_dpcd_writes;
       jcmd(s,"{\"type\":\"close\",\"id\":24}",b,sizeof(b));
       CHECKS(b,"\"ok\":true","close");
       EQ_I(dgh_fake_aux_release_calls,rel+1,"Release() 被呼叫");
-      EQ_I(dgh_fake_aux_psr_on,1,"PSR 還原成開");
-      EQ_I(dgh_fake_aux_dpcd[0x439],0x04,"flash 型收尾：McuCtrlClk(false) 0x439=04"); }
+      EQ_I(dgh_fake_aux_dpcd_writes,dw,"關閉時一筆 DPCD 寫入都沒有"); }
 
     G("7. 非系統管理員＋寫入失敗 ⇒ 錯誤訊息教他怎麼做");
     dgh_shim_is_admin=0;
