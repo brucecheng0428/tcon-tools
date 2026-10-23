@@ -313,7 +313,15 @@
  *   - DPCD 寫入失敗的提示不再只限 Intel：非系統管理員一律提示。open 回覆多 `regPath`、`eeRead:true`。
  *   - **proto 9**（I2C_BRIDGE_PROTO_AUX_IOA）：網頁據此決定 AUX 模式能不能讀 EEPROM。
  */
-#define I2C_BRIDGE_VERSION "1.20.0"
+/* ═══ 1.20.1（2026-10-23）══════════════════════════════════════════════════
+ *   Bruce 2026-10-23 15:42（換上 1.20.0 後）：「測試還是有問題」。
+ *   - 實機（AMD）：1.20.0 走 I2C over AUX 讀 3E／7C／7D／0x50 都「成功」，但內容是記憶體殘值
+ *     （0x50 讀到 "7.26.20.1616"、3E:000C 讀到 ".COM"）。反組譯 DLL_AUX_VC.dll：AMD 的 I2C_Read
+ *     是空函式（mov al,1; ret），不讀任何東西；原廠 AUX 工具在 AMD 走 IOA_Read。
+ *   - AMD 改走 IOA_Read（ST_IOA：+0 slave 7-bit、+1 offset bytes、+2 u16 位址、+0x0F 每次讀幾 byte，
+ *     由反組譯確認 IOA_Read 只讀這四個欄位）。Intel／NVIDIA 不變。wire format 不變 ⇒ proto 維持 9。
+ */
+#define I2C_BRIDGE_VERSION "1.20.1"
 #define I2C_BRIDGE_PROTO   9
 /* 🔴 AUX 模式 3E／7C 走 I2C over AUX、EEPROM 可讀（寫仍擋）需要的 proto 下限。 */
 #define I2C_BRIDGE_PROTO_AUX_IOA 9

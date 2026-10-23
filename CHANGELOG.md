@@ -2,6 +2,28 @@
 
 ---
 
+## I2C 讀寫測試 (i2c) v1.37.1 — 2026-10-23 ｜ PATCH ｜ I2C and AUX Bridge 1.20.1：AMD 顯示卡改走 IOA_Read（1.20.0 在 AMD 讀到的是記憶體殘值）
+
+判定依據：`docs/VERSIONING.md` R2「修正既有功能、沒有新功能 → PATCH」：網頁只換下載包版本；bridge 修 AMD 讀取。
+
+### 需求（Bruce 2026-10-23 15:42，換上 1.20.0 後）
+
+「測試還是有問題」
+
+### 實機看到的（Windows 測試機，AMD 顯示卡，bridge 1.20.0，只讀，沒下 7E:AB←CD）
+
+- 7C:95、7C:98、3E:207E、7D:007D 全部「讀取成功」但都是 00；3E:0000 讀 16 byte 得 `00 … 00 2E 43 4F 4D`（".COM"）；EEPROM 0x50 讀 16 byte 得 `37 2E 32 36 2E 32 30 2E 31 36 31 36 00 …`（"7.26.20.1616"）。同一顆 EEPROM 用 I2C 治具讀是 EDID `00 FF FF FF FF FF FF 00 51 A1 …`。⇒ 讀到的不是匯流排上的資料。
+- 反組譯 `DLL_AUX_VC.dll`（x86，下載包內那一支）：`I2C_Read` 依顯示卡分派，**AMD 那一支是空函式（`mov al,1; ret`）**——只回「成功」、不讀任何東西，緩衝區留著原本的記憶體內容。`IOA_Read` 的 AMD 那一支才是真的讀（把 7-bit slave 左移成 8-bit、送 offset、用顯示卡驅動的 DDC 存取讀回，失敗重試 10 次）。原廠 AUX 工具在 AMD 也是走 `IOA_Read`（`RaydiumAuxWrapper.cs` AuxIoaRead）。
+
+### 改了什麼
+
+- **bridge 1.20.1**（`tools/i2c-bridge/i2c_bridge_aux.h`）：AMD 的 I2C over AUX 讀取（3E、7C、7D、7E、EEPROM 0x50–0x57）改走 `IOA_Read`。`ST_IOA` 只填反組譯確認 `IOA_Read` 會讀的四格：+0 slave（7-bit）、+1 offset byte 數、+2 位址、+0x0F 這次讀幾 byte；每次 ≤16 byte。offset 只能 1／2 byte（3／4 byte 回錯誤說明）。Intel／NVIDIA 照舊。wire format 不變 ⇒ proto 維持 9。
+- 下載包 `data/i2c-aux-bridge-v1.20.1.zip`（四支 DLL 原樣、SHA 相同）；`common/version.js` HELPER_PKG 1.20.1、i2c v1.37.1，引用頁 cache buster 一起換。
+
+### 測試（模擬）
+
+- test_aux 59/0（新增：ST_IOA 欄位位移、AMD 走 IOA_Read 不碰 I2C_Read、0x50 讀 40 byte 分三次、offset 3 byte 擋、DLL 沒有 IOA_Read 時講明、Intel 不走 IOA_Read）、test_server 270/0、test_server_aux 66/0、test_server_simul 88/0、test_proto 250/0、test_wait 32/0。網頁測試見 commit。
+
 ## NB TCON Debug應用 (nbdebug) v1.3.1 — 2026-10-23 ｜ PATCH ｜「儲存」改名「ROM 類型」（ROM Type），同瑞鼎 UI（common/i2c-mbus.js 1.2.1）
 
 判定依據：`docs/VERSIONING.md` 判定表「文案 → PATCH」：只改使用者看得到的名稱，設定值（localStorage `tcon.romType`）、預設值（EEPROM）、擋下規則與送出的位元組都不變 ⇒ PATCH，不帶 ⚠ 輸出變更。

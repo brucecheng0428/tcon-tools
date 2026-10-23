@@ -79,6 +79,29 @@ typedef int           (__cdecl *PFN_AUX_Dpcd)(int bytes, int addr, unsigned char
 typedef int           (__cdecl *PFN_AUX_I2c)(int bytes, int addr, unsigned char* data, int mot);
 typedef void          (__cdecl *PFN_AUX_FreeString)(void* p);
 
+/* 1.20.1: ST_IOA (RAD_AUX_DLL Models.cs, LayoutKind.Sequential, x86) as DLL_AUX_VC.dll IOA_Read reads it.
+   Disassembly of IOA_Read (RVA 0x36070, x86 package of 1.19.0/1.20.0): it reads only +0 slave (7-bit),
+   +1 offset bytes, +2 u16 start address, +0x0F bytes per read, and passes the caller's data pointer through
+   to the per-card routine. The AMD routine (RVA 0x38930) sends [slave<<1, offset...] and reads `bytes per
+   read` through ADL2_Display_DDCBlockAccess_Get, 10 retries.
+   🔴 Measured 2026-10-23 (AMD, Windows test box): I2C_Read on AMD is a stub (RVA 0x38810 = `mov al,1; ret`):
+      it returns TRUE and leaves the buffer untouched -> 1.20.0 read stale memory ("7.26.20.1616", ".COM").
+      The vendor AUX tool uses IOA_Read on AMD (RaydiumAuxWrapper.cs AuxIoaRead default branch). */
+typedef struct {
+    unsigned char  u8SlaveAddr;      /* +0  7-bit */
+    unsigned char  u8OffsetBytes;    /* +1  1 or 2 */
+    unsigned short u16StartAddr;     /* +2 */
+    unsigned int   u32StartAddr;     /* +4 */
+    int            iSize;            /* +8 */
+    unsigned short u16I2cSleepTime;  /* +0x0C */
+    unsigned char  u8BytePerWrite;   /* +0x0E */
+    unsigned char  u8BytePerRead;    /* +0x0F */
+    unsigned char  u8ReadData;       /* +0x10 */
+    void*          au8Data;          /* +0x14 on x86 (managed byte[] field, pointer-sized) */
+    int            bMOT;             /* C# bool field -> 4-byte BOOL */
+} DGH_AUX_IOA;
+typedef unsigned char (__cdecl *PFN_AUX_Ioa)(DGH_AUX_IOA* st, unsigned char* data);
+
 typedef struct {
     PFN_AUX_Initial         Initial;
     PFN_AUX_Release         Release;
@@ -91,6 +114,8 @@ typedef struct {
     PFN_AUX_I2c             I2cRead;
     PFN_AUX_I2c             I2cWrite;
     PFN_AUX_FreeString      FreeString;
+    PFN_AUX_Ioa             IoaRead;     /* 1.20.1: DLL IOA_Read (used on AMD) */
+    int                     card;        /* 1.20.1: E_GRAPH_CARD of the open session (-1 = unknown) */
     void (*sleep_ms)(unsigned ms);   /* bridge: Sleep; tests: counter */
     unsigned delayMs;                /* per-access settle time (vendor tool: u16I2cSleepTime=1) */
     /* 1.20.0: how 0x3E / 0x7C register READS travel (Bruce 2026-10-23: "AUX 應該也可以去讀 3E 的位置，
@@ -197,6 +222,24 @@ static inline int dgh_aux_ioa_read(const DGH_AUX_API* a, uint32_t slave, uint32_
                                    uint32_t len, uint8_t* out, uint32_t* got, char* err, size_t ecap){
     uint32_t i;
     *got = 0;
+    /* 1.20.1: AMD -> IOA_Read (I2C_Read is a stub there, see DGH_AUX_IOA). Same 7-bit slave, same offset. */
+    if(a->card == (int)DGH_AUX_CARD_AMD){
+        if(!a->IoaRead){ snprintf(err,ecap,"AUX: AMD graphics need IOA_Read in DLL_AUX_VC.dll (not found)"); return 0; }
+        if(awid<1u || awid>2u){ snprintf(err,ecap,"AUX (AMD): offset width %u not supported by IOA_Read (1 or 2)", awid); return 0; }
+        for(i=0;i<len;){
+            uint32_t n = len - i, off = addr + i; DGH_AUX_IOA st;
+            if(n > DGH_AUX_CHUNK) n = DGH_AUX_CHUNK;
+            memset(&st, 0, sizeof(st));
+            st.u8SlaveAddr = (unsigned char)slave; st.u8OffsetBytes = (unsigned char)awid;
+            st.u16StartAddr = (unsigned short)(off & 0xFFFFu); st.u32StartAddr = off;
+            st.iSize = (int)n; st.u16I2cSleepTime = 1; st.u8BytePerRead = (unsigned char)n;
+            st.au8Data = out + i; st.bMOT = 1;
+            if(!dgh_aux_b(a->IoaRead(&st, out + i))){ snprintf(err,ecap,"AUX IOA_Read failed (%02X:%X x%u) -- no ACK over AUX", slave, off, n); return 0; }
+            dgh_aux_wait(a);
+            i += n; *got = i;
+        }
+        return 1;
+    }
     for(i=0;i<len;){
         uint32_t n = len - i; unsigned char ob[4]; uint32_t k, off = addr + i;
         if(n > DGH_AUX_CHUNK) n = DGH_AUX_CHUNK;

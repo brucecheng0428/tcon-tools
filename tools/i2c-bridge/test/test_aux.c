@@ -7,6 +7,7 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 #include <stdio.h>
 #include <string.h>
+#include <stddef.h>
 #include "i2c_bridge_aux.h"
 
 static int fails=0, total=0;
@@ -36,6 +37,15 @@ static int mIR(int n,int s,unsigned char* d,int mot){ int i; (void)mot; calls++;
     if(s==0x7D){ for(i=0;i<n;i++) d[i]=r7d[(p7d+i)&0xFFFF]; return 1; }
     if(s==0x7E){ for(i=0;i<n;i++) d[i]=r7e[(p7e+i)&0xFF]; return 1; }
     return 0; }
+static int ioaCalls=0; static DGH_AUX_IOA lastIoa;
+static unsigned char mIoa(DGH_AUX_IOA* st, unsigned char* d){ int i; ioaCalls++; lastIoa=*st;
+    unsigned off=st->u16StartAddr;
+    if(st->u8SlaveAddr>=0x50&&st->u8SlaveAddr<=0x57){ for(i=0;i<st->u8BytePerRead;i++) d[i]=rEE[(off+i)&0xFFFF]; return 1; }
+    if(st->u8SlaveAddr==0x3E){ for(i=0;i<st->u8BytePerRead;i++) d[i]=r3e[(off+i)&0xFFFF]; return 1; }
+    if(st->u8SlaveAddr==0x7C){ for(i=0;i<st->u8BytePerRead;i++) d[i]=r7c[(off+i)&0xFF]; return 1; }
+    if(st->u8SlaveAddr==0x7D){ for(i=0;i<st->u8BytePerRead;i++) d[i]=r7d[(off+i)&0xFFFF]; return 1; }
+    return 0; }
+static int mIRstub(int n,int s,unsigned char* d,int mot){ (void)n;(void)s;(void)d;(void)mot; calls++; return 1; /* AMD I2C_Read：空函式 */ }
 static int mFalse(int n,int a,unsigned char* d){ (void)n;(void)a;(void)d; calls++; return 0x100; /* 低位 0 ＝ false */ }
 
 int main(void){
@@ -145,6 +155,28 @@ int main(void){
       { uint8_t d=0x5A; dpcd[0x430]=0; dpcd[0x431]=0; ok=dgh_aux_reg_write(&C,0x3E,0x0123,2,&d,1,&g,e,sizeof(e));
         CHECK(ok && dpcd[0x430]==0x01 && dpcd[0x431]==0x23 && r3e[0x0123]==0x5A,"3E 寫入仍走 DPCD 視窗"); }
       ioaTcon=0; }
+
+    printf("== 11. 1.20.1：AMD 走 IOA_Read（I2C_Read 在 AMD 是空函式）==\n");
+    CHECK(offsetof(DGH_AUX_IOA,u8SlaveAddr)==0 && offsetof(DGH_AUX_IOA,u8OffsetBytes)==1 && offsetof(DGH_AUX_IOA,u16StartAddr)==2 &&
+          offsetof(DGH_AUX_IOA,u8BytePerRead)==0x0F && offsetof(DGH_AUX_IOA,u8ReadData)==0x10,"ST_IOA 欄位位移（反組譯 IOA_Read 讀的那幾格）");
+    if(sizeof(void*)==4) CHECK(sizeof(DGH_AUX_IOA)==28 && offsetof(DGH_AUX_IOA,au8Data)==0x14,"x86：ST_IOA 28 byte、au8Data 在 0x14");
+    { DGH_AUX_API M; memset(&M,0,sizeof(M)); M.DpcdRead=mDR; M.DpcdWrite=mFalse; M.I2cRead=mIRstub; M.I2cWrite=mIW; M.IoaRead=mIoa;
+      M.card=(int)DGH_AUX_CARD_AMD; M.regPath=DGH_AUX_PATH_AUTO;
+      r3e[0x207E]=0x11; calls=0; ioaCalls=0;
+      ok=dgh_aux_reg_read(&M,0x3E,0x207E,2,1,buf,&g,e,sizeof(e));
+      CHECK(ok && buf[0]==0x11 && ioaCalls==1 && calls==0,"AMD：3E:207E 經 IOA_Read 讀到 11，沒呼叫 I2C_Read／I2C_Write");
+      CHECK(lastIoa.u8SlaveAddr==0x3E && lastIoa.u8OffsetBytes==2 && lastIoa.u16StartAddr==0x207E && lastIoa.u8BytePerRead==1,"AMD：ST_IOA 填 7-bit 3E、offset 2、位址 207E、讀 1");
+      r7c[0x95]=0x22; ok=dgh_aux_reg_read(&M,0x7C,0x95,1,1,buf,&g,e,sizeof(e));
+      CHECK(ok && buf[0]==0x22 && lastIoa.u8OffsetBytes==1,"AMD：7C:95（offset 1）");
+      { int i; for(i=0;i<40;i++) rEE[i]=(unsigned char)(0x30+i); }
+      ioaCalls=0; ok=dgh_aux_reg_read(&M,0x50,0,2,40,buf,&g,e,sizeof(e));
+      CHECK(ok && g==40 && buf[0]==0x30 && buf[39]==0x30+39 && ioaCalls==3 && lastIoa.u8BytePerRead==8,"AMD：0x50 讀 40 byte＝16＋16＋8 三次 IOA_Read");
+      { int i; for(i=0;i<4;i++) r7d[0x7D+i]=(unsigned char)(0xA0+i); }
+      ok=dgh_aux_reg_read(&M,0x7D,0x7D,2,4,buf,&g,e,sizeof(e)); CHECK(ok && buf[3]==0xA3,"AMD：7D:007D");
+      ok=dgh_aux_reg_read(&M,0x7D,0x7D,3,1,buf,&g,e,sizeof(e)); CHECK(!ok && strstr(e,"IOA_Read"),"AMD：offset 3 byte 不支援，講明原因");
+      { DGH_AUX_API N=M; N.IoaRead=0; ok=dgh_aux_reg_read(&N,0x3E,0x207E,2,1,buf,&g,e,sizeof(e)); CHECK(!ok && strstr(e,"IOA_Read"),"AMD：DLL 沒有 IOA_Read ⇒ 失敗並講明"); }
+      M.card=(int)DGH_AUX_CARD_INTEL; ioaCalls=0; ioaTcon=1; r3e[0x207E]=0x10;
+      ok=dgh_aux_reg_read(&M,0x3E,0x207E,2,1,buf,&g,e,sizeof(e)); CHECK(ioaCalls==0,"Intel：不走 IOA_Read（照舊 I2C_Write＋I2C_Read）"); ioaTcon=0; }
 
     printf("\n%d/%d checks passed\n", total-fails, total);
     return fails?1:0;

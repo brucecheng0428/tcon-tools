@@ -13,7 +13,7 @@ var TOOL_VERSIONS = {
   wfg:     'v4.59.2',     // 面板訊號模擬與取樣
   pattern: 'v3.9.0',       // Pattern Generator 畫面產生器
   dg:      'v2.8.2',       // Digital Gamma 迭代校正（含量測頁 dg-measure.html）
-  i2c:     'v1.37.0',       // I2C（讀寫測試）
+  i2c:     'v1.37.1',       // I2C（讀寫測試）
   nbdebug: 'v1.3.1',        // NB TCON Debug應用（E503／E501A／E501B／EN01 debug 輸出：選 IC、項目、GPIO → I2C 執行或匯出 Excel／.script）
   datamap: 'v1.37.3',       // Data Mapping（Python UI 的內容與規則、站內風格；DAZ／E501／E503／EN01／EM01／EM02／E512）// v1.20.0（Bruce 10/9）：新增 EN01（RM81008，依原廠 WPF RomCodeProcessUI）
   /* 🔴 TCON 自檢畫面量測（dg-selftest.html）。
@@ -206,12 +206,15 @@ var HELPER_PKG = {
      「AUX 應該也可以去讀 3E 的位置，這樣子就可以用同樣方式去辨別是哪一種 Tcon」）：DP AUX 模式 3E／7C 讀取先走 I2C over AUX
      （同一個 7-bit slave，先寫 offset 再讀），沒 ACK 才退回 DPCD 視窗；EEPROM 0x50–0x57 經 I2C over AUX 可讀、寫入照舊擋；
      proto 8 ⇒ 9。四支 DLL 從 v1.19.0 的包原樣搬過來（SHA 逐一相同），只有 exe 換掉：PE32 Intel 80386，373,248 bytes。 */
-  pkg:    'v1.20.0',                      // 下載包（zip）版本 ＝ 檔名
-  exe:    '1.20.0',                       // exe 內的 I2C_BRIDGE_VERSION（ping 回報值）
+  /* 🔴 v1.20.1（2026-10-23，Bruce 換上 1.20.0 後「測試還是有問題」）：AMD 顯示卡的 I2C_Read 是空函式（只回成功、不讀），
+     1.20.0 在 AMD 讀到的是記憶體殘值 ⇒ AMD 改走 IOA_Read（原廠 AUX 工具的 AMD 做法）。Intel／NVIDIA 不變；proto 維持 9。
+     四支 DLL 原樣（SHA 相同），只有 exe 換掉：PE32 Intel 80386，372,736 bytes。 */
+  pkg:    'v1.20.1',                      // 下載包（zip）版本 ＝ 檔名
+  exe:    '1.20.1',                       // exe 內的 I2C_BRIDGE_VERSION（ping 回報值）
   proto:  9,                             // wire protocol 版本（7 起有 DP AUX；8 起 I2C 治具與 DP AUX 可同時使用）
   exeName: 'i2c-aux-bridge.exe',         // 1.19.0 起的 exe 檔名（1.18.1 以前 i2c-bridge.exe）
-  file:   'data/i2c-aux-bridge-v1.20.0.zip',
-  bytes:  559267,                             // zip 位元組數（打包後填）
-  zipSha: '3732484c5735390c2b9d6a083b07e078d9c2b3af406cd5de138aa128060fe64f',
-  exeSha: 'd92182f48fece16f060ed23fc51d3e16b4a9183527170e6ebf19993761814979'
+  file:   'data/i2c-aux-bridge-v1.20.1.zip',
+  bytes:  559449,                             // zip 位元組數（打包後填）
+  zipSha: 'f24b147995d88d3a15bae3bca377df1a08c4a579048b48fccd19125ca9e734c4',
+  exeSha: '6026a4294a2bd5c2cd8bb768602ec7f9b41fccfa068c24bf9da118f2278fa894'
 };

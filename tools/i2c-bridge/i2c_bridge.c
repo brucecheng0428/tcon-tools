@@ -1651,6 +1651,7 @@ static int aux_try_dir(const char* dirIn){
     g_aux.GetPsr         =(PFN_AUX_Psr)            GetProcAddress(h,"Get_PSR_State");
     g_aux.SetPsr         =(PFN_AUX_Psr)            GetProcAddress(h,"Set_PSR_State");
     g_aux.DpcdRead       =(PFN_AUX_Dpcd)           GetProcAddress(h,"DPCD_Read");
+    g_aux.IoaRead        =(PFN_AUX_Ioa)            GetProcAddress(h,"IOA_Read");   /* 1.20.1: AMD reads */
     g_aux.DpcdWrite      =(PFN_AUX_Dpcd)           GetProcAddress(h,"DPCD_Write");
     g_aux.I2cRead        =(PFN_AUX_I2c)            GetProcAddress(h,"I2C_Read");
     g_aux.I2cWrite       =(PFN_AUX_I2c)            GetProcAddress(h,"I2C_Write");
@@ -1779,7 +1780,7 @@ static int aux_open(int cardReq, int monReq, int projReq, int psrOff, int tconIn
         for(m=m0;m<=m1;m++){
             unsigned char c=(unsigned char)cards[ci], mo=(unsigned char)m, pj=(unsigned char)g_auxProj;
             unsigned char r = g_aux.Initial(&c,&mo,&pj);
-            if(r==0){ g_auxCard=cards[ci]; g_auxMon=m; g_auxOpen=1;
+            if(r==0){ g_auxCard=cards[ci]; g_auxMon=m; g_auxOpen=1; g_aux.card=cards[ci];
                 logline("  aux     : Initial(card=%s, monitor=%d, projectIc=%d) = OK", dgh_aux_card_name((unsigned)cards[ci]), m, g_auxProj);
                 break; }
         }
