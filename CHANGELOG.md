@@ -27,6 +27,7 @@ bridge 1.19.0／1.20.x 取「第一台 Initial OK 的螢幕」。Windows mini �
   - AUX 不再經共用 M-Bus session，所以不會在第一次讀寫前自己多送 7E:AB←CD。
   - Check T-CON 在 AUX 和 I2C 走同一段序列（先 7E:AB←CD，再 `TconDetect.detect`），不做 MNT 的 ICID 掃描（MNT 沒有 AUX），也不做 E503 的 WP 前置。
   - EEPROM 只能讀。
+  - bridge 1.22.0 開啟時不做初始化（照原廠在每次讀寫才做），所以不再依 open 回覆的 tconInit 跳「T-CON 初始化沒成功」；PSR 警告只留給 Intel（實機 AMD 在 PSR 開著時讀寫正常）。
   - `tools/check_i2c_pages.mjs` 只放行 `i2ctSend` 第一行的 AUX 直送這一處。
 - **I2C 共用程式碼不動**：`common/i2c-mbus.js`、`common/tcon-detect.js` 和 a6a3d85 相同；`check_tcon_detect_single` 沒有改。
 
