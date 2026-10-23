@@ -45,8 +45,6 @@
     noMbusRead: ['AUX：0x{s} 要經 M-Bus，不讀。', 'AUX: 0x{s} needs the M-Bus; not read.', 'AUX：0x{s} 要经 M-Bus，不读。'],
     noMbusWrite: ['AUX 的 Check T-CON 不寫入（不下 7E:AB←CD）', 'AUX Check T-CON does not write (no 7E:AB<-CD)', 'AUX 的 Check T-CON 不写入（不下 7E:AB←CD）'],
     awid: ['AUX：slave 0x{s} 的 offset 要 {w} byte，沒有送出。', 'AUX: slave 0x{s} needs a {w}-byte offset; nothing was sent.', 'AUX：slave 0x{s} 的 offset 要 {w} byte，没有送出。'],
-    dispInt: ['內建（eDP {v}）', 'built-in (eDP {v})', '内建（eDP {v}）'],
-    dispUnk: ['未知', 'unknown', '未知'],
     cardUnk: ['未知', 'unknown', '未知'],
     eeAux: ['EEPROM（I2C over AUX）', 'EEPROM (I2C over AUX)', 'EEPROM（I2C over AUX）'],
     sfOff: ['AUX 不支援 Flash（要經 M-Bus）', 'Flash is not available over AUX (needs the M-Bus)', 'AUX 不支持 Flash（要经 M-Bus）'],
@@ -58,7 +56,7 @@
     oldBridge: ['這個 I2C and AUX Bridge（{have}）不支援 AUX，請下載新版 I2C and AUX Bridge（1.18.0 以上）。',
                 'This I2C and AUX Bridge ({have}) does not support AUX. Download the new I2C and AUX Bridge (1.18.0 or later).',
                 '这个 I2C and AUX Bridge（{have}）不支持 AUX，请下载新版 I2C and AUX Bridge（1.18.0 以上）。'],
-    info: ['GPU {card} · 螢幕 {disp}', 'GPU {card} · display {disp}', 'GPU {card} · 屏幕 {disp}'],
+    info: ['GPU {card}', 'GPU {card}', 'GPU {card}'],
     adminOk: ['系統管理員 ✔', 'administrator ✔', '系统管理员 ✔'],
     adminNo: ['不是系統管理員', 'not administrator', '不是系统管理员'],
     psrOff: ['PSR 已關（關閉連線時還原）', 'PSR off (restored on disconnect)', 'PSR 已关（关闭连接时还原）'],
@@ -139,7 +137,7 @@
     return (addr + n - 1 < DPCD_EE_LO) || (addr > DPCD_EE_HI);
   }
   g.TconAux = {
-    VERSION: '1.9', CHUNK: 256, MODE: 4, NEED_PROTO: 7, SIMUL_PROTO: 8, IOA_PROTO: IOA_PROTO, eeReadOk: eeReadOk,
+    VERSION: '1.9.1', CHUNK: 256, MODE: 4, NEED_PROTO: 7, SIMUL_PROTO: 8, IOA_PROTO: IOA_PROTO, eeReadOk: eeReadOk,
     SLAVES: SLAVES.slice(), EE_LO: EE_LO, EE_HI: EE_HI, DPCD_EE_LO: DPCD_EE_LO, DPCD_EE_HI: DPCD_EE_HI,
     allowed: allowed, readDpcd: readDpcd, awidFor: awidFor, check: check, text: text, dpcdWriteOk: dpcdWriteOk
   };

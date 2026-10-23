@@ -30,7 +30,7 @@
           出來」。那個前提**早就不成立**：bridge 的靜態檔服務拒絕子資料夾、而且自 v1.7.0
           起預設關閉 —— 詳細依據與行號寫在 body 末端那兩個 <script> 的上面。）
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="common/version.js?v=20261023ui1410"></script>
+<script src="common/version.js?v=20261023ui1411"></script>
 <script src="common/i2c-bridge.js?v=20261023ib104"></script>
 <style>
   * { box-sizing: border-box; }
@@ -1671,7 +1671,7 @@
         頁首那四條宣告是逐字抄過來的，來源行號寫在各自上面。 -->
 <script src="common/i18n.js?v=20261023ui1410"></script>
 <script src="common/i2c-mbus.js?v=20261023mb122"></script>
-<script src="common/i2c-aux.js?v=20261023ax190"></script>
+<script src="common/i2c-aux.js?v=20261023ax191"></script>
 <script src="common/tcon-detect.js?v=20261023td130"></script>
 <script src="common/common.js?v=20261008i2c1341"></script>
 <script src="common/i2c-spiflash.js?v=20261022en01"></script>
@@ -3581,10 +3581,8 @@ async function i2ctConnect(takeover){
       if (!op.ok && op.aux && !op.busy) throw new Error('DP AUX: ' + (op.err || 'open failed'));
       if (op.ok && op.aux) {
         i2ctAuxInfo = op;
-        /* v1.41.0（Bruce 2026-10-23「螢幕也要可以顯示是內建的螢幕還是外接顯示器」）：DPCD 0x700 EDP_DPCD_REV（只讀）。
-           01–06 ＝ eDP 1.2–1.5 ⇒ 內建；00（DP 外接或 eDP 1.1，分不出）或讀不到 ⇒ 未知，不猜。 */
-        try { var e7 = await i2ctSend({ type: 'dpcdread', addr: 0x700, len: 1 }); op.edpRev = (e7 && e7.ok && e7.data && e7.data.length) ? e7.data[0] : null; }
-        catch (e) { op.edpRev = null; }
+        /* v1.41.1（Bruce 2026-10-23「我實際上這是外接螢幕…判斷不出來就不要顯示」）：v1.41.0 讀 DPCD 0x700（EDP_DPCD_REV）判內建，
+           但那是 sink 自己報的 eDP 能力：eDP 的 T-CON 板經 DP 外接一樣回 01（實機 E503 外接讀到 01）⇒ 分不出內建／外接，整個拿掉，不讀 0x700。 */
         i2ctLog('DP AUX: card=' + op.card + ' monitor=' + op.monitor + ' admin=' + op.admin + ' PSR supported=' + op.psrSupported +
                 ' on=' + op.psrOn + (op.psrTurnedOff ? ' (turned off for this session)' : '') + ' T-CON init=' + op.tconInit +
                 (op.regPath ? ' 3E/7C read path=' + op.regPath : '') + (op.eeRead ? ' EEPROM read=I2C over AUX' : ''), op.tconInit === false ? 'w' : 'o');
@@ -9513,11 +9511,9 @@ function i2ctConnInfoRender(ck, ckOk, err){
   var parts = [];
   if (i2ctLinked && i2ctAuxInfo) {
     var ai = i2ctAuxInfo;
-    /* v1.41.0：GPU 廠牌＋螢幕類型；認不出就「未知」。系統管理員只在 Intel 且不是系統管理員時提（Intel 寫入要）；PSR 不再常駐。 */
+    /* v1.41.0：GPU 廠牌（bridge open 回覆的 card）；認不出就「未知」。系統管理員只在 Intel 且不是系統管理員時提（Intel 寫入要）；PSR 不再常駐。 */
     var gpu = { INTEL: 'Intel', AMD: 'AMD', NVIDIA: 'NVIDIA', QCOM: 'Qualcomm' }[String(ai.card || '').toUpperCase()] || TconAux.text('cardUnk');
-    var EDP = { 1: '1.2', 2: '1.3', 3: '1.4', 4: '1.4a', 5: '1.4b', 6: '1.5' };
-    var disp = EDP[ai.edpRev] ? TconAux.text('dispInt', { v: EDP[ai.edpRev] }) : TconAux.text('dispUnk');
-    parts.push(TconAux.text('info', { card: '<b>' + esc(gpu) + '</b>', disp: '<b>' + esc(disp) + '</b>' }));
+    parts.push(TconAux.text('info', { card: '<b>' + esc(gpu) + '</b>' }));   /* v1.41.1：螢幕內建／外接沒有可靠依據 ⇒ 不顯示 */
     if (ai.admin === false && /INTEL/i.test(ai.card || '')) parts.push(esc(TconAux.text('adminNo')));
     parts.push(esc(TconAux.text('auxScope')));   /* v1.39.1：AUX 能做什麼一眼看到（三語） */
     if (ck) parts.push(T('i2c.connTcon', { name: '<b>' + esc(ckOk ? (i2ctCkDispName(ck, false) || '?') : T('i2c.connTconBad')) + '</b>' }));

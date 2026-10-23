@@ -132,7 +132,7 @@ try {
     check('open 送 mode 4（DP AUX）', op && op.mode === 4, JSON.stringify(op));
     const ci = await page.$eval('#conn-info', e => e.textContent);
     check('v1.41.0：連線資訊顯示 GPU 廠牌（INTEL ⇒ Intel）', /GPU Intel/.test(ci), ci);
-    check('v1.41.0：DPCD 0x700 讀不到／00 ⇒ 螢幕「未知」（不猜）', /螢幕 未知/.test(ci) && !/PSR/.test(ci), ci);
+    check('v1.41.1：不顯示螢幕內建／外接（沒有可靠依據）、不顯示 PSR', !/螢幕|內建|外接/.test(ci) && !/PSR/.test(ci), ci);
     await page.evaluate(() => i2ctCheckTconRun());
     const ident = await page.evaluate(() => i2ctCkResult ? i2ctCkResult.name : 'none');
     check('v1.39.0：Check T-CON（AUX，只走 DPCD）認成 EN01（3E:207E＝10）', /^EN01/.test(ident), ident);
@@ -275,7 +275,8 @@ try {
     await page.evaluate(() => i2ctCheckTconRun());
     const r = await page.evaluate(() => i2ctCkResult && { name: i2ctCkResult.name, family: i2ctCkResult.family, unknown: !!i2ctCkResult.unknown, alts: i2ctCkResult.alts });
     { const ci0 = await page.$eval('#conn-info', e => e.textContent);
-      check('v1.41.0：AUX 連上 ⇒ GPU AMD · 螢幕 內建（eDP 1.4b）', /GPU AMD/.test(ci0) && /螢幕 內建（eDP 1\.4b）/.test(ci0), ci0);
+      check('v1.41.1：AUX 連上 ⇒ GPU AMD；eDP 0x700＝05 也不顯示內建（不讀 0x700）', /GPU AMD/.test(ci0) && !/螢幕|內建/.test(ci0), ci0);
+      check('v1.41.1：不送 DPCD 0x700', !(await page.evaluate(() => (window.__dpcd || []).some(d => d.a === 0x700))));
       const seg = await page.$$eval('#xport-seg .xseg-b', bs => bs.map(b => b.textContent + (b.classList.contains('on') ? '*' : '')).join('|'));
       check('v1.41.0：連線方式是 I2C｜AUX 分段鈕，AUX 亮', seg === 'I2C|AUX*', seg);
       check('v1.41.0：AUX ⇒ ① 叫「連接 AUX」', /① 連接 AUX/.test(await page.$eval('#stp-t-link', e => e.textContent)));

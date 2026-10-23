@@ -2,6 +2,15 @@
 
 ---
 
+## I2C / AUX 讀寫測試 (i2c) v1.41.1 — 2026-10-23 ｜ PATCH ｜ 拿掉 AUX 的「螢幕內建／外接」顯示（判斷不可靠）
+
+判定依據：`docs/VERSIONING.md` R2：修正錯誤。
+
+- Bruce 2026-10-23：「我實際上這是外接螢幕…判斷不出來就不要顯示好了。」
+- 根因：v1.41.0 讀 DPCD 0x700（EDP_DPCD_REV），01–06 就判「內建」。這個值是 sink 自己報的 eDP 能力，不是連接方式：eDP 的 T-CON 板經 DP 外接時一樣回 eDP 版本（實機 E503 外接讀到 01 ⇒ 誤判「內建（eDP 1.2）」）。這個方法本身分不出內建／外接。
+- 修法：不讀 0x700、不顯示螢幕類型（連「未知」都不寫）。GPU 照舊取 bridge open 回覆的 card（實機 AMD，與 bridge Detect scan 的 card=AMD 一致）。bridge 不換。
+- 要可靠判斷需要 Windows QueryDisplayConfig 的 outputTechnology（要改 bridge），這一版不做。
+
 ## I2C / AUX 讀寫測試 (i2c) v1.41.0 — 2026-10-23 ｜ MINOR ｜ 改名「I2C / AUX 讀寫測試」、治具用語統一、I2C｜AUX 分段切換、文字精簡、GPU／螢幕顯示、② 完成綠框、「外部 Flash」改「Flash」
 
 判定依據：`docs/VERSIONING.md` R2：使用者可見的介面改動（不改讀寫邏輯）。
