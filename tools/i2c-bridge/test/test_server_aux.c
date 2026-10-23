@@ -158,7 +158,7 @@ int main(void){
     char b[16384], hello[1024];
     int s=ws_open(hello,sizeof(hello));
     CHECK(s>=0,"WebSocket 連得上"); if(s<0){ printf("%d/%d\n",total-fails,total); return 1; }
-    CHECKS(hello,"\"proto\":9","hello 回報 proto 9（1.20.0 起）");
+    CHECKS(hello,"\"proto\":8","hello 回報 proto 8（1.19.0 起）");
 
     G("1. DLL 不在：清楚的錯誤，治具功能不受影響");
     jcmd(s,"{\"type\":\"open\",\"id\":1,\"mode\":4}",b,sizeof(b));
@@ -211,8 +211,7 @@ int main(void){
     jcmd(s,"{\"type\":\"rawwrite\",\"id\":10,\"slave\":80,\"addr\":0,\"awid\":2,\"data\":[1,2,3]}",b,sizeof(b));
     CHECKS(b,"\"ok\":false","rawwrite 0x50 被擋"); CHECKS(b,"EEPROM","錯誤訊息講明是 EEPROM");
     jcmd(s,"{\"type\":\"read\",\"id\":11,\"slave\":80,\"addr\":0,\"awid\":2,\"len\":8}",b,sizeof(b));
-    CHECKS(b,"\"ok\":true","1.20.0：read 0x50 經 I2C over AUX 放行（只讀）"); CHECKS(b,"238,238","讀回假 EEPROM 的資料");
-    EQ_I(dgh_fake_aux_ee_hits,2,"讀 0x50 ＝ 一次 offset＋一次讀"); dgh_fake_aux_ee_hits=0;
+    CHECKS(b,"\"ok\":false","read 0x50 也擋（只能經 T-CON）");
     jcmd(s,"{\"type\":\"batchwrite\",\"id\":12,\"slave\":80,\"addr\":0,\"awid\":2,\"page\":16,\"twr\":5,\"len\":32,\"data\":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16]}",b,sizeof(b));
     while(strstr(b,"\"type\":\"progress\"")) { if(!ws_recv(s,b,sizeof(b))) break; }
     CHECKS(b,"\"ok\":false","batchwrite 0x50 被擋"); CHECKS(b,"\"done\":0","一個 byte 都沒寫");
@@ -222,7 +221,7 @@ int main(void){
     CHECKS(b,"\"ok\":false","dg 的 write（白名單位址）打 0x50 也擋");
     jcmd(s,"{\"type\":\"rawwrite\",\"id\":15,\"slave\":104,\"addr\":0,\"awid\":2,\"data\":[1]}",b,sizeof(b));
     CHECKS(b,"not a T-CON","0x68 不在 AUX 白名單");
-    EQ_I(dgh_fake_aux_ee_hits,0,"寫入：假 EEPROM 一次都沒被碰到");
+    EQ_I(dgh_fake_aux_ee_hits,0,"假 EEPROM 一次都沒被碰到");
     jcmd(s,"{\"type\":\"dpcdwrite\",\"id\":16,\"addr\":1154,\"data\":[128]}",b,sizeof(b));
     CHECKS(b,"\"blocked\":true","dpcdwrite 0x482（EEPROM 寫保護）擋");
     EQ_I(dgh_fake_aux_dpcd[0x482],0,"0x482 沒被改");

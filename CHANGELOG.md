@@ -2,6 +2,27 @@
 
 ---
 
+## I2C 讀寫測試 (i2c) v1.37.2 — 2026-10-23 ｜ PATCH ｜ I2C 路徑回到 v1.36.0（82d94be）：撤回 v1.37.0／v1.37.1 的 DP AUX 改動與 bridge 1.20.x；ROM 類型不再影響共用連線與辨認（i2c-mbus 1.2.2）
+
+判定依據：`docs/VERSIONING.md` R2「修正、沒有新功能 → PATCH」：撤回；版號只增不減，所以內容等同 v1.36.0 但版號往前進。
+
+### 需求（Bruce 2026-10-23）
+
+「我發現 i2c 的網頁連使用 i2c check tcon 都認不出 E503 呢，這是發生什麼問題了？」「這些做法都不正確吧？請好好謹慎思考要如何處理。」「不要搞得連原本的 I2C 都沒辦法連線」
+
+### 改了什麼
+
+- `i2c.html`、`common/i2c-aux.js`、`tools/i2c-bridge/`（原始碼與測試）、i2c 說明三頁、`tools/check_i2c_aux.mjs`、`tools/check_i2c_simul.mjs`：全部還原成 82d94be 的內容（i2c.html 只多換 cache buster）。
+- `common/version.js`：HELPER_PKG 回到 1.19.0 下載包（`data/i2c-aux-bridge-v1.19.0.zip`，proto 8，SHA 同 82d94be）；i2c ⇒ v1.37.2。`data/i2c-aux-bridge-v1.20.0.zip`／`v1.20.1.zip` 留著、不再被指向。
+- `common/i2c-mbus.js` 1.2.2：拿掉 v1.2 在 `open()`／`session()` 加的「ROM 類型＝Flash 就不送 7E:AB←CD」，兩者回到 1.1 行為（i2c、datamap、dg-selftest、TconDetect 一律照送）。`rom()`／`setRom()`／`allowed()`／`romSelect()` 保留，只給 nbdebug「M-Bus → C-Bus 導通」那一項自己判斷（EN01＋Flash 擋下那一項，nbdebug.html 未改）。
+- 測試：`check_i2c_mbus_rom.mjs` 改驗「ROM 類型不影響 open／session／辨認；E503 板（實測值）在 Flash 設定下仍認成 E503A3」；`check_nbdebug.mjs` EN01＋Flash 改驗「mbus 那一項一筆都不寫、其他項目照常」。
+
+### 驗證
+
+- 實機（Windows 測試機，I2C 治具，寫入全部在 WebSocket 層攔下、0 筆送出）：回復版 Check T-CON 認出 E503A3（7C:95=24、7C:98=00、7D:007D=04、3E:207E=00）。
+- 模擬：check_i2c_mbus_rom 11/0、check_nbdebug 900/0、check_i2c_aux 42/0、check_i2c_simul 41/0（sim bridge＝還原後 1.19.0 原始碼）、check_i2c_pages 51/0、check_i2c_pages_sim 38/0、check_tcon_detect 37/0、check_i2c_bridge_ui 38/0、i2c_spiflash_selftest 573/0、cache buster ok。
+- DP AUX 的改進暫停，另提方案（只動 AUX 專用路徑）。
+
 ## I2C 讀寫測試 (i2c) v1.37.1 — 2026-10-23 ｜ PATCH ｜ I2C and AUX Bridge 1.20.1：AMD 顯示卡改走 IOA_Read（1.20.0 在 AMD 讀到的是記憶體殘值）
 
 判定依據：`docs/VERSIONING.md` R2「修正既有功能、沒有新功能 → PATCH」：網頁只換下載包版本；bridge 修 AMD 讀取。

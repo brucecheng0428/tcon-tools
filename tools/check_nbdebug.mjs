@@ -635,13 +635,15 @@ async function runEngine(name, browserType, opts, viewport, full) {
       await pf.click('#nd-link'); await pf.waitForFunction(() => !document.querySelector('#nd-run').disabled);
       check(`${tag} B F EN01＋Flash：連線辨認仍認到 EN01`, (await pf.$eval('#nd-icsel', s => s.value)) === 'EN01');
       await pf.selectOption('#nd-item', 'mbus');
+      /* v1.2.2（Dispatch 定案 2026-10-23）：ROM 類型不影響共用連線與辨認；EN01＋Flash 只擋「M-Bus → C-Bus 導通」這一項本身。 */
+      await pf.evaluate(() => { window.__wlog.length = 0; });
       await pf.click('#nd-run'); await pf.waitForFunction(() => !document.querySelector('#nd-run').disabled && /已擋下/.test(document.querySelector('#nd-st').textContent));
       let wl = await pf.evaluate(() => window.__wlog);
-      check(`${tag} B F EN01＋Flash：連線＋辨認＋I2C 執行全程沒有任何 7E 寫入、狀態寫 Flash 應用不可用`, !wl.some(w => w[0] === 0x7E) && /Flash 應用不可用此導通方式/.test(await pf.$eval('#nd-st', e => e.textContent)), JSON.stringify(wl));
+      check(`${tag} B F EN01＋Flash：按「M-Bus → C-Bus 導通」這一項被擋、一筆都沒寫、狀態寫 Flash 應用不可用`, wl.length === 0 && /Flash 應用不可用此導通方式/.test(await pf.$eval('#nd-st', e => e.textContent)), JSON.stringify(wl));
       await pf.selectOption('#nd-item', 'rxde');
       await pf.click('#nd-run'); await pf.waitForFunction(() => /完成|不符|fail/.test(document.querySelector('#nd-st').textContent));
       wl = await pf.evaluate(() => window.__wlog);
-      check(`${tag} B F EN01＋Flash：其他項目（RX DE）照常下、也不補送 7E`, !wl.some(w => w[0] === 0x7E) && wl.some(w => w[0] === 0x3E), JSON.stringify(wl.slice(-4)));
+      check(`${tag} B F EN01＋Flash：其他項目（RX DE）照常下（ROM 類型不影響共用流程）`, wl.some(w => w[0] === 0x3E), JSON.stringify(wl.slice(-4)));
       await pf.selectOption('#nd-item', 'mbus'); await pf.selectOption('#nd-rom', 'eeprom');
       await pf.evaluate(() => { window.__wlog.length = 0; });
       await pf.click('#nd-run'); await pf.waitForFunction(() => /完成|fail/.test(document.querySelector('#nd-st').textContent));

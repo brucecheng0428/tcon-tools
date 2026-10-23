@@ -36,7 +36,11 @@
      ICDefine.cs:49、RomCodeInfo.cs:461）；MtoC 只在 ROMType＝EEPROM 且 I2C 時送（AppViewModel.cs:1554／1681、
      RegisterModule.cs:36、ModelFileModule.cs:236）。EN01 .model 沒有 EESEL 狀態暫存器 ⇒ 網頁比照：
      全站共用一個「ROM 類型：EEPROM／Flash」設定（v1.2.1 起名稱同瑞鼎 UI；Bruce 2026-10-23「可以」）（localStorage tcon.romType，預設 eeprom＝瑞鼎 UI 預設）。
-   ・rom＝flash ⇒ open() 與 session() 都**不送** 7E:AB←CD，回 { ok:true, skipped:'flash' }、log 寫原因。
+   ・（v1.2／1.2.1 曾經讓 rom＝flash 時 open()／session() 不送 7E:AB←CD —— v1.2.2 已撤回，見下。）
+   v1.2.2（Bruce 2026-10-23「不要搞得連原本的 I2C 都沒辦法連線」；Dispatch 定案：tcon.romType 不可影響共用連線或辨認，
+     EN01 Flash 的禁止導通只留在 nbdebug「M-Bus → C-Bus 導通」那一項自己檢查）：
+   ・open()／session() 回到 v1.1 行為：不看 ROM 類型，一律照原樣送 7E:AB←CD（i2c、datamap、dg-selftest、TconDetect 都一樣）。
+   ・rom()／setRom()／allowed()／romSelect() 保留，只給 nbdebug 那一項用（nbdebug.html 自己判斷 EN01＋Flash 就不送）。
    ・E503（RM8100x）瑞鼎 UI 只支援 EEPROM（ICDefine.cs:1694）。
    ═══════════════════════════════════════════════════════════════════════════ */
 (function (g) {
@@ -68,9 +72,9 @@
   };
   KEYS['tcon.romLab'] = { 'zh-TW': 'ROM 類型（EN01）', 'en': 'ROM Type (EN01)', 'zh-CN': 'ROM 类型（EN01）' };
   KEYS['tcon.romHint'] = {
-    'zh-TW': 'EEPROM 才下 M-Bus 導通 C-Bus；Flash 不下（全站共用這個設定）。E503 只有 EEPROM。',
-    'en': 'M-Bus to C-Bus is sent only for EEPROM; never for Flash (shared by all pages). E503 is EEPROM only.',
-    'zh-CN': 'EEPROM 才下 M-Bus 导通 C-Bus；Flash 不下（全站共用这个设定）。E503 只有 EEPROM。'
+    'zh-TW': 'EN01 選 Flash 時，「M-Bus → C-Bus 導通」這一項不會下出去（只影響這一項）。E503 只有 EEPROM。',
+    'en': 'With EN01 set to Flash, the "M-Bus → C-Bus" item is not sent (affects this item only). E503 is EEPROM only.',
+    'zh-CN': 'EN01 选 Flash 时，「M-Bus → C-Bus 导通」这一项不会下出去（只影响这一项）。E503 只有 EEPROM。'
   };
   /* ROM 類型（全站共用）：'eeprom'（預設，同瑞鼎 UI）／'flash'。讀不到 localStorage 時用記憶體。 */
   var ROM_KEY = 'tcon.romType', romMem = null;
@@ -103,7 +107,6 @@
 
   async function open(write) {
     var r;
-    if (!allowed()) return { ok: true, skipped: 'flash' };   /* v1.2：Flash 應用不下導通 */
     try { r = await write(CMD.slave, CMD.awid, CMD.addr, CMD.data.slice()); }
     catch (e) { return { ok: false, err: String((e && e.message) || e || 'write failed') }; }
     if (r && r.ok === false) {
@@ -141,12 +144,6 @@
         var gen = st.gen;
         st.pending = (async function () {
           var r;
-          if (!allowed()) {   /* v1.2：Flash 應用不下導通 */
-            var sk = { ok: true, skipped: 'flash' };
-            if (gen === st.gen) { st.open = true; st.last = sk; }
-            if (opts.log) { try { opts.log(sk); } catch (e) {} }
-            return sk;
-          }
           /* autoSending：只在呼叫 send 的同步瞬間為 true（頁面 send 在這一刻把 JSON 交給 WebSocket），
              讓測試夾具分得出「這一筆是自動補的」；送出去的內容與一般 rawwrite 完全相同。 */
           var p;
@@ -173,7 +170,7 @@
   }
 
   g.TconMbus = {
-    VERSION: '1.2.1',
+    VERSION: '1.2.2',
     autoSending: false,
     CMD: CMD,
     LOG: 'W 0x7E:0xAB <- CD (M-Bus to C-Bus)',
