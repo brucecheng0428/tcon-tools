@@ -301,8 +301,22 @@
  *   - **proto 8**：hello／pong 帶 `simul:true`、`jigBusy`／`auxBusy`／`jigLocked`／`auxLocked`（pong 另帶 `path`）。
  *     舊欄位 `busy`／`locked`／`owner` 意義不變（busy／locked ＝ 治具那條路）。
  *   🔴 全部是模擬測試（test/test_server_simul.c），**未在 Windows 實機驗證**。 */
-#define I2C_BRIDGE_VERSION "1.19.0"
-#define I2C_BRIDGE_PROTO   8
+/* ═══ 1.20.0（2026-10-23）══════════════════════════════════════════════════
+ *   Bruce 2026-10-23 原話：「DP AUX 的連線是顯示『已連線』，可是卻辨認不出 TCON」「靠 AUX 應該也要可以讀取
+ *   EEPROM 的資料，也就是靠 I2C over AUX（簡稱 IOA）的方式去讀 0x50 的內容」「我讀 3E 也讀不到任何內容」
+ *   「I2C 的方式不是可以辨別不同的 Tcon 嗎？…AUX 應該也可以去讀 3E 的位置，這樣子就可以用同樣方式去辨別」
+ *   - 實機（AMD 顯示卡、非系統管理員）：DPCD 讀取正常、**DPCD 寫入全部失敗** ⇒ 3E／7C 走的 DPCD 視窗
+ *     （先寫 0x430／0x431 再讀 0x435／0x434）讀不到，辨認全落空；I2C over AUX（7D）有回應。
+ *   - 3E／7C **讀取**改成先走 I2C over AUX（同一個 7-bit slave，先寫 offset 再讀，MOT 關），
+ *     沒 ACK 才退回 DPCD 視窗（open `regpath` 0＝auto 預設、1＝只走 IOA、2＝只走 DPCD 視窗）。寫入路徑不變。
+ *   - EEPROM 0x50–0x57 **讀取**經 I2C over AUX 放行（offset 1 或 2 byte）；**寫入照舊一律擋**。
+ *   - DPCD 寫入失敗的提示不再只限 Intel：非系統管理員一律提示。open 回覆多 `regPath`、`eeRead:true`。
+ *   - **proto 9**（I2C_BRIDGE_PROTO_AUX_IOA）：網頁據此決定 AUX 模式能不能讀 EEPROM。
+ */
+#define I2C_BRIDGE_VERSION "1.20.0"
+#define I2C_BRIDGE_PROTO   9
+/* 🔴 AUX 模式 3E／7C 走 I2C over AUX、EEPROM 可讀（寫仍擋）需要的 proto 下限。 */
+#define I2C_BRIDGE_PROTO_AUX_IOA 9
 /* 🔴 I2C 治具與 DP AUX 同時使用（兩條路各自持有、T-CON 排隊）需要的 proto 下限。 */
 #define I2C_BRIDGE_PROTO_SIMUL 8
 /* 🔴 DP AUX（open mode 4、dpcdread／dpcdwrite／psr）需要的 proto 下限。 */

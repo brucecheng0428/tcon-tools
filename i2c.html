@@ -30,7 +30,7 @@
           出來」。那個前提**早就不成立**：bridge 的靜態檔服務拒絕子資料夾、而且自 v1.7.0
           起預設關閉 —— 詳細依據與行號寫在 body 末端那兩個 <script> 的上面。）
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="common/version.js?v=20261023nbd130"></script>
+<script src="common/version.js?v=20261023ioa137"></script>
 <script src="common/i2c-bridge.js?v=20261023ib103"></script>
 <style>
   * { box-sizing: border-box; }
@@ -1670,7 +1670,7 @@
         頁首那四條宣告是逐字抄過來的，來源行號寫在各自上面。 -->
 <script src="common/i18n.js?v=20261023sim1360"></script>
 <script src="common/i2c-mbus.js?v=20261023mb120"></script>
-<script src="common/i2c-aux.js?v=20261023ax102"></script>
+<script src="common/i2c-aux.js?v=20261023ax120"></script>
 <script src="common/tcon-detect.js?v=20261022td120"></script>
 <script src="common/common.js?v=20261008i2c1341"></script>
 <script src="common/i2c-spiflash.js?v=20261022en01"></script>
@@ -3258,7 +3258,7 @@ function i2ctSyncButtons(){
   var selN = i2ctSelCount();
   var selSegN = selN > 0 ? i2ctSelSegs().length : 0;
   var wn = selN > 0 ? selN : (src.bytes ? src.bytes.length : 0);
-  $('btn-write').disabled = !can || wn <= 0;
+  $('btn-write').disabled = !can || wn <= 0 || i2ctAuxEeRO();   /* v1.37.0：DP AUX 模式 EEPROM 只能讀 */
   /* 🔴 按下去會寫**哪一份、多少**，一起寫在按鈕上（v1.17.1 的寫入目標標示）。
      N 取自**來源本身**（選取優先），不是欄位；目標取自 `src.from`（A／B ＋ 來源）。
      他同時有 A 與 B 時，按鈕不講清楚就只能用猜的 —— 這是正確性資訊。 */
@@ -3320,7 +3320,7 @@ function i2ctSend(obj){ return i2ctMbus().send(obj); }
 function i2ctSendRaw(obj){
   /* v1.35.0：DP AUX ⇒ 只到得了 T-CON；EEPROM 與其他 slave 在送出前擋下（bridge 端也會擋，這裡是第一道）。 */
   if (i2ctXport === 'aux') {
-    var ax = TconAux.check(obj);
+    var ax = TconAux.check(obj, i2ctHelperProto, i2ctHelperVer);   /* v1.37.0：bridge 1.20.0（proto 9）起 EEPROM 可讀（IOA） */
     if (ax) { i2ctLog('✕ ' + ax.msg, 'e'); return Promise.reject(new Error(ax.msg)); }
   }
   return new Promise(function (resolve, reject) {
@@ -3350,7 +3350,7 @@ function i2ctSendLong(obj, onProgress, idleMs){
 function i2ctSendLongRaw(obj, onProgress, idleMs){
   var idle = idleMs || I2CT_TIMEOUT_MS;
   if (i2ctXport === 'aux') {        /* v1.35.0：整批寫入同樣只到得了 T-CON（EEPROM 擋） */
-    var ax = TconAux.check(obj);
+    var ax = TconAux.check(obj, i2ctHelperProto, i2ctHelperVer);
     if (ax) { i2ctLog('✕ ' + ax.msg, 'e'); return Promise.reject(new Error(ax.msg)); }
   }
   return new Promise(function (resolve, reject) {
@@ -3565,7 +3565,8 @@ async function i2ctConnect(takeover){
       if (op.ok && op.aux) {
         i2ctAuxInfo = op;
         i2ctLog('DP AUX: card=' + op.card + ' monitor=' + op.monitor + ' admin=' + op.admin + ' PSR supported=' + op.psrSupported +
-                ' on=' + op.psrOn + (op.psrTurnedOff ? ' (turned off for this session)' : '') + ' T-CON init=' + op.tconInit, 'o');
+                ' on=' + op.psrOn + (op.psrTurnedOff ? ' (turned off for this session)' : '') + ' T-CON init=' + op.tconInit +
+                (op.regPath ? ' 3E/7C read path=' + op.regPath : '') + (op.eeRead ? ' EEPROM read=I2C over AUX' : ''), op.tconInit === false ? 'w' : 'o');
       }
       if (op.ok) { i2ctOpenClockKHz = i2ctClockKHz();   /* v1.32.1：① 常駐顯示「這一次連線用的時脈」（改設定要重連才生效） */
                    i2ctLog(i2ctT('i2c.logChannelOpen', { i: a, ch: op.channels }), 'o'); break; }
@@ -3611,7 +3612,11 @@ async function i2ctConnect(takeover){
     if (i2ctStaleTab) i2ctBanner('topbanner', 'warn', i2ctT('i2c.bnStaleTab'));
     /* v1.35.0：DP AUX 的兩個前提（Intel 官方：AUX 寫入要系統管理員、要先關 PSR）—— 不符合就一行提示。 */
     if (i2ctAuxInfo) {
-      if (i2ctAuxInfo.admin === false && i2ctAuxInfo.card === 'INTEL') i2ctBanner('topbanner', 'warn', TconAux.text('bnAdmin'));
+      i2ctXportApply();   /* v1.37.0：知道 bridge 版本了 ⇒ EEPROM（IOA 讀）與 slave 下拉重算 */
+      /* v1.37.0（實機 2026-10-23：AMD 顯示卡、非系統管理員 ⇒ DPCD 寫入全失敗、tconInit:false，以前畫面只顯示「已連線」）：
+         T-CON 初始化沒成功就一定講，不分顯示卡。 */
+      if (i2ctAuxInfo.tconInit === false) i2ctBanner('topbanner', 'warn', TconAux.text('bnInit', { card: i2ctAuxInfo.card || '?' }));
+      else if (i2ctAuxInfo.admin === false && i2ctAuxInfo.card === 'INTEL') i2ctBanner('topbanner', 'warn', TconAux.text('bnAdmin'));
       else if (i2ctAuxInfo.psrOn === true) i2ctBanner('topbanner', 'warn', TconAux.text('bnPsr'));
     }
     i2ctGotHelper();                 // 連上了 ⇒ 下載鈕收起來（他已經有 I2C and AUX Bridge）
@@ -5322,6 +5327,13 @@ async function i2ctVerifySegOne(slave, wireAwid, base, d, tag, logged){
    單段（`list.length === 1`）時，畫面上的每一句話都與 v1.22.2 逐字相同 ——
    新增的文字只在多段時才會出現。 */
 async function i2ctWriteSegsRun(slave, wireAwid, list, srcLabel){
+  /* v1.37.0：DP AUX 模式 EEPROM 只能讀 —— 在 WP 拉低（會寫 7C）之前就擋，T-CON 一筆都不碰。 */
+  if (i2ctXport === 'aux' && slave >= TconAux.EE_LO && slave <= TconAux.EE_HI) {
+    var axw = TconAux.check({ type: 'rawwrite', slave: slave, awid: wireAwid, addr: 0, data: [0] }, i2ctHelperProto, i2ctHelperVer);
+    var mw = axw ? axw.msg : 'EEPROM write blocked in DP AUX mode';
+    i2ctLog('✕ ' + mw, 'e'); i2ctBanner('topbanner', 'err', mw);
+    return { ok: false, err: mw };
+  }
   i2ctBusy = true; i2ctSyncButtons();
   /* 🔴 新的一次操作 ⇒ 中止旗標歸零。不歸零的話，上一次讀取按過中止留下來的
      `true` 會讓這一次寫入在第一段之後就停 —— 而且完全看不出原因。
@@ -9308,9 +9320,14 @@ function i2ctStepsRender(){
   Array.prototype.forEach.call(document.querySelectorAll('#mode-seg .mseg-b'), function (b) {
     var on = b.getAttribute('data-mode') === mode;
     b.classList.toggle('on', on); b.setAttribute('aria-pressed', on ? 'true' : 'false');
-    var auxEe = (i2ctXport === 'aux' && b.getAttribute('data-mode') === 'ee');   /* v1.35.0：AUX 不能直寫 EEPROM */
+    /* v1.35.0：AUX 不能直寫 EEPROM。v1.37.0：bridge 1.20.0（proto 9）起 AUX 可經 I2C over AUX「讀」EEPROM ⇒ 分段鈕開放，
+       寫入另外擋（i2ctAuxEeRO）。還沒連線、不知道 bridge 版本時先停用，連上 1.20.0 後開放。 */
+    var isEe = b.getAttribute('data-mode') === 'ee';
+    var auxEe = (i2ctXport === 'aux' && isEe && !i2ctAuxEeReadable());
     b.disabled = !!i2ctSfRunning || auxEe;
-    if (auxEe) b.title = TconAux.text('eeOff'); else if (b.getAttribute('data-mode') === 'ee') b.removeAttribute('title');
+    if (auxEe) b.title = TconAux.text('eeOff');
+    else if (isEe && i2ctXport === 'aux') b.title = TconAux.text('eeRO');
+    else if (isEe) b.removeAttribute('title');
   });
   if ($('stp-mode-note')) $('stp-mode-note').textContent = T({ gen: 'i2c.modeGenNote', ee: 'i2c.modeEeNote', sf: 'i2c.modeSfNote' }[mode] || 'i2c.modeGenNote');
   /* v1.34.7：頂部步驟列（common/step-status.js）。三步：連線（i2ctLinked）→ 認出 T-CON（Check T-CON 認出型號）→
@@ -9368,17 +9385,27 @@ function i2ctXportText(){
   sel.options[0].textContent = TconAux.text('jig'); sel.options[1].textContent = TconAux.text('aux');
   sel.title = TconAux.text('tipX');
 }
+/* v1.37.0：AUX 模式能不能讀 EEPROM ＝ 這支 bridge 是 1.20.0（proto 9）以上。版本還不知道（還沒連過）⇒ 先停用，連上後重算。 */
+function i2ctAuxEeReadable(){ return TconAux.eeReadOk(i2ctHelperProto); }
+function i2ctAuxSlaveOk(v){ return TconAux.allowed(v) || (i2ctAuxEeReadable() && v >= TconAux.EE_LO && v <= TconAux.EE_HI); }
+/* v1.37.0：AUX 模式 EEPROM 只能讀 ⇒ 寫入類按鈕停用（slave 在 0x50–0x57 時） */
+function i2ctAuxEeRO(){
+  if (i2ctXport !== 'aux') return false;
+  var si = $('in-slave'), sv = si ? i2ctParseAddr(si.value) : null;
+  var dt = $('in-devtype');
+  return (dt && dt.value === 'ee') || (sv != null && sv >= TconAux.EE_LO && sv <= TconAux.EE_HI);
+}
 function i2ctXportApply(){
   if (i2ctXport !== 'aux') return;
   var dt = $('in-devtype');
-  if (dt && dt.value === 'ee') { dt.value = 'gen'; dt.dispatchEvent(new Event('change')); }
+  if (dt && dt.value === 'ee' && !i2ctAuxEeReadable()) { dt.value = 'gen'; dt.dispatchEvent(new Event('change')); }
   var si = $('in-slave'), sv = si ? i2ctParseAddr(si.value) : null;
-  if (si && !TconAux.allowed(sv)) {
+  if (si && !i2ctAuxSlaveOk(sv)) {
     si.value = '0x3E'; i2ctSlaveSync('s7', true);
     var aw = $('in-awid'); if (aw) { aw.value = '2'; aw.dispatchEvent(new Event('input')); }
   }
   var ss = $('in-slave-sel');
-  if (ss) Array.prototype.forEach.call(ss.options, function (o) { if (o.value) o.disabled = !TconAux.allowed(parseInt(o.value, 16)); });
+  if (ss) Array.prototype.forEach.call(ss.options, function (o) { if (o.value) o.disabled = !i2ctAuxSlaveOk(parseInt(o.value, 16)); });
   i2ctUpdateHints();
 }
 function i2ctXportInit(){

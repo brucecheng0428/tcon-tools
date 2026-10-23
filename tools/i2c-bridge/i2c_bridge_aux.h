@@ -25,6 +25,9 @@
  *                               write = one I2C_Write of offset+data), MOT off
  *                               (RaydiumAuxWrapper.cs AuxIoaRead Intel/NVIDIA branch)
  *
+ * 1.20.0: 0x3E / 0x7C READS go I2C-over-AUX to the same 7-bit slave first (DPCD window only as
+ *         fallback, regPath); EEPROM 0x50..0x57 READ over I2C-over-AUX is allowed, writes blocked.
+ *
  * 🔴 SAFETY (Bruce): only T-CON slaves are reachable in AUX mode. The whitelist is
  *    {0x3E, 0x7C, 0x7D, 0x7E}; everything else -- above all the EEPROM block
  *    0x50..0x57 -- is refused for read AND write, before anything goes on the wire.
@@ -90,7 +93,18 @@ typedef struct {
     PFN_AUX_FreeString      FreeString;
     void (*sleep_ms)(unsigned ms);   /* bridge: Sleep; tests: counter */
     unsigned delayMs;                /* per-access settle time (vendor tool: u16I2cSleepTime=1) */
+    /* 1.20.0: how 0x3E / 0x7C register READS travel (Bruce 2026-10-23: "AUX 應該也可以去讀 3E 的位置，
+       這樣子就可以用同樣方式去辨別是哪一種 Tcon"). DGH_AUX_PATH_AUTO (default) = I2C-over-AUX to the
+       same 7-bit slave first (offset write, then read; no DPCD write needed), DPCD window only if
+       that gets no ACK. */
+    int regPath;
+    int lastPath;                    /* path the last 3E/7C read actually used (DGH_AUX_PATH_IOA / _DPCD) */
 } DGH_AUX_API;
+
+#define DGH_AUX_PATH_AUTO 0
+#define DGH_AUX_PATH_IOA  1
+#define DGH_AUX_PATH_DPCD 2
+static inline const char* dgh_aux_path_name(int p){ return p==DGH_AUX_PATH_IOA?"ioa":p==DGH_AUX_PATH_DPCD?"dpcd":"auto"; }
 
 /* E_GRAPH_CARD (Enums.cs) */
 #define DGH_AUX_CARD_INTEL  0u
@@ -137,10 +151,19 @@ static inline int dgh_aux_dpcd_write_ok(uint32_t addr, uint32_t n){
 /* Fills `err` with the reason an access is refused; returns 1 when it is allowed. */
 static inline int dgh_aux_check(uint32_t slave, uint32_t awid, int isWrite, char* err, size_t ecap){
     uint32_t want;
+    /* 1.20.0 (Bruce 2026-10-23「靠 AUX 應該也要可以讀取 EEPROM 的資料，也就是靠 I2C over AUX 的方式去讀 0x50」):
+       EEPROM 0x50..0x57 READ over I2C-over-AUX is allowed; WRITES stay blocked (Bruce 10-23
+       「不能直接對 eeprom 也寫入」). */
     if(dgh_aux_is_eeprom(slave)){
-        snprintf(err,ecap,"DP AUX mode: slave 0x%02X is an EEPROM address. Direct EEPROM %s is blocked "
-                 "in AUX mode -- the EEPROM may only be reached through the T-CON. Nothing was %s.",
-                 slave, isWrite?"writes are":"access is", isWrite?"written":"read");
+        if(!isWrite){
+            if(awid<1u || awid>2u){
+                snprintf(err,ecap,"DP AUX mode: EEPROM 0x%02X read needs a 1- or 2-byte offset (got awid %u). Nothing was read.", slave, awid);
+                return 0;
+            }
+            return 1;
+        }
+        snprintf(err,ecap,"DP AUX mode: slave 0x%02X is an EEPROM address. Direct EEPROM writes are blocked "
+                 "in AUX mode -- the EEPROM may only be written through the T-CON. Nothing was written.", slave);
         return 0;
     }
     if(!dgh_aux_slave_ok(slave)){
@@ -167,31 +190,13 @@ static inline int dgh_aux_b(int r){ return (r & 0xFF) != 0; }   /* bool = low by
 static inline void dgh_aux_wait(const DGH_AUX_API* a){ if(a->delayMs && a->sleep_ms) a->sleep_ms(a->delayMs); }
 
 /* ---- routing ---------------------------------------------------------- */
-static inline int dgh_aux_reg_read(const DGH_AUX_API* a, uint32_t slave, uint32_t addr, uint32_t awid,
+/* I2C-over-AUX read of any 7-bit slave: write the offset (awid bytes, MSB first), then read,
+   16-byte chunks, offset re-sent per chunk, MOT off (RaydiumAuxWrapper.cs AuxIoaRead Intel/NVIDIA
+   branch). The slave is passed as the 7-bit address, the same number the I2C jig uses. */
+static inline int dgh_aux_ioa_read(const DGH_AUX_API* a, uint32_t slave, uint32_t addr, uint32_t awid,
                                    uint32_t len, uint8_t* out, uint32_t* got, char* err, size_t ecap){
     uint32_t i;
     *got = 0;
-    if(!dgh_aux_check(slave, awid, 0, err, ecap)) return 0;
-    if(slave==0x3Eu){
-        for(i=0;i<len;i++){
-            uint32_t r = (addr + i) & 0xFFFFu;
-            unsigned char ab[2] = { (unsigned char)(r>>8), (unsigned char)(r&0xFF) };
-            if(!dgh_aux_b(a->DpcdWrite(2, 0x430, ab))){ snprintf(err,ecap,"AUX DPCD_Write 0x430 failed (3E:%04X)", r); return 0; }
-            if(!dgh_aux_b(a->DpcdRead(1, 0x435, &out[i]))){ snprintf(err,ecap,"AUX DPCD_Read 0x435 failed (3E:%04X)", r); return 0; }
-            dgh_aux_wait(a); (*got)++;
-        }
-        return 1;
-    }
-    if(slave==0x7Cu){
-        for(i=0;i<len;i++){
-            unsigned char o = (unsigned char)((addr + i) & 0xFF);
-            if(!dgh_aux_b(a->DpcdWrite(1, 0x431, &o))){ snprintf(err,ecap,"AUX DPCD_Write 0x431 failed (7C:%02X)", o); return 0; }
-            if(!dgh_aux_b(a->DpcdRead(1, 0x434, &out[i]))){ snprintf(err,ecap,"AUX DPCD_Read 0x434 failed (7C:%02X)", o); return 0; }
-            dgh_aux_wait(a); (*got)++;
-        }
-        return 1;
-    }
-    /* 0x7D / 0x7E : I2C-over-AUX, 16-byte chunks, offset re-sent per chunk */
     for(i=0;i<len;){
         uint32_t n = len - i; unsigned char ob[4]; uint32_t k, off = addr + i;
         if(n > DGH_AUX_CHUNK) n = DGH_AUX_CHUNK;
@@ -203,6 +208,68 @@ static inline int dgh_aux_reg_read(const DGH_AUX_API* a, uint32_t slave, uint32_
         i += n; *got = i;
     }
     return 1;
+}
+
+static inline int dgh_aux_reg_read(const DGH_AUX_API* a, uint32_t slave, uint32_t addr, uint32_t awid,
+                                   uint32_t len, uint8_t* out, uint32_t* got, char* err, size_t ecap){
+    uint32_t i;
+    *got = 0;
+    if(!dgh_aux_check(slave, awid, 0, err, ecap)) return 0;
+    if((slave==0x3Eu || slave==0x7Cu) && a->regPath != DGH_AUX_PATH_DPCD){
+        char e1[200] = "";
+        ((DGH_AUX_API*)a)->lastPath = DGH_AUX_PATH_IOA;
+        if(dgh_aux_ioa_read(a, slave, addr, awid, len, out, got, e1, sizeof(e1))) return 1;
+        if(a->regPath == DGH_AUX_PATH_IOA){ snprintf(err,ecap,"%s", e1); return 0; }
+        *got = 0;   /* AUTO: fall back to the vendor DPCD window below */
+        if(len){ /* keep the IOA reason in front of a DPCD failure */ }
+        ((DGH_AUX_API*)a)->lastPath = DGH_AUX_PATH_DPCD;
+        {   int ok = 0;
+            char e2[200] = "";
+            /* run the window path; on failure report both */
+            if(slave==0x3Eu){
+                for(i=0;i<len;i++){
+                    uint32_t r = (addr + i) & 0xFFFFu;
+                    unsigned char ab[2] = { (unsigned char)(r>>8), (unsigned char)(r&0xFF) };
+                    if(!dgh_aux_b(a->DpcdWrite(2, 0x430, ab))){ snprintf(e2,sizeof(e2),"DPCD window: DPCD_Write 0x430 failed (3E:%04X)", r); break; }
+                    if(!dgh_aux_b(a->DpcdRead(1, 0x435, &out[i]))){ snprintf(e2,sizeof(e2),"DPCD window: DPCD_Read 0x435 failed (3E:%04X)", r); break; }
+                    dgh_aux_wait(a); (*got)++;
+                }
+            } else {
+                for(i=0;i<len;i++){
+                    unsigned char o = (unsigned char)((addr + i) & 0xFF);
+                    if(!dgh_aux_b(a->DpcdWrite(1, 0x431, &o))){ snprintf(e2,sizeof(e2),"DPCD window: DPCD_Write 0x431 failed (7C:%02X)", o); break; }
+                    if(!dgh_aux_b(a->DpcdRead(1, 0x434, &out[i]))){ snprintf(e2,sizeof(e2),"DPCD window: DPCD_Read 0x434 failed (7C:%02X)", o); break; }
+                    dgh_aux_wait(a); (*got)++;
+                }
+            }
+            ok = (*got == len);
+            if(!ok) snprintf(err,ecap,"I2C over AUX: %s; %s", e1, e2);
+            return ok;
+        }
+    }
+    if(slave==0x3Eu){
+        ((DGH_AUX_API*)a)->lastPath = DGH_AUX_PATH_DPCD;
+        for(i=0;i<len;i++){
+            uint32_t r = (addr + i) & 0xFFFFu;
+            unsigned char ab[2] = { (unsigned char)(r>>8), (unsigned char)(r&0xFF) };
+            if(!dgh_aux_b(a->DpcdWrite(2, 0x430, ab))){ snprintf(err,ecap,"AUX DPCD_Write 0x430 failed (3E:%04X)", r); return 0; }
+            if(!dgh_aux_b(a->DpcdRead(1, 0x435, &out[i]))){ snprintf(err,ecap,"AUX DPCD_Read 0x435 failed (3E:%04X)", r); return 0; }
+            dgh_aux_wait(a); (*got)++;
+        }
+        return 1;
+    }
+    if(slave==0x7Cu){
+        ((DGH_AUX_API*)a)->lastPath = DGH_AUX_PATH_DPCD;
+        for(i=0;i<len;i++){
+            unsigned char o = (unsigned char)((addr + i) & 0xFF);
+            if(!dgh_aux_b(a->DpcdWrite(1, 0x431, &o))){ snprintf(err,ecap,"AUX DPCD_Write 0x431 failed (7C:%02X)", o); return 0; }
+            if(!dgh_aux_b(a->DpcdRead(1, 0x434, &out[i]))){ snprintf(err,ecap,"AUX DPCD_Read 0x434 failed (7C:%02X)", o); return 0; }
+            dgh_aux_wait(a); (*got)++;
+        }
+        return 1;
+    }
+    /* 0x7D / 0x7E / EEPROM 0x50..0x57 (read only): I2C-over-AUX */
+    return dgh_aux_ioa_read(a, slave, addr, awid, len, out, got, err, ecap);
 }
 static inline int dgh_aux_reg_write(const DGH_AUX_API* a, uint32_t slave, uint32_t addr, uint32_t awid,
                                     const uint8_t* data, uint32_t len, uint32_t* done, char* err, size_t ecap){

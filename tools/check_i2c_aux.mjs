@@ -62,14 +62,18 @@ const FAKE = (opt) => {
     ws.send = (s) => {
       const m = JSON.parse(s); msgs.push({ t: m.type, s: m.slave, a: m.addr, d: m.data, aw: m.awid, n: m.len, mode: m.mode });
       const r = { id: m.id, ok: true, type: 'result', cmd: m.type };
-      if (m.type === 'ping') Object.assign(r, { type: 'pong', helper: opt.proto >= 7 ? '1.18.0' : '1.17.0', proto: opt.proto, busy: false });
+      if (m.type === 'ping') Object.assign(r, { type: 'pong', helper: opt.proto >= 9 ? '1.20.0' : opt.proto >= 7 ? '1.18.0' : '1.17.0', proto: opt.proto, busy: false });
       if (m.type === 'open') {
         aux = (m.mode === 4);
-        if (aux) Object.assign(r, { channels: 1, aux: true, card: opt.card || 'INTEL', monitor: 2, projic: 1, admin: opt.admin !== false, psrSupported: true, psrOn: false, psrTurnedOff: true, tconInit: true });
+        if (aux) Object.assign(r, { channels: 1, aux: true, card: opt.card || 'INTEL', monitor: 2, projic: 1, admin: opt.admin !== false, psrSupported: true, psrOn: false, psrTurnedOff: true, tconInit: opt.tconInit !== false },
+                               opt.proto >= 9 ? { regPath: 'auto', eeRead: true } : {});
         else Object.assign(r, { channels: 1 });
       }
       if (['read', 'rawwrite', 'write', 'batchwrite'].includes(m.type)) {
         if (m.slave >= 0x50 && m.slave <= 0x57) { window.__ee.push(m.type); }
+        /* bridge 1.20.0（proto 9）：AUX 模式 EEPROM 只放行 read（I2C over AUX），寫入擋 */
+        const eeRd = aux && opt.proto >= 9 && m.type === 'read' && m.slave >= 0x50 && m.slave <= 0x57;
+        if (eeRd) { r.data = []; const ed = [0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x51, 0xA1]; for (let i = 0; i < (m.len || 1); i++) r.data.push(ed[m.addr + i] ?? 0x5A); r.want = m.len; r.got = m.len; return reply(ws, r); }
         if (aux && ![0x3E, 0x7C, 0x7D, 0x7E].includes(m.slave)) { Object.assign(r, { ok: false, err: 'DP AUX mode: not a T-CON slave' }); return reply(ws, r); }
         if (!aux && [0x60, 0x61, 0x68, 0x69].includes(m.slave)) { Object.assign(r, { ok: false, err: 'NACK', status: 2 }); return reply(ws, r); }
       }
@@ -185,6 +189,56 @@ try {
     const bn = await page.$eval('#topbanner', e => e.textContent).catch(() => '');
     check('提示用系統管理員執行', /以系統管理員身分執行/.test(bn), bn.slice(0, 120));
     check('連線資訊寫「不是系統管理員」', /不是系統管理員/.test(await page.$eval('#conn-info', e => e.textContent)));
+    check('沒有 JS 錯誤', errs.length === 0, errs.join(' | ').slice(0, 300));
+    await ctx.close();
+  }
+  console.log('E. bridge 1.20.0（proto 9）：AMD、非系統管理員、T-CON init 失敗；IOA 讀 EEPROM 0x50、寫入仍擋；Flash 不下 M-Bus');
+  {
+    const { ctx, page, errs } = await open({ proto: 9, card: 'AMD', admin: false, tconInit: false });
+    await page.evaluate(() => { try { TconMbus.setRom('flash'); } catch (e) {} });
+    await page.selectOption('#in-xport', 'aux');
+    await page.click('#btn-link'); await waitFor(page, () => i2ctLinked === true);
+    const bn = await page.$eval('#topbanner', e => e.textContent).catch(() => '');
+    check('AMD＋T-CON init 失敗 ⇒ 橫幅講 T-CON 初始化沒成功＋系統管理員', /T-CON 初始化沒成功/.test(bn) && /AMD/.test(bn) && /系統管理員/.test(bn), bn.slice(0, 160));
+    check('連上 1.20.0 ⇒ EEPROM 分段鈕開放', !(await page.$eval('#mode-seg [data-mode="ee"]', b => b.disabled)));
+    check('連上 1.20.0 ⇒ slave 下拉 0x50 開放', !(await page.$eval('#in-slave-sel option[value="0x50"]', o => o.disabled)));
+    await page.evaluate(() => i2ctCheckTconRun());
+    const ident = await page.evaluate(() => i2ctCkResult ? i2ctCkResult.name : 'none');
+    check('Check T-CON（AUX，同一份 TconDetect）認成 EN01', /^EN01/.test(ident), ident);
+    const bus0 = await page.evaluate(() => window.__msgs.filter(m => ['read', 'rawwrite', 'write', 'batchwrite'].includes(m.t)));
+    check('儲存＝Flash ⇒ 整段沒送 7E:AB←CD', !bus0.some(m => m.s === 0x7E && m.a === 0xAB), JSON.stringify(bus0.slice(0, 3)));
+    check('辨認序列與 I2C 路徑相同：7C:95 → 7C:98 → 3E:207E', bus0.length >= 3 && bus0[0].s === 0x7C && bus0[0].a === 0x95 && bus0[1].s === 0x7C && bus0[1].a === 0x98 && bus0[2].s === 0x3E && bus0[2].a === 0x207E, JSON.stringify(bus0.slice(0, 3)));
+    const rd = await page.evaluate(() => i2ctDoRead(0x50, 2, 0, 8, true));
+    const rb = (rd && (rd.bytes || rd.data)) || [];
+    check('IOA 讀 EEPROM 0x50（2-byte offset）拿到 EDID 開頭 00 FF FF FF FF FF FF 00', rd && rd.ok !== false && JSON.stringify(Array.from(rb).slice(0, 8)) === '[0,255,255,255,255,255,255,0]', JSON.stringify(rd).slice(0, 140));
+    const n0 = await page.evaluate(() => window.__msgs.length);
+    const e1 = await page.evaluate(() => i2ctDoWrite(0x50, 2, 0, [1]));
+    check('🔴 寫 EEPROM 0x50 仍擋（訊息：只能讀）', e1 && e1.ok === false && /只能讀/.test(e1.err), JSON.stringify(e1));
+    const e3 = await page.evaluate(() => i2ctWriteSegsRun(0x50, 2, [{ addr: 0, data: [1, 2] }], 'test').catch(e => ({ ok: false, err: String(e.message) })));
+    check('🔴 整批寫入 EEPROM 在 WP 拉低之前就擋', e3 && e3.ok === false, JSON.stringify(e3).slice(0, 120));
+    const after = await page.evaluate((n) => window.__msgs.slice(n).filter(m => ['read', 'rawwrite', 'write', 'batchwrite'].includes(m.t)), n0);
+    check('🔴 寫入那幾筆一則都沒送（含 7C WP）', after.length === 0, JSON.stringify(after).slice(0, 200));
+    const eeW = await page.evaluate(() => window.__ee.filter(t => t !== 'read').length);
+    check('🔴 bridge 沒收到任何 EEPROM 寫入', eeW === 0, String(eeW));
+    await page.click('#mode-seg [data-mode="ee"]'); await sleep(200);
+    check('EEPROM 模式下寫入鈕停用（AUX 只能讀）', await page.$eval('#btn-write', b => b.disabled));
+    const tip = await page.$eval('#mode-seg [data-mode="ee"]', b => b.title);
+    check('EEPROM 鈕提示「只能讀」', /只能讀/.test(tip), tip);
+    if (SHOTS) await page.screenshot({ path: SHOTS + '/aux_ioa_1280.png', fullPage: false });
+    check('沒有 JS 錯誤', errs.length === 0, errs.join(' | ').slice(0, 300));
+    await ctx.close();
+  }
+  console.log('E2. 375 寬：proto 9 EEPROM 分段鈕可按、不破版');
+  {
+    const { ctx, page, errs } = await open({ proto: 9, card: 'AMD' }, 375);
+    await page.selectOption('#in-xport', 'aux');
+    await page.click('#btn-link'); await waitFor(page, () => i2ctLinked === true);
+    await page.click('#mode-seg [data-mode="ee"]'); await sleep(200);
+    check('375：切到 EEPROM 模式', await page.$eval('#in-devtype', e => e.value) === 'ee');
+    const ov = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    check('375：沒有水平捲動', ov <= 1, 'overflow ' + ov);
+    const cov = await page.evaluate(() => { const b = document.getElementById('btn-read'); b.scrollIntoView({ block: 'center' }); const r = b.getBoundingClientRect(); const el = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return el === b || b.contains(el) ? '' : (el && el.className); });
+    check('375：讀取鈕沒有被步驟列或其他東西蓋住', cov === '', cov);
     check('沒有 JS 錯誤', errs.length === 0, errs.join(' | ').slice(0, 300));
     await ctx.close();
   }

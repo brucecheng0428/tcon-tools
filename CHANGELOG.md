@@ -2,6 +2,42 @@
 
 ---
 
+## I2C 讀寫測試 (i2c) v1.37.0 — 2026-10-23 ｜ MINOR ｜ DP AUX：3E／7C 讀取改走 I2C over AUX（同一份 T-CON 辨認）、EEPROM 0x50 可經 I2C over AUX 讀（寫照舊擋）＋ I2C and AUX Bridge 1.20.0（proto 9）
+
+判定依據：`docs/VERSIONING.md` R3「使用者真的多能做一件事 → MINOR」：DP AUX 模式多了「讀 EEPROM」。I2C 治具路徑完全不變；DP AUX 的寫入規則不變 ⇒ 不是 MAJOR。
+
+### 需求（Bruce 2026-10-23 13:5x）
+
+「DP AUX 的連線是顯示『已連線』，可是卻辨認不出 TCON。請確認問題在哪裡。另外，我靠 AUX 應該也要可以讀取 EEPROM 的資料，也就是靠 I2C over AUX（簡稱 IOA）的方式去讀 0x50 的內容，可是現在第三步卻把我這一步給遮住了。我讀 3E 也讀不到任何內容，請修正這些問題。」
+補充：「I2C 的方式不是可以辨別不同的 Tcon 嗎？它辨別的方式應該也是在 slave address 3E 的位置吧。那 AUX 應該也可以去讀 3E 的位置，這樣子就可以用同樣方式去辨別是哪一種 Tcon，不是嗎？」
+
+### 實機看到的（Windows 測試機，AMD 顯示卡，bridge 1.19.0 非系統管理員，只讀）
+
+- AUX open 成功（所以顯示「已連線」），但回 `tconInit:false`、PSR 關不掉。
+- DPCD 讀取正常（000h＝14…，400h sink OUI＝38 EC 11），**DPCD 寫入全部失敗**。
+- bridge 1.19.0 讀 3E／7C 走 DPCD 視窗：每讀 1 byte 都要先寫 DPCD 0x430／0x431 ⇒ 全部失敗 ⇒ 7C:95、7C:98、3E:207E 都讀不到 ⇒ 認不出 T-CON、讀 3E 沒有內容。
+- I2C over AUX（先寫 offset 再讀）對 7D 有回應。
+- 網頁只在 Intel 顯示卡時提示「要系統管理員」，AMD 沒提示；`tconInit:false` 也沒顯示。
+- EEPROM 0x50–0x57 在 DP AUX 模式讀寫都擋、第 ③ 步的 EEPROM 分段鈕停用 ⇒ 用不了 I2C over AUX 讀 0x50。
+
+### 改了什麼
+
+- **bridge 1.20.0（proto 9）**`tools/i2c-bridge/i2c_bridge_aux.h`：
+  - 3E／7C **讀取**先走 I2C over AUX：同一個 7-bit slave（與 I2C 治具相同的位址），先寫 offset（2／1 byte，MSB 先）再讀，MOT 關，每段 ≤16 byte。沒 ACK 才退回原本的 DPCD 視窗，兩條都失敗時錯誤訊息把兩個原因都寫出來。open 可帶 `regpath`（0 自動／1 只 I2C over AUX／2 只 DPCD 視窗）。寫入路徑不變。
+  - EEPROM 0x50–0x57 **讀取**經 I2C over AUX 放行（offset 1 或 2 byte）；**寫入照舊一律擋**（read 以外的 rawwrite／write／batchwrite）。
+  - DPCD 寫入失敗的提示不再只限 Intel；open 回覆多 `regPath`、`eeRead:true`；log 每筆 AUX 讀取寫出走哪條路。
+  - 下載包 `data/i2c-aux-bridge-v1.20.0.zip`（四支 DLL 從 v1.19.0 原樣搬，SHA 相同；exe PE32 i386 373,248 bytes）。舊包保留。
+- **i2c.html v1.37.0**＋`common/i2c-aux.js` 1.2：
+  - 辨認沒有另寫一份：Check T-CON 仍是 `common/tcon-detect.js`，AUX 送出和 I2C 治具同樣的讀取序列（7C:95 → 7C:98 → 3E:207E → 7D:007D），差別只在 bridge 怎麼送。
+  - 連上 1.20.0 以上：DP AUX 模式 EEPROM 分段鈕開放、slave 下拉 0x50–0x57 開放，**只能讀**（寫入鈕停用、提示「只能讀」）；EEPROM 寫入在拉低 WP（會寫 7C）之前就擋，一筆都不送。舊 bridge 照舊擋，並說要 1.20.0。
+  - T-CON 初始化沒成功（`tconInit:false`）時，不分顯示卡都掛提示：讀取會走 I2C over AUX；要寫入 T-CON 請以系統管理員執行 bridge。
+- `common/version.js`：i2c v1.37.0、HELPER_PKG 1.20.0／proto 9；引用頁 cache buster 一起換。
+
+### 測試（模擬；新 bridge 的實機結果見下一條補記）
+
+- bridge：test_aux 50/0（新增 IOA 優先、退回 DPCD、只 IOA、EEPROM 讀放行／寫擋）、test_server_aux 66/0、test_server 270/0、test_server_simul 88/0、test_proto 250/0、test_vendor_len 43/0、test_ackguard 32/0（test_wait 一個計時上界在未修改的原始碼上同樣失敗，與本次無關）。
+- 網頁：check_i2c_aux 60/0（新增 E：proto 9、AMD、init 失敗、Flash 不下 M-Bus、辨認序列同 I2C、IOA 讀 0x50、寫入一筆都沒送；E2：375 寬讀取鈕沒被蓋）、check_i2c_simul 41/0、check_i2c_pages 51/0、check_i2c_pages_sim 38/0、check_i2c_mbus_rom 11/0、check_tcon_detect 37/0、check_i2c_bridge_ui 38/0、i2c_spiflash_selftest 573/0、check_nbdebug 884/0、check_datamap_boe 100/0、cache buster ok。check_no_names／check_no_verif_labels 的 wfg.html 項目在未修改的 origin/main 上相同（既有）。
+
 ## NB TCON Debug應用 (nbdebug) v1.3.0 — 2026-10-23 ｜ MINOR ｜ 項目新增「M-Bus → C-Bus 導通」（EN01、E503），選了按「I2C 執行」就下出去，表上註明單向；EN01 Flash 應用不可導通（common/i2c-mbus.js 1.2 全站生效）
 
 判定依據：`docs/VERSIONING.md` R3「使用者真的多能做一件事 → MINOR」：多一個可以直接下的項目。既有項目的暫存器序列、預設值、匯出內容都不變 ⇒ 不是 MAJOR，不帶 ⚠ 輸出變更。
