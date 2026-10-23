@@ -338,7 +338,7 @@ function baseScript(f) {
     /* 🔴 Bruce 2026-09-19：「但是網頁上是沒辦法秀出這個版本是多少」。
        版本看不到 ⇒ 他和我們都無法確認他在跑哪一版，已經因此多繞一圈。
        標題列那一格必須真的有字，不能只是變數裡有值。 */
-    CHECK(/I2C Bridge \d+\.\d+\.\d+ · proto \d/.test(doc.getElementById('helperinfo').textContent),
+    CHECK(/I2C and AUX Bridge \d+\.\d+\.\d+ · proto \d/.test(doc.getElementById('helperinfo').textContent),
       '🔴 標題列顯示 Bridge 版本：「' + doc.getElementById('helperinfo').textContent + '」');
     CHECK(/^\d+\.\d+\.\d+$/.test(doc.getElementById('hv-exe').textContent),
       '🔴 診斷列也顯示版本：「' + doc.getElementById('hv-exe').textContent + '」');
@@ -603,7 +603,7 @@ function baseScript(f) {
     EQ(A.PKG, V, '🔴 頁面用的就是 HELPER_PKG 本體（不是複製一份）');
     CHECK(/^[0-9a-f]{64}$/.test(V.zipSha), 'zipSha 是 64 碼 hex：' + V.zipSha);
     CHECK(/^[0-9a-f]{64}$/.test(V.exeSha), 'exeSha 是 64 碼 hex：' + V.exeSha);
-    CHECK(V.file === 'data/i2c-bridge-' + V.pkg + '.zip', '🔴 檔名與包版本一致：' + V.file);
+    CHECK(V.file === 'data/i2c-aux-bridge-' + V.pkg + '.zip', '🔴 檔名與包版本一致：' + V.file);
     CHECK(V.bytes > 0, 'zip 大小有填：' + V.bytes);
     /* 🔴 pkg（zip 版本）與 exe（執行檔自報版本）是兩個欄位，畫面兩個都要顯示 ——
        歷史上 v1.3.0/1/2 三包的 exe 都是 1.3.0，只顯示一個就會看起來像 bug。 */
@@ -2125,7 +2125,7 @@ function baseScript(f) {
   }
 
   /* ═════════════════════════════════════════════════════════════════════ */
-  G('28. 改名：使用者看到的是「I2C Bridge」，不再是「helper」');
+  G('28. 改名：使用者看到的是「I2C and AUX Bridge」，不再是「helper」');
   {
     /* 🔴 Bruce 2026-09-18：「helper 的字樣是不是其實不夠貼切？它的功能應該是
        I2C 的 bridge…用一個使用者一看就知道它在做什麼功能的字樣」。 */
@@ -2134,13 +2134,13 @@ function baseScript(f) {
       .filter(e => { const cs = win.getComputedStyle(e); return cs.display !== 'none'; })
       .map(e => Array.from(e.childNodes).filter(n => n.nodeType === 3).map(n => n.nodeValue).join(''))
       .join(' ');
-    A.setDebug(true); A.needHelper('連不到 I2C Bridge');
+    A.setDebug(true); A.needHelper('連不到 I2C and AUX Bridge');
     const t = vis();
     CHECK(!/helper/i.test(t), '🔴 畫面上（含 debug 區、下載鈕）一個 helper 都沒有');
-    CHECK(/I2C Bridge/.test(t), '🔴 改稱 I2C Bridge：' + (t.match(/.{0,12}I2C Bridge.{0,12}/) || [''])[0]);
-    CHECK(doc.getElementById('dl').textContent.indexOf('I2C Bridge') >= 0,
+    CHECK(/I2C and AUX Bridge/.test(t), '🔴 改稱 I2C and AUX Bridge：' + (t.match(/.{0,12}I2C and AUX Bridge.{0,12}/) || [''])[0]);
+    CHECK(doc.getElementById('dl').textContent.indexOf('I2C and AUX Bridge') >= 0,
       '🔴 下載鈕：' + doc.getElementById('dl').textContent.trim());
-    CHECK(/i2c-bridge-v/.test(win.HELPER_PKG.file), '🔴 zip 檔名改了：' + win.HELPER_PKG.file);
+    CHECK(/i2c(-aux)?-bridge-v/.test(win.HELPER_PKG.file), '🔴 zip 檔名改了：' + win.HELPER_PKG.file);
     CHECK(!/dg-helper/.test(doc.documentElement.outerHTML), '🔴 整頁原始碼裡沒有 dg-helper 字樣');
     A.setDebug(false); A.gotHelper();
   }

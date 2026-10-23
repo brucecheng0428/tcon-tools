@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /* ═══════════════════════════════════════════════════════════════════════════
-   check_i2c_pages_sim.mjs — 每個 I2C 頁用模擬 I2C（假 I2C Bridge WebSocket）實際跑一遍：
+   check_i2c_pages_sim.mjs — 每個 I2C 頁用模擬 I2C（假 I2C and AUX Bridge WebSocket）實際跑一遍：
      ① 連線後第一筆碰 I2C 的訊息一定是 M-Bus 導通 C-Bus（rawwrite 0x7E:0xAB ← CD），而且只送一次
      ② 板子是 EN01 ⇒ 頁面認成 EN01（不會是 DAZ6138／6139）；MNT 板子（沒有 0x7E，NACK）照常認得、照常讀寫
    Bruce 2026-10-22：「所有用到 I2C 的網頁都應該要修正喔，你有做到嗎？」（聊天室派工 238973630923444224）

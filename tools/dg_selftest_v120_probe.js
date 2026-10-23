@@ -40,7 +40,7 @@ function inline(file) {
 }
 const ORIGIN = 'https://example.invalid';
 
-/* ═══ 假的 I2C Bridge（做法沿用 tools/dg_selftest_i2c.js，不另寫一套）═══════ */
+/* ═══ 假的 I2C and AUX Bridge（做法沿用 tools/dg_selftest_i2c.js，不另寫一套）═══════ */
 function makeFakeWs(readMap) {
   const wires = [], writes = [];
   const ws = {

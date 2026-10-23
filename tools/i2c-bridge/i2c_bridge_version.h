@@ -278,7 +278,15 @@
  *   - 多一個 mode 與三個命令 ⇒ **proto 6 → 7**（I2C_BRIDGE_PROTO_AUX）。
  *   - 🔴 未在 Windows 實機驗證：Initial 選卡、AUX 波形、Intel 系統管理員／PSR 行為，
  *     只有 mock DLL 測試（test/test_aux.c、test/test_server_aux.c）。 */
-#define I2C_BRIDGE_VERSION "1.18.0"
+/* ═══ 1.18.1（2026-10-23）══════════════════════════════════════════════════
+ *   - 只改名稱：使用者看得到的「I2C Bridge」改成「I2C and AUX Bridge」（Bruce 2026-10-23
+ *     「這樣子一看就知道可以兩個使用」）：黑視窗標題（新增 SetConsoleTitleA）、狀態橫幅、
+ *     log 開頭、內建入口頁。行為與 wire format 一律未動 ⇒ **proto 維持 7**。
+ *   - 🔴 exe 檔名 `i2c-bridge.exe`、log 檔名 `i2c-bridge.log`、wire 欄位 `helper` **刻意不改**：
+ *     使用者的捷徑、說明頁的步驟、他傳回來的 log 檔名都靠它們；改了只換到相容性問題。
+ *     下載包改名 `data/i2c-aux-bridge-v1.18.1.zip`（舊的 i2c-bridge-v*.zip 全部保留）。
+ */
+#define I2C_BRIDGE_VERSION "1.18.1"
 #define I2C_BRIDGE_PROTO   7
 /* 🔴 DP AUX（open mode 4、dpcdread／dpcdwrite／psr）需要的 proto 下限。 */
 #define I2C_BRIDGE_PROTO_AUX 7
@@ -298,9 +306,10 @@
        1.14.0 的上一個是 **v1.13.0**。 */
 /* 🔴 1.16.0：上一個版本是 **v1.15.1**（1.15.1 時這裡指 v1.15.0）。
    🔴 1.17.0：上一個版本是 **v1.16.0**。 */
-/* 🔴 1.18.0：上一個版本是 **v1.17.0**。 */
+/* 🔴 1.18.0：上一個版本是 **v1.17.0**。
+   🔴 1.18.1：上一個版本是 **v1.18.0**（舊檔名 i2c-bridge-v1.18.0.zip）。 */
 #define I2C_BRIDGE_PREV_PKG \
-    "https://brucecheng0428.github.io/tcon-tools/data/i2c-bridge-v1.17.0.zip"
+    "https://brucecheng0428.github.io/tcon-tools/data/i2c-bridge-v1.18.0.zip"
 /* (2) 「**沒有 ACK 守衛**的那一版」——只出現在 ACK 守衛擋下讀寫時的錯誤訊息裡。
        它的意思不是「上一版」，而是「**這道守衛不存在的那一版**」：使用者若判斷
        是守衛誤殺，他要的是一個不做這個檢查的 exe。

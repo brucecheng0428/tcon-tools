@@ -11,7 +11,7 @@
       那是 DOM 的實際順序與框線結構，jsdom 驗資料流驗不到這一層。
       （這一支用 tools/ui_probe.sh 跑，結果寫進 document.title 由它取回。）
 
-   🔴 這一支自己帶一個假的 I2C Bridge（MockWS ＋ 一塊假 EEPROM 記憶體），
+   🔴 這一支自己帶一個假的 I2C and AUX Bridge（MockWS ＋ 一塊假 EEPROM 記憶體），
       因為「寫入 ⇒ 自動回讀驗證」這條路一定要有裝置回話才走得完，
       而那正是 Bruce 抓到的那個情境。
 
@@ -28,7 +28,7 @@
   window.addEventListener('error', (e) => ERRS.push('error: ' + (e.message || '') + ' @' + (e.lineno || '')));
   window.addEventListener('unhandledrejection', (e) => ERRS.push('rejection: ' + ((e.reason && (e.reason.message || e.reason)) || '')));
 
-  /* ═══ 假 I2C Bridge ══════════════════════════════════════════════════════
+  /* ═══ 假 I2C and AUX Bridge ══════════════════════════════════════════════════════
      🔴 一定要在頁面**自動連線（載入後 250ms）之前**換掉 window.WebSocket。
         這支 probe 是接在頁面後面的 <script>，parse 階段就會跑到這裡 ⇒ 來得及。
      一塊 {slave,addr} → byte 的假記憶體：rawwrite 寫進去、read 讀回來 ⇒
@@ -97,7 +97,7 @@
     try {
       A.eepromAuto('24C32');
       A.abPickAuto('auto');
-      ok('前置：假 I2C Bridge 已連上（寫入才會走到回讀驗證）', A.state().linked === true,
+      ok('前置：假 I2C and AUX Bridge 已連上（寫入才會走到回讀驗證）', A.state().linked === true,
          'linked=' + A.state().linked);
 
       /* ═══ 1. Bruce 的情境：寫入一個會觸發回讀驗證的 EEPROM 檔 ═══════════ */

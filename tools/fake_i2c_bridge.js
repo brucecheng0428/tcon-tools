@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   fake_i2c_bridge.js — 測試用假 I2C Bridge（jsdom 的 window.WebSocket 替身）
+   fake_i2c_bridge.js — 測試用假 I2C and AUX Bridge（jsdom 的 window.WebSocket 替身）
    install(w, mode)：mode＝'none'（沒有 Bridge：連線失敗）／'ok'（Bridge 在、可連線）
    'ok' 時每則請求回 { id, ok:true }；ping 另回 helper／proto；read 回 len 個 0。
    w.__fakeWs＝最後一條連線；.drop() 模擬 Bridge 被關掉（伺服器端斷線）。

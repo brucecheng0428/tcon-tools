@@ -13,7 +13,7 @@ var TOOL_VERSIONS = {
   wfg:     'v4.59.1',     // 面板訊號模擬與取樣
   pattern: 'v3.9.0',       // Pattern Generator 畫面產生器
   dg:      'v2.8.1',       // Digital Gamma 迭代校正（含量測頁 dg-measure.html）
-  i2c:     'v1.35.0',       // I2C（讀寫測試）
+  i2c:     'v1.35.1',       // I2C（讀寫測試）
   nbdebug: 'v1.2.1',        // NB TCON Debug應用（E503／E501A／E501B／EN01 debug 輸出：選 IC、項目、GPIO → I2C 執行或匯出 Excel／.script）
   datamap: 'v1.37.3',       // Data Mapping（Python UI 的內容與規則、站內風格；DAZ／E501／E503／EN01／EM01／EM02／E512）// v1.20.0（Bruce 10/9）：新增 EN01（RM81008，依原廠 WPF RomCodeProcessUI）
   /* 🔴 TCON 自檢畫面量測（dg-selftest.html）。
@@ -27,14 +27,14 @@ var TOOL_VERSIONS = {
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   I2C Bridge 下載包的**單一來源**（2026-09-18）
+   I2C and AUX Bridge 下載包的**單一來源**（2026-09-18）
 
-   🔴 v1.7.0 起這支程式叫 **I2C Bridge**（舊名 helper）。Bruce：「helper 的字樣
+   🔴 v1.7.0 起這支程式叫 **I2C and AUX Bridge**（舊名 helper）。Bruce：「helper 的字樣
       是不是其實不夠貼切？它的功能應該是 I2C 的 bridge」—— 完全正確，它本來就
       不專屬於 dg，而且「helper」沒有告訴任何人它在做什麼。
       變數名 `HELPER_PKG` 與 wire 欄位 `helper` **刻意保留**：前者是內部識別字
       （改了要動兩頁十幾處，對使用者零差別），後者是協定欄位（改了會讓新舊版
-      互接時版本顯示變成 undefined）。使用者看得到的字樣一律是 I2C Bridge。
+      互接時版本顯示變成 undefined）。使用者看得到的字樣一律是 I2C and AUX Bridge。
 
    `dg-measure.html` 與 `i2c.html` 都要顯示下載連結與雜湊。原本只有
    dg-measure 有，而且數字是硬編在那一頁裡 —— 第二頁要用就得複製一份，
@@ -191,11 +191,17 @@ var HELPER_PKG = {
      exe：`file` ⇒ PE32 executable (console) Intel 80386；367,104 bytes；import 多 USER32
      EnumDisplayDevicesA、SHELL32 IsUserAnAdmin。🔴 未在 Windows 實機驗證。
      `data/i2c-bridge-v1.17.0.zip` 與更舊的包一律保留不刪。 */
-  pkg:    'v1.18.0',                      // 下載包（zip）版本 ＝ 檔名
-  exe:    '1.18.0',                       // exe 內的 I2C_BRIDGE_VERSION（ping 回報值）
+  /* 🔴 v1.18.1（2026-10-23，Bruce「I2C bridge 名稱幫我改成 I2C and AUX bridge，這樣子一看就知道
+     可以兩個使用」）：只改名稱（黑視窗標題、狀態橫幅、log 開頭、內建入口頁），行為與 proto 7 不變。
+     下載包改名 **`i2c-aux-bridge-v1.18.1.zip`**；包內 exe 檔名 **`i2c-bridge.exe` 刻意不改**
+     （舊捷徑、說明步驟、log 檔名 i2c-bridge.log 都靠它）。四支 DLL 從 v1.18.0 的包原樣搬過來
+     （SHA 逐一比對相同），只有 exe 換掉：PE32 Intel 80386，367,104 bytes。
+     `data/i2c-bridge-v1.18.0.zip` 與更舊的包一律保留不刪。🔴 未在 Windows 實機驗證。 */
+  pkg:    'v1.18.1',                      // 下載包（zip）版本 ＝ 檔名
+  exe:    '1.18.1',                       // exe 內的 I2C_BRIDGE_VERSION（ping 回報值）
   proto:  7,                             // wire protocol 版本（7 起有 DP AUX）
-  file:   'data/i2c-bridge-v1.18.0.zip',
-  bytes:  556431,                             // zip 位元組數（打包後填）
-  zipSha: 'b8291f9049843f6889ae562c4b2d888e8e23200a3d97893ba12628828f69b2b9',
-  exeSha: '5b27a0ac37715dd806b9659eea43e234202164b2b4652baadc0af4623d6d350b'
+  file:   'data/i2c-aux-bridge-v1.18.1.zip',
+  bytes:  555390,                             // zip 位元組數（打包後填）
+  zipSha: '0695da6432f500e549336e1a35d141b7a01b7d88535e9f29bcff87081c1e4715',
+  exeSha: '5162b80819d672b83f957969a5316eeb37e71bad4f63513481687a918aa8cb35'
 };

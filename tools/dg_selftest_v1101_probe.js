@@ -77,7 +77,7 @@ function fakeWin() {
   return w;
 }
 
-/* ═══ EM01 的假 SRAM ＋ 假 I2C Bridge（與 v1.10.0 夾具同一份，本檔自己持有）═══ */
+/* ═══ EM01 的假 SRAM ＋ 假 I2C and AUX Bridge（與 v1.10.0 夾具同一份，本檔自己持有）═══ */
 const EM01 = { memSlave: 0x58, chSpan: 0x2000, oddOff: 0x1000, group: 4,
                busAddr: 0x00A0, busBit: 5 };
 const AHB = 0x40010000;
@@ -284,7 +284,7 @@ function renderLang(w, lang) {
        它的下一個兄弟不該是別組，而且它必須在治具組的 `.dst-hw` 之後。 */
     const box = doc.getElementById('dst-dl-box');
     const grpB = doc.getElementById('dst-hwgrp-bridge');
-    CHECK(grpB.contains(box), '🔴 下載 I2C Bridge 的整塊入口在「讀寫 I2C 治具」那一組裡');
+    CHECK(grpB.contains(box), '🔴 下載 I2C and AUX Bridge 的整塊入口在「讀寫 I2C 治具」那一組裡');
     CHECK(box.compareDocumentPosition(doc.getElementById('dst-hwgrp-tcon'))
           & 4 /* DOCUMENT_POSITION_FOLLOWING */,
       '🔴 下載入口排在 T-CON 那一組**之前**（＝不是被擠到整張卡最下面）');

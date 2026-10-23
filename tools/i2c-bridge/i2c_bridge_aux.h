@@ -1,7 +1,7 @@
 #ifndef I2C_BRIDGE_AUX_H
 #define I2C_BRIDGE_AUX_H
 /* ===========================================================================
- * i2c_bridge_aux.h -- DP AUX backend for the I2C Bridge (pure part, no Windows)
+ * i2c_bridge_aux.h -- DP AUX backend for the I2C and AUX Bridge (pure part, no Windows)
  * ---------------------------------------------------------------------------
  * Bruce 2026-10-23 (06:44, AUX evaluation report):
  *   "AUX bridge 可以的話跟 i2c bridge 做在一起，用一套轉發就好"

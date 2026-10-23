@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 交叉編譯 I2C Bridge 成 32 位元 Windows exe（machine 0x014c）。
+# 交叉編譯 I2C and AUX Bridge 成 32 位元 Windows exe（machine 0x014c）。
 # 需要 zig（用作 C 交叉編譯器）。本專案用的是 pip 套件 ziglang。
 #
 #   ZIG=/path/to/zig ./build.sh

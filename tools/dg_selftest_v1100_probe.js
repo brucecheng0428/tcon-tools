@@ -80,7 +80,7 @@ function fakeWin() {
   return w;
 }
 
-/* ═══ EM01 的假 SRAM ＋ 假 I2C Bridge（照抄 v1.8.0 夾具那一份）══════════════ */
+/* ═══ EM01 的假 SRAM ＋ 假 I2C and AUX Bridge（照抄 v1.8.0 夾具那一份）══════════════ */
 const EM01 = { memSlave: 0x58, chSpan: 0x2000, oddOff: 0x1000, group: 4,
                busAddr: 0x00A0, busBit: 5, mask: 0x0F00 };
 const AHB = 0x40010000;

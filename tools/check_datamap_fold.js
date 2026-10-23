@@ -91,7 +91,7 @@ async function open(opt) {
   {
     const dom = await open({ bridge: 'none' }); const w = dom.window, d = w.document, $ = id => d.getElementById(id);
     ok($('dm-i2c-top').getAttribute('data-i2c') === 'off' && $('dm-i2c-src').classList.contains('i2cb-off'), '未連線：頁首與 ① 標題列徽章＝灰（off）');
-    ok(zip($('dm-i2c-dl').getAttribute('href')) && !$('dm-i2c-dl').hasAttribute('hidden'), '未連線：「沒有 I2C Bridge？下載」連結指向存在的壓縮包 ' + $('dm-i2c-dl').getAttribute('href'));
+    ok(zip($('dm-i2c-dl').getAttribute('href')) && !$('dm-i2c-dl').hasAttribute('hidden'), '未連線：「沒有 I2C and AUX Bridge？下載」連結指向存在的壓縮包 ' + $('dm-i2c-dl').getAttribute('href'));
     ok($('dm-i2c-need').hasAttribute('hidden'), '還沒按連線：不跳大提示');
     $('dm-link').click(); await sleep(80);
     ok(w.dmI2cState() === 'none' && $('dm-i2c-top').classList.contains('i2cb-none') && $('dm-i2c-src').getAttribute('data-i2c') === 'none', '沒有 Bridge：按連線失敗 ⇒ 徽章紅（none）');

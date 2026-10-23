@@ -17,7 +17,7 @@
       那是按了兩次：第一次取消、第二次選了埠。第 ② 組把這一點釘住。
 
    ═══ Bug 2：`{detail}` 佔位符直接露在畫面上 ═══════════════════════════════
-   截圖：`讀取中斷：{detail}  [I2C Bridge 逾時未回復（read）]`
+   截圖：`讀取中斷：{detail}  [I2C and AUX Bridge 逾時未回復（read）]`
    根因：`dstT(dstLutErr.stepKey)` 沒有帶第二個參數，`t()` 只在有 vars 時才替換。
    🔴 這一支是**七個** key 的唯一出口（lutErrNoSpec／Bus／Data／Depth／Mode／
       ModeNotDg／Step），模板全部含 `{detail}` ⇒ 七條訊息都在漏，不只他踩到那一條。
@@ -79,7 +79,7 @@ async function load(opts) {
   return { dom, w, doc: w.document, P, errs };
 }
 
-/* ═══ 假的 I2C Bridge（只要「連上了」這件事，不必真的讀寫）════════════════ */
+/* ═══ 假的 I2C and AUX Bridge（只要「連上了」這件事，不必真的讀寫）════════════════ */
 function makeBridge(regs) {
   regs = regs || {};
   const ws = {

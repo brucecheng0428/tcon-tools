@@ -19,7 +19,7 @@ python3 tests/dgself/run.py --list      # 列出情境與網址參數
 
 - `<head>` 最前面：`<base href>` 指回 repo（common/*.js 照常載入）＋ `lib/pre.js`
   （收集 JS 錯誤；`__asFromDg` 時假裝由 DG 開啟：假 `window.opener`、可控的分頁可見度）。
-- 頁面最後那個 IIFE 的結尾：`lib/fake_hw.js`（假 I2C Bridge、假量測儀、`__arm()`、斷言工具）＋ 情境腳本。
+- 頁面最後那個 IIFE 的結尾：`lib/fake_hw.js`（假 I2C and AUX Bridge、假量測儀、`__arm()`、斷言工具）＋ 情境腳本。
   放在 IIFE 裡面才碰得到頁面自己的函式與變數。
 
 再用 Chrome DevTools Protocol 打開，等 `<pre id="__out">` 出現後讀結果。任何 FAIL、JS 錯誤、逾時都算失敗。

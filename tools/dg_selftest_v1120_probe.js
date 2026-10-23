@@ -176,7 +176,7 @@ async function dgCalc(win, doc, outbit) {
     /* 那一行仍然講得出「什麼時候要點它」 */
     const sum = doc.querySelector('[data-i18n="dst.scSum"]').textContent;
     CHECK(/連不上/.test(sum), '🔴 改寫後先講「什麼時候要點」（連不上）', sum);
-    CHECK(/I2C Bridge/.test(sum), '🔴 講的是畫面上那支程式的名字（他按得到的那顆下載鈕上就印著）', sum);
+    CHECK(/I2C and AUX Bridge/.test(sum), '🔴 講的是畫面上那支程式的名字（他按得到的那顆下載鈕上就印著）', sum);
     /* 三語都改到 */
     LANGS.forEach(L => {
       const v = P.i18nValues('dst.scSum');
@@ -408,7 +408,7 @@ async function dgCalc(win, doc, outbit) {
           ⇒ 藍色從頭到尾黏在 ②。這裡釘的就是**那一格**：帶著 `step=gray` 進來、
           一步都沒做的時候，藍色必須在 ①，而不是 ②。
        🔴 「①做完才輪到②③」「全完成一列都不藍」那兩格需要真的跑完 ① 讀回 LUT
-          （要假 I2C Bridge），釘在 `tools/dg_selftest_v180_probe.js` 的第 ②-cur
+          （要假 I2C and AUX Bridge），釘在 `tools/dg_selftest_v180_probe.js` 的第 ②-cur
           組 —— 那一支本來就有 bridge 夾具，不在這裡複製第二份。 */
     const opener = fakeWin();
     const { P } = await loadSelf({ opener, qs: '?task=10&step=gray' });
@@ -719,7 +719,7 @@ async function dgCalc(win, doc, outbit) {
   }
   /* MB：把「黑視窗」寫回去 ⇒ B 那條必須紅 */
   {
-    const orig = "I18N['dst.scSum']     = { 'zh-TW': '連不上？看 I2C Bridge 視窗最後一行的英文字母'";
+    const orig = "I18N['dst.scSum']     = { 'zh-TW': '連不上？看 I2C and AUX Bridge 視窗最後一行的英文字母'";
     CHECK(SELF_SRC.indexOf(orig) > 0, 'MB：找得到改寫後的那一句');
     const mut = SELF_SRC.replace(orig, "I18N['dst.scSum']     = { 'zh-TW': '黑視窗最後印的那個字母是什麼意思？'");
     const { P } = await loadSelf({ src: mut, opener: null });

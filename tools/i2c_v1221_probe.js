@@ -11,7 +11,7 @@
       getComputedStyle 的字級、getBoundingClientRect 的欄位邊緣、捲動後的 top。
       jsdom 不做排版（rect 全回 0），這些在它裡面**永遠是綠的**。
 
-   🔴 自帶假 I2C Bridge（抄 tools/i2c_timeline_diff_probe.js 那一份）：
+   🔴 自帶假 I2C and AUX Bridge（抄 tools/i2c_timeline_diff_probe.js 那一份）：
       連線狀態要能真的從「未連線」走到「已連線」，否則第 ② 項只驗得到一半。
 
    用法：tools/ui_probe.sh i2c.html tools/i2c_v1221_probe.js
@@ -25,7 +25,7 @@
   window.addEventListener('error', (e) => ERRS.push('error: ' + (e.message || '') + ' @' + (e.lineno || '')));
   window.addEventListener('unhandledrejection', (e) => ERRS.push('rejection: ' + ((e.reason && (e.reason.message || e.reason)) || '')));
 
-  /* ═══ 假 I2C Bridge（必須在頁面自動連線之前換掉 window.WebSocket）═══════════ */
+  /* ═══ 假 I2C and AUX Bridge（必須在頁面自動連線之前換掉 window.WebSocket）═══════════ */
   const MEM = new Map();
   const key = (s, a) => s * 0x100000 + a;
   [0xA1, 0xD8, 0xFB].forEach((b, i) => MEM.set(key(0x68, i), b));   /* 讓自動自檢過 */

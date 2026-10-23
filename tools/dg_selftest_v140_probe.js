@@ -45,7 +45,7 @@ function inline(file) {
 }
 const ORIGIN = 'https://example.invalid';
 
-/* 假的 I2C Bridge。🔴 v1.4.0 新增 `rawwrite`（DG_EN 走的就是它）與
+/* 假的 I2C and AUX Bridge。🔴 v1.4.0 新增 `rawwrite`（DG_EN 走的就是它）與
    **可變的讀回值**（`set(addr, bytes)`）—— 寫完要讀回確認，回的值必須跟著變，
    不然「讀回確認」這件事根本驗不到。 */
 function makeFakeWs(readMap, opts) {
@@ -518,7 +518,7 @@ async function armed(opts) {
 
   console.log('\n' + '═'.repeat(60));
   console.log(fail === 0 ? ('✅ 全過：' + pass + ' 項') : ('🛑 失敗 ' + fail + ' 項（通過 ' + pass + ' 項）'));
-  console.log('🔴 這支驗不到的：真的 TCON、真的量測儀、真的 I2C Bridge。');
+  console.log('🔴 這支驗不到的：真的 TCON、真的量測儀、真的 I2C and AUX Bridge。');
   console.log('   DG_EN 的讀寫在**真機上**會怎樣，只有 Bruce 的硬體能回答。');
   process.exit(fail === 0 ? 0 : 1);
 })().catch(e => { console.error(e); process.exit(2); });

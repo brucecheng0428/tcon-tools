@@ -1,6 +1,6 @@
 /* tests/dgself/lib/fake_hw.js — 自檢頁 headless 測試的共用假硬體與斷言工具。
    注入位置：dg-selftest.html 最後那個 IIFE 的結尾（只在暫存副本裡），所以可以直接碰頁面自己的函式與變數。
-   ── 假 I2C（__fakeWs）：取代 I2C Bridge 的 WebSocket。
+   ── 假 I2C（__fakeWs）：取代 I2C and AUX Bridge 的 WebSocket。
       __regs        暫存器內容；預設 0x005D＝0x0D（EM02A1 DG_EN byte：bit0 開、bit2 12-bit、bit3 target）
       __dgIdle      true ⇒ 讀 0x005D 回 0xFF（匯流排沒回應）
       __lutFill     true ⇒ 沒設過的位址回非零假資料（避免 LUT 讀成全 0 被判 allZero）

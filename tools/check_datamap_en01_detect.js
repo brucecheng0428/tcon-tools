@@ -1,6 +1,6 @@
 // 用法：node tools/check_datamap_en01_detect.js [repo]
 // datamap v1.37.2（Bruce 2026-10-22「I2C check TCON 明明是 EN01 的，卻會跑出 6138」「把所有 6138 的 T-CON check 方式都移掉，
-//   然後 EN01 檢查一下」；派工 238945607310413824）：整頁＋假 I2C Bridge（jsdom）按 Check T-CON：
+//   然後 EN01 檢查一下」；派工 238945607310413824）：整頁＋假 I2C and AUX Bridge（jsdom）按 Check T-CON：
 //   ① RM81008 的各種 7C／7D 回應 ⇒ 都認成 EN01；送出順序＝先 M-Bus→C-Bus（0x7E:0xAB←CD）再讀任何 ID 暫存器
 //   ② 舊版會判成 DAZ6138 的回應 ⇒ 認不出（不切到 DAZ6138），畫面列出讀到的原始值
 //   ③ DAZ6138／DAZ6139 仍可在型號下拉手選

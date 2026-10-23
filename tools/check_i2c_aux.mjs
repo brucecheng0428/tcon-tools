@@ -3,7 +3,7 @@
    check_i2c_aux.mjs — i2c.html「連線方式：DP AUX」互動測試（模擬層，沒有 Windows 實機）
    Bruce 2026-10-23：「AUX bridge 可以的話跟 i2c bridge 做在一起，用一套轉發就好」
                      「先用 I2C 網頁加入 AUX 控制（但一定要透過 tcon 來控制 i2c，不能直接對 eeprom 也寫入）」
-   假 I2C Bridge 1.18.0（WebSocket 替身）照 bridge 的 AUX 規則回覆：open mode 4 回 card／monitor／admin／PSR；
+   假 I2C and AUX Bridge 1.18.0（WebSocket 替身）照 bridge 的 AUX 規則回覆：open mode 4 回 card／monitor／admin／PSR；
    只有 0x3E／0x7C／0x7D／0x7E 回應；EEPROM 0x50–0x57 若有任何一則送到「bridge」就記下來（必須是 0 則）。
    驗：① 選 DP AUX ⇒ EEPROM 功能停用、slave 改 0x3E ② 連線送 mode 4、連線資訊顯示顯示卡 ③ 第一筆是 7E:AB←CD、
        Check T-CON 認成 EN01 ④ 一般暫存器讀寫走同一組訊息 ⑤ 🔴 直接讀寫 EEPROM（單筆、整批）一則都沒送出
@@ -164,14 +164,14 @@ try {
     check('沒有 JS 錯誤', errs.length === 0, errs.join(' | ').slice(0, 300));
     await ctx.close();
   }
-  console.log('B. 舊 I2C Bridge（proto 6）選 DP AUX');
+  console.log('B. 舊 I2C and AUX Bridge（proto 6）選 DP AUX');
   {
     const { ctx, page, errs } = await open({ proto: 6 });
     await page.selectOption('#in-xport', 'aux');
     await page.click('#btn-link'); await sleep(800);
     check('舊 bridge 不連（不會送 mode 4）', await page.evaluate(() => i2ctLinked === false && !window.__msgs.some(m => m.t === 'open' && m.mode === 4)));
     const shown = await page.evaluate(() => { const g = document.getElementById('gethelper'); return !!g && g.style.display !== 'none'; });
-    check('舊 bridge ⇒ 出現下載新版 I2C Bridge', shown);
+    check('舊 bridge ⇒ 出現下載新版 I2C and AUX Bridge', shown);
     const log = await page.$eval('#log', e => e.textContent).catch(() => '');
     check('訊息講出要 1.18.0 以上', /1\.18\.0/.test(log), log.slice(-200));
     check('沒有 JS 錯誤', errs.length === 0, errs.join(' | ').slice(0, 300));

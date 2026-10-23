@@ -4,7 +4,7 @@
    Bruce 2026-10-22：「所有用到 I2C 的網頁都應該要修正喔，你有做到嗎？」（聊天室派工 238973630923444224）
    放在 Pages 發佈關卡（.github/workflows/pages.yml），掃「去註解後」的發佈內容；任一項失敗就不發佈。
      P  頁面分類：根目錄每個 *.html、common／data 的 js ——
-          會開 I2C Bridge 連線（new WebSocket）＝I2C 頁；只載 i2c-bridge.js、不開連線＝只放下載連結（要列在 DOWNLOAD_ONLY 並寫理由）。
+          會開 I2C and AUX Bridge 連線（new WebSocket）＝I2C 頁；只載 i2c-bridge.js、不開連線＝只放下載連結（要列在 DOWNLOAD_ONLY 並寫理由）。
           載了 i2c-bridge.js 卻不在這兩類 ⇒ 失敗。
      M  每個 I2C 頁：載入 common/i2c-mbus.js 與 common/tcon-detect.js；有 TconMbus.session(…)；
           每一個直接 ws.send(JSON.stringify(…)) 的函式，都必須是交給 TconMbus.session 的那一支，
@@ -32,9 +32,9 @@ const ok = (c, m, d) => { c ? pass++ : fail++; if (!c) fails.push(m + (d ? '  ' 
 
 /* 只放下載連結、不碰 I2C 的頁（一頁一個理由） */
 const DOWNLOAD_ONLY = {
-  'dg.html': 'DG 主頁只放 I2C Bridge 下載連結；I2C 連線活在 dg-selftest 分頁（dg.html 把要寫的內容傳給那一頁）',
+  'dg.html': 'DG 主頁只放 I2C and AUX Bridge 下載連結；I2C 連線活在 dg-selftest 分頁（dg.html 把要寫的內容傳給那一頁）',
 };
-/* 開 WebSocket 但不是 I2C Bridge 的（目前沒有） */
+/* 開 WebSocket 但不是 I2C and AUX Bridge 的（目前沒有） */
 const NOT_BRIDGE_WS = {};
 
 const files = [];
@@ -58,7 +58,7 @@ for (const f of files) {
     if (opensWs && f !== 'common/i2c-mbus.js') ok(false, `${f}：共用 js 自己開 WebSocket（I2C 連線只能在頁面裡、經 TconMbus.session）`);
     continue;
   }
-  if (opensWs && NOT_BRIDGE_WS[f]) { console.log(`  · ${f}：WebSocket 不是 I2C Bridge（${NOT_BRIDGE_WS[f]}）`); continue; }
+  if (opensWs && NOT_BRIDGE_WS[f]) { console.log(`  · ${f}：WebSocket 不是 I2C and AUX Bridge（${NOT_BRIDGE_WS[f]}）`); continue; }
   if (!opensWs) {
     if (loadsBridge) {
       if (DOWNLOAD_ONLY[f]) { dlPages.push(f); ok(!SEND_RE.test(src), `${f}：只放下載連結（${DOWNLOAD_ONLY[f]}），沒有 I2C 傳輸`); SEND_RE.lastIndex = 0; }

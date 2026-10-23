@@ -3,7 +3,7 @@
 // v1.18.14（Bruce 10/8）：TCON Out 紫／SD Out 藍（共用色票）＋ ③ 點擊跳到 ② 表格／Source Driver 設定
 // v1.18.13（Bruce 10/8）：TCON Register 確認卡（獨立卡、列全部、預設展開）
 // v1.18.12（Bruce 10/8）：離線（匯入 code／Excel）與線上（I2C）互斥；頂端顯示模式
-// mock I2C Bridge（假的 WebSocket）跑：
+// mock I2C and AUX Bridge（假的 WebSocket）跑：
 //   ① 連線中匯入 → 確認 → 已斷線且沒寫 TCON   ② 取消 → 維持連線、沒匯入
 //   ③ 匯入後連線 → 確認 → 匯入清掉、自動 Check、回讀   ④ 取消 → 維持離線
 //   ⑤ 沒匯入直接連線不問   ⑥ Check 出的型號和鎖定時不同 ⇒ 自動解鎖；同型號保留鎖定

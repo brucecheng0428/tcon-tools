@@ -102,7 +102,7 @@ function identity(entries, entryBits, depth) {
   return a;
 }
 
-/* ── 假的 I2C Bridge ─────────────────────────────────────────────────────
+/* ── 假的 I2C and AUX Bridge ─────────────────────────────────────────────────────
    · 暫存器（awid 2）：一張 byte map，rawwrite 真的會改它
    · AHB（awid 4）：**只有 bus-enable 那一位是 1 時**才回 SRAM 內容，否則全 0x00
    ws.trace 收下每一則命令，供「位址對不對」「有沒有關回去」的斷言使用。 */

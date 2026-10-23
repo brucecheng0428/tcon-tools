@@ -42,7 +42,7 @@ function inline(file) {
 }
 const ORIGIN = 'https://example.invalid';
 
-/* 假的 I2C Bridge：做法沿用既有兩支夾具，不另寫一套。
+/* 假的 I2C and AUX Bridge：做法沿用既有兩支夾具，不另寫一套。
    🔴 `writes` 是逐筆的寫入紀錄 —— 第 ② 項要靠它證明離開序列真的送出去了。 */
 function makeFakeWs(readMap) {
   const wires = [], writes = [];

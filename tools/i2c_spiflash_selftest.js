@@ -1234,13 +1234,13 @@ function en01Header(maps, flags) {
       /* 連線成功（＋ Check T-CON 有結果時型號也在 ① 這一行） */
       await A.checkTcon(); await sleep(10);
       CHECK(A.state().linked && shownFull() && card.classList.contains('done') && !card.classList.contains('err'), '連線成功：① 完整顯示、✔、不是紅框');
-      CHECK(/已連線/.test(lt()) && /I2C Bridge 1\.17\.0/.test($('helperinfo').textContent) && /I2C 時脈 400 kHz/.test(info()), '連線成功：狀態字、Bridge 版本、時脈：' + lt() + ' | ' + info());
+      CHECK(/已連線/.test(lt()) && /I2C and AUX Bridge 1\.17\.0/.test($('helperinfo').textContent) && /I2C 時脈 400 kHz/.test(info()), '連線成功：狀態字、Bridge 版本、時脈：' + lt() + ' | ' + info());
       CHECK(/T-CON：\S+/.test(info()) && !/認不出/.test(info()), '連線成功＋Check T-CON ⇒ ① 這一行也有型號：' + info());
       EQ($('btn-link').getAttribute('aria-pressed'), 'true', '開關亮（按下去＝中斷）');
       /* 斷線（非預期：bridge 那頭關掉）⇒ 立刻變紅、寫原因；之後自動重連 */
       win.eval('i2ctWs.close()');
       CHECK(!A.state().linked && shownFull() && card.classList.contains('err') && /連線中斷/.test(lt()), '斷線：① 仍完整顯示、整框紅、原因：' + lt());
-      CHECK($('conn-info').classList.contains('err') && /I2C Bridge 在執行/.test(info()) && !/T-CON/.test(info()), '斷線：紅字寫該檢查什麼、型號清掉：' + info());
+      CHECK($('conn-info').classList.contains('err') && /I2C and AUX Bridge 在執行/.test(info()) && !/T-CON/.test(info()), '斷線：紅字寫該檢查什麼、型號清掉：' + info());
       EQ($('btn-link').getAttribute('aria-pressed'), 'false', '斷線：開關變灰（按下去＝連線）');
       CHECK(await until(() => A.state().linked && !A.state().busy, 4000), '斷線後自動重連成功');
       CHECK(!card.classList.contains('err') && shownFull() && /I2C 時脈/.test(info()), '重連後紅框拿掉');
@@ -1248,13 +1248,13 @@ function en01Header(maps, flags) {
       await A.disconnect(); await sleep(10);
       CHECK(shownFull() && !card.classList.contains('err') && !card.classList.contains('done') && /已中斷/.test(lt()) && info() === '', '按中斷：① 完整顯示、不紅、狀態「已中斷」：' + lt());
       EQ($('btn-link').textContent, '連線', '未連線：開關寫「連線」');
-      /* 錯誤：連不到 I2C Bridge（WebSocket 建不起來） */
+      /* 錯誤：連不到 I2C and AUX Bridge（WebSocket 建不起來） */
       wsFail = true; await A.connect(); await sleep(20); wsFail = false;
-      CHECK(!A.state().linked && shownFull() && card.classList.contains('err') && /WebSocket|I2C Bridge/.test(lt()) && $('conn-info').classList.contains('err'), '錯誤：① 完整顯示、紅框、原因：' + lt() + ' | ' + info());
+      CHECK(!A.state().linked && shownFull() && card.classList.contains('err') && /WebSocket|I2C and AUX Bridge/.test(lt()) && $('conn-info').classList.contains('err'), '錯誤：① 完整顯示、紅框、原因：' + lt() + ' | ' + info());
       win.applyLang('en'); await sleep(10);
-      CHECK(/I2C Bridge is running/.test(info()) && shownFull(), '錯誤提示切英文：' + info());
+      CHECK(/I2C and AUX Bridge is running/.test(info()) && shownFull(), '錯誤提示切英文：' + info());
       win.applyLang('zh-CN'); await sleep(10);
-      CHECK(/I2C Bridge 在运行/.test(info()), '錯誤提示切簡體：' + info());
+      CHECK(/I2C and AUX Bridge 在运行/.test(info()), '錯誤提示切簡體：' + info());
       win.applyLang('zh-TW'); await sleep(10);
       await A.connect(); for (let i = 0; i < 200 && A.state().busy; i++) await sleep(10); await sleep(20);
       CHECK(A.state().linked && !card.classList.contains('err') && /I2C 時脈 400 kHz/.test(info()), '再連一次 ⇒ 回到已連線');

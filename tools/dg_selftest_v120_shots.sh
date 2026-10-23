@@ -30,7 +30,7 @@ shot () {  # shot <來源 html> <注入的 JS> <輸出檔> <寬> <高>
   rm -f "$TMP"
 }
 
-# 假的 I2C Bridge：讓頁面進到「已連線、已識別 EM02A1」的狀態。
+# 假的 I2C and AUX Bridge：讓頁面進到「已連線、已識別 EM02A1」的狀態。
 # 🔴 0x0000 刻意回 61 41 B4（Bruce 實機看到的那一組，v1.1.0 會對它報 FAIL）——
 #    截圖要證明的正是「這一組現在不再是紅字 FAIL」。
 read -r -d '' FAKEWS <<'JS' || true

@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /* ═══════════════════════════════════════════════════════════════════════════
-   check_i2c_bridge_ui.js — 所有用 I2C Bridge 的頁面：下載入口與連線狀態（jsdom＋假 Bridge）
-   Bruce 2026-10-12：「為什麼這一頁如果沒有 I2C bridge 的話，沒有像其他要使用到 I2C 的做法一樣，
-   可以去下載這個 I2C bridge 的壓縮包？」
+   check_i2c_bridge_ui.js — 所有用 I2C and AUX Bridge 的頁面：下載入口與連線狀態（jsdom＋假 Bridge）
+   Bruce 2026-10-12：「為什麼這一頁如果沒有 I2C and AUX Bridge 的話，沒有像其他要使用到 I2C 的做法一樣，
+   可以去下載這個 I2C and AUX Bridge 的壓縮包？」
    頁面 × 狀態：i2c.html、dg-selftest.html、datamap.html（會連 Bridge）、dg.html（只放下載入口，連線在 dg-selftest）
      × ① 沒有 Bridge（按連線失敗）② Bridge 在、未連線 ③ 已連線
    每格驗：下載連結存在、href＝I2CBridge.dlHref()（common/i2c-bridge.js 單一來源）、指到的 zip 檔在 repo 裡；
@@ -50,7 +50,7 @@ const PAGES = {
   },
   'dg-selftest.html': {
     dl: d => d.getElementById('dst-dl'),
-    /* dg-selftest 的程式在 IIFE 內（v2.0.0 拿掉了 dstProbe）⇒ 照使用者操作按 I2C 的 ON 開關；連上時「I2C Bridge」欄會顯示 proto */
+    /* dg-selftest 的程式在 IIFE 內（v2.0.0 拿掉了 dstProbe）⇒ 照使用者操作按 I2C 的 ON 開關；連上時「I2C and AUX Bridge」欄會顯示 proto */
     connect: async w => { const b = w.document.getElementById('dst-lnsw-on'); if (b) b.click(); await sleep(600); },
     linked: w => /proto/.test((w.document.getElementById('dst-v-bridge') || {}).textContent || ''),
     noBridgeHint: (w, d) => visible(w, d.getElementById('dst-dl')) && /Bridge/i.test((d.getElementById('dst-say-link') || {}).textContent || '')
@@ -86,8 +86,8 @@ const PAGES = {
   /* Bridge 端出來的頁（127.0.0.1）：相對路徑在那裡不存在 ⇒ 一律指線上網址（i2c.html 原本就這樣，dg／dg-selftest／datamap 統一後也一樣） */
   {
     const src = fs.readFileSync(path.join(ROOT, 'common/i2c-bridge.js'), 'utf8') + '\n' + fs.readFileSync(path.join(ROOT, 'common/version.js'), 'utf8');
-    for (const [url, want] of [['http://127.0.0.1:8899/datamap.html', /^https:\/\/brucecheng0428\.github\.io\/tcon-tools\/data\/i2c-bridge-v[\d.]+\.zip\?v=v[\d.]+$/],
-                               ['https://brucecheng0428.github.io/tcon-tools/datamap.html', /^data\/i2c-bridge-v[\d.]+\.zip\?v=v[\d.]+$/]]) {
+    for (const [url, want] of [['http://127.0.0.1:8899/datamap.html', /^https:\/\/brucecheng0428\.github\.io\/tcon-tools\/data\/i2c(-aux)?-bridge-v[\d.]+\.zip\?v=v[\d.]+$/],
+                               ['https://brucecheng0428.github.io/tcon-tools/datamap.html', /^data\/i2c(-aux)?-bridge-v[\d.]+\.zip\?v=v[\d.]+$/]]) {
       const dom = new JSDOM('<!doctype html><html><body></body></html>', { url, runScripts: 'outside-only' });
       dom.window.eval(src.replace(/^\s*(const|let) /gm, 'var '));
       ok(want.test(dom.window.I2CBridge.dlHref()), '頁面來源 ' + url + ' ⇒ dlHref ' + dom.window.I2CBridge.dlHref());

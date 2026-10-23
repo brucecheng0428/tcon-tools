@@ -96,7 +96,7 @@ const srv = createServer(async (req, res) => {
 await new Promise(r => srv.listen(0, '127.0.0.1', r));
 const URL0 = `http://127.0.0.1:${srv.address().port}/nbdebug.html`;
 
-/* ── 假 I2C Bridge（記憶體）── */
+/* ── 假 I2C and AUX Bridge（記憶體）── */
 const FAKE = `(() => {
   const mem = {}; window.__mem = mem; window.__wlog = [];
   const k = (s, a) => s + ':' + a;

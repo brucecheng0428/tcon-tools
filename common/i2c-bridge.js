@@ -1,23 +1,23 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   common/i2c-bridge.js — 所有用 I2C Bridge 的頁面共用：連線位址、下載連結、
-   「沒有 I2C Bridge」提示、連線狀態徽章（單一來源）。
+   common/i2c-bridge.js — 所有用 I2C and AUX Bridge 的頁面共用：連線位址、下載連結、
+   「沒有 I2C and AUX Bridge」提示、連線狀態徽章（單一來源）。
 
-   由來（Bruce 2026-10-12）：「為什麼這一頁如果沒有 I2C bridge 的話，沒有像其他要使用到
-   I2C 的做法一樣，可以去下載這個 I2C bridge 的壓縮包？」
+   由來（Bruce 2026-10-12）：「為什麼這一頁如果沒有 I2C and AUX Bridge 的話，沒有像其他要使用到
+   I2C 的做法一樣，可以去下載這個 I2C and AUX Bridge 的壓縮包？」
    根因：下載包的資料（HELPER_PKG，common/version.js）早就是單一來源，但「怎麼提示、
    連結怎麼組、狀態怎麼顯示」每一頁各寫一套 —— i2c.html（i2ctNeedHelper／i2ctFillHelperCard）、
    dg-selftest.html（dstRenderDl）、dg.html（選擇畫面下載列）各自組 href；datamap.html v1.0.0
-   只照抄了 WebSocket 協定，連不上時只跳一則「連不上 I2C Bridge」toast，沒有下載入口。
-   另外 dg／dg-selftest 被 I2C Bridge 端出來（127.0.0.1）時用相對路徑，那裡沒有 data/ ⇒ 會 404；
+   只照抄了 WebSocket 協定，連不上時只跳一則「連不上 I2C and AUX Bridge」toast，沒有下載入口。
+   另外 dg／dg-selftest 被 I2C and AUX Bridge 端出來（127.0.0.1）時用相對路徑，那裡沒有 data/ ⇒ 會 404；
    i2c.html 有改指線上網址。統一後一律走 dlHref()。
 
    API（window.I2CBridge）：
      PORT, WS_URL, ONLINE_BASE
-     isLocal(host)            本頁是不是 I2C Bridge 端出來的（127.0.0.1／localhost）
+     isLocal(host)            本頁是不是 I2C and AUX Bridge 端出來的（127.0.0.1／localhost）
      pkg()                    HELPER_PKG（讀不到回 {}）
      dlHref()                 下載網址（含 ?v= 包版號）；HELPER_PKG 讀不到回 ''（不留會 404 的連結）
      fillDl(a, verEl)         把 <a> 設成下載連結；回傳是否可下載（不可下載時 a 加 hidden 屬性）
-     mountNeed(el, why)       在 el 內畫標準「沒有 I2C Bridge」提示（下一步＋下載鈕＋原因＋三步驟＋同一支程式＋疑難排解，
+     mountNeed(el, why)       在 el 內畫標準「沒有 I2C and AUX Bridge」提示（下一步＋下載鈕＋原因＋三步驟＋同一支程式＋疑難排解，
                              文字＝i2c.html 的 i18n 鍵；按下載會跳與 i2c.html 相同的說明視窗）
     showHowto()／wireHowto(a) 跳出「下載好了，接著這樣做」說明視窗／讓某個下載連結按下時跳出它
      unmountNeed(el)          收起提示
@@ -32,15 +32,15 @@
     on:     ['I2C 已連線', 'I2C connected', 'I2C 已连接'],
     off:    ['I2C 未連線', 'I2C not connected', 'I2C 未连接'],
     busy:   ['I2C 連線中…', 'I2C connecting…', 'I2C 连接中…'],
-    none:   ['找不到 I2C Bridge', 'I2C Bridge not found', '找不到 I2C Bridge'],
+    none:   ['找不到 I2C and AUX Bridge', 'I2C and AUX Bridge not found', '找不到 I2C and AUX Bridge'],
     drop:   ['I2C 已斷線', 'I2C disconnected', 'I2C 已断线'],
-    needT:  ['連不上 I2C Bridge：這台電腦可能還沒有執行 I2C Bridge', 'Cannot reach the I2C Bridge: it may not be running on this computer', '连不上 I2C Bridge：这台电脑可能还没有执行 I2C Bridge'],
-    dropT:  ['I2C Bridge 已關閉或斷線', 'The I2C Bridge closed or dropped', 'I2C Bridge 已关闭或断线'],
-    dl:     ['⬇ 下載 I2C Bridge {ver}', '⬇ Download I2C Bridge {ver}', '⬇ 下载 I2C Bridge {ver}'],
+    needT:  ['連不上 I2C and AUX Bridge：這台電腦可能還沒有執行 I2C and AUX Bridge', 'Cannot reach the I2C and AUX Bridge: it may not be running on this computer', '连不上 I2C and AUX Bridge：这台电脑可能还没有执行 I2C and AUX Bridge'],
+    dropT:  ['I2C and AUX Bridge 已關閉或斷線', 'The I2C and AUX Bridge closed or dropped', 'I2C and AUX Bridge 已关闭或断线'],
+    dl:     ['⬇ 下載 I2C and AUX Bridge {ver}', '⬇ Download I2C and AUX Bridge {ver}', '⬇ 下载 I2C and AUX Bridge {ver}'],
     dlMiss: ['（下載包資訊讀不到，請到「I2C 讀寫測試」頁下載）', '(Package info unavailable; download it from the I2C page)', '（下载包信息读不到，请到「I2C 读写测试」页下载）'],
     steps:  ['下載 → 全部解壓到同一個資料夾 → 雙擊 i2c-bridge.exe → 回這頁按「連線」', 'Download → unzip everything into one folder → double-click i2c-bridge.exe → come back and press Connect', '下载 → 全部解压到同一个文件夹 → 双击 i2c-bridge.exe → 回这页按「连接」'],
     more:   ['詳細說明與疑難排解：I2C 讀寫測試頁', 'Details and troubleshooting: the I2C page', '详细说明与疑难排解：I2C 读写测试页'],
-    small:  ['沒有 I2C Bridge？下載 {ver}', 'No I2C Bridge? Download {ver}', '没有 I2C Bridge？下载 {ver}']
+    small:  ['沒有 I2C and AUX Bridge？下載 {ver}', 'No I2C and AUX Bridge? Download {ver}', '没有 I2C and AUX Bridge？下载 {ver}']
   };
   function langIdx() {
     var l = (root.document && root.document.documentElement && root.document.documentElement.lang) || 'zh-TW';
@@ -109,7 +109,7 @@
      版面照 i2c.html 的 #gethelper（大下載鈕＋原因）＋按下載後跳的 #howto 說明視窗（三步、字 22px）＋「跑不起來／連不上？」疑難排解。 */
   var TX = {
     'i2c.nxPrefix': ['下一步：', 'Next: ', '下一步：'],
-    'i2c.nxGetBridge': ['先下載 I2C Bridge，解壓後執行 i2c-bridge.exe，再按「連線」。', 'Download I2C Bridge, unzip it, run i2c-bridge.exe, then press "Connect".', '先下载 I2C Bridge，解压后执行 i2c-bridge.exe，再按「连接」。'],
+    'i2c.nxGetBridge': ['先下載 I2C and AUX Bridge，解壓後執行 i2c-bridge.exe，再按「連線」。', 'Download I2C and AUX Bridge, unzip it, run i2c-bridge.exe, then press "Connect".', '先下载 I2C and AUX Bridge，解压后执行 i2c-bridge.exe，再按「连接」。'],
     'i2c.howtoTitle': ['下載好了，接著這樣做', 'Downloaded — here is what to do next', '下载好了，接着这样做'],
     'i2c.howto1': ['把整包<b>解壓縮</b>到一個資料夾', '<b>Unzip</b> the whole package into one folder', '把整包<b>解压</b>到一个文件夹'],
     'i2c.howto2': ['雙擊 <code class="mono">i2c-bridge.exe</code>', 'Double-click <code class="mono">i2c-bridge.exe</code>', '双击 <code class="mono">i2c-bridge.exe</code>'],

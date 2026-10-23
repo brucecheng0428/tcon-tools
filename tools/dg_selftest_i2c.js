@@ -531,7 +531,7 @@ async function recordEnterAndPaint(key, altIdx) {
 
   /* ═══ 13. 傳輸層形狀 ═════════════════════════════════════════════════ */
   console.log('\n── 13. 傳輸層形狀 ─────────────────────────────────────────');
-  ok(/^ws:\/\/127\.0\.0\.1:\d+\/ws$/.test(P.wsUrl()), 'I2C Bridge 的網址綁在本機 loopback', P.wsUrl());
+  ok(/^ws:\/\/127\.0\.0\.1:\d+\/ws$/.test(P.wsUrl()), 'I2C and AUX Bridge 的網址綁在本機 loopback', P.wsUrl());
   {
     P.setIcForTest('EM01A1');
     P.__resetPtg();
@@ -558,7 +558,7 @@ async function recordEnterAndPaint(key, altIdx) {
     let missing = [], sameAsTw = [];
     keys.forEach(k => {
       ['zh-TW', 'zh-CN', 'en'].forEach(L => { if (!I[k][L]) missing.push(k + '/' + L); });
-      /* 英文與繁中一字不差 ⇒ 幾乎一定是忘了翻。純符號／型號（例如 'I2C Bridge'）例外。 */
+      /* 英文與繁中一字不差 ⇒ 幾乎一定是忘了翻。純符號／型號（例如 'I2C and AUX Bridge'）例外。 */
       if (I[k]['en'] && I[k]['en'] === I[k]['zh-TW'] && /[\u4e00-\u9fff]/.test(I[k]['zh-TW']))
         sameAsTw.push(k);
     });

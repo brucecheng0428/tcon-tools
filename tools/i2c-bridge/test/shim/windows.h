@@ -83,6 +83,7 @@ LONG      RegCloseKey(HKEY k);
 HMODULE   GetModuleHandleA(const char* name);
 HINSTANCE ShellExecuteA(void* h, const char* op, const char* file, const char* par, const char* dir, int show);
 BOOL      SetConsoleOutputCP(unsigned cp);
+BOOL      SetConsoleTitleA(const char* t);
 
 #define strtok_s(s, d, ctx) strtok_r((s), (d), (ctx))
 

@@ -1,9 +1,9 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   common/i2c-aux.js — DP AUX 連線方式（I2C Bridge 1.18.0 起，open mode 4）網頁端共用規則
+   common/i2c-aux.js — DP AUX 連線方式（I2C and AUX Bridge 1.18.0 起，open mode 4）網頁端共用規則
    ───────────────────────────────────────────────────────────────────────────
    Bruce 2026-10-23：「AUX bridge 可以的話跟 i2c bridge 做在一起，用一套轉發就好」
                      「先用 I2C 網頁加入 AUX 控制（但一定要透過 tcon 來控制 i2c，不能直接對 eeprom 也寫入）」
-   ⇒ 同一支 I2C Bridge、同一條 WebSocket、同一組 read／rawwrite／write／batchwrite 訊息；
+   ⇒ 同一支 I2C and AUX Bridge、同一條 WebSocket、同一組 read／rawwrite／write／batchwrite 訊息；
      選 DP AUX 時 bridge 依 slave 路由到顯示卡 AUX（3E／7C 走 DPCD 視窗、7D／7E 走 I2C-over-AUX）。
 
    🔴 安全規則有兩道，內容一致：
@@ -42,18 +42,18 @@
            'DP AUX: no jig; reads and writes the panel T-CON through this computer\'s graphics card. T-CON only; the EEPROM cannot be written directly.',
            'DP AUX：不用治具，经笔电的显卡直接读写面板上的 T-CON；只能读写 T-CON，不能直接写 EEPROM。'],
     reconnect: ['連線方式已改，請重新按「連線」。', 'Connection type changed. Press Connect again.', '连接方式已改，请重新按「连接」。'],
-    oldBridge: ['這個 I2C Bridge（{have}）不支援 DP AUX，請下載新版 I2C Bridge（1.18.0 以上）。',
-                'This I2C Bridge ({have}) does not support DP AUX. Download the new I2C Bridge (1.18.0 or later).',
-                '这个 I2C Bridge（{have}）不支持 DP AUX，请下载新版 I2C Bridge（1.18.0 以上）。'],
+    oldBridge: ['這個 I2C and AUX Bridge（{have}）不支援 DP AUX，請下載新版 I2C and AUX Bridge（1.18.0 以上）。',
+                'This I2C and AUX Bridge ({have}) does not support DP AUX. Download the new I2C and AUX Bridge (1.18.0 or later).',
+                '这个 I2C and AUX Bridge（{have}）不支持 DP AUX，请下载新版 I2C and AUX Bridge（1.18.0 以上）。'],
     info: ['DP AUX：{card} · 螢幕 {mon}', 'DP AUX: {card} · display {mon}', 'DP AUX：{card} · 屏幕 {mon}'],
     adminOk: ['系統管理員 ✔', 'administrator ✔', '系统管理员 ✔'],
     adminNo: ['不是系統管理員', 'not administrator', '不是系统管理员'],
     psrOff: ['PSR 已關（關閉連線時還原）', 'PSR off (restored on disconnect)', 'PSR 已关（关闭连接时还原）'],
     psrOffNat: ['PSR 關', 'PSR off', 'PSR 关'],
     psrOn: ['PSR 開著', 'PSR on', 'PSR 开着'],
-    bnAdmin: ['Intel 顯示卡的 AUX 寫入要系統管理員：關掉 I2C Bridge 黑視窗，在 i2c-bridge.exe 按右鍵 →「以系統管理員身分執行」，再回來按連線。讀取不受影響。',
-              'Intel graphics need administrator rights for AUX writes: close the I2C Bridge window, right-click i2c-bridge.exe → "Run as administrator", then press Connect again. Reads are not affected.',
-              'Intel 显卡的 AUX 写入要系统管理员：关掉 I2C Bridge 黑窗口，在 i2c-bridge.exe 按右键 →「以管理员身份运行」，再回来按连接。读取不受影响。'],
+    bnAdmin: ['Intel 顯示卡的 AUX 寫入要系統管理員：關掉 I2C and AUX Bridge 黑視窗，在 i2c-bridge.exe 按右鍵 →「以系統管理員身分執行」，再回來按連線。讀取不受影響。',
+              'Intel graphics need administrator rights for AUX writes: close the I2C and AUX Bridge window, right-click i2c-bridge.exe → "Run as administrator", then press Connect again. Reads are not affected.',
+              'Intel 显卡的 AUX 写入要系统管理员：关掉 I2C and AUX Bridge 黑窗口，在 i2c-bridge.exe 按右键 →「以管理员身份运行」，再回来按连接。读取不受影响。'],
     bnPsr: ['PSR（面板自我更新）還開著，AUX 寫入可能失敗。', 'PSR (panel self refresh) is still on; AUX writes may fail.', 'PSR（面板自我刷新）还开着，AUX 写入可能失败。'],
     eeOff: ['DP AUX 模式不能直接讀寫 EEPROM（只能透過 T-CON）', 'Not available in DP AUX mode (EEPROM only through the T-CON)', 'DP AUX 模式不能直接读写 EEPROM（只能通过 T-CON）']
   };

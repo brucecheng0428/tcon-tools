@@ -2,6 +2,30 @@
 
 ---
 
+## I2C 讀寫測試 (i2c) v1.35.1 — 2026-10-23 ｜ PATCH ｜ 名稱「I2C Bridge」改成「I2C and AUX Bridge」（全站三語＋bridge 1.18.1）
+
+判定依據：`docs/VERSIONING.md` 判定表「文案 → PATCH」：只改使用者看得到的名稱，按鈕位置、流程、輸出都不變 ⇒ PATCH，不帶 ⚠ 輸出變更。bridge 1.18.1 只改顯示字樣，wire format 不變 ⇒ proto 維持 7。其他頁（dg、dgself、datamap、nbdebug）只換同一個名稱與共用檔 cache buster，沒有功能變動，不另進版號。
+
+### 需求（Bruce 2026-10-23）
+
+「I2C bridge 名稱幫我改成 I2C and AUX bridge，這樣子一看就知道可以兩個使用。」
+
+### 做法
+
+- 全站使用者看得到的「I2C Bridge」一律改成「I2C and AUX Bridge」（zh-TW／zh-CN／en 同一個英文名稱）：`common/i18n.js`、`common/i2c-bridge.js`（下載鈕、沒有 bridge 提示、疑難排解）、`common/i2c-aux.js`、`common/i2c-mbus.js`、`i2c.html`（連線卡、下載鈕、說明）、`i2c-guide*.html` 三語、`dg.html`、`dg-selftest.html`、`datamap.html`、`nbdebug.html`。「TCON I2C bridge 異常」（aux.html、legacy-index.html 的 EDID 錯誤說明）指 T-CON 晶片內部的 I2C bridge，不是這支程式，不改。
+- bridge 1.18.1：黑視窗標題新增 `SetConsoleTitleA("I2C and AUX Bridge 1.18.1")`（之前沒設，標題是 exe 路徑）；狀態橫幅 `I2C AND AUX BRIDGE STATUS`；log 開頭 `I2C and AUX Bridge (local I2C + DP AUX bridge for the web tools)`；內建入口頁標題。
+- 下載包改名 `data/i2c-aux-bridge-v1.18.1.zip`（五個檔；四支 DLL 從 v1.18.0 原樣搬來，SHA 相同）。舊的 `i2c-bridge-v*.zip` 全部保留。
+- 🔴 **exe 檔名 `i2c-bridge.exe` 不改**（以相容性為準）：使用者桌面捷徑指向這個檔名；說明頁「雙擊 i2c-bridge.exe」、log 檔名 `i2c-bridge.log`、Intel 系統管理員提示「在 i2c-bridge.exe 按右鍵」都靠它；網頁偵測 bridge 走 WebSocket 埠與 `helper` 欄位，不看檔名，所以改檔名沒有好處只有舊捷徑失效的風險。
+- 測試檔的字樣同步；`i2c_tool_selftest.js`、`check_i2c_bridge_ui.js` 的 zip 檔名規則放寬為 `i2c(-aux)?-bridge-v`。
+- 共用檔改動 ⇒ 引用頁的 cache buster 一起換（version.js／i18n.js `?v=20261023ab1351`、i2c-bridge.js `ib102`、i2c-aux.js `ax101`、i2c-mbus.js `mb111`）。
+
+### 測試（模擬；bridge 未在 Windows 實機驗證）
+
+- bridge：test_proto 248/0、test_server 270/0（第 1 次 1 項計時上界在機器忙時超出，重跑 2 次皆 270/0）、test_server_aux 64/0、test_aux 45/0、test_vendor_len 43/0、test_wait／test_ackguard 通過。exe PE32 Intel 80386、367,104 bytes，`strings` 看得到新標題與橫幅。
+- 網頁與改名關卡：見本次 commit 訊息。
+
+---
+
 ## I2C 讀寫測試 (i2c) v1.35.0 — 2026-10-23 ｜ MINOR ｜ 連線方式加「DP AUX（顯示卡）」＋ I2C Bridge v1.18.0（proto 7）：同一支 bridge、同一套轉發，只到得了 T-CON，不能直接寫 EEPROM
 
 判定依據：`docs/VERSIONING.md` R3「使用者真的多能做一件事 → MINOR」：不用治具、經筆電顯示卡的 DP AUX 讀寫面板 T-CON。既有操作（I2C 治具）的流程、預設值、輸出都不變（預設仍是 I2C 治具）⇒ 不是 MAJOR，不帶 ⚠ 輸出變更。I2C Bridge 多一個 mode 與三個命令 ⇒ proto 6 → 7，exe 重編。

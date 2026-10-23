@@ -76,7 +76,7 @@ function packInter(r, g, b, w, msbFirst) {
   return packBits(seq, w, msbFirst);
 }
 
-/* ── 假的 I2C Bridge ─────────────────────────────────────────────────────
+/* ── 假的 I2C and AUX Bridge ─────────────────────────────────────────────────────
    模型要有真實語意，否則測不出東西：
      · 暫存器（awid 2、slave 0x68）：一張 byte map，rawwrite 真的會改它
      · AHB（awid 4、slave 0x58）：**只有在 bus-enable 那一位是 1 的時候**才回

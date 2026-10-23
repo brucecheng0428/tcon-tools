@@ -182,6 +182,7 @@ HINSTANCE ShellExecuteA(void* h, const char* op, const char* file, const char* p
     return (HINSTANCE)(intptr_t)100;
 }
 BOOL SetConsoleOutputCP(unsigned cp){ (void)cp; return 1; }
+BOOL SetConsoleTitleA(const char* t){ (void)t; return 1; }
 
 /* ── select / setsockopt 的語意翻譯（見 shim/winsock2.h 的說明）────────── */
 #undef select

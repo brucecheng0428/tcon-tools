@@ -1,5 +1,5 @@
 /* ===========================================================================
- * I2C Bridge - local I2C bridge for the web tools (native Win32, 32-bit)
+ * I2C and AUX Bridge - local I2C bridge for the web tools (native Win32, 32-bit)
  * ---------------------------------------------------------------------------
  * Shape:  browser --WebSocket(127.0.0.1)--> this exe --libMPSSE(D2XX)--> jig --I2C--> TCON
  *
@@ -1586,7 +1586,7 @@ static void i2c_apply_mode(uint32_t hz) {
                                   logline("  purge   : FT_Purge(RX|TX) done"); }
 }
 /* ═══ 1.18.0：DP AUX 後端（DLL_AUX_VC.dll）════════════════════════════════════
-   Bruce 2026-10-23：AUX 與 I2C Bridge 用同一支、同一套轉發；I2C 網頁加 AUX 控制，
+   Bruce 2026-10-23：AUX 與 I2C and AUX Bridge 用同一支、同一套轉發；I2C 網頁加 AUX 控制，
    一定要透過 T-CON 控制 I2C，不能直接寫 EEPROM。
    ・DLL 只在網頁選 DP AUX（open mode 4）時才載入 ⇒ 不選 AUX 的人行為一個 byte 都沒變。
    ・搜尋：exe 同目錄（zip 內附）→ 環境變數 I2C_BRIDGE_AUX_DLL_DIR → 目前目錄。
@@ -3752,12 +3752,12 @@ static void serve_404(SOCKET c, const char* what){
 static void serve_landing(SOCKET c){
     char body[3072]; int o=0;
     o+=snprintf(body+o,sizeof(body)-o,
-        "<!doctype html><meta charset=utf-8><title>i2c-bridge</title>"
+        "<!doctype html><meta charset=utf-8><title>I2C and AUX Bridge</title>"
         "<meta name=viewport content=\"width=device-width,initial-scale=1\">"
         "<body style='margin:0;background:#0f172a;color:#e2e8f0;font:15px/1.6 -apple-system,\"PingFang TC\",\"Noto Sans TC\",sans-serif'>"
         "<div style='max-width:560px;margin:0 auto;padding:32px 20px'>"
-        "<h1 style='font-size:19px;margin:0 0 4px'>i2c-bridge 已在執行</h1>"
-        "<p style='color:#94a3b8;font-size:13px;margin:0 0 22px'>I2C Bridge %s · proto %d — 選一個工具開始。</p>",
+        "<h1 style='font-size:19px;margin:0 0 4px'>I2C and AUX Bridge 已在執行</h1>"
+        "<p style='color:#94a3b8;font-size:13px;margin:0 0 22px'>I2C and AUX Bridge %s · proto %d — 選一個工具開始。</p>",
         I2C_BRIDGE_VERSION, I2C_BRIDGE_PROTO);
     struct { const char* file; const char* title; const char* desc; const char* color; } items[] = {
         { "dg-measure.html", "DG 光學量測",   "Digital Gamma 迭代校正的即時量測畫面", "#a78bfa" },
@@ -3794,9 +3794,9 @@ static void serve_landing(SOCKET c){
 /* 沒有開 --serve 時的唯一回應：告訴來人正確的入口在線上，不端任何檔案。 */
 static void serve_disabled(SOCKET c){
     const char* body =
-      "<!doctype html><meta charset=utf-8><title>i2c-bridge</title>"
+      "<!doctype html><meta charset=utf-8><title>I2C and AUX Bridge</title>"
       "<body style='font-family:sans-serif;background:#0f172a;color:#e2e8f0;padding:2em'>"
-      "<h2>I2C Bridge is running in the background.</h2>"
+      "<h2>I2C and AUX Bridge is running in the background.</h2>"
       "<p>This program no longer serves any page. Use the online tool:</p>"
       "<p><a style='color:#38bdf8' href='https://brucecheng0428.github.io/tcon-tools/i2c.html'>"
       "https://brucecheng0428.github.io/tcon-tools/i2c.html</a></p>"
@@ -3827,9 +3827,9 @@ static void serve_page(SOCKET c, const char* req){
     if(strcmp(name,"dg-measure.html")==0){
         /* fallback: the default page file is missing next to the exe */
         const char* fb =
-          "<!doctype html><meta charset=utf-8><title>I2C Bridge</title>"
+          "<!doctype html><meta charset=utf-8><title>I2C and AUX Bridge</title>"
           "<body style='font-family:sans-serif;background:#0f172a;color:#e2e8f0;padding:2em'>"
-          "<h2>I2C Bridge is running, but dg-measure.html was not found next to it.</h2>"
+          "<h2>I2C and AUX Bridge is running, but dg-measure.html was not found next to it.</h2>"
           "<p>Put <b>dg-measure.html</b> in the same folder as i2c-bridge.exe (it ships inside the same zip), then reload.</p>"
           "<p>Or use the online tool at https://brucecheng0428.github.io/tcon-tools/ .</p></body>";
         char resp[1024]; snprintf(resp,sizeof(resp),"HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s",(int)strlen(fb),fb);
@@ -4006,6 +4006,9 @@ int main(int argc, char** argv){
     }
 
     SetConsoleOutputCP(65001);   /* extra insurance; output is ASCII anyway */
+    /* 1.18.1（Bruce 2026-10-23「I2C bridge 名稱幫我改成 I2C and AUX bridge」）：黑視窗標題寫名稱與版本
+       （之前沒設，標題是 exe 路徑）。exe 檔名 i2c-bridge.exe 不改：舊捷徑、說明與 log 檔名照舊。 */
+    SetConsoleTitleA("I2C and AUX Bridge " I2C_BRIDGE_VERSION);
     exe_dir(g_exeDir, sizeof(g_exeDir));
     detect_temp_dir();
     { char lp[MAX_PATH]; snprintf(lp,sizeof(lp),"%si2c-bridge.log",g_exeDir); g_log=fopen(lp,"wb"); }
@@ -4014,7 +4017,7 @@ int main(int argc, char** argv){
        所以它印的兩行 timer log **永遠不會寫進檔案** —— 出事時等於沒有線索。
        移到開檔之後。功能不變，只是現在看得到結果。 */
     logline("==================================================");
-    logline(" I2C Bridge (local I2C bridge for the web tools)  %s (proto %d)", I2C_BRIDGE_VERSION, I2C_BRIDGE_PROTO);
+    logline(" I2C and AUX Bridge (local I2C + DP AUX bridge for the web tools)  %s (proto %d)", I2C_BRIDGE_VERSION, I2C_BRIDGE_PROTO);
     raise_timer_resolution();
     atexit(restore_timer_resolution);
     /* 🔴 1.15.1：先建立高解析度等待，再量，才量得到真正會用到的那一條。 */
@@ -4100,7 +4103,7 @@ int main(int argc, char** argv){
         if(bind(srv,(struct sockaddr*)&a,sizeof(a))==0){ g_bindOk=1; listen(srv,8);
             logline("  bind      : OK  127.0.0.1:%d", port);
         } else {
-            logline("  bind      : FAIL: cannot bind 127.0.0.1:%d (another I2C Bridge already running?) -> P", port);
+            logline("  bind      : FAIL: cannot bind 127.0.0.1:%d (another I2C and AUX Bridge already running?) -> P", port);
         }
     } else logline("  bind      : FAIL: WSAStartup -> P");
 
@@ -4129,7 +4132,7 @@ int main(int argc, char** argv){
     /* ── console banner: the LAST, most visible thing on screen ──────────── */
     printf("\n\n");
     printf("==================================================\n");
-    printf("        I2C BRIDGE STATUS:  %c\n", code);
+    printf("        I2C AND AUX BRIDGE STATUS:  %c\n", code);
     printf("==================================================\n");
     printf("   %c = %s\n", code, meaning);
     printf("   What to do: %s\n", todo);

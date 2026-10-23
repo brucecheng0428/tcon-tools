@@ -47,9 +47,9 @@
       'zh-CN': '✔ M-Bus 导通 C-Bus 已写入（0x7E:0xAB ← CD）'
     },
     'tcon.mbusFail': {
-      'zh-TW': '✕ M-Bus 導通 C-Bus（0x7E:0xAB ← CD）寫入失敗：{err}。接 E503 的 M-Bus 時會因此認不到 T-CON，請確認治具接線與 I2C Bridge 後再按一次。',
-      'en': '✕ M-Bus to C-Bus write (0x7E:0xAB ← CD) failed: {err}. On an E503 M-Bus the T-CON cannot be identified without it; check the fixture wiring and the I2C Bridge, then try again.',
-      'zh-CN': '✕ M-Bus 导通 C-Bus（0x7E:0xAB ← CD）写入失败：{err}。接 E503 的 M-Bus 时会因此认不到 T-CON，请确认治具接线与 I2C Bridge 后再按一次。'
+      'zh-TW': '✕ M-Bus 導通 C-Bus（0x7E:0xAB ← CD）寫入失敗：{err}。接 E503 的 M-Bus 時會因此認不到 T-CON，請確認治具接線與 I2C and AUX Bridge 後再按一次。',
+      'en': '✕ M-Bus to C-Bus write (0x7E:0xAB ← CD) failed: {err}. On an E503 M-Bus the T-CON cannot be identified without it; check the fixture wiring and the I2C and AUX Bridge, then try again.',
+      'zh-CN': '✕ M-Bus 导通 C-Bus（0x7E:0xAB ← CD）写入失败：{err}。接 E503 的 M-Bus 时会因此认不到 T-CON，请确认治具接线与 I2C and AUX Bridge 后再按一次。'
     }
   };
   if (typeof g.I18N === 'object' && g.I18N) {
