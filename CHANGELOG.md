@@ -2,6 +2,26 @@
 
 ---
 
+## I2C 讀寫測試 (i2c) v1.39.4 — 2026-10-23 ｜ PATCH ｜ AUX 讀 EEPROM 改為每則 256 byte，修正「選 EEPROM → 讀取」逾時失敗；I2C 路徑不變
+
+判定依據：`docs/VERSIONING.md` R2：修正錯誤。
+
+### 問題（Bruce 2026-10-23 實機）
+
+AUX 已連線，選 EEPROM（24C32、0x50、4096 byte）→ 按讀取 ⇒「讀取失敗：I2C and AUX Bridge 逾時未回覆（read）」。治具接不接都一樣。
+
+### 根因（Windows mini 照 Bruce 操作重現，bridge 1.22.0 auxtx #4502–5550）
+
+- 頁面在 AUX 也用 FAST（不分段），4096 byte 只送一則 read；`I2CT_TIMEOUT_MS` = 8000。
+- bridge 照原廠每 8 byte 一段（480=FF＋IOA 讀＋sleep 10 ms，Tcon81008.cs:192–245），512 段全部 ok，但超過 8 秒，頁面早已判定逾時。
+- 先前回報「IOA 讀 0x50 成功」是用 raw WebSocket 一次讀 8 byte，不是頁面實際流程，所以沒測出來。
+
+### 改了什麼
+
+- **common/i2c-aux.js 1.8**：新增 `CHUNK: 256` 與分段原因文案 `whyAux`（三語）。只有 i2c.html 載入這支。
+- **i2c.html**：`i2ctChunk()`／`i2ctChunkWhy()` 開頭加 AUX 分支（`i2ctXport === 'aux'` 才生效），沿用既有分段的進度條與中止。I2C 治具的分段規則一行未動。
+- **tools/check_i2c_aux.mjs**：假 bridge 對 >256 byte 的 AUX EEPROM 讀 9 秒才回（模擬實機）；新增照頁面操作的測試（選 24C32、4096、按讀取）⇒ 16 則、每則 ≤256、4096 byte 全到。舊版程式跑這組測試會出現與實機相同的逾時訊息（81 pass／4 fail），新版 85／0。
+
 ## I2C 讀寫測試 (i2c) v1.39.3 — 2026-10-23 ｜ PATCH ｜ DP AUX 開放寫 0x7C（照原廠 Tcon_Write_Register，全程 DPCD、不送 I2C over AUX）；7D／7E 照擋；I2C 路徑不變
 
 判定依據：`docs/VERSIONING.md` R2：取消一個自己加的限制。

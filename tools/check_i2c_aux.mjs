@@ -76,7 +76,10 @@ const FAKE = (opt) => {
         if (m.slave >= 0x50 && m.slave <= 0x57) { window.__ee.push(m.type); }
         /* bridge 1.20.0（proto 9）：AUX 模式 EEPROM 只放行 read（I2C over AUX），寫入擋 */
         const eeRd = aux && opt.proto >= 9 && m.type === 'read' && m.slave >= 0x50 && m.slave <= 0x57;
-        if (eeRd) { r.data = []; const ed = [0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x51, 0xA1]; for (let i = 0; i < (m.len || 1); i++) r.data.push(ed[m.addr + i] ?? 0x5A); r.want = m.len; r.got = m.len; return reply(ws, r); }
+        if (eeRd) { r.data = []; const ed = [0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x51, 0xA1]; for (let i = 0; i < (m.len || 1); i++) r.data.push(ed[m.addr + i] ?? 0x5A); r.want = m.len; r.got = m.len;
+          /* v1.39.4：實機 bridge 每 8 byte 一段（480=FF＋IOA＋sleep 10 ms），4 KB 一則超過頁面 8 秒逾時 ⇒ 假 bridge 對 >256 byte 的 AUX EEPROM 讀 9 秒才回 */
+          if ((m.len || 1) > 256) { window.__eeBig = (window.__eeBig || 0) + 1; setTimeout(() => reply(ws, r), 9000); return; }
+          return reply(ws, r); }
         if (aux && opt.auxRegFail && m.type === 'read' && (m.slave === 0x3E || m.slave === 0x7C)) { Object.assign(r, { ok: false, err: 'AUX DPCD_Write 0x430 failed (3E:207E)' }); return reply(ws, r); }
         if (aux && ![0x3E, 0x7C, 0x7D, 0x7E].includes(m.slave)) { Object.assign(r, { ok: false, err: 'DP AUX mode: not a T-CON slave' }); return reply(ws, r); }
         if (!aux && [0x60, 0x61, 0x68, 0x69].includes(m.slave)) { Object.assign(r, { ok: false, err: 'NACK', status: 2 }); return reply(ws, r); }
@@ -242,6 +245,22 @@ try {
     const tip = await page.$eval('#mode-seg [data-mode="ee"]', b => b.title);
     check('EEPROM 鈕提示「只能讀」', /只能讀/.test(tip), tip);
     if (SHOTS) await page.screenshot({ path: SHOTS + '/aux_ioa_1280.png', fullPage: false });
+    /* v1.39.4：照使用者在頁面上的實際操作 —— EEPROM 模式選 24C32、總 byte 4096、按「讀取」（不直接呼叫 i2ctDoRead） */
+    { const v = await page.$$eval('#in-eemodel option', os => (os.find(o => /24C32/.test(o.textContent)) || {}).value);
+      if (v) await page.selectOption('#in-eemodel', v);
+      await sleep(150);
+      await page.evaluate(() => { const e = document.getElementById('in-len'); e.value = '4096'; e.dispatchEvent(new Event('input', { bubbles: true })); e.dispatchEvent(new Event('change', { bubbles: true })); });
+      const m0 = await page.evaluate(() => window.__msgs.length);
+      await page.click('#btn-read');
+      await waitFor(page, () => !i2ctBusy && i2ctLastRead, null, 20000);
+      const lr = await page.evaluate(() => i2ctLastRead);
+      const rds = await page.evaluate((n) => window.__msgs.slice(n).filter(m => m.t === 'read'), m0);
+      const bnr = await page.$eval('#readbanner', e => e.textContent).catch(() => '');
+      check('v1.39.4：AUX 按「讀取」EEPROM 4096 byte ⇒ 分 16 則、每則 ≤256', rds.length === 16 && rds.every(m => m.n <= 256 && m.s >= 0x50 && m.s <= 0x57), JSON.stringify(rds.slice(0, 3)));
+      check('v1.39.4：4096 byte 全部讀到、沒有逾時', lr && lr.got === 4096 && !/逾時/.test(bnr), JSON.stringify(lr).slice(0, 120) + ' | ' + bnr.slice(0, 80));
+      check('v1.39.4：沒有送出 >256 byte 的 AUX EEPROM 讀取', !(await page.evaluate(() => window.__eeBig)), '');
+      const lg = await page.$eval('#log', e => e.textContent).catch(() => '');
+      check('v1.39.4：log 寫出 AUX 分段原因', /AUX 每 8 byte 一段讀/.test(lg), ''); }
     check('沒有 JS 錯誤', errs.length === 0, errs.join(' | ').slice(0, 300));
     await ctx.close();
   }

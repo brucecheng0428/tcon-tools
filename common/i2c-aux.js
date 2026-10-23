@@ -98,6 +98,7 @@
     eeAwid: ['DP AUX 讀 EEPROM：offset 要 1 或 2 byte（slave 0x{s}）。這一筆沒有送出。',
              'DP AUX EEPROM read: the offset must be 1 or 2 bytes (slave 0x{s}). Nothing was sent.',
              'DP AUX 读 EEPROM：offset 要 1 或 2 byte（slave 0x{s}）。这一笔没有送出。'],
+    whyAux: ['AUX 每 8 byte 一段讀，整筆送會超過網頁等待時間，所以每則 {n} byte', 'AUX reads 8 bytes per step; one big request would outlast the page timeout, so {n} bytes per request', 'AUX 每 8 byte 一段读，整笔送会超过网页等待时间，所以每则 {n} byte'],
     eeRO: ['DP AUX：EEPROM 只能讀（I2C over AUX），寫入鈕停用', 'DP AUX: EEPROM is read-only (I2C over AUX); writing is disabled', 'DP AUX：EEPROM 只能读（I2C over AUX），写入钮停用'],
     /* v1.3（2026-10-23 實機：AMD、非系統管理員，3E／7C／7D 經 IOA 全回 00 ⇒ 共用辨認錯判成 E503A1 T1）：
        原廠 AUX 工具認 T-CON 前看 DPCD 0x4D1＝DA（Tcon81008.cs Identify）；不是 DA ⇒ T-CON 沒開放，不辨認。 */
@@ -151,7 +152,7 @@
     return (addr + n - 1 < DPCD_EE_LO) || (addr > DPCD_EE_HI);
   }
   g.TconAux = {
-    VERSION: '1.7', MODE: 4, NEED_PROTO: 7, SIMUL_PROTO: 8, IOA_PROTO: IOA_PROTO, eeReadOk: eeReadOk,
+    VERSION: '1.8', CHUNK: 256, MODE: 4, NEED_PROTO: 7, SIMUL_PROTO: 8, IOA_PROTO: IOA_PROTO, eeReadOk: eeReadOk,
     SLAVES: SLAVES.slice(), EE_LO: EE_LO, EE_HI: EE_HI, DPCD_EE_LO: DPCD_EE_LO, DPCD_EE_HI: DPCD_EE_HI,
     allowed: allowed, readDpcd: readDpcd, awidFor: awidFor, check: check, text: text, dpcdWriteOk: dpcdWriteOk
   };
