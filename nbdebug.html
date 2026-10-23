@@ -162,6 +162,7 @@
   <div class="card stp" id="nd-card">
     <div class="nd-form">
       <div class="nd-frow"><span class="nd-fl" data-i18n="nd.kIc">IC</span><span class="nd-fc"><select id="nd-icsel" class="nd-sel"></select></span></div>
+      <div class="nd-frow" id="nd-romrow"><span class="nd-fl" data-i18n="tcon.romLab">儲存（EN01）</span><span class="nd-fc"><select id="nd-rom" class="nd-sel" aria-label="Storage"></select> <span class="nd-qn" data-i18n="tcon.romHint">EEPROM 才下 M-Bus 導通 C-Bus；Flash 不下（全站共用這個設定）。E503 只有 EEPROM。</span></span></div>
       <div class="nd-frow"><span class="nd-fl" data-i18n="nd.kItem">項目</span><span class="nd-fc"><input id="nd-q" class="nd-q" type="search" placeholder="搜尋訊號（例 CORESTATE、DE、OSC）" autocomplete="off"><span id="nd-qn" class="nd-qn"></span><select id="nd-item" class="nd-sel"></select></span></div>
       <div class="nd-frow"><span class="nd-fl" data-i18n="nd.kGpio">輸出 GPIO</span><span class="nd-fc nd-pins" id="nd-gpios"><select id="nd-gpio" class="nd-sel"></select></span></div>
     </div>
@@ -193,7 +194,7 @@
   </div>
 </div>
 
-<script src="common/version.js?v=20261023sim1360"></script>
+<script src="common/version.js?v=20261023nbd130"></script>
 <script src="common/i18n.js?v=20261023sim1360"></script>
 <script>
 /* 本頁字串（三語：zh-TW／en／zh-CN），併進共用 I18N（做法同 datamap.html） */
@@ -224,6 +225,11 @@
     'nd.grpCommon': ['常用', 'Common', '常用'],
     'nd.qPh': ['搜尋訊號（例 CORESTATE、DE、OSC）', 'Search signal (e.g. CORESTATE, DE, OSC)', '搜索信号（例 CORESTATE、DE、OSC）'],
     'nd.qNone': ['沒有符合的項目', 'No matching item', '没有符合的项目'],
+    'nd.wMbus': ['單向：下了以後 M-Bus（MSCL／MSDA）可以導通到 C-Bus（CSCL／CSDA），但 C-Bus 那邊不能連回 M-Bus。', 'One-way: after this, M-Bus (MSCL / MSDA) connects through to C-Bus (CSCL / CSDA), but C-Bus cannot connect back to M-Bus.', '单向：下了以后 M-Bus（MSCL／MSDA）可以导通到 C-Bus（CSCL／CSDA），但 C-Bus 那边不能连回 M-Bus。'],
+    'nd.rawW': ['整 byte 直接寫、不先讀', 'whole byte, written without reading first', '整 byte 直接写、不先读'],
+    'nd.rawSent': ['已送出 ✓（ACK）', 'sent ✓ (ACK)', '已送出 ✓（ACK）'],
+    'nd.wMbusRule': ['EN01：EEPROM 應用才可以用 M-Bus 導通 C-Bus；Flash 應用不可用（上面「儲存」選 Flash 時不會下）。', 'EN01: only an EEPROM application may use M-Bus to C-Bus; a Flash application must not (with Storage = Flash it is not sent).', 'EN01：EEPROM 应用才可以用 M-Bus 导通 C-Bus；Flash 应用不可用（上面「存储」选 Flash 时不会下）。'],
+    'nd.mbusFlash': ['已擋下：儲存選 Flash——EN01 Flash 應用不可用此導通方式（M-Bus 導通 C-Bus），沒有下 7E:AB←CD。是 EEPROM 板請把「儲存」改成 EEPROM 再執行。', 'Blocked: Storage = Flash — an EN01 Flash application must not use this M-Bus to C-Bus connection; 7E:AB←CD was not sent. For an EEPROM board set Storage to EEPROM and run again.', '已挡下：存储选 Flash——EN01 Flash 应用不可用此导通方式（M-Bus 导通 C-Bus），没有下 7E:AB←CD。是 EEPROM 板请把「存储」改成 EEPROM 再执行。'],
     'nd.qCount': ['{n} 項', '{n} items', '{n} 项'],
     'nd.dupPin': ['⚠ 有兩個 bit 選到同一支 GPIO，請改成不同腳（不執行、不匯出）', '⚠ Two bits use the same GPIO: pick different pins (run/export disabled)', '⚠ 有两个 bit 选到同一支 GPIO，请改成不同脚（不执行、不导出）'],
     'nd.pkgQ': ['封裝腳位待確認，請對照線路圖', 'package pin unconfirmed — check the schematic', '封装脚位待确认，请对照线路图'],
@@ -320,7 +326,7 @@
 <script src="common/common.js?v=20260523"></script>
 <script src="common/step-status.js?v=20261023sb2"></script>
 <script src="common/xlsx.js?v=20261008dm11825"></script>
-<script src="common/i2c-mbus.js?v=20261023mb111"></script>
+<script src="common/i2c-mbus.js?v=20261023mb120"></script>
 <script src="common/tcon-detect.js?v=20261022td120"></script>
 <script src="common/i2c-bridge.js?v=20261023ib103"></script>
 <script>
@@ -377,6 +383,16 @@ var NBD_GPIO = {"E503":{"model":"RM8100x_for_FAE_20240925_20250311.model","tcon"
       meas: ['4 bit 一起看：[3]＝1 為正常顯示（Normal video）', 'read the 4 bits together: [3] = 1 means normal video', '4 bit 一起看：[3]＝1 为正常显示（Normal video）'] }
   ];
   ITEMS.forEach(function (it) { it.grp = 'common'; });
+  /* v1.3.0（Bruce 2026-10-23「把 E503 跟 EN01 Mbus 導通 Cbus 的 command 或是 script 也列在選項裡面」）：
+     瑞鼎 UI（RCP2 ICDefine.cs：RM81008 L576–580、RM8100x L2806–2810 的 MbusToCbus）兩顆都是同一筆 7E:AB←CD（1-byte offset、整 byte、不先讀）；
+     Python RCP V5.0.4 i2c_open_mbus_to_cbus() L31839 同值（它另外對 RM81000～81004 補 3E:059←1E，那是 WP Low 前置、RCP2 拆成 WP_LowPrereq，
+     而且 0x059 是 E503 ROM_WP 的 TX_IN_SEL，會蓋掉 debug 輸出 ⇒ 不放進這一項）。E501A／B：RCP2 沒有 MbusToCbus ⇒ 不顯示。
+     單向：M-Bus（MSCL／MSDA）→ C-Bus（CSCL／CSDA），C-Bus 不能連回 M-Bus（Bruce 原話）。沒有輸出腳 ⇒ bits 空、GPIO 列隱藏。 */
+  var MBUS_ITEM = { id: 'mbus', grp: 'mbus', mbus: true, label: 'M-Bus → C-Bus 導通', lab3: ['M-Bus → C-Bus 導通', 'M-Bus → C-Bus connect', 'M-Bus → C-Bus 导通'], not: ['E501A', 'E501B'],
+    regs: [{ slave: 0x7E, ob: 1, addr: 0xAB, msb: 7, lsb: 0, val: 0xCD, name: 'MbusToCbus', raw: true }], bits: [],
+    sig: 'M-Bus（MSCL／MSDA）→ C-Bus（CSCL／CSDA）', meas: ['', '', ''] };
+  ITEMS.push(MBUS_ITEM);
+  function labOf(it) { return it.lab3 ? it.lab3[li()] : it.label; }
 
   /* ── v1.1.0：debug 群組（39 組 × 10 bit）全部列成項目 ──
      來源：EN01 Debug Mode 文件（2026-10）p7、p9–p12；E503A／E501B debug 投影片 p7、p9–p13（圖檔 OCR 後逐張看圖核對）。
@@ -476,7 +492,7 @@ var NBD_GPIO = {"E503":{"model":"RM8100x_for_FAE_20240925_20250311.model","tcon"
     rows.forEach(function (r) { r.mask = maskOf(r); });
     var ids = gs.map(function (g) { return g.id; });
     var dup = ids.some(function (x, i) { return ids.indexOf(x) !== i; });
-    return { ic: ic, item: it, gpio: gs[0], gpios: gs, isDef: gs[0].id === dps[0], dup: dup, rows: rows, tcon: G[ic].tcon, model: G[ic].model };
+    return { ic: ic, item: it, gpio: gs[0] || null, gpios: gs, isDef: !gs.length || gs[0].id === dps[0], dup: dup, rows: rows, tcon: G[ic].tcon, model: G[ic].model };
   }
 
   /* ── 匯出：Excel（WFG NB 匯出同格式）── */
@@ -490,6 +506,7 @@ var NBD_GPIO = {"E503":{"model":"RM8100x_for_FAE_20240925_20250311.model","tcon"
   ];
   function rowDesc(b, r) {
     if (r.kind === 'burn') return 'IRREVERSIBLE eFuse program (one-time) / 不可逆：燒 eFuse';
+    if (r.raw) return 'M-Bus to C-Bus, one-way: M-Bus (MSCL/MSDA) -> C-Bus (CSCL/CSDA), C-Bus cannot connect back / 單向：M-Bus 可導通到 C-Bus，C-Bus 不能連回 M-Bus';
     if (r.pin && r.sel) return b.item.label + ': ' + (r.sig || '') + ' (TX_IN_SEL ' + hex(r.val, 2) + 'h)';
     if (r.pin) return 'TX enable';
     return '';
@@ -506,7 +523,7 @@ var NBD_GPIO = {"E503":{"model":"RM8100x_for_FAE_20240925_20250311.model","tcon"
     return rows;
   }
   /* ── 匯出：.script（WFG NB 匯出同格式：write -m AAAA VV MM    // note；只能 ASCII；只有 3E Register）── */
-  function asciiOnly(s) { return String(s).replace(/（/g, '(').replace(/）/g, ')').replace(/[^\x20-\x7E]/g, ''); }
+  function asciiOnly(s) { return String(s).replace(/→/g, '->').replace(/（/g, '(').replace(/）/g, ')').replace(/[^\x20-\x7E]/g, ''); }
   function scriptText(b) {
     var L = [], ver = (window.TOOL_VERSIONS && TOOL_VERSIONS.nbdebug) || '';
     L.push('// NB TCON Debug ' + ver + ' - ' + b.ic + ' ' + asciiOnly(b.item.label) + ' -> ' + b.gpios.map(function (g, k) { return asciiOnly(b.item.bits[k].n) + ':' + asciiOnly(g.id) + (g.pst ? ' (' + asciiOnly(g.pkg || g.id) + ')' : ''); }).join(', '));
@@ -514,13 +531,20 @@ var NBD_GPIO = {"E503":{"model":"RM8100x_for_FAE_20240925_20250311.model","tcon"
     L.push('// write -m changes only the bits in MASK; other bits keep their value.');
     L.push('// ' + new Date().toISOString());
     L.push('');
+    if (b.item.mbus) {
+      L.push('// M-Bus to C-Bus (' + b.ic + '): slave 0x7E, 1-byte offset 0xAB, write 0xCD (whole byte, no read first).');
+      L.push('// ONE-WAY: M-Bus (MSCL/MSDA) -> C-Bus (CSCL/CSDA). C-Bus cannot connect back to M-Bus.');
+      if (b.ic === 'EN01') L.push('// EN01: EEPROM application only. Do NOT send this on a Flash application.');
+      L.push('// 0x7E is not a Register address: send it by I2C (I2C Run on the NB TCON Debug page).');
+      L.push('');
+    }
     L.push('// -- ' + asciiOnly(b.item.label) + ': ' + asciiOnly(b.item.sig) + ' --');
     b.rows.forEach(function (r) {
       if (r.kind === 'r') { L.push('// read 3E 0x' + hex(r.addr, 4) + ' first: non-zero = osc_1 already programmed, do not burn'); return; }
       var note = r.name + ' = 0x' + hex(r.val, 2);
       if (r.slave !== 0x3E) {
         if (r.kind === 'burn') L.push('// WARNING: IRREVERSIBLE (one-time eFuse program). Run only after 7C 0x00 is final.');
-        L.push('// 7C:0x' + hex(r.addr, 2) + ' <- ' + hex(r.val, 2) + '    // ' + note + '  (slave 0x7C, 1-byte offset: not a Register address, send by I2C)');
+        L.push('// ' + hex(r.slave, 2) + ':0x' + hex(r.addr, 2) + ' <- ' + hex(r.val, 2) + '    // ' + note + '  (slave 0x' + hex(r.slave, 2) + ', 1-byte offset: not a Register address, send by I2C)');
         return;
       }
       L.push('write -m ' + hex(r.addr, 4) + ' ' + hex((r.val << r.lsb) & 0xFF, 2) + ' ' + hex(r.mask, 2) + '    // ' + note);
@@ -531,8 +555,8 @@ var NBD_GPIO = {"E503":{"model":"RM8100x_for_FAE_20240925_20250311.model","tcon"
   }
   function fname(b, ext) {
     var d = new Date(), ds = d.getFullYear() + ('0' + (d.getMonth() + 1)).slice(-2) + ('0' + d.getDate()).slice(-2);
-    var it = asciiOnly(b.item.id).replace(/^g:/, '').replace(/[^A-Za-z0-9_]+/g, '_'), gp = asciiOnly(b.gpio.id).replace(/[^A-Za-z0-9_]+/g, '_').replace(/_+$/, '') + (b.gpios.length > 1 ? '_x' + b.gpios.length : '');
-    return 'NBDebug_' + b.ic + '_' + it + '_' + gp + (S.burnOk() && b.item.kosc ? '_BURN' : '') + '_' + ds + '.' + ext;
+    var it = asciiOnly(b.item.id).replace(/^g:/, '').replace(/[^A-Za-z0-9_]+/g, '_'), gp = !b.gpio ? '' : asciiOnly(b.gpio.id).replace(/[^A-Za-z0-9_]+/g, '_').replace(/_+$/, '') + (b.gpios.length > 1 ? '_x' + b.gpios.length : '');
+    return 'NBDebug_' + b.ic + '_' + it + (gp ? '_' + gp : '') + (S.burnOk() && b.item.kosc ? '_BURN' : '') + '_' + ds + '.' + ext;
   }
   function download(name, data, mime) {
     var blob = new Blob([data], { type: mime }), a = document.createElement('a');
@@ -562,8 +586,8 @@ var NBD_GPIO = {"E503":{"model":"RM8100x_for_FAE_20240925_20250311.model","tcon"
     var by = {}, order = [];
     list.forEach(function (it) { if (!by[it.grp]) { by[it.grp] = []; order.push(it.grp); } by[it.grp].push(it); });
     s.innerHTML = order.map(function (gk) {
-      var g = by[gk][0].group, lab = gk === 'common' ? tt('nd.grpCommon') : gk + '（TOP_DBG_SEL ' + hex(g.top, 2) + 'h' + (g.sel3 != null ? '／DBG_SEL3 ' + hex(g.sel3, 2) + 'h' : '') + '）';
-      return '<optgroup label="' + esc(lab) + '">' + by[gk].map(function (it) { return '<option value="' + esc(it.id) + '">' + esc(it.label) + (it.bits.length > 1 ? '（' + it.bits.length + ' bit）' : '') + '</option>'; }).join('') + '</optgroup>';
+      var g = by[gk][0].group, lab = gk === 'common' ? tt('nd.grpCommon') : !g ? labOf(by[gk][0]) : gk + '（TOP_DBG_SEL ' + hex(g.top, 2) + 'h' + (g.sel3 != null ? '／DBG_SEL3 ' + hex(g.sel3, 2) + 'h' : '') + '）';
+      return '<optgroup label="' + esc(lab) + '">' + by[gk].map(function (it) { return '<option value="' + esc(it.id) + '">' + esc(labOf(it)) + (it.bits.length > 1 ? '（' + it.bits.length + ' bit）' : '') + '</option>'; }).join('') + '</optgroup>';
     }).join('');
     if (!list.length) { s.innerHTML = '<option value="">' + esc(tt('nd.qNone')) + '</option>'; return; }
     s.value = list.some(function (it) { return it.id === v; }) ? v : list[0].id;
@@ -572,6 +596,7 @@ var NBD_GPIO = {"E503":{"model":"RM8100x_for_FAE_20240925_20250311.model","tcon"
   function fillGpio(keep) {
     var ic = $('nd-icsel').value, it = itemOf($('nd-item').value, ic); if (!it) return;
     var box = $('nd-gpios'), old = keep ? pinsNow() : [], dps = defPins(ic, it), dp = dps[0];
+    if (box.parentNode) box.parentNode.classList.toggle('hidden', !it.bits.length);   /* v1.3.0：M-Bus 導通沒有輸出腳 */
     var opts = G[ic].gpios.map(function (g) { return '<option value="' + esc(g.id) + '">' + esc(pinText(g)) + (g.id === dp ? ' ★' + esc(tt('nd.def')) : '') + '</option>'; }).join('');
     box.innerHTML = it.bits.map(function (bt, k) {
       var id = k ? 'nd-gpio-' + k : 'nd-gpio';
@@ -623,6 +648,20 @@ var NBD_GPIO = {"E503":{"model":"RM8100x_for_FAE_20240925_20250311.model","tcon"
       T(['<br>為什麼可以填：這一格就是 KOSC 要調的值（只能填 80～FF，bit7 鎖在 1）。', '<br>Why editable: this is the one value KOSC tunes (80–FF only; bit7 stays 1).', '<br>为什么可以填：这一格就是 KOSC 要调的值（只能填 80～FF，bit7 锁在 1）。']),
       T(['寫入後量 OSC 腳，目標 6.75 MHz（＝內部 OSC 54 MHz ÷ 8）。', 'After writing, measure the OSC pin; target 6.75 MHz (= internal OSC 54 MHz ÷ 8).', '写入后量 OSC 脚，目标 6.75 MHz（＝内部 OSC 54 MHz ÷ 8）。']),
       T(['偏高／偏低照表下方說明改檔位、再寫、再量；合格才燒錄。', 'Too high / too low: change the code as described under the table, write and measure again; burn only after it passes.', '偏高／偏低照表下方说明改档位、再写、再量；合格才烧录。']));
+    if (r.raw) return P(
+      T(['下 M-Bus 導通 C-Bus：slave <b>0x7E</b>、1-byte offset <b>0xAB</b>、整個 byte 寫 <b>0xCD</b>（瑞鼎 UI 的同一筆；不先讀、不做讀改寫）。<b>單向</b>：下了以後 M-Bus（MSCL／MSDA）可以導通到 C-Bus（CSCL／CSDA），但 C-Bus 那邊不能連回 M-Bus。',
+         'Sends M-Bus to C-Bus: slave <b>0x7E</b>, 1-byte offset <b>0xAB</b>, whole byte <b>0xCD</b> (the same command as the Raydium UI; no read first, no read-modify-write). <b>One-way</b>: after this, M-Bus (MSCL / MSDA) connects through to C-Bus (CSCL / CSDA), but C-Bus cannot connect back to M-Bus.',
+         '下 M-Bus 导通 C-Bus：slave <b>0x7E</b>、1-byte offset <b>0xAB</b>、整个 byte 写 <b>0xCD</b>（瑞鼎 UI 的同一笔；不先读、不做读改写）。<b>单向</b>：下了以后 M-Bus（MSCL／MSDA）可以导通到 C-Bus（CSCL／CSDA），但 C-Bus 那边不能连回 M-Bus。']),
+      T(['這一列顯示「已送出 ✓」＝0x7E 有回 ACK，指令收到了；出現 NACK／錯誤＝沒收到。瑞鼎 UI 也只寫不讀，所以這一列不讀回比對。',
+         'This row shows "sent ✓" = 0x7E returned ACK and took the command; NACK / error = not received. The Raydium UI only writes it too, so this row is not read back.',
+         '这一行显示「已送出 ✓」＝0x7E 有回 ACK，指令收到了；出现 NACK／错误＝没收到。瑞鼎 UI 也只写不读，所以这一行不读回比对。']),
+      (b.ic === 'EN01'
+        ? T(['<b>EN01 先看應用：EEPROM 才可以下；Flash 應用不可用此導通方式</b>（上面「儲存」選 Flash 時按執行會擋下、不送）。', '<b>EN01: check the application first — send it only for EEPROM; a Flash application must not use it</b> (with Storage = Flash, Run is blocked and nothing is sent).', '<b>EN01 先看应用：EEPROM 才可以下；Flash 应用不可用此导通方式</b>（上面「存储」选 Flash 时按执行会挡下、不送）。']) + ' ' + T(['確認導通：接著用 I2C 讀 3E 0x207E，低 4 bit＝0（A1）／1（A2）就是讀得到 T-CON 了。讀不到（NACK／FF）→ 檢查接線，並注意只有 M-Bus → C-Bus 這個方向會通，再下一次。本頁「還原」不含這一筆。',
+             'To confirm: read 3E 0x207E over I2C; low 4 bits = 0 (A1) / 1 (A2) means the T-CON is reachable. No read (NACK / FF) → check the wiring, keep in mind only the M-Bus → C-Bus direction connects, and send it again. Restore on this page does not undo this row.',
+             '确认导通：接着用 I2C 读 3E 0x207E，低 4 bit＝0（A1）／1（A2）就是读得到 T-CON 了。读不到（NACK／FF）→ 检查接线，并注意只有 M-Bus → C-Bus 这个方向会通，再下一次。本页「还原」不含这一笔。'])
+        : T(['確認導通：接著用 I2C 讀 7D 0x007D（版本碼），讀得到、不是 FF 就是讀得到 T-CON 了。讀不到（NACK／FF）→ 檢查接線，並注意只有 M-Bus → C-Bus 這個方向會通，再下一次。本頁「還原」不含這一筆。',
+             'To confirm: read 7D 0x007D (version code) over I2C; a value other than FF means the T-CON is reachable. No read (NACK / FF) → check the wiring, keep in mind only the M-Bus → C-Bus direction connects, and send it again. Restore on this page does not undo this row.',
+             '确认导通：接着用 I2C 读 7D 0x007D（版本码），读得到、不是 FF 就是读得到 T-CON 了。读不到（NACK／FF）→ 检查接线，并注意只有 M-Bus → C-Bus 这个方向会通，再下一次。本页「还原」不含这一笔。'])));
     if (r.pin && r.sel) {
       var bad = BAD[BAD_OF[it.id] || 'grp'] || BAD.grp;
       return P(T(['這支腳改送出 <b>{s}</b>（TX_IN_SEL＝{x}）。', 'This pin now outputs <b>{s}</b> (TX_IN_SEL = {x}).', '这支脚改送出 <b>{s}</b>（TX_IN_SEL＝{x}）。']).replace('{s}', esc(r.sig || '')).replace('{x}', x(r.val)) +
@@ -672,7 +711,9 @@ var NBD_GPIO = {"E503":{"model":"RM8100x_for_FAE_20240925_20250311.model","tcon"
     if (b.dup) w.push(tt('nd.dupPin'));
     if (it.w08) w.push(tt('nd.w08'));
     if (it.kosc) w.push(tt('nd.wBurn'));
+    if (it.mbus) { w.push(tt('nd.wMbus')); if (b.ic === 'EN01') w.push(tt('nd.wMbusRule') + (TconMbus.rom() === 'flash' ? ' ' + tt('nd.mbusFlash') : '')); }
     $('nd-warn').textContent = w.join('　');
+    $('nd-romrow').classList.toggle('hidden', b.ic !== 'EN01');
     var gOn = !!(it.kosc && S.g.on), gSet = gOn ? gRowSet(b) : null;
     $('nd-gsw').classList.toggle('hidden', !it.kosc);
     $('nd-burnbox').classList.toggle('hidden', !it.kosc || (gOn && !gCanBurn()));
@@ -686,9 +727,9 @@ var NBD_GPIO = {"E503":{"model":"RM8100x_for_FAE_20240925_20250311.model","tcon"
       var rb = S.rb[i] || '';
       var tip = part ? tt('nd.keep') + '（mask 0x' + hex(r.mask, 2) + '）' : '';
       h += '<tr class="' + cls + '" data-k="' + [r.kind, hex(r.slave, 2), hex(r.addr, 4), r.msb, r.lsb, r.val == null ? '' : hex(r.val, 2)].join(':') + '"><td>' + (i + 1) + '</td><td class="c-slave mono">' + hex(r.slave, 2) + '</td><td class="mono">' + addr + '</td><td class="mono">' + val + '</td>' +
-        '<td class="mono nd-rb ' + (rb.cls || '') + '">' + esc(rb.t || '') + '</td><td class="nm" title="' + esc(tip) + '">' + esc(r.name) + (part ? ' <span class="nd-bits">· ' + esc(tt('nd.keep')) + '</span>' : '') + '</td>' +
+        '<td class="mono nd-rb ' + (rb.cls || '') + '">' + esc(rb.t || '') + '</td><td class="nm" title="' + esc(tip) + '">' + esc(r.name) + (part ? ' <span class="nd-bits">· ' + esc(tt('nd.keep')) + '</span>' : '') + (r.raw ? ' <span class="nd-bits">· ' + esc(tt('nd.rawW')) + '</span>' : '') + '</td>' +
         '<td>' + (r.kind === 'r' ? '' : '<button class="sbtn sm" data-w="' + i + '"' + (S.linked && !S.busy ? '' : ' disabled') + '>' + esc(tt('nd.w')) + '</button> ') +
-        '<button class="sbtn sm" data-r="' + i + '"' + (S.linked && !S.busy ? '' : ' disabled') + '>' + esc(tt('nd.r')) + '</button></td><td class="ds">' + rowHelp(b, r) + '</td></tr>';
+        (r.raw ? '' : '<button class="sbtn sm" data-r="' + i + '"' + (S.linked && !S.busy ? '' : ' disabled') + '>' + esc(tt('nd.r')) + '</button>') + '</td><td class="ds">' + rowHelp(b, r) + '</td></tr>';
     });
     $('nd-tbl').innerHTML = h + '</tbody>';
     $('nd-ktrim').classList.toggle('hidden', !it.kosc);
@@ -705,6 +746,16 @@ var NBD_GPIO = {"E503":{"model":"RM8100x_for_FAE_20240925_20250311.model","tcon"
   function renderHelp(b) {
     var it = b.item, n = li();
     var T3 = function (a) { return a[n]; };
+    if (it.mbus) {
+      $('nd-help').innerHTML = '<h4>' + esc(labOf(it)) + '：' + esc(it.sig) + '</h4><ul>' +
+        '<li>' + esc(T3(['要下的指令（' + b.ic + '）：slave 0x7E、1-byte offset 0xAB、寫 0xCD，一筆、整個 byte、不先讀。EN01 與 E503 的瑞鼎 UI 都是這一筆。', 'Command (' + b.ic + '): slave 0x7E, 1-byte offset 0xAB, write 0xCD — one write, whole byte, no read first. The Raydium UI uses this same write for EN01 and E503.', '要下的指令（' + b.ic + '）：slave 0x7E、1-byte offset 0xAB、写 0xCD，一笔、整个 byte、不先读。EN01 与 E503 的瑞鼎 UI 都是这一笔。'])) + '</li>' +
+        '<li><b>' + esc(tt('nd.wMbus')) + '</b></li>' +
+        (b.ic === 'EN01' ? '<li><b>' + esc(tt('nd.wMbusRule')) + '</b></li>' : '<li>' + esc(T3(['E503 只有 EEPROM 應用（瑞鼎 UI 的 E503 只能選 EEPROM），沒有 Flash 的限制。', 'E503 has only EEPROM applications (the Raydium UI offers only EEPROM for E503), so the Flash rule does not apply.', 'E503 只有 EEPROM 应用（瑞鼎 UI 的 E503 只能选 EEPROM），没有 Flash 的限制。'])) + '</li>') +
+        '<li>' + esc(T3(['本頁每次連線後第一次 I2C 讀寫前也會自動下這一筆；這一項是要再手動下一次（例如板子重新上電後）時用。', 'This page also sends it automatically before the first I2C transfer of each connection; use this item to send it again by hand (for example after the board is power-cycled).', '本页每次连接后第一次 I2C 读写前也会自动下这一笔；这一项是要再手动下一次（例如板子重新上电后）时用。'])) + '</li>' +
+        '<li>' + esc(T3(['匯出：Excel 有這一列（Slave 0x7E、Offset-Bytes 1）；0x7E 不是 .model 的 Register，.script 只寫成註解，要用 I2C 下。', 'Export: the Excel file has this row (Slave 0x7E, Offset-Bytes 1); 0x7E is not a .model Register, so .script keeps it as a comment — send it by I2C.', '导出：Excel 有这一行（Slave 0x7E、Offset-Bytes 1）；0x7E 不是 .model 的 Register，.script 只写成注释，要用 I2C 下。'])) + '</li>' +
+        '<li>' + esc(T3(['E501A／E501B 的瑞鼎 UI 沒有這個指令，選這兩顆時不顯示這一項。', 'The Raydium UI has no such command for E501A / E501B, so this item is hidden for them.', 'E501A／E501B 的瑞鼎 UI 没有这个指令，选这两颗时不显示这一项。'])) + '</li></ul>';
+      return;
+    }
     var h = '<h4>' + esc(it.label) + '：' + esc(it.sig) + '</h4><ul>' +
       b.gpios.map(function (g) { return '<li>' + esc(T3(['GPIO 位址：', 'GPIO addresses: ', 'GPIO 地址：'])) + esc(b.model) + ' ' + esc(g.txN) + (g.doc ? '' : '（L' + g.txL + '）') + '／' + esc(g.selN) + (g.doc ? '' : '（L' + g.selL + '）') + (g.pin ? '；' + esc(g.pin) + (g.pp ? ' ' + esc(g.pkg) : '') + (g.diff ? '（' + esc(tt('nd.pkgDiff')) + '）' : '') : '') + '</li>'; }).join('') + '</ul>';
     h += '<h4>' + esc(T3(['用法', 'Usage', '用法'])) + '</h4><ul>' +
@@ -831,6 +882,12 @@ var NBD_GPIO = {"E503":{"model":"RM8100x_for_FAE_20240925_20250311.model","tcon"
   /* 一列：讀 → 只改遮罩內 bit → 寫 → 讀回比對；第一次寫前的原值記到 S.orig（還原用） */
   async function doRow(b, i, mode) {
     var r = b.rows[i], aw = r.ob;
+    if (r.raw) {   /* v1.3.0：M-Bus 導通＝瑞鼎 UI 同一筆，整 byte 直接寫、不讀、不記還原 */
+      if (b.ic === 'EN01' && !TconMbus.allowed()) { S.rb[i] = { t: '—', cls: 'ng' }; throw new Error(tt('nd.mbusFlash')); }   /* Bruce 10/23：EN01 Flash 不可導通 */
+      await rawWrite(r.slave, aw, r.addr, [r.val & 0xFF]);
+      log('W 0x' + hex(r.slave, 2) + ':0x' + hex(r.addr, 2) + ' <- ' + hex(r.val, 2) + ' (' + r.name + ', no read-back)');
+      S.rb[i] = { t: tt('nd.rawSent'), cls: 'ok' }; return true;
+    }
     if (mode === 'r' || r.kind === 'r') {
       var v = (await rawRead(r.slave, aw, r.addr, 1))[0] & 0xFF;
       log('R 0x' + hex(r.slave, 2) + ':0x' + hex(r.addr, aw === 2 ? 4 : 2) + ' -> ' + hex(v, 2));
@@ -862,7 +919,7 @@ var NBD_GPIO = {"E503":{"model":"RM8100x_for_FAE_20240925_20250311.model","tcon"
   function runAll() {
     return guard(async function () {
       var b = cur(), n = 0; S.rb = {};
-      var mb = await TconMbus.open(rawWrite); if (!mb.ok) log(tt('tcon.mbusFail', { err: mb.err }));
+      if (!b.item.mbus) { var mb = await TconMbus.open(rawWrite); if (!mb.ok) log(tt('tcon.mbusFail', { err: mb.err })); }   /* M-Bus 導通項目本身就是這一筆 */
       for (var i = 0; i < b.rows.length; i++) {
         var ok = await doRow(b, i, 'w'); render();
         if (b.rows[i].kind === 'r' && S.r20d0) { /* 已燒過：照樣讓使用者量頻，但燒錄列一定不送 */ }
@@ -1158,7 +1215,7 @@ var NBD_GPIO = {"E503":{"model":"RM8100x_for_FAE_20240925_20250311.model","tcon"
   $('nd-tbl').addEventListener('click', function (e) {
     var t0 = e.target.closest('button'); if (!t0) return;
     var i = +(t0.getAttribute('data-w') || t0.getAttribute('data-r')), mode = t0.hasAttribute('data-w') ? 'w' : 'r';
-    guard(async function () { await TconMbus.open(rawWrite); var ok = await doRow(cur(), i, mode); render(); if (!ok) status(tt('nd.runFail', { i: i + 1 }), 'err'); else status(''); });
+    guard(async function () { var bb = cur(); if (!bb.item.mbus) await TconMbus.open(rawWrite); var ok = await doRow(bb, i, mode); render(); if (!ok) status(tt('nd.runFail', { i: i + 1 }), 'err'); else status(''); });
   });
   $('nd-xlsx').addEventListener('click', function () {
     var b = cur(), f = fname(b, 'xlsx');
@@ -1173,6 +1230,9 @@ var NBD_GPIO = {"E503":{"model":"RM8100x_for_FAE_20240925_20250311.model","tcon"
   window._onLangChange = function () { $('nd-q').placeholder = tt('nd.qPh'); fillItems(); fillGpio(true); render(); };
 
   $('nd-q').placeholder = tt('nd.qPh');
+  TconMbus.romSelect($('nd-rom'));
+  $('nd-rom').addEventListener('change', function () { S.rb = {}; render(); });
+  $('nd-rom').addEventListener('tconrom-sync', function () { render(); });
   fillIc(); fillItems(); fillGpio(false);
   render();
   /* 測試／除錯入口（不在畫面上） */

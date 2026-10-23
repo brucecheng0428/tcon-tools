@@ -2,6 +2,44 @@
 
 ---
 
+## NB TCON Debug應用 (nbdebug) v1.3.0 — 2026-10-23 ｜ MINOR ｜ 項目新增「M-Bus → C-Bus 導通」（EN01、E503），選了按「I2C 執行」就下出去，表上註明單向；EN01 Flash 應用不可導通（common/i2c-mbus.js 1.2 全站生效）
+
+判定依據：`docs/VERSIONING.md` R3「使用者真的多能做一件事 → MINOR」：多一個可以直接下的項目。既有項目的暫存器序列、預設值、匯出內容都不變 ⇒ 不是 MAJOR，不帶 ⚠ 輸出變更。
+
+### 需求（Bruce 2026-10-23 12:5x）
+
+「NB debug 網頁，順便把 E503 跟 EN01 Mbus 導通 Cbus 的 command 或是 script 也列在選項裡面，也就是選了那個選項、按執行就可以下出這個 command。……另外要註明這個卡面是單向的，就是下了以後，M-bus 可以導通 C-bus，但是 C-bus 那邊不能連回 M-bus。」（「M-Bus 就是 MSCL 跟 MSDA，C-Bus 就是 CSCL 跟 CSDA。」）
+
+### 指令從哪裡來
+
+- 瑞鼎 UI（RCP2）`ICDefine.cs`：RM81008（EN01）L576–580、RM8100x（E503）L2806–2810 的 `MbusToCbus` 都是一筆 **slave 0x7E、1-byte offset 0xAB、寫 0xCD**（整 byte、不先讀）。
+- 舊 Python UI（RomCodeProcessUI V5.0.4）`i2c_open_mbus_to_cbus()` L31839 同一筆；它另外對 RM81000～81004 補 `3E:0x059 ← 1E`。這一筆是 WP Low 前置（RCP2 拆成獨立的 `WP_LowPrereq`，不算導通），而且 0x059 正是 E503 ROM_WP 的 TX_IN_SEL、會蓋掉 debug 輸出 ⇒ 以 RCP2 為準，不放進這一項。
+- AUX 路徑（RAD_AUX_DLL `MbusConnect`）在 7E 之後還寫 `7C:0x0F ← 80`；本頁走 I2C 治具，不用這一步。
+- E501A／E501B：RCP2 沒有 `MbusToCbus` ⇒ 選這兩顆時不顯示這一項。
+
+### 做法（nbdebug.html）
+
+- 「項目」下拉多一組「M-Bus → C-Bus 導通」（三語名稱），EN01、E503 才有；可用搜尋找到。
+- 表格一列：Slave 7E、0xAB、0xCD、名稱 MbusToCbus、「整 byte 直接寫、不先讀」。沒有輸出腳 ⇒「輸出 GPIO」列隱藏。表上方警示與說明欄（做什麼／判斷／下一步）三語都寫明**單向：M-Bus（MSCL／MSDA）可以導通到 C-Bus（CSCL／CSDA），C-Bus 那邊不能連回 M-Bus**；下一步寫怎麼確認（EN01 讀 3E 0x207E 低 4 bit＝0／1；E503 讀 7D 0x007D 不是 FF）。
+- 「I2C 執行」／該列「寫入」：一律經 `common/i2c-mbus.js` TconMbus 的 session 送出，直接寫一筆 `[0x7E, 0xAB, [0xCD]]`；不先讀 7E、不讀回比對（瑞鼎 UI 也只寫），讀回欄顯示「已送出 ✓（ACK）」，NACK 就報錯。這一項本身就是導通，所以執行前不再另外補送一次（其他項目照舊）。本頁「還原」不含這一筆。
+- 匯出：Excel 一列（Slave 0x7E、Offset-Bytes 1、0x0AB[7:0]、0xCD，描述寫單向）；.script 只寫註解（7E 不是 Register），寫明 ONE-WAY。順手把 .script 非 3E 列的註解從寫死「7C」改成實際 slave（KOSC 匯出內容不變）。
+- `common/version.js` nbdebug ⇒ v1.3.0，引用頁 cache buster 一起換。
+
+### EN01：Flash 應用不可用這個導通方式（Bruce 2026-10-23 補充）
+
+> 「在 EN01 還有特別注意一下：它要先判斷目前之應用是否為 Flash，如果是 Flash 的話就不可以用這個導通方式，如果是 EEPROM 才可以用 M-Bus 導通 C-Bus 的這種方式。」
+
+- 瑞鼎 UI 怎麼判斷：**不讀暫存器**，是使用者在標頭下拉選 ROM 類型（`Views/AppHeaderView.xaml:51`）；RM81008 支援 EEPROM／FLASH、預設第一個＝EEPROM（`ICDefine.cs:49`、`RomCodeInfo.cs:461`）；MtoC 只在 ROMType＝EEPROM 且 I2C 時送（`AppViewModel.cs:1554／1681`、`RegisterModule.cs:36`、`ModelFileModule.cs:236`）。EN01 的 .model 沒有 EESEL 狀態暫存器。E503（RM8100x）只支援 EEPROM（`ICDefine.cs:1694`）⇒ 沒有 Flash 限制。
+- **common/i2c-mbus.js 1.2**：全站共用「儲存：EEPROM／Flash」設定（localStorage `tcon.romType`，預設 EEPROM＝瑞鼎 UI 預設）。選 Flash ⇒ `TconMbus.open()` 與 `TconMbus.session()` 都不送 7E:AB←CD（回 `skipped:'flash'`、log 寫原因）；辨認（TconDetect）、i2c、datamap、dg-selftest、nbdebug 經這一支一起生效。預設 EEPROM 時行為與 1.1 完全相同 ⇒ 其他頁不進版號（只換 cache buster）。
+- **nbdebug**：選 EN01 時多一列「儲存（EN01）」下拉；表上方警示與說明寫明「EEPROM 應用才可以用 M-Bus 導通 C-Bus；Flash 應用不可用」；儲存＝Flash 時按「I2C 執行」／「寫入」擋下並顯示「Flash 應用不可用此導通方式」，一筆都不送；.script 也寫明 EEPROM only。E503 不顯示這一列（說明寫 E503 只有 EEPROM）。
+- 其他頁（i2c、datamap、dg-selftest）目前沒有這個下拉，照 nbdebug 設定走；要在各頁加下拉另開一件（各頁修改宣告）。
+
+### 測試
+
+- `tools/check_nbdebug.mjs` 新增 B 項（期望值獨立寫在測試裡）：四顆 IC 有／沒有這一項、表格＝一筆 7E:AB←CD、GPIO 列隱藏、三語單向與三段說明、Excel／.script 內容與檔名、沒有驗證等級字樣；模擬 I2C（EN01、E503）按「I2C 執行」送出的位元組＝`[7E, AB, [CD]]` 一筆、不讀 7E、不重複送、單列寫入也一筆、7E NACK 報錯不顯示完成。EN01＋Flash：連線＋辨認＋I2C 執行全程沒有任何 7E 寫入、執行被擋、其他項目照常；改回 EEPROM 下一筆。新 `tools/check_i2c_mbus_rom.mjs`（Pages 關卡）：預設 EEPROM、open／session／TconDetect 在 Flash 下 0 筆 7E、EEPROM 下有。Chrome 1280／375、WebKit 1280／375。
+
+---
+
 ## TCON 自檢畫面量測 (dgself) v2.10.0 — 2026-10-23 ｜ MINOR ｜ NB 量測照 T-CON 內部 RGB LUT[n] 送 PAT0_USER（DG 開）、DG 關送等間隔值；新步驟「讀 LUT」
 
 判定依據：`docs/VERSIONING.md` R3（使用者多能做一件事：NB 量到的曲線會跟著 RGB LUT 變，可以調 gamma／色溫；新增「讀 LUT」步驟）⇒ MINOR。MNT 路線一行未動。

@@ -29,6 +29,15 @@
    用法：TconMbus.open(write) —— write(slave, awid, addr, bytes) 回 {ok, err}
    或丟例外都可以（i2c.html 的 i2ctDoWrite、datamap 的 rawWrite、dg-selftest
    的 rawwrite 包一層）。所有頁面共用這一支，不各寫一份。
+   v1.2（Bruce 2026-10-23「EN01 還有特別注意一下：它要先判斷目前之應用是否為 Flash，如果是 Flash 的話
+   就不可以用這個導通方式，如果是 EEPROM 才可以用 M-Bus 導通 C-Bus 的這種方式」）：
+   ・怎麼判斷 Flash／EEPROM：瑞鼎 UI（RCP2）不讀暫存器，是使用者在標頭下拉選 ROM 類型
+     （Wpf.RomCodeProcessUI/Views/AppHeaderView.xaml:51；RM81008 支援 EEPROM／FLASH、預設第一個＝EEPROM：
+     ICDefine.cs:49、RomCodeInfo.cs:461）；MtoC 只在 ROMType＝EEPROM 且 I2C 時送（AppViewModel.cs:1554／1681、
+     RegisterModule.cs:36、ModelFileModule.cs:236）。EN01 .model 沒有 EESEL 狀態暫存器 ⇒ 網頁比照：
+     全站共用一個「儲存：EEPROM／Flash」設定（localStorage tcon.romType，預設 eeprom＝瑞鼎 UI 預設）。
+   ・rom＝flash ⇒ open() 與 session() 都**不送** 7E:AB←CD，回 { ok:true, skipped:'flash' }、log 寫原因。
+   ・E503（RM8100x）瑞鼎 UI 只支援 EEPROM（ICDefine.cs:1694）。
    ═══════════════════════════════════════════════════════════════════════════ */
 (function (g) {
   'use strict';
@@ -52,12 +61,49 @@
       'zh-CN': '✕ M-Bus 导通 C-Bus（0x7E:0xAB ← CD）写入失败：{err}。接 E503 的 M-Bus 时会因此认不到 T-CON，请确认治具接线与 I2C and AUX Bridge 后再按一次。'
     }
   };
+  KEYS['tcon.mbusSkipFlash'] = {
+    'zh-TW': '儲存選 Flash：EN01 Flash 應用不可用 M-Bus 導通 C-Bus，這次不下 0x7E:0xAB ← CD。',
+    'en': 'Storage = Flash: an EN01 Flash application must not use M-Bus to C-Bus, so 0x7E:0xAB ← CD is not sent.',
+    'zh-CN': '存储选 Flash：EN01 Flash 应用不可用 M-Bus 导通 C-Bus，这次不下 0x7E:0xAB ← CD。'
+  };
+  KEYS['tcon.romLab'] = { 'zh-TW': '儲存（EN01）', 'en': 'Storage (EN01)', 'zh-CN': '存储（EN01）' };
+  KEYS['tcon.romHint'] = {
+    'zh-TW': 'EEPROM 才下 M-Bus 導通 C-Bus；Flash 不下（全站共用這個設定）。E503 只有 EEPROM。',
+    'en': 'M-Bus to C-Bus is sent only for EEPROM; never for Flash (shared by all pages). E503 is EEPROM only.',
+    'zh-CN': 'EEPROM 才下 M-Bus 导通 C-Bus；Flash 不下（全站共用这个设定）。E503 只有 EEPROM。'
+  };
+  /* ROM 類型（全站共用）：'eeprom'（預設，同瑞鼎 UI）／'flash'。讀不到 localStorage 時用記憶體。 */
+  var ROM_KEY = 'tcon.romType', romMem = null;
+  function rom() {
+    var v = romMem;
+    try { if (g.localStorage) { var x = g.localStorage.getItem(ROM_KEY); if (x) v = x; } } catch (e) {}
+    return v === 'flash' ? 'flash' : 'eeprom';
+  }
+  function setRom(v) {
+    v = v === 'flash' ? 'flash' : 'eeprom'; romMem = v;
+    try { if (g.localStorage) g.localStorage.setItem(ROM_KEY, v); } catch (e) {}
+    try { if (g.dispatchEvent && typeof g.CustomEvent === 'function') g.dispatchEvent(new g.CustomEvent('tconrom', { detail: v })); } catch (e) {}
+    return v;
+  }
+  function allowed() { return rom() !== 'flash'; }
+  function tx(k) { var o = KEYS[k] || {}, l = (g.document && g.document.documentElement && g.document.documentElement.lang) || 'zh-TW'; return o[l] || o['zh-TW'] || k; }
+  /* 頁面放一個 <select>：TconMbus.romSelect(el) 填選項、同步設定（不同分頁改了也跟著變） */
+  function romSelect(el) {
+    if (!el) return null;
+    function fill() { el.innerHTML = '<option value="eeprom">EEPROM</option><option value="flash">Flash</option>'; el.value = rom(); el.title = tx('tcon.romHint'); }
+    fill();
+    el.addEventListener('change', function () { setRom(el.value); });
+    try { g.addEventListener('storage', function (e) { if (e.key === ROM_KEY) { el.value = rom(); try { el.dispatchEvent(new g.Event('tconrom-sync')); } catch (x) {} } }); } catch (e) {}
+    try { g.addEventListener('tconrom', function () { el.value = rom(); }); } catch (e) {}
+    return el;
+  }
   if (typeof g.I18N === 'object' && g.I18N) {
     for (var k in KEYS) if (Object.prototype.hasOwnProperty.call(KEYS, k) && !g.I18N[k]) g.I18N[k] = KEYS[k];
   }
 
   async function open(write) {
     var r;
+    if (!allowed()) return { ok: true, skipped: 'flash' };   /* v1.2：Flash 應用不下導通 */
     try { r = await write(CMD.slave, CMD.awid, CMD.addr, CMD.data.slice()); }
     catch (e) { return { ok: false, err: String((e && e.message) || e || 'write failed') }; }
     if (r && r.ok === false) {
@@ -95,6 +141,12 @@
         var gen = st.gen;
         st.pending = (async function () {
           var r;
+          if (!allowed()) {   /* v1.2：Flash 應用不下導通 */
+            var sk = { ok: true, skipped: 'flash' };
+            if (gen === st.gen) { st.open = true; st.last = sk; }
+            if (opts.log) { try { opts.log(sk); } catch (e) {} }
+            return sk;
+          }
           /* autoSending：只在呼叫 send 的同步瞬間為 true（頁面 send 在這一刻把 JSON 交給 WebSocket），
              讓測試夾具分得出「這一筆是自動補的」；送出去的內容與一般 rawwrite 完全相同。 */
           var p;
@@ -115,19 +167,25 @@
     return { send: guarded, ensure: ensure, reset: reset, state: st };
   }
   function autoText(res) {
+    if (res && res.skipped === 'flash') return 'M-Bus to C-Bus not sent: storage = Flash (EN01 Flash application must not use M-Bus to C-Bus)';
     return (res && res.ok) ? 'W 0x7E:0xAB <- CD (M-Bus to C-Bus, before the first I2C transfer of this connection)'
       : 'M-Bus to C-Bus 0x7E:0xAB <- CD: no ACK (' + ((res && res.err) || '?') + '); continuing (normal when the board has no M-Bus switch)';
   }
 
   g.TconMbus = {
-    VERSION: '1.1',
+    VERSION: '1.2',
     autoSending: false,
     CMD: CMD,
     LOG: 'W 0x7E:0xAB <- CD (M-Bus to C-Bus)',
     open: open,
     session: session,
     isCmd: isCmd,
-    autoText: autoText
+    autoText: autoText,
+    rom: rom,
+    setRom: setRom,
+    allowed: allowed,
+    romSelect: romSelect,
+    ROM_KEY: ROM_KEY
   };
   if (typeof module === 'object' && module.exports) module.exports = g.TconMbus;
 })(typeof window !== 'undefined' ? window : globalThis);

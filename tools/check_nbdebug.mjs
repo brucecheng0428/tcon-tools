@@ -25,6 +25,10 @@
         K1 模擬 I2C 走完整流程：① 讀 20D0 → ② Debug OSC → ③ 寫 AA → ④ 填頻率（假 OSC 模型，含一次超過目標）→ 建議值預填 →
            寫入 → 再量 … 合格 → ⑤ 燒錄（合格前沒有燒錄框、三格沒勾按鈕停用、燒前再讀 20D0）→ ⑥ 上下電後只下 ② → 量 → 20D0 非 0。
            每步高亮的表列、記憶體寫入值、每輪紀錄表、三語文字（無 key、無等級字樣）；已燒過的板子合格後不出現燒錄。
+     B  v1.3.0 M-Bus → C-Bus 導通（Bruce 2026-10-23）：EN01／E503 有「M-Bus → C-Bus 導通」項目、E501A／B 沒有；
+        表格只有一筆 7E:AB←CD（＝瑞鼎 UI RCP2 ICDefine.cs RM81008 L576–580／RM8100x L2806–2810，期望值獨立寫在本檔）、
+        GPIO 列隱藏、警示與說明三語都寫單向（M-Bus→C-Bus，C-Bus 不能連回）、說明三段；匯出 Excel 一列 7E／1／0x0AB／CD、
+        .script 只有註解（ASCII、寫明 ONE-WAY）；模擬 I2C 按「I2C 執行」送出的位元組＝[7E, AB, [CD]] 一筆、不讀 7E、不重複送。
    退出碼：0 通過／1 有失敗／2 跑不起來
    ═══════════════════════════════════════════════════════════════════════ */
 import { createServer } from 'node:http';
@@ -106,7 +110,7 @@ const FAKE = `(() => {
     ws.send = s => { const m = JSON.parse(s); const r = { id: m.id, ok: true, type: m.type };
       if ((m.type === 'read' || m.type === 'rawwrite') && (window.__nack || []).includes(m.slave)) { r.ok = false; r.err = 'NACK'; setTimeout(() => ws.onmessage && ws.onmessage({ data: JSON.stringify(r) }), 1); return; }
       if (m.type === 'ping') Object.assign(r, { helper: 'fake', proto: 6 });
-      if (m.type === 'read') { r.data = []; for (let i = 0; i < (m.len || 1); i++) r.data.push(mem[k(m.slave, m.addr + i)] ?? 0); }
+      if (m.type === 'read') { (window.__rlog = window.__rlog || []).push([m.slave, m.addr]); r.data = []; for (let i = 0; i < (m.len || 1); i++) r.data.push(mem[k(m.slave, m.addr + i)] ?? 0); }
       if (m.type === 'rawwrite') { m.data.forEach((b, i) => { mem[k(m.slave, m.addr + i)] = b; }); window.__wlog.push([m.slave, m.addr, m.data.slice()]); }
       setTimeout(() => ws.onmessage && ws.onmessage({ data: JSON.stringify(r) }), 1); };
     ws.close = () => { ws.readyState = 3; setTimeout(() => ws.onclose && ws.onclose({}), 1); };
@@ -524,6 +528,118 @@ async function runEngine(name, browserType, opts, viewport, full) {
     const qs = await pg.$$eval('#nd-item option', o => o.map(x => x.textContent));
     check(`${tag} G 搜尋 CORESTATE ⇒ 只剩含 CORESTATE 的項目`, qs.length >= 4 && qs.every(t => /CORE ?STATE/i.test(t)), qs.join('|'));
     await pg.fill('#nd-q', ''); await pg.close();
+  }
+  /* B：v1.3.0 M-Bus → C-Bus 導通（期望值＝瑞鼎 UI MbusToCbus：slave 0x7E、1-byte offset 0xAB、寫 0xCD，獨立寫在這裡） */
+  {
+    const MB_WANT = ['w:7E:00AB:7:0:CD'];
+    for (const ic of ICS) {
+      await sel(page, 'nd-icsel', ic);
+      const has = await page.$$eval('#nd-item option', o => o.some(x => x.value === 'mbus'));
+      check(`${tag} B ${ic} ${ic.startsWith('E501') ? '沒有' : '有'} M-Bus 導通項目`, has === !ic.startsWith('E501'));
+      if (!has) continue;
+      await sel(page, 'nd-item', 'mbus');
+      const k = await tableKeys(page);
+      check(`${tag} B ${ic} 表格＝一筆 7E:AB←CD`, JSON.stringify(k) === JSON.stringify(MB_WANT), JSON.stringify(k));
+      const gh = await page.$eval('#nd-gpios', e => e.parentNode.classList.contains('hidden') && e.querySelectorAll('select').length === 0);
+      check(`${tag} B ${ic} 沒有輸出腳（GPIO 列隱藏）`, gh);
+      const og = await page.$eval('#nd-item', s => s.selectedOptions[0].parentNode.label + '|' + s.selectedOptions[0].textContent);
+      check(`${tag} B ${ic} 下拉獨立一組「M-Bus → C-Bus 導通」`, og === 'M-Bus → C-Bus 導通|M-Bus → C-Bus 導通', og);
+      const row = await page.$eval('#nd-tbl tbody tr', t => ({ txt: t.innerText, dk: t.querySelectorAll('td.ds .dk').length, rbtn: !!t.querySelector('button[data-r]') }));
+      check(`${tag} B ${ic} 列：slave 7E、0xAB、0xCD、整 byte 不先讀、三段說明、沒有「讀」鈕`, /7E/.test(row.txt) && /0xAB/.test(row.txt) && /0xCD/.test(row.txt) && (viewport.width < 600 ? /整個 byte 寫 0xCD（[^）]*不先讀/ : /整 byte 直接寫、不先讀/).test(row.txt) && row.dk === 3 && !row.rbtn, JSON.stringify(row));
+      check(`${tag} B ${ic} 說明寫單向（M-Bus→C-Bus，C-Bus 不能連回）＋怎麼確認`, /單向/.test(row.txt) && /C-Bus 那邊不能連回 M-Bus/.test(row.txt) && (ic === 'EN01' ? /3E 0x207E/.test(row.txt) : /7D 0x007D/.test(row.txt)), row.txt.slice(0, 200));
+      const wn = await page.$eval('#nd-warn', e => e.textContent);
+      check(`${tag} B ${ic} 表上方警示寫單向`, /單向/.test(wn) && /MSCL／MSDA/.test(wn) && /CSCL／CSDA/.test(wn), wn);
+      const hp = await page.$eval('#nd-help', e => e.textContent);
+      check(`${tag} B ${ic} 說明區：指令、單向、E501 不顯示`, /0x7E/.test(hp) && /單向/.test(hp) && /E501A／E501B/.test(hp), hp.slice(0, 120));
+      for (const [lg, re1, re2] of [['en', /One-way/, /cannot connect back to M-Bus/], ['zh-CN', /单向/, /C-Bus 那边不能连回 M-Bus/]]) {
+        await page.selectOption('#lang-select', lg);
+        const t2 = await page.$eval('#nd-tbl tbody tr', t => t.innerText + '|' + t.querySelectorAll('td.ds .dk').length);
+        const w2 = await page.$eval('#nd-warn', e => e.textContent);
+        const o2 = await page.$eval('#nd-item', s => s.selectedOptions[0] ? s.selectedOptions[0].textContent : '');
+        check(`${tag} B ${ic} ${lg} 三段說明、單向、下拉名稱`, re1.test(t2) && re2.test(t2) && /\|3$/.test(t2) && re1.test(w2) && o2 === (lg === 'en' ? 'M-Bus → C-Bus connect' : 'M-Bus → C-Bus 导通'), t2.slice(0, 160) + ' / ' + o2);
+      }
+      await page.selectOption('#lang-select', 'zh-TW');
+      /* 匯出 */
+      const dx = await grab(page, '#nd-xlsx');
+      check(`${tag} B ${ic} Excel 檔名`, new RegExp(`^NBDebug_${ic}_mbus_\\d{8}\\.xlsx$`).test(dx.name), dx.name);
+      const xr = sheetRows(unzip(dx.buf)['xl/worksheets/sheet1.xml'].toString());
+      check(`${tag} B ${ic} Excel 表頭＝WFG、一列 7E／1／0x0AB[7:0]／0xCD、描述寫單向`, JSON.stringify(xr[0]) === JSON.stringify(WFG_HEADER) && xr.length === 2 && xr[1][1] === 'MbusToCbus' && xr[1][2] === '0x7E' && xr[1][3] === 1 && xr[1][4] === '0x0AB[7:0]' && xr[1][6] === '0xCD' && /one-way/.test(xr[1][14]) && /單向/.test(xr[1][14]), JSON.stringify(xr[1]));
+      const ds = await grab(page, '#nd-script'), st = ds.buf.toString('utf8');
+      const code = st.split('\n').map(l => l.replace(/\/\/.*$/, '').trim()).filter(Boolean);
+      check(`${tag} B ${ic} .script 檔名、ASCII、只有註解、寫明 ONE-WAY 與 7E:0xAB <- CD`, new RegExp(`^NBDebug_${ic}_mbus_\\d{8}\\.script$`).test(ds.name) && !/[^\x00-\x7F]/.test(st) && code.length === 0 && /ONE-WAY: M-Bus \(MSCL\/MSDA\) -> C-Bus \(CSCL\/CSDA\)/.test(st) && /\/\/ 7E:0xAB <- CD/.test(st) && /M-Bus -> C-Bus/.test(st), ds.name + ' ' + st.slice(0, 300));
+      { const vh = findVerifLabels(st + JSON.stringify(xr)); check(`${tag} B ${ic} 匯出沒有驗證等級字樣`, vh.length === 0, vh.map(h => h.word).join(',')); }
+    }
+    /* 切回有輸出腳的項目：GPIO 列回來 */
+    await sel(page, 'nd-icsel', 'EN01'); await sel(page, 'nd-item', 'mbus'); await sel(page, 'nd-item', 'rxde');
+    check(`${tag} B 切回 RX DE ⇒ GPIO 列回來、表格正常`, await page.$eval('#nd-gpios', e => !e.parentNode.classList.contains('hidden') && !!e.querySelector('#nd-gpio')) && (await tableKeys(page)).length === 4);
+    /* 搜尋 */
+    await page.fill('#nd-q', 'M-Bus');
+    const qo = await page.$$eval('#nd-item option', o => o.map(x => x.value));
+    check(`${tag} B 搜尋「M-Bus」找得到`, qo.includes('mbus'), qo.join(','));
+    await page.fill('#nd-q', ''); await page.dispatchEvent('#nd-q', 'input');
+    /* 模擬 I2C：送出的位元組＝瑞鼎 UI 那一筆 */
+    if (full) {
+      for (const ic of ['EN01', 'E503']) {
+        const pm = await ctx.newPage(); await pm.addInitScript(FAKE); await pm.goto(URL0); await pm.waitForFunction(() => window.NBD);
+        pm.on('pageerror', e => errs.push('B ' + e));
+        await pm.evaluate(m => window.__setMem(m), ID[ic]);
+        await pm.click('#nd-link'); await pm.waitForFunction(() => !document.querySelector('#nd-run').disabled);
+        check(`${tag} B I ${ic} 認到 ${ic}`, (await pm.$eval('#nd-icsel', s => s.value)) === ic);
+        await pm.selectOption('#nd-item', 'mbus');
+        await pm.evaluate(() => { window.__wlog.length = 0; window.__rlog = []; });
+        await pm.click('#nd-run'); await pm.waitForFunction(() => /完成|fail|NACK/.test(document.querySelector('#nd-st').textContent));
+        const wl = await pm.evaluate(() => window.__wlog), rl = await pm.evaluate(() => window.__rlog);
+        check(`${tag} B I ${ic} I2C 執行＝一筆 [7E, AB, [CD]]（＝瑞鼎 UI）、不重複送`, JSON.stringify(wl) === JSON.stringify([[0x7E, 0xAB, [0xCD]]]), JSON.stringify(wl));
+        check(`${tag} B I ${ic} 不讀 7E（只寫不讀）`, !rl.some(r => r[0] === 0x7E), JSON.stringify(rl));
+        const rb = await pm.$eval('#nd-tbl td.nd-rb', e => e.textContent), stt = await pm.$eval('#nd-st', e => e.textContent);
+        check(`${tag} B I ${ic} 讀回欄顯示已送出 ✓、狀態完成`, /已送出 ✓/.test(rb) && /完成/.test(stt), rb + ' / ' + stt);
+        /* 單列「寫入」鈕也只送一筆 */
+        await pm.evaluate(() => { window.__wlog.length = 0; });
+        await pm.click('#nd-tbl button[data-w="0"]'); await pm.waitForFunction(() => window.__wlog.length > 0 && !document.querySelector('#nd-run').disabled);
+        check(`${tag} B I ${ic} 單列「寫入」也只送一筆 7E:AB←CD`, JSON.stringify(await pm.evaluate(() => window.__wlog)) === JSON.stringify([[0x7E, 0xAB, [0xCD]]]));
+        /* 7E 沒有回 ACK ⇒ 報錯、不說完成 */
+        await pm.evaluate(() => { window.__nack = [0x7E]; window.__wlog.length = 0; });
+        await pm.click('#nd-run'); await pm.waitForFunction(() => !document.querySelector('#nd-run').disabled && /fail|NACK|失敗/.test(document.querySelector('#nd-st').textContent));
+        check(`${tag} B I ${ic} 7E NACK ⇒ 狀態報錯、不顯示完成`, !/完成/.test(await pm.$eval('#nd-st', e => e.textContent)));
+        await pm.evaluate(() => { window.__nack = []; });
+        await pm.close();
+      }
+    }
+    /* EN01 Flash 規則（Bruce 2026-10-23「如果是 Flash 的話就不可以用這個導通方式，如果是 EEPROM 才可以」） */
+    await sel(page, 'nd-icsel', 'E503'); await sel(page, 'nd-item', 'mbus');
+    check(`${tag} B E503 沒有「儲存」列、說明寫只有 EEPROM`, await page.$eval('#nd-romrow', e => e.classList.contains('hidden')) && /E503 只有 EEPROM/.test(await page.$eval('#nd-help', e => e.textContent)));
+    await sel(page, 'nd-icsel', 'EN01'); await sel(page, 'nd-item', 'mbus');
+    {
+      const vis = await page.$eval('#nd-romrow', e => !e.classList.contains('hidden')), rv = await page.$eval('#nd-rom', s => [s.value, [...s.options].map(o => o.value).join(',')].join('|'));
+      const wn = await page.$eval('#nd-warn', e => e.textContent), ds = await page.$eval('#nd-tbl tbody tr td.ds', e => e.innerText);
+      check(`${tag} B EN01 有「儲存」列（EEPROM 預設／Flash）、警示與說明寫 EEPROM 才可、Flash 不可`, vis && rv === 'eeprom|eeprom,flash' && /EEPROM 應用才可以用 M-Bus 導通 C-Bus/.test(wn) && /Flash 應用不可用/.test(wn) && /Flash 應用不可用此導通方式/.test(ds), rv + ' / ' + wn);
+      await page.selectOption('#nd-rom', 'flash');
+      check(`${tag} B EN01 選 Flash ⇒ 警示多一句已擋下`, /已擋下/.test(await page.$eval('#nd-warn', e => e.textContent)));
+      const sx = (await grab(page, '#nd-script')).buf.toString('utf8');
+      check(`${tag} B EN01 .script 寫明 EEPROM only、Flash 不可`, /EN01: EEPROM application only\. Do NOT send this on a Flash application\./.test(sx));
+      await page.selectOption('#nd-rom', 'eeprom');
+    }
+    if (full) {
+      const pf = await ctx.newPage(); await pf.addInitScript(FAKE); await pf.goto(URL0); await pf.waitForFunction(() => window.NBD);
+      pf.on('pageerror', e => errs.push('BF ' + e));
+      await pf.evaluate(m => { window.__setMem(m); TconMbus.setRom('flash'); }, ID.EN01);
+      await pf.click('#nd-link'); await pf.waitForFunction(() => !document.querySelector('#nd-run').disabled);
+      check(`${tag} B F EN01＋Flash：連線辨認仍認到 EN01`, (await pf.$eval('#nd-icsel', s => s.value)) === 'EN01');
+      await pf.selectOption('#nd-item', 'mbus');
+      await pf.click('#nd-run'); await pf.waitForFunction(() => !document.querySelector('#nd-run').disabled && /已擋下/.test(document.querySelector('#nd-st').textContent));
+      let wl = await pf.evaluate(() => window.__wlog);
+      check(`${tag} B F EN01＋Flash：連線＋辨認＋I2C 執行全程沒有任何 7E 寫入、狀態寫 Flash 應用不可用`, !wl.some(w => w[0] === 0x7E) && /Flash 應用不可用此導通方式/.test(await pf.$eval('#nd-st', e => e.textContent)), JSON.stringify(wl));
+      await pf.selectOption('#nd-item', 'rxde');
+      await pf.click('#nd-run'); await pf.waitForFunction(() => /完成|不符|fail/.test(document.querySelector('#nd-st').textContent));
+      wl = await pf.evaluate(() => window.__wlog);
+      check(`${tag} B F EN01＋Flash：其他項目（RX DE）照常下、也不補送 7E`, !wl.some(w => w[0] === 0x7E) && wl.some(w => w[0] === 0x3E), JSON.stringify(wl.slice(-4)));
+      await pf.selectOption('#nd-item', 'mbus'); await pf.selectOption('#nd-rom', 'eeprom');
+      await pf.evaluate(() => { window.__wlog.length = 0; });
+      await pf.click('#nd-run'); await pf.waitForFunction(() => /完成|fail/.test(document.querySelector('#nd-st').textContent));
+      check(`${tag} B F EN01 改回 EEPROM ⇒ 下一筆 7E:AB←CD`, JSON.stringify(await pf.evaluate(() => window.__wlog)) === JSON.stringify([[0x7E, 0xAB, [0xCD]]]));
+      check(`${tag} B F 設定全站共用（localStorage tcon.romType）`, (await pf.evaluate(() => localStorage.getItem('tcon.romType'))) === 'eeprom');
+      await pf.close();
+    }
   }
   /* U：點擊數 */
   const p4 = await ctx.newPage(); await p4.goto(URL0); await p4.waitForFunction(() => window.NBD);
