@@ -39,13 +39,10 @@
     ee: ['DP AUX 模式不能直接存取 EEPROM（slave 0x{s}）：EEPROM 只能透過 T-CON 控制。這一筆沒有送出。',
          'DP AUX mode cannot access the EEPROM directly (slave 0x{s}): the EEPROM may only be reached through the T-CON. Nothing was sent.',
          'DP AUX 模式不能直接存取 EEPROM（slave 0x{s}）：EEPROM 只能通过 T-CON 控制。这一笔没有送出。'],
-    notTcon: ['DP AUX 模式只開放：0x3E 讀寫（DPCD 視窗）、0x7C 唯讀（DPCD 431→434）、EEPROM 0x50–0x57 唯讀。0x7D、0x7E 要經 M-Bus（I2C over AUX），客戶板 M-Bus 與 C-Bus 不一定相連，所以擋下。slave 0x{s} 這一筆沒有送出。',
-              'DP AUX mode allows only: 0x3E read/write (DPCD window), 0x7C read-only (DPCD 431→434), EEPROM 0x50–0x57 read-only. 0x7D and 0x7E need the M-Bus (I2C over AUX); a customer board may not connect M-Bus to C-Bus, so they are blocked. Slave 0x{s}: nothing was sent.',
-              'DP AUX 模式只开放：0x3E 读写（DPCD 窗口）、0x7C 只读（DPCD 431→434）、EEPROM 0x50–0x57 只读。0x7D、0x7E 要经 M-Bus（I2C over AUX），客户板 M-Bus 与 C-Bus 不一定相连，所以挡下。slave 0x{s} 这一笔没有送出。'],
-    w7c: ['DP AUX 模式 0x7C 只能讀（DPCD 431→434，原廠 IdentifyChipId 讀法）；寫入在原廠流程要先初始化 T-CON，AUX 不開放。這一筆沒有送出。',
-          'DP AUX mode: 0x7C is read-only (DPCD 431→434, the vendor IdentifyChipId method); a write needs the vendor T-CON initialisation, so it is not offered over AUX. Nothing was sent.',
-          'DP AUX 模式 0x7C 只能读（DPCD 431→434，原厂 IdentifyChipId 读法）；写入在原厂流程要先初始化 T-CON，AUX 不开放。这一笔没有送出。'],
-    auxScope: ['AUX：3E 讀寫 · 7C 唯讀 · EEPROM 唯讀；7D／7E 不開放（要經 M-Bus）', 'AUX: 3E read/write · 7C read-only · EEPROM read-only; 7D / 7E off (need the M-Bus)', 'AUX：3E 读写 · 7C 只读 · EEPROM 只读；7D／7E 不开放（要经 M-Bus）'],
+    notTcon: ['DP AUX 模式只開放：0x3E 讀寫（DPCD 視窗）、0x7C 讀寫（DPCD 431／434；寫入照原廠流程）、EEPROM 0x50–0x57 唯讀。0x7D、0x7E 要經 M-Bus（I2C over AUX），客戶板 M-Bus 與 C-Bus 不一定相連，所以擋下。slave 0x{s} 這一筆沒有送出。',
+              'DP AUX mode allows only: 0x3E read/write (DPCD window), 0x7C read/write (DPCD 431/434; writes follow the vendor sequence), EEPROM 0x50–0x57 read-only. 0x7D and 0x7E need the M-Bus (I2C over AUX); a customer board may not connect M-Bus to C-Bus, so they are blocked. Slave 0x{s}: nothing was sent.',
+              'DP AUX 模式只开放：0x3E 读写（DPCD 窗口）、0x7C 读写（DPCD 431／434；写入照原厂流程）、EEPROM 0x50–0x57 只读。0x7D、0x7E 要经 M-Bus（I2C over AUX），客户板 M-Bus 与 C-Bus 不一定相连，所以挡下。slave 0x{s} 这一笔没有送出。'],
+    auxScope: ['AUX：3E 讀寫 · 7C 讀寫 · EEPROM 唯讀；7D／7E 不開放（要經 M-Bus）', 'AUX: 3E read/write · 7C read/write · EEPROM read-only; 7D / 7E off (need the M-Bus)', 'AUX：3E 读写 · 7C 读写 · EEPROM 只读；7D／7E 不开放（要经 M-Bus）'],
     ckManual: ['AUX 模式需手動選擇 TCON', 'AUX mode: select the TCON manually', 'AUX 模式需手动选择 TCON'],
     ckManualTip: ['AUX 認不出這顆 T-CON，請手動選擇 TCON。AUX 只走 DPCD 視窗（3E、7C、43C），不經 M-Bus；需要更多資訊請改用 I2C 治具再按 Check T-CON。',
                   'AUX could not identify this T-CON: select the TCON manually. AUX uses only the DPCD window (3E, 7C, 43C), never the M-Bus; for more, connect with the I2C jig and press Check T-CON.',
@@ -139,7 +136,10 @@
       }
       return { code: 'ee', slave: s, msg: text(eeReadOk(proto) ? 'eeWrite' : 'ee', { s: hex2(s) }) };
     }
-    if (s === 0x7C && msg.type !== 'read') return { code: 'w7c', slave: s, msg: text('w7c') };   /* 1.6：7C 只能讀（走 DPCD，見 readDpcd） */
+    /* 1.7（Bruce 2026-10-23「7C不能寫入嗎？」）：7C 寫入開放，交給 bridge 照原廠 Tcon_Write_Register（AuxApi.cs:476–494）：
+       初始化 → CheckAndWriteRegisterRomWP → DPCD 431＝位址、434＝資料 → End，全程 DPCD、不 MbusConnect、不送 IOA（bridge 1.22.0 dgh_aux_v_write）。
+       7C 讀取仍由網頁走 DPCD 431→434（readDpcd）。 */
+    if (s === 0x7C && msg.type !== 'read') return null;
     if (!allowed(s)) return { code: 'notTcon', slave: s, msg: text('notTcon', { s: hex2(s) }) };
     var want = awidFor(s), aw = (msg.awid == null) ? 2 : (msg.awid | 0);
     if (msg.type !== 'write' && want && aw !== want) return { code: 'awid', slave: s, msg: text('awid', { s: hex2(s), w: want }) };
@@ -151,7 +151,7 @@
     return (addr + n - 1 < DPCD_EE_LO) || (addr > DPCD_EE_HI);
   }
   g.TconAux = {
-    VERSION: '1.6', MODE: 4, NEED_PROTO: 7, SIMUL_PROTO: 8, IOA_PROTO: IOA_PROTO, eeReadOk: eeReadOk,
+    VERSION: '1.7', MODE: 4, NEED_PROTO: 7, SIMUL_PROTO: 8, IOA_PROTO: IOA_PROTO, eeReadOk: eeReadOk,
     SLAVES: SLAVES.slice(), EE_LO: EE_LO, EE_HI: EE_HI, DPCD_EE_LO: DPCD_EE_LO, DPCD_EE_HI: DPCD_EE_HI,
     allowed: allowed, readDpcd: readDpcd, awidFor: awidFor, check: check, text: text, dpcdWriteOk: dpcdWriteOk
   };

@@ -38,8 +38,8 @@ function check(name, ok, detail) { ok ? pass++ : fail++; if (!ok) fails.push(nam
   check('EEPROM 區間一致（0x50–0x57）', /slave>=0x50u && slave<=0x57u/.test(h) && js.EE_LO === 0x50 && js.EE_HI === 0x57);
   check('DPCD EEPROM 控制窗一致（0x480–0x48F）', /DGH_AUX_EE_LO 0x480u/.test(h) && /DGH_AUX_EE_HI 0x48Fu/.test(h) && js.DPCD_EE_LO === 0x480 && js.DPCD_EE_HI === 0x48F);
   let all = 0; for (let s = 0; s < 128; s++) if (js.check({ type: 'rawwrite', slave: s, awid: js.awidFor(s) || 2 }) === null) all++;
-  check('網頁端 0x00–0x7F 只放行 1 個 slave（0x3E）', all === 1, String(all));
-  check('7C／7D／7E 讀寫在網頁端擋下', [0x7C, 0x7D, 0x7E].every(x => js.check({ type: 'read', slave: x, awid: js.awidFor(x) || 2 }) && js.check({ type: 'rawwrite', slave: x, awid: 1 })));
+  check('網頁端 0x00–0x7F 寫入只放行 2 個 slave（0x3E、0x7C）', all === 2, String(all));
+  check('7D／7E 讀寫在網頁端擋下；7C 的 bridge read 擋（讀走 DPCD）、7C 寫入放行', [0x7D, 0x7E].every(x => js.check({ type: 'read', slave: x, awid: 2 }) && js.check({ type: 'rawwrite', slave: x, awid: 1 })) && js.check({ type: 'read', slave: 0x7C, awid: 1 }) && js.check({ type: 'rawwrite', slave: 0x7C, awid: 1 }) === null);
   check('dpcdWriteOk 擋 0x482、放 0x100', !js.dpcdWriteOk(0x482, 1) && js.dpcdWriteOk(0x100, 1) && !js.dpcdWriteOk(0x47E, 4));
 }
 
@@ -266,13 +266,13 @@ try {
     const m1 = await page.evaluate((n) => window.__msgs.slice(n), m0);
     check('v1.39.1：讀 7C 只送 dpcdwrite 0x431＋dpcdread 0x434，沒有 bridge read／rawwrite', m1.length === 4 && m1.every(m => (m.t === 'dpcdwrite' && m.a === 0x431) || (m.t === 'dpcdread' && m.a === 0x434)), JSON.stringify(m1));
     const w7 = await page.evaluate(() => i2ctDoWrite(0x7C, 1, 0x0F, [0x80]));
-    check('v1.39.1：AUX 寫 7C 擋下（三語原因：只能讀）', w7 && w7.ok === false && /0x7C 只能讀/.test(w7.err || ''), JSON.stringify(w7).slice(0, 160));
+    check('v1.39.3：AUX 寫 7C 放行（交給 bridge 照原廠流程）', w7 && w7.ok !== false, JSON.stringify(w7).slice(0, 160));
     const r7d = await page.evaluate(() => i2ctDoRead(0x7D, 2, 0x007D, 1, true).then(r => r, e => ({ ok: false, err: String(e.message) })));
     check('v1.39.1：AUX 讀 7D 擋下（原因：要經 M-Bus）', r7d && r7d.ok === false && /M-Bus/.test(r7d.err || ''), JSON.stringify(r7d).slice(0, 160));
     const w7e = await page.evaluate(() => i2ctDoWrite(0x7E, 1, 0xAB, [0xCD]));
     check('v1.39.1：AUX 寫 7E 擋下', w7e && w7e.ok === false && /M-Bus/.test(w7e.err || ''), JSON.stringify(w7e).slice(0, 160));
     const m2 = await page.evaluate((n) => window.__msgs.slice(n), m0);
-    check('v1.39.1：7C 寫、7D、7E 一筆都沒送出', m2.length === 4, JSON.stringify(m2));
+    check('v1.39.3：7C 寫入送 1 筆 rawwrite 7C:0F（awid 1）；7D、7E 一筆都沒送出', m2.length === 5 && m2[4].t === 'rawwrite' && m2[4].s === 0x7C && m2[4].a === 0x0F && m2[4].aw === 1 && !m2.some(m => m.s === 0x7D || m.s === 0x7E), JSON.stringify(m2));
     const opt = await page.evaluate(() => ({ c: document.querySelector('#in-slave-sel option[value="0x7C"]').disabled, d: document.querySelector('#in-slave-sel option[value="0x7D"]').disabled }));
     check('v1.39.1：slave 下拉 0x7C 可選、0x7D 停用', !opt.c && opt.d, JSON.stringify(opt));
     await page.selectOption('#in-slave-sel', '0x7C'); await sleep(200);
@@ -282,7 +282,7 @@ try {
     const aw3 = await page.$eval('#in-awid', e => e.value);
     check('v1.39.2：AUX 選 0x7C ⇒ offset 1 byte（直接讀得到 7C:95）；選 0x3E ⇒ 2 byte', aw7 === '1' && aw3 === '2' && g7.ok && g7.bytes[0] === 0x24, aw7 + '/' + aw3 + ' ' + JSON.stringify(g7.bytes));
     const ci = await page.$eval('#conn-info', e => e.textContent);
-    check('v1.39.1：連線資訊註明 AUX 範圍（7C 唯讀、7D／7E 不開放）', /7C 唯讀/.test(ci) && /7D／7E 不開放/.test(ci), ci.slice(0, 200));
+    check('v1.39.3：連線資訊註明 AUX 範圍（7C 讀寫、7D／7E 不開放）', /7C 讀寫/.test(ci) && /7D／7E 不開放/.test(ci), ci.slice(0, 200));
     check('沒有 JS 錯誤', errs.length === 0, errs.join(' | ').slice(0, 300));
     await ctx.close();
   }

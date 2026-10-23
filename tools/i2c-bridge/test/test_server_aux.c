@@ -269,6 +269,23 @@ int main(void){
         EQ_I(dgh_fake_aux_r3e[0x59],0x1E,"3E:0059=1E"); EQ_I(dgh_fake_aux_r3e[0x5A],0x22,"3E:005A=22");
     }
 
+    G("3c. 7C 寫入照原廠 Tcon_Write_Register：① → 讀 3E:0000×2（RomWP 檢查）→ 431／434 → ④，0 筆 IOA、0 筆 7E");
+    {   char t[16384]; unsigned long n0; const char* q; int cd0 = dgh_fake_aux_7e_cd, io0 = dgh_fake_aux_ioa_writes + dgh_fake_aux_ioa_reads;
+        jcmd(s,"{\"type\":\"auxtx\",\"id\":44,\"from\":0}",t,sizeof(t));
+        q=strstr(t,"\"total\":"); n0 = q ? strtoul(q+8,NULL,10) : 0;
+        dgh_fake_aux_r7c[0x98]=0x00;
+        jcmd(s,"{\"type\":\"rawwrite\",\"id\":45,\"slave\":124,\"addr\":152,\"awid\":1,\"data\":[0]}",b,sizeof(b));
+        CHECKS(b,"\"ok\":true","寫 7C:98←00（同值）");
+        EQ_I(dgh_fake_aux_r7c[0x98],0x00,"7C:98 仍是 00");
+        EQ_I(dgh_fake_aux_7e_cd,cd0,"沒有送 7E:AB←CD（原廠寫入不 MbusConnect）");
+        EQ_I(dgh_fake_aux_ioa_writes + dgh_fake_aux_ioa_reads,io0,"0 筆 IOA");
+        { char j[96]; snprintf(j,sizeof(j),"{\"type\":\"auxtx\",\"id\":46,\"from\":%lu}",n0); jcmd(s,j,t,sizeof(t)); }
+        CHECKS(t,"\"== write 7C:98=00 (AuxApi.cs:464)\",\"-- init (eeprom, Tcon81008.cs:16-32)\"","7C 寫：先 ① 初始化");
+        CHECKS(t,"\"DPCD W 482=80 ok\",\"DPCD W 430=00 00 ok\",\"DPCD R 435 -> 65 ok\",\"DPCD W 430=00 01 ok\",\"DPCD R 435 -> 07 ok\",\"DPCD W 431=98 ok\",\"DPCD W 434=00 ok\",\"-- end (eeprom, Tcon81008.cs:86-105)\"","7C 寫：① → RomWP 讀 3E:0000×2（65 07 ⇒ 不寫 0065）→ 431＝98、434＝00 → ④");
+        CHECKS(t,"\"DPCD W 480=00 ok\"]","7C 寫：最後一筆是 ④ 的 480=00");
+        CHECK(strstr(t,"IOA")==NULL,"auxtx 這一段沒有任何 IOA");
+    }
+
     G("4. 🔴 不能直接寫 EEPROM（Bruce 2026-10-23）");
     jcmd(s,"{\"type\":\"rawwrite\",\"id\":10,\"slave\":80,\"addr\":0,\"awid\":2,\"data\":[1,2,3]}",b,sizeof(b));
     CHECKS(b,"\"ok\":false","rawwrite 0x50 被擋"); CHECKS(b,"EEPROM","錯誤訊息講明是 EEPROM");

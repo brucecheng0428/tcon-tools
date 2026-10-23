@@ -2,6 +2,31 @@
 
 ---
 
+## I2C 讀寫測試 (i2c) v1.39.3 — 2026-10-23 ｜ PATCH ｜ DP AUX 開放寫 0x7C（照原廠 Tcon_Write_Register，全程 DPCD、不送 I2C over AUX）；7D／7E 照擋；I2C 路徑不變
+
+判定依據：`docs/VERSIONING.md` R2：取消一個自己加的限制。
+
+### 需求（Bruce 2026-10-23）
+
+「7C不能寫入嗎？」v1.39.1 擋 7C 寫入是工作端自己加的，不是 Bruce 的要求，這一版開放。
+
+### 7C 寫入流程（bridge 1.22.0 `dgh_aux_v_write`，逐步對照原廠）
+
+| 步驟 | 原廠 | bridge 1.22.0（tools/i2c-bridge/i2c_bridge_aux.h） |
+|---|---|---|
+| 逐 byte 呼叫 | AuxChannelModuleBase.cs:142–151 WriteRegisterCmd → AuxApi.cs:464 Tcon_Write_Register | dgh_aux_v_write 逐 byte |
+| ① 初始化（EEPROM 版） | AuxApi.cs:478 → Tcon81008.cs:16–32（含 :333–355 的 3E:0065←1E、RaydiumAuxWrapper.cs:165–186 的 482=80） | dgh_v_init |
+| ROM 寫保護檢查 | AuxApi.cs:483 → Tcon81008.cs:806–839：讀 3E:0000 兩個 byte，讀到 01 23 才寫 3E:0065←1E | dgh_v_read3e(0x0000, 2) → 條件寫 dgh_v_write3e(0x0065, 0x1E) |
+| 寫 7C | AuxApi.cs:489 → TconBase.cs:210–216 → :428–441 AuxWriteRegister7C：DPCD 431＝位址、434＝資料 | dgh_v_dw1(0x431) → dgh_v_dw1(0x434) |
+| ④ End（EEPROM 版） | AuxApi.cs:493 → Tcon81008.cs:86–105 | dgh_v_end |
+
+以上全部是 DPCD 原生讀寫。原廠寫入不做 MbusConnect（AuxApi.cs:476–494 沒有呼叫），bridge 也不做。
+
+### 改了什麼
+
+- **common/i2c-aux.js 1.7**：0x7C 寫入改為放行。擋下訊息和連線資訊改成「7C 讀寫」。0x7D、0x7E 照擋，原因照舊（要經 M-Bus）。
+- bridge 不換，I2C 治具路徑、common/tcon-detect.js、check_tcon_detect_single 都不動。
+
 ## I2C 讀寫測試 (i2c) v1.39.2 — 2026-10-23 ｜ PATCH ｜ DP AUX：slave 選 0x7C 時 offset 自動改成 1 byte（選 0x3E 改成 2 byte）
 
 判定依據：`docs/VERSIONING.md` R2：小修正。
