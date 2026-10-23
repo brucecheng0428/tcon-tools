@@ -37,9 +37,9 @@
     needT:  ['連不上 I2C and AUX Bridge：這台電腦可能還沒有執行 I2C and AUX Bridge', 'Cannot reach the I2C and AUX Bridge: it may not be running on this computer', '连不上 I2C and AUX Bridge：这台电脑可能还没有执行 I2C and AUX Bridge'],
     dropT:  ['I2C and AUX Bridge 已關閉或斷線', 'The I2C and AUX Bridge closed or dropped', 'I2C and AUX Bridge 已关闭或断线'],
     dl:     ['⬇ 下載 I2C and AUX Bridge {ver}', '⬇ Download I2C and AUX Bridge {ver}', '⬇ 下载 I2C and AUX Bridge {ver}'],
-    dlMiss: ['（下載包資訊讀不到，請到「I2C 讀寫測試」頁下載）', '(Package info unavailable; download it from the I2C page)', '（下载包信息读不到，请到「I2C 读写测试」页下载）'],
+    dlMiss: ['（下載包資訊讀不到，請到「I2C / AUX 讀寫測試」頁下載）', '(Package info unavailable; download it from the I2C / AUX page)', '（下载包信息读不到，请到「I2C / AUX 读写测试」页下载）'],
     steps:  ['下載 → 全部解壓到同一個資料夾 → 雙擊 i2c-aux-bridge.exe → 回這頁按「連線」', 'Download → unzip everything into one folder → double-click i2c-aux-bridge.exe → come back and press Connect', '下载 → 全部解压到同一个文件夹 → 双击 i2c-aux-bridge.exe → 回这页按「连接」'],
-    more:   ['詳細說明與疑難排解：I2C 讀寫測試頁', 'Details and troubleshooting: the I2C page', '详细说明与疑难排解：I2C 读写测试页'],
+    more:   ['詳細說明與疑難排解：I2C / AUX 讀寫測試頁', 'Details and troubleshooting: the I2C / AUX page', '详细说明与疑难排解：I2C / AUX 读写测试页'],
     small:  ['沒有 I2C and AUX Bridge？下載 {ver}', 'No I2C and AUX Bridge? Download {ver}', '没有 I2C and AUX Bridge？下载 {ver}']
   };
   function langIdx() {

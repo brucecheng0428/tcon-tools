@@ -127,9 +127,9 @@ setTimeout(() => {
      只驗「沒有物件字樣」是不夠的 —— 沒翻到時也可能是空字串。 */
   const CASES = [
     /* linked 取 i18n.js 的 `i2c.stLinkedOwn` 三語原文（照抄，不是自己想一個）。 */
-    { lang: 'zh-TW', write: '寫入',  linked: '已連線（本頁持有 I2C）' },
-    { lang: 'zh-CN', write: '写入',  linked: '已连接（本页持有 I2C）' },
-    { lang: 'en',    write: 'Write', linked: 'Connected (this page holds I2C)' }
+    { lang: 'zh-TW', write: '寫入',  linked: '已連線（I2C）' },
+    { lang: 'zh-CN', write: '写入',  linked: '已连接（I2C）' },
+    { lang: 'en',    write: 'Write', linked: 'Connected (I2C)' }
   ];
 
   for (const c of CASES) {

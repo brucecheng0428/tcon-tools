@@ -92,6 +92,7 @@ const FAKE = (opt) => {
       if (m.type === 'dpcdread') { if (opt.auxRegFail) Object.assign(r, { ok: false, err: 'DPCD_Read failed' });
         else if (m.addr === 0x434) r.data = [mem['124:' + (window.__p431 | 0)] ?? 0];
         else if (m.addr === 0x43C) r.data = (opt.n43c || [0xE5, 0x03]).slice(0, m.len || 2);
+        else if (m.addr === 0x700) r.data = [opt.edp | 0];
         else r.data = new Array(m.len || 1).fill(0); }
       if (m.id === 0) return;
       reply(ws, r);
@@ -121,7 +122,7 @@ try {
   {
     const { ctx, page, errs } = await open({ proto: 7 });
     check('連線方式下拉存在，預設 I2C 治具', await page.$eval('#in-xport', e => e.value) === 'jig');
-    await page.selectOption('#in-xport', 'aux');
+    await page.click(`#xport-seg [data-x="${'aux'}"]`);
     check('選 DP AUX ⇒ EEPROM 分段鈕停用', await page.$eval('#mode-seg [data-mode="ee"]', b => b.disabled));
     check('選 DP AUX ⇒ slave 改成 0x3E', /^0x3E$/i.test(await page.$eval('#in-slave', e => e.value.trim())), await page.$eval('#in-slave', e => e.value));
     check('slave 常用下拉的 0x50 停用', await page.$eval('#in-slave-sel option[value="0x50"]', o => o.disabled));
@@ -130,12 +131,12 @@ try {
     const op = await page.evaluate(() => window.__msgs.filter(m => m.t === 'open').pop());
     check('open 送 mode 4（DP AUX）', op && op.mode === 4, JSON.stringify(op));
     const ci = await page.$eval('#conn-info', e => e.textContent);
-    check('連線資訊顯示 DP AUX：INTEL · 螢幕 2', /DP AUX：INTEL · 螢幕 2/.test(ci), ci);
-    check('連線資訊顯示 PSR 已關', /PSR 已關/.test(ci), ci);
+    check('v1.41.0：連線資訊顯示 GPU 廠牌（INTEL ⇒ Intel）', /GPU Intel/.test(ci), ci);
+    check('v1.41.0：DPCD 0x700 讀不到／00 ⇒ 螢幕「未知」（不猜）', /螢幕 未知/.test(ci) && !/PSR/.test(ci), ci);
     await page.evaluate(() => i2ctCheckTconRun());
     const ident = await page.evaluate(() => i2ctCkResult ? i2ctCkResult.name : 'none');
     check('v1.39.0：Check T-CON（AUX，只走 DPCD）認成 EN01（3E:207E＝10）', /^EN01/.test(ident), ident);
-    check('v1.39.0：AUX 模式 Check T-CON 鈕可按、提示只走 DPCD', await page.$eval('#btn-checktcon', b => !b.disabled && /只走 DPCD 視窗/.test(b.title)));
+    check('v1.39.0：AUX 模式 Check T-CON 鈕可按、提示只走 DPCD', await page.$eval('#btn-checktcon', b => !b.disabled && /只走 DPCD/.test(b.title)));
     const bus = await page.evaluate(() => window.__msgs.filter(m => ['read', 'rawwrite', 'write', 'batchwrite'].includes(m.t)));
     { const is7E = m => m.t === 'rawwrite' && m.s === 0x7E && m.a === 0xAB && JSON.stringify(m.d) === '[205]';
       /* v1.38.0：AUX 序列和 I2C 一模一樣（先 7E:AB←CD，再 TconDetect）；7E 只送這一筆（不經共用 session 再補一筆） */
@@ -171,7 +172,7 @@ try {
       check(`三語：${lang} 標籤`, re.test(lbl), lbl);
     }
     /* ⑧ 切回治具 */
-    await page.selectOption('#in-xport', 'jig');
+    await page.click(`#xport-seg [data-x="${'jig'}"]`);
     await waitFor(page, () => i2ctLinked === false);
     check('換連線方式 ⇒ 先中斷', await page.evaluate(() => i2ctLinked === false));
     check('切回治具 ⇒ EEPROM 鈕恢復', !(await page.$eval('#mode-seg [data-mode="ee"]', b => b.disabled)));
@@ -189,7 +190,7 @@ try {
   console.log('B. 舊 I2C and AUX Bridge（proto 6）選 DP AUX');
   {
     const { ctx, page, errs } = await open({ proto: 6 });
-    await page.selectOption('#in-xport', 'aux');
+    await page.click(`#xport-seg [data-x="${'aux'}"]`);
     await page.click('#btn-link'); await sleep(800);
     check('舊 bridge 不連（不會送 mode 4）', await page.evaluate(() => i2ctLinked === false && !window.__msgs.some(m => m.t === 'open' && m.mode === 4)));
     const shown = await page.evaluate(() => { const g = document.getElementById('gethelper'); return !!g && g.style.display !== 'none'; });
@@ -202,7 +203,7 @@ try {
   console.log('C. Intel、不是系統管理員');
   {
     const { ctx, page, errs } = await open({ proto: 7, admin: false });
-    await page.selectOption('#in-xport', 'aux');
+    await page.click(`#xport-seg [data-x="${'aux'}"]`);
     await page.click('#btn-link'); await waitFor(page, () => i2ctLinked === true);
     const bn = await page.$eval('#topbanner', e => e.textContent).catch(() => '');
     check('提示用系統管理員執行', /以系統管理員身分執行/.test(bn), bn.slice(0, 120));
@@ -214,7 +215,7 @@ try {
   {
     const { ctx, page, errs } = await open({ proto: 9, card: 'AMD', admin: false, tconInit: false });
     await page.evaluate(() => { try { TconMbus.setRom('flash'); } catch (e) {} });
-    await page.selectOption('#in-xport', 'aux');
+    await page.click(`#xport-seg [data-x="${'aux'}"]`);
     await page.click('#btn-link'); await waitFor(page, () => i2ctLinked === true);
     const bn = await page.$eval('#topbanner', e => e.textContent).catch(() => '');
     check('AMD＋T-CON init 失敗 ⇒ 橫幅講 T-CON 初始化沒成功＋系統管理員', /T-CON 初始化沒成功/.test(bn) && /AMD/.test(bn) && /系統管理員/.test(bn), bn.slice(0, 160));
@@ -266,13 +267,25 @@ try {
   }
   console.log('E4. DP AUX：E503 板（7C:95＝24、3E:207E＝00、DPCD 43C＝E5 03）⇒「E503」，不分版本、0 筆 IOA');
   {
-    const { ctx, page, errs } = await open({ proto: 9, card: 'AMD', admin: false, n43c: [0xE5, 0x03] });
+    const { ctx, page, errs } = await open({ proto: 9, card: 'AMD', admin: false, n43c: [0xE5, 0x03], edp: 0x05 });
     await page.evaluate(() => { window.__mem['124:149'] = 0x24; window.__mem['62:8318'] = 0x00; });
-    await page.selectOption('#in-xport', 'aux');
+    await page.click(`#xport-seg [data-x="${'aux'}"]`);
     await page.click('#btn-link'); await waitFor(page, () => i2ctLinked === true);
     const n0 = await page.evaluate(() => window.__msgs.length);
     await page.evaluate(() => i2ctCheckTconRun());
     const r = await page.evaluate(() => i2ctCkResult && { name: i2ctCkResult.name, family: i2ctCkResult.family, unknown: !!i2ctCkResult.unknown, alts: i2ctCkResult.alts });
+    { const ci0 = await page.$eval('#conn-info', e => e.textContent);
+      check('v1.41.0：AUX 連上 ⇒ GPU AMD · 螢幕 內建（eDP 1.4b）', /GPU AMD/.test(ci0) && /螢幕 內建（eDP 1\.4b）/.test(ci0), ci0);
+      const seg = await page.$$eval('#xport-seg .xseg-b', bs => bs.map(b => b.textContent + (b.classList.contains('on') ? '*' : '')).join('|'));
+      check('v1.41.0：連線方式是 I2C｜AUX 分段鈕，AUX 亮', seg === 'I2C|AUX*', seg);
+      check('v1.41.0：AUX ⇒ ① 叫「連接 AUX」', /① 連接 AUX/.test(await page.$eval('#stp-t-link', e => e.textContent)));
+      check('v1.41.0：AUX ⇒ 狀態「已連線（AUX）」、沒有「本頁持有」', await page.$eval('#linktext', e => e.textContent === '已連線（AUX）'));
+      check('v1.41.0：AUX ⇒ EEPROM 鈕標「（I2C over AUX）」', /EEPROM（I2C over AUX）/.test(await page.$eval('#mode-seg [data-mode="ee"]', b => b.textContent)));
+      await page.click('#xport-seg [data-x="jig"]'); await sleep(200);
+      { const nm = await page.$eval('#tcon-name', e => e.textContent); const ci1 = await page.$eval('#conn-info', e => e.textContent);
+        check('v1.41.0：換連線方式（AUX 停放）⇒ ② 型號同步清空、① 不再寫 T-CON', nm === '—' && !/T-CON：/.test(ci1), nm + ' | ' + ci1); }
+      check('v1.41.0：切回 I2C ⇒ ① 叫「連接 I2C 治具」、EEPROM 鈕只寫 EEPROM', /① 連接 I2C 治具/.test(await page.$eval('#stp-t-link', e => e.textContent)) && (await page.$eval('#mode-seg [data-mode="ee"]', b => b.textContent)) === 'EEPROM');
+      await page.click('#xport-seg [data-x="aux"]'); await waitFor(page, () => i2ctLinked === true); await sleep(200); }
     check('E503 板 ⇒「E503」（不分 A1／A2／A3、不給版本下拉）', r && r.name === 'E503' && r.family === 'E503' && !r.unknown && !r.alts, JSON.stringify(r));
     const after = await page.evaluate((n) => window.__msgs.slice(n), n0);
     check('E503 板：0 筆寫入、沒有 7D／7E、bridge 的 read 只有 3E', !after.some(m => ['rawwrite', 'write', 'batchwrite'].includes(m.t)) && after.filter(m => m.t === 'read').every(m => m.s === 0x3E), JSON.stringify(after.slice(0, 8)));
@@ -301,7 +314,7 @@ try {
     const aw3 = await page.$eval('#in-awid', e => e.value);
     check('v1.39.2：AUX 選 0x7C ⇒ offset 1 byte（直接讀得到 7C:95）；選 0x3E ⇒ 2 byte', aw7 === '1' && aw3 === '2' && g7.ok && g7.bytes[0] === 0x24, aw7 + '/' + aw3 + ' ' + JSON.stringify(g7.bytes));
     const ci = await page.$eval('#conn-info', e => e.textContent);
-    check('v1.39.3：連線資訊註明 AUX 範圍（7C 讀寫、7D／7E 不開放）', /7C 讀寫/.test(ci) && /7D／7E 不開放/.test(ci), ci.slice(0, 200));
+    check('v1.39.3：連線資訊註明 AUX 範圍（7C 讀寫、7D／7E 不開放）', /3E、7C 讀寫（AUX）/.test(ci) && /EEPROM 唯讀（I2C over AUX）/.test(ci) && /7D、7E 不開放/.test(ci), ci.slice(0, 200));
     check('沒有 JS 錯誤', errs.length === 0, errs.join(' | ').slice(0, 300));
     await ctx.close();
   }
@@ -310,7 +323,7 @@ try {
     console.log(`F. ${xp === 'aux' ? 'AUX' : 'I2C'}：外部 Flash × E503 ⇒ 警示、擋 Flash 操作、選項停用`);
     const { ctx, page, errs } = await open({ proto: 9, card: 'AMD', admin: false, n43c: [0xE5, 0x03] });
     await page.evaluate(() => { Object.assign(window.__mem, { '124:149': 0x24, '124:152': 0x00, '125:125': 0x04, '62:8318': 0x00 }); });
-    if (xp === 'aux') await page.selectOption('#in-xport', 'aux');
+    if (xp === 'aux') await page.click(`#xport-seg [data-x="${'aux'}"]`);
     await page.click('#btn-link'); await waitFor(page, () => i2ctLinked === true);
     await page.click('#mode-seg [data-mode="sf"]'); await sleep(200);
     check(`${xp}：還沒辨認時可以選外部 Flash（照原本行為）`, await page.$eval('#in-devtype', e => e.value) === 'sf');
@@ -320,7 +333,7 @@ try {
     const tb = await page.$eval('#topbanner', e => e.textContent).catch(() => '');
     const ck = await page.$eval('#sf-cknote', e => ({ t: e.textContent, bad: e.classList.contains('bad') }));
     check(`${xp}：自動判斷認出 E503`, /^E503/.test(nm || ''), String(nm));
-    check(`${xp}：自動判斷後跳警示「E503 不支援外部 Flash」`, /E503[A-Z0-9]* 不支援外部 Flash/.test(tb) && ck.bad && /只支援 EEPROM/.test(ck.t), tb.slice(0, 80) + ' | ' + ck.t);
+    check(`${xp}：自動判斷後跳警示「E503 不支援 Flash」`, /E503[A-Z0-9]* 不支援 Flash/.test(tb) && ck.bad && /只支援 EEPROM/.test(ck.t), tb.slice(0, 80) + ' | ' + ck.t);
     const dis = await page.evaluate(() => ['sf-model', 'sf-detect', 'sf-read', 'sf-write'].map(id => document.getElementById(id).disabled));
     check(`${xp}：Flash 操作全部停用（型號、讀 ID、讀出、寫入）`, dis.every(Boolean), JSON.stringify(dis));
     const n0 = await page.evaluate(() => window.__msgs.length);
@@ -329,11 +342,11 @@ try {
     check(`${xp}：強制呼叫讀 Flash ID 也被擋（0 則送出）`, sent.length === 0, JSON.stringify(sent).slice(0, 160));
     await page.evaluate(() => { document.getElementById('topbanner').innerHTML = ''; });
     await page.click('#sf-recheck'); await waitFor(page, () => !i2ctBusy); await sleep(300);
-    check(`${xp}：重新判斷也觸發警示`, /E503[A-Z0-9]* 不支援外部 Flash/.test(await page.$eval('#topbanner', e => e.textContent)));
+    check(`${xp}：重新判斷也觸發警示`, /E503[A-Z0-9]* 不支援 Flash/.test(await page.$eval('#topbanner', e => e.textContent)));
     await page.click('#mode-seg [data-mode="gen"]'); await sleep(200);
     const sfb = await page.$eval('#mode-seg [data-mode="sf"]', b => ({ d: b.disabled, t: b.title }));
     const note = await page.$eval('#stp-mode-note', e => e.textContent);
-    check(`${xp}：離開後「外部 Flash」停用並寫原因`, sfb.d && /E503[A-Z0-9]* 不支援外部 Flash/.test(sfb.t) && /E503[A-Z0-9]* 不支援外部 Flash/.test(note), JSON.stringify(sfb) + ' | ' + note);
+    check(`${xp}：離開後「外部 Flash」停用並寫原因`, sfb.d && /E503[A-Z0-9]* 不支援 Flash/.test(sfb.t) && /E503[A-Z0-9]* 不支援 Flash/.test(note), JSON.stringify(sfb) + ' | ' + note);
     await page.click('#mode-seg [data-mode="sf"]', { force: true }).catch(() => {}); await sleep(150);
     check(`${xp}：按停用的外部 Flash 不會切過去`, await page.$eval('#in-devtype', e => e.value) !== 'sf');
     check(`${xp}：EEPROM 照常可選`, !(await page.$eval('#mode-seg [data-mode="ee"]', b => b.disabled)));
@@ -344,7 +357,7 @@ try {
   console.log('E3. DP AUX：3E／7C 讀不到 ⇒ 認不出（不錯判 E503）、序列同 I2C、log 有 bridge 的錯誤；IOA 讀 EEPROM 照常');
   {
     const { ctx, page, errs } = await open({ proto: 9, card: 'AMD', admin: false, tconInit: false, auxRegFail: true });
-    await page.selectOption('#in-xport', 'aux');
+    await page.click(`#xport-seg [data-x="${'aux'}"]`);
     await page.click('#btn-link'); await waitFor(page, () => i2ctLinked === true);
     const n0 = await page.evaluate(() => window.__msgs.length);
     await page.evaluate(() => i2ctCheckTconRun());
@@ -355,7 +368,7 @@ try {
       check('v1.39.0：讀不到也不寫：0 筆寫入、bridge 的 read 只有 3E', after.filter(m => m.t !== 'read').length === 0 && after.every(m => m.s === 0x3E) && !after.some(is7E), JSON.stringify(after)); }
     const lg = await page.$eval('#log', e => e.textContent);
     const bn3 = await page.$eval('#topbanner', e => e.textContent).catch(() => '');
-    check('認不出 ⇒ 橫幅請手動選擇 TCON（三語文案）', /手動選擇 TCON/.test(bn3) && /DPCD/.test(bn3), bn3.slice(0, 160));
+    check('認不出 ⇒ 橫幅請手動選擇 TCON（三語文案）', /手動選擇/.test(bn3) && /AUX 認不出/.test(bn3), bn3.slice(0, 160));
     const r3 = await page.evaluate(() => i2ctDoRead(0x7C, 1, 0x95, 1, true).then(r => r, e => ({ ok: false, err: String(e.message) })));
     check('v1.39.1：AUX 讀 7C 走 DPCD；DPCD 失敗 ⇒ 回錯誤、不改走 bridge read', r3 && r3.ok === false && /DPCD/.test(r3.err || '') && !(await page.evaluate(() => window.__msgs.some(m => m.t === 'read' && m.s === 0x7C))), JSON.stringify(r3).slice(0, 160));
     const rd = await page.evaluate(() => i2ctDoRead(0x50, 1, 0, 8, true));
@@ -366,7 +379,7 @@ try {
   console.log('E2. 375 寬：proto 9 EEPROM 分段鈕可按、不破版');
   {
     const { ctx, page, errs } = await open({ proto: 9, card: 'AMD' }, 375);
-    await page.selectOption('#in-xport', 'aux');
+    await page.click(`#xport-seg [data-x="${'aux'}"]`);
     await page.click('#btn-link'); await waitFor(page, () => i2ctLinked === true);
     await page.click('#mode-seg [data-mode="ee"]'); await sleep(200);
     check('375：切到 EEPROM 模式', await page.$eval('#in-devtype', e => e.value) === 'ee');
@@ -380,11 +393,11 @@ try {
   console.log('D. 375 寬');
   {
     const { ctx, page, errs } = await open({ proto: 7 }, 375);
-    await page.selectOption('#in-xport', 'aux');
+    await page.click(`#xport-seg [data-x="${'aux'}"]`);
     await page.click('#btn-link'); await waitFor(page, () => i2ctLinked === true);
     const ov = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     check('375 寬沒有水平捲動', ov <= 1, 'overflow ' + ov);
-    const r = await page.$eval('#in-xport', e => { const b = e.getBoundingClientRect(); return b.right <= window.innerWidth && b.width > 40; });
+    const r = await page.$eval('#xport-seg', e => { const b = e.getBoundingClientRect(); return b.right <= window.innerWidth && b.width > 40; });
     check('連線方式下拉在畫面內', r);
     if (SHOTS) await page.screenshot({ path: SHOTS + '/aux_375.png', fullPage: false });
     check('沒有 JS 錯誤', errs.length === 0, errs.join(' | ').slice(0, 300));

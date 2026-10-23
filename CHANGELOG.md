@@ -2,6 +2,29 @@
 
 ---
 
+## I2C / AUX 讀寫測試 (i2c) v1.41.0 — 2026-10-23 ｜ MINOR ｜ 改名「I2C / AUX 讀寫測試」、治具用語統一、I2C｜AUX 分段切換、文字精簡、GPU／螢幕顯示、② 完成綠框、「外部 Flash」改「Flash」
+
+判定依據：`docs/VERSIONING.md` R2：使用者可見的介面改動（不改讀寫邏輯）。
+
+### 需求（Bruce 2026-10-23）
+
+改名、「治具」（不用工裝；英文 jig）、連線方式改 I2C｜AUX 兩邊切換、① 名稱與「已連線（I2C）／（AUX）」、I2C over AUX 標註、說明越簡單越好、AUX 連上顯示 GPU 與內建／外接；②「完成沒有綠框」；「Flash 就寫 Flash」。
+
+### 改了什麼
+
+- 頁名：「I2C 讀寫測試」→「I2C / AUX 讀寫測試」（i2c.html、首頁卡片、三語說明頁、其他頁的引用文字）。
+- 用語：工裝／工装 → 治具；英文 adapter → jig（只動 I2C／自檢／DG 的字串，顯示卡 adapter 不動）。
+- 連線方式：下拉改成 I2C｜AUX 分段鈕（隱藏的 select 照舊當狀態來源，流程不變）。
+- ①：I2C ⇒「① 連接 I2C 治具」、AUX ⇒「① 連接 AUX」；狀態「已連線（I2C）」／「已連線（AUX）」；被占用改成「治具被其他分頁使用中」／「AUX 被其他分頁使用中」。
+- AUX 時 EEPROM 鈕寫「EEPROM（I2C over AUX）」；連線資訊「3E、7C 讀寫（AUX） · EEPROM 唯讀（I2C over AUX） · 7D、7E 不開放」。
+- GPU／螢幕：GPU 取 bridge open 回覆的 card（INTEL→Intel、AMD、NVIDIA、QCOM→Qualcomm，其他「未知」）；螢幕讀 DPCD 0x700 EDP_DPCD_REV（只讀）：01–06 ⇒「內建（eDP 1.2–1.5）」，00 或讀不到 ⇒「未知」（00 也可能是 eDP 1.1，不猜）。bridge 不換。PSR、系統管理員不再常駐（Intel 且非系統管理員才提）。
+- 文字精簡：69 個字串，zh-TW 合計 2979 → 1682 字（少 44%）。
+- ② 完成沒有綠框：② 做完交給 common/done-step 縮成一行，done-step.css 的 `.tc-step-done` 用 `!important` 把外框與底色拿掉；①（v1.32.1 起一律完整顯示）與 ③ 沒有走 done-step，套的是 `.stp.done` 綠框。② 改成跟 ①③ 一樣完整顯示、套 `.stp.done`。dg、dg-selftest 的步驟全部用 done-step，各頁一致，不動。
+- 換連線方式時 ② 的型號沒清：`i2ctPark()` 只把 `i2ctCkResult` 清成 null，沒有重畫 ⇒ 補 `i2ctCkRender()`／`i2ctSfOnCk()`。I2C 斷線走 `i2ctSetLink(false)` 原本就有重畫。
+- 「外部 Flash」→「Flash」（「（經 TCON）」保留）、「外部 SPI Flash」→「SPI Flash」；英文 External Flash → Flash；三語、說明頁一起改。
+- common/i2c-aux.js 1.9（字串）、common/i18n.js、common/i2c-bridge.js（頁名）；cache buster 全部換新。
+- tools/check_i2c_aux.mjs：連線方式改用分段鈕操作；新增 GPU／內建螢幕、① 名稱、狀態字、EEPROM 標註、② 清空等檢查（112／0）。
+
 ## I2C 讀寫測試 (i2c) v1.40.0 — 2026-10-23 ｜ MINOR ｜「外部 Flash」跟 T-CON 辨認結果連動：不支援 Flash 的顆（如 E503）停用並寫原因；已在 Flash 模式才認出就警示並擋下
 
 判定依據：`docs/VERSIONING.md` R2：新增一條防呆規則（使用者可見的行為改變）。

@@ -106,7 +106,7 @@ try {
     check('第二個分頁提示可切成 DP AUX 同時用', /切成 DP AUX/.test(await X.page.$eval('#topbanner', e => e.textContent) + await X.page.$eval('#log', e => e.textContent)), await X.page.$eval('#topbanner', e => e.textContent));
     await X.page.focus('#in-xport'); await X.page.evaluate(() => window.dispatchEvent(new Event('focus'))); await sleep(600);
     check('🔴 第二個分頁取得焦點也不搶（沒持有過）', await J.page.evaluate(() => i2ctLinked && !i2ctChannelBusy));
-    await X.page.selectOption('#in-xport', 'aux'); await sleep(300);
+    await X.page.click(`#xport-seg [data-x="${'aux'}"]`); await sleep(300);
     check('🔴 AUX 分頁也連上（治具分頁持有中）', await link(X.page));
     check('AUX 分頁沒有顯示「在另一個頁面」', await X.page.evaluate(() => i2ctChannelBusy === false && !/另一個頁面/.test(document.getElementById('linktext').textContent)));
     check('bridge 回報 proto 9（1.20.0；8 是 1.19.0）', await X.page.evaluate(() => i2ctHelperProto) === 9);
@@ -136,7 +136,7 @@ try {
     const { ctx, page, errs } = await open(SPY, null);
     check('治具連上', await link(page));
     const opens0 = await page.evaluate(() => window.__sent.filter(m => m.type === 'open').length);
-    await page.selectOption('#in-xport', 'aux'); await sleep(200);
+    await page.click(`#xport-seg [data-x="${'aux'}"]`); await sleep(200);
     check('切到 DP AUX ⇒ 本頁這一種還沒連（等他按連線）', await page.evaluate(() => i2ctLinked === false));
     const bn = await page.$eval('#topbanner', e => e.textContent).catch(() => '');
     check('提示：I2C 治具保持連線中、這一種請按連線', /I2C 治具 保持連線中/.test(bn), bn.slice(0, 160));
@@ -144,14 +144,14 @@ try {
     check('AUX 連上', await link(page));
     const rA = await rd(page, 0x7C, 1, 0x95, 1);
     check('AUX 讀 7C:95 ＝ 0x22', okR(rA) && (rA.bytes || rA.data || [])[0] === 0x22, JSON.stringify(rA).slice(0, 120));
-    await page.selectOption('#in-xport', 'jig'); await sleep(200);
+    await page.click(`#xport-seg [data-x="${'jig'}"]`); await sleep(200);
     check('🔴 切回 I2C 治具 ⇒ 直接沿用（不重連）', await page.evaluate(() => i2ctLinked === true));
     const opens1 = await page.evaluate(() => window.__sent.filter(m => m.type === 'open').length);
     check('切回時沒有再送 open', opens1 === opens0 + 1, `${opens0}→${opens1}`);
     const rJ = await rd(page, 0x68, 2, 0, 2);
     check('切回後治具照常讀', okR(rJ), JSON.stringify(rJ).slice(0, 100));
     check('連線資訊寫「DP AUX（顯示卡） 也連著」', /DP AUX（顯示卡） 也連著/.test(await page.$eval('#conn-info', e => e.textContent)));
-    await page.selectOption('#in-xport', 'aux'); await sleep(200);
+    await page.click(`#xport-seg [data-x="${'aux'}"]`); await sleep(200);
     check('再切到 AUX ⇒ 也直接沿用', await page.evaluate(() => i2ctLinked === true && !!i2ctAuxInfo));
     const rA2 = await rd(page, 0x3E, 2, 0x207E, 1);
     check('AUX 照常讀 3E:207E', okR(rA2) && (rA2.bytes || rA2.data || [])[0] === 0x10, JSON.stringify(rA2).slice(0, 100));
@@ -180,7 +180,7 @@ try {
   {
     const { ctx, page, errs } = await open(OLD, {});
     check('連上舊 bridge（治具）', await link(page));
-    await page.selectOption('#in-xport', 'aux');
+    await page.click(`#xport-seg [data-x="${'aux'}"]`);
     await waitFor(page, () => i2ctLinked === false && !i2ctWs);
     await sleep(300);
     const bn = await page.$eval('#topbanner', e => e.textContent).catch(() => '');
