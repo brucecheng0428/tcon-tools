@@ -35,7 +35,7 @@
      （Wpf.RomCodeProcessUI/Views/AppHeaderView.xaml:51；RM81008 支援 EEPROM／FLASH、預設第一個＝EEPROM：
      ICDefine.cs:49、RomCodeInfo.cs:461）；MtoC 只在 ROMType＝EEPROM 且 I2C 時送（AppViewModel.cs:1554／1681、
      RegisterModule.cs:36、ModelFileModule.cs:236）。EN01 .model 沒有 EESEL 狀態暫存器 ⇒ 網頁比照：
-     全站共用一個「儲存：EEPROM／Flash」設定（localStorage tcon.romType，預設 eeprom＝瑞鼎 UI 預設）。
+     全站共用一個「ROM 類型：EEPROM／Flash」設定（v1.2.1 起名稱同瑞鼎 UI；Bruce 2026-10-23「可以」）（localStorage tcon.romType，預設 eeprom＝瑞鼎 UI 預設）。
    ・rom＝flash ⇒ open() 與 session() 都**不送** 7E:AB←CD，回 { ok:true, skipped:'flash' }、log 寫原因。
    ・E503（RM8100x）瑞鼎 UI 只支援 EEPROM（ICDefine.cs:1694）。
    ═══════════════════════════════════════════════════════════════════════════ */
@@ -62,11 +62,11 @@
     }
   };
   KEYS['tcon.mbusSkipFlash'] = {
-    'zh-TW': '儲存選 Flash：EN01 Flash 應用不可用 M-Bus 導通 C-Bus，這次不下 0x7E:0xAB ← CD。',
-    'en': 'Storage = Flash: an EN01 Flash application must not use M-Bus to C-Bus, so 0x7E:0xAB ← CD is not sent.',
-    'zh-CN': '存储选 Flash：EN01 Flash 应用不可用 M-Bus 导通 C-Bus，这次不下 0x7E:0xAB ← CD。'
+    'zh-TW': 'ROM 類型選 Flash：EN01 Flash 應用不可用 M-Bus 導通 C-Bus，這次不下 0x7E:0xAB ← CD。',
+    'en': 'ROM Type = Flash: an EN01 Flash application must not use M-Bus to C-Bus, so 0x7E:0xAB ← CD is not sent.',
+    'zh-CN': 'ROM 类型选 Flash：EN01 Flash 应用不可用 M-Bus 导通 C-Bus，这次不下 0x7E:0xAB ← CD。'
   };
-  KEYS['tcon.romLab'] = { 'zh-TW': '儲存（EN01）', 'en': 'Storage (EN01)', 'zh-CN': '存储（EN01）' };
+  KEYS['tcon.romLab'] = { 'zh-TW': 'ROM 類型（EN01）', 'en': 'ROM Type (EN01)', 'zh-CN': 'ROM 类型（EN01）' };
   KEYS['tcon.romHint'] = {
     'zh-TW': 'EEPROM 才下 M-Bus 導通 C-Bus；Flash 不下（全站共用這個設定）。E503 只有 EEPROM。',
     'en': 'M-Bus to C-Bus is sent only for EEPROM; never for Flash (shared by all pages). E503 is EEPROM only.',
@@ -167,13 +167,13 @@
     return { send: guarded, ensure: ensure, reset: reset, state: st };
   }
   function autoText(res) {
-    if (res && res.skipped === 'flash') return 'M-Bus to C-Bus not sent: storage = Flash (EN01 Flash application must not use M-Bus to C-Bus)';
+    if (res && res.skipped === 'flash') return 'M-Bus to C-Bus not sent: ROM type = Flash (EN01 Flash application must not use M-Bus to C-Bus)';
     return (res && res.ok) ? 'W 0x7E:0xAB <- CD (M-Bus to C-Bus, before the first I2C transfer of this connection)'
       : 'M-Bus to C-Bus 0x7E:0xAB <- CD: no ACK (' + ((res && res.err) || '?') + '); continuing (normal when the board has no M-Bus switch)';
   }
 
   g.TconMbus = {
-    VERSION: '1.2',
+    VERSION: '1.2.1',
     autoSending: false,
     CMD: CMD,
     LOG: 'W 0x7E:0xAB <- CD (M-Bus to C-Bus)',

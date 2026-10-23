@@ -2,6 +2,27 @@
 
 ---
 
+## NB TCON Debug應用 (nbdebug) v1.3.1 — 2026-10-23 ｜ PATCH ｜「儲存」改名「ROM 類型」（ROM Type），同瑞鼎 UI（common/i2c-mbus.js 1.2.1）
+
+判定依據：`docs/VERSIONING.md` 判定表「文案 → PATCH」：只改使用者看得到的名稱，設定值（localStorage `tcon.romType`）、預設值（EEPROM）、擋下規則與送出的位元組都不變 ⇒ PATCH，不帶 ⚠ 輸出變更。
+
+### 需求（Bruce 2026-10-23）
+
+Bruce 問「儲存是什麼意思」；說明是指 code 存在 EEPROM 還是 Flash，問要不要改叫「ROM 類型」跟原廠一樣，Bruce：「可以」。
+
+### 做法
+
+- nbdebug.html：EN01 那一列標籤「儲存（EN01）」⇒「ROM 類型（EN01）」（en「ROM Type (EN01)」、zh-CN「ROM 类型（EN01）」），下拉 aria-label ⇒ ROM Type；表上方警示、導通列說明、擋下訊息三語的「儲存／存储／Storage」全部改成「ROM 類型／ROM 类型／ROM Type」。
+- common/i2c-mbus.js 1.2.1：三語標籤、Flash 不送時的提示與 log（`not sent: ROM type = Flash`）同步改名；行為不變。引用它的 datamap、dg-selftest、i2c、nbdebug 換 cache buster（不進版號）。
+- 全站同類查過：其他頁的「儲存」都是儲存格／寫入儲存等別的意思，不是這個設定，不動。
+- 預設值與其他頁要不要加這個選項：Bruce 尚未決定，這次不動。
+
+### 測試
+
+- `tools/check_nbdebug.mjs` B 項加：三語標籤＝ROM 類型／ROM Type／ROM 类型、整頁（文字＋title＋aria-label）沒有「儲存／存储／Storage」、aria-label＝ROM Type、選 Flash 時警示寫「ROM 類型選 Flash」。`tools/check_i2c_mbus_rom.mjs` 的 log 字樣跟著改。
+
+---
+
 ## I2C 讀寫測試 (i2c) v1.37.0 — 2026-10-23 ｜ MINOR ｜ DP AUX：3E／7C 讀取改走 I2C over AUX（同一份 T-CON 辨認）、EEPROM 0x50 可經 I2C over AUX 讀（寫照舊擋）＋ I2C and AUX Bridge 1.20.0（proto 9）
 
 判定依據：`docs/VERSIONING.md` R3「使用者真的多能做一件事 → MINOR」：DP AUX 模式多了「讀 EEPROM」。I2C 治具路徑完全不變；DP AUX 的寫入規則不變 ⇒ 不是 MAJOR。

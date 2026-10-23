@@ -607,14 +607,23 @@ async function runEngine(name, browserType, opts, viewport, full) {
     }
     /* EN01 Flash 規則（Bruce 2026-10-23「如果是 Flash 的話就不可以用這個導通方式，如果是 EEPROM 才可以」） */
     await sel(page, 'nd-icsel', 'E503'); await sel(page, 'nd-item', 'mbus');
-    check(`${tag} B E503 沒有「儲存」列、說明寫只有 EEPROM`, await page.$eval('#nd-romrow', e => e.classList.contains('hidden')) && /E503 只有 EEPROM/.test(await page.$eval('#nd-help', e => e.textContent)));
+    check(`${tag} B E503 沒有「ROM 類型」列、說明寫只有 EEPROM`, await page.$eval('#nd-romrow', e => e.classList.contains('hidden')) && /E503 只有 EEPROM/.test(await page.$eval('#nd-help', e => e.textContent)));
     await sel(page, 'nd-icsel', 'EN01'); await sel(page, 'nd-item', 'mbus');
     {
       const vis = await page.$eval('#nd-romrow', e => !e.classList.contains('hidden')), rv = await page.$eval('#nd-rom', s => [s.value, [...s.options].map(o => o.value).join(',')].join('|'));
       const wn = await page.$eval('#nd-warn', e => e.textContent), ds = await page.$eval('#nd-tbl tbody tr td.ds', e => e.innerText);
-      check(`${tag} B EN01 有「儲存」列（EEPROM 預設／Flash）、警示與說明寫 EEPROM 才可、Flash 不可`, vis && rv === 'eeprom|eeprom,flash' && /EEPROM 應用才可以用 M-Bus 導通 C-Bus/.test(wn) && /Flash 應用不可用/.test(wn) && /Flash 應用不可用此導通方式/.test(ds), rv + ' / ' + wn);
+      check(`${tag} B EN01 有「ROM 類型」列（EEPROM 預設／Flash）、警示與說明寫 EEPROM 才可、Flash 不可`, vis && rv === 'eeprom|eeprom,flash' && /EEPROM 應用才可以用 M-Bus 導通 C-Bus/.test(wn) && /Flash 應用不可用/.test(wn) && /Flash 應用不可用此導通方式/.test(ds), rv + ' / ' + wn);
+      /* v1.3.1（Bruce 2026-10-23「可以」：「儲存」改叫「ROM 類型」，同瑞鼎 UI）：三語標籤＋整頁不再出現「儲存／存储／Storage」 */
+      for (const [lg, lab] of [['zh-TW', 'ROM 類型（EN01）'], ['en', 'ROM Type (EN01)'], ['zh-CN', 'ROM 类型（EN01）']]) {
+        await page.selectOption('#lang-select', lg);
+        const rl = await page.$eval('#nd-romrow .nd-fl', e => e.textContent), all = await page.evaluate(() => document.body.innerText + ' ' + [...document.querySelectorAll('[title],[aria-label]')].map(e => (e.title || '') + ' ' + (e.getAttribute('aria-label') || '')).join(' '));
+        const wn2 = await page.$eval('#nd-warn', e => e.textContent);
+        check(`${tag} B EN01 ${lg} 標籤＝「${lab}」、整頁沒有「儲存／存储／Storage」`, rl === lab && !/儲存|存储|Storage/.test(all) && /ROM (類型|Type|类型)/.test(wn2), rl + ' / ' + (all.match(/.{0,20}(儲存|存储|Storage).{0,20}/) || [''])[0]);
+      }
+      await page.selectOption('#lang-select', 'zh-TW');
+      check(`${tag} B EN01 下拉 aria-label＝ROM Type`, (await page.$eval('#nd-rom', e => e.getAttribute('aria-label'))) === 'ROM Type');
       await page.selectOption('#nd-rom', 'flash');
-      check(`${tag} B EN01 選 Flash ⇒ 警示多一句已擋下`, /已擋下/.test(await page.$eval('#nd-warn', e => e.textContent)));
+      check(`${tag} B EN01 選 Flash ⇒ 警示多一句已擋下（ROM 類型選 Flash）`, /已擋下：ROM 類型選 Flash/.test(await page.$eval('#nd-warn', e => e.textContent)));
       const sx = (await grab(page, '#nd-script')).buf.toString('utf8');
       check(`${tag} B EN01 .script 寫明 EEPROM only、Flash 不可`, /EN01: EEPROM application only\. Do NOT send this on a Flash application\./.test(sx));
       await page.selectOption('#nd-rom', 'eeprom');

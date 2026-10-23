@@ -31,7 +31,7 @@ const is7E = w => w[0] === 0x7E && w[2] === 0xAB && JSON.stringify(w[3]) === '[2
 
 {
   const { M, store } = load();
-  check('預設 rom＝eeprom（同瑞鼎 UI 預設）、allowed', M.rom() === 'eeprom' && M.allowed() && M.VERSION === '1.2');
+  check('預設 rom＝eeprom（同瑞鼎 UI 預設）、allowed', M.rom() === 'eeprom' && M.allowed() && M.VERSION === '1.2.1');
   const W = []; const write = async (s, aw, a, d) => { W.push([s, aw, a, d]); return { ok: true }; };
   let r = await M.open(write);
   check('eeprom：open() 送一筆 7E:AB←CD', r.ok && !r.skipped && W.length === 1 && is7E(W[0]), JSON.stringify(W));
@@ -39,7 +39,7 @@ const is7E = w => w[0] === 0x7E && w[2] === 0xAB && JSON.stringify(w[3]) === '[2
   check('setRom(flash) 存進 localStorage tcon.romType', store['tcon.romType'] === 'flash' && M.rom() === 'flash' && !M.allowed());
   r = await M.open(write);
   check('flash：open() 不送、回 ok＋skipped=flash', r.ok && r.skipped === 'flash' && W.length === 0, JSON.stringify(r));
-  check('flash：autoText 寫明 Flash 不送', /not sent: storage = Flash/.test(M.autoText(r)));
+  check('flash：autoText 寫明 Flash 不送', /not sent: ROM type = Flash/.test(M.autoText(r)));
   /* session */
   const S = []; const send = async o => { S.push(o); return { ok: true, data: [0x10] }; };
   const logs = []; const ss = M.session(send, { log: x => logs.push(x) });
