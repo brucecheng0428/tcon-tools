@@ -21,7 +21,23 @@
 ### 驗證
 - `tools/check_i2c_aux.mjs` 新增 E2b（照 Bruce 的操作：切 AUX → DPCD／IOA 工具 → 沒連線按依序執行按不下去、一筆沒送 → 列出 → 點整列選 → 仍停用 → 連線 → 綠框、可執行 → log 連結 → 點連結開 aux.html 看 0x00100 LINK_BW_SET／0x00101 LANE_COUNT_SET → 中斷又停用 → Check RAD TCON 自動選＋框 → 連線標「已初始化」 → Bridge 斷線立刻停用 → 三語）。結果見完成回報。
 
-## I2C / AUX 讀寫測試 (i2c) v1.43.0 ＋ TCON 自檢畫面量測 (dgself) v2.11.0 ＋ Data Mapping (datamap) v1.38.0 ＋ NB TCON Debug應用 (nbdebug) v1.4.0 — 2026-10-24 ｜ MINOR ｜ I2C and AUX Bridge 版本檢查（全站共用彈窗）：Bridge 不是最新 ⇒ 擋住操作的彈窗；分頁過舊的 Ctrl+F5 提示也改成彈窗
+## TCON 自檢畫面量測 (dgself) v2.11.0 — 2026-10-24 ｜ MINOR ｜ I2C and AUX Bridge 不是最新 ⇒ 擋用彈窗（全站共用元件）
+
+判定依據：`docs/VERSIONING.md` R2：新功能。內容見下方「I2C and AUX Bridge 版本檢查」段（同一個共用元件 common/i2c-bridge.js v1.2.0，ping 後呼叫 gate）。
+
+## Data Mapping (datamap) v1.38.0 — 2026-10-24 ｜ MINOR ｜ I2C and AUX Bridge 不是最新 ⇒ 擋用彈窗（全站共用元件）
+
+判定依據：`docs/VERSIONING.md` R2：新功能。內容見下方「I2C and AUX Bridge 版本檢查」段。只動連線流程（ping 後呼叫 gate），畫面與輸出不變。
+
+## NB TCON Debug應用 (nbdebug) v1.4.0 — 2026-10-24 ｜ MINOR ｜ I2C and AUX Bridge 不是最新 ⇒ 擋用彈窗（全站共用元件）
+
+判定依據：`docs/VERSIONING.md` R2：新功能。內容見下方「I2C and AUX Bridge 版本檢查」段。
+
+## 面板訊號模擬與取樣 (wfg) v4.59.3 — 2026-10-24 ｜ PATCH ｜ LA 的 DPCD 連結改呼叫共用 common/dpcd-link.js（網址不變）
+
+判定依據：`docs/VERSIONING.md` R2：重構、輸出不變。`wfgLaDpcdLookupUrl` 改成 `DpcdLink.url`（i2c.html DPCD／IOA 工具的 log 也用同一支），產生的 aux.html 網址格式一字不變。
+
+## I2C and AUX Bridge 版本檢查（同 i2c v1.43.0）：dgself v2.11.0 ／ datamap v1.38.0 ／ nbdebug v1.4.0 — 2026-10-24 ｜ I2C and AUX Bridge 版本檢查（全站共用彈窗）：Bridge 不是最新 ⇒ 擋住操作的彈窗；分頁過舊的 Ctrl+F5 提示也改成彈窗
 
 判定依據：`docs/VERSIONING.md` R2：新功能（四頁各進 MINOR；`app` 不動，首頁沒有新入口）。
 
