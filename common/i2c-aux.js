@@ -14,16 +14,23 @@
      tools/check_i2c_aux.mjs 比對兩份清單一致。
 
    API（window.TconAux）：
-     MODE（4）、NEED_PROTO（7）、SIMUL_PROTO（8：I2C 治具與 DP AUX 同時使用，bridge 1.19.0）、SLAVES、EE_LO／EE_HI、DPCD_EE_LO／DPCD_EE_HI
+     MODE（4）、NEED_PROTO（7）、SIMUL_PROTO（8：I2C 治具與 DP AUX 同時使用，bridge 1.19.0）、
+     IOA_PROTO（9：3E／7C 讀取走 I2C over AUX、EEPROM 可讀不可寫，bridge 1.20.0）、SLAVES、EE_LO／EE_HI、DPCD_EE_LO／DPCD_EE_HI
      allowed(slave)            這個 slave 在 AUX 模式能不能用
-     check(msg)                送出前檢查一則 bridge 訊息；可以送回 null，不行回 { code, slave }
+     eeReadOk(proto)           這支 bridge 在 AUX 模式能不能讀 EEPROM（proto ≥ 9）
+     check(msg, proto)         送出前檢查一則 bridge 訊息；可以送回 null，不行回 { code, slave }
+                               proto ≥ 9：EEPROM 0x50–0x57 的 read 放行（offset 1／2 byte），寫入一律擋
+
+   v1.2（Bruce 2026-10-23「靠 AUX 應該也要可以讀取 EEPROM 的資料，也就是靠 I2C over AUX（簡稱 IOA）的方式去讀 0x50 的內容」）：
+     EEPROM 只放行「讀」，寫入照舊擋（Bruce 10-23「不能直接對 eeprom 也寫入」）。舊 bridge（proto ≤ 8）一律擋讀，
+     並說要 1.20.0。
      text(code, vars)          錯誤／說明文字（依 <html lang>）
      dpcdWriteOk(addr, n)      raw DPCD 寫入是否放行
    ═══════════════════════════════════════════════════════════════════════════ */
 (function (g) {
   'use strict';
   var SLAVES = [0x3E, 0x7C, 0x7D, 0x7E];
-  var EE_LO = 0x50, EE_HI = 0x57, DPCD_EE_LO = 0x480, DPCD_EE_HI = 0x48F;
+  var EE_LO = 0x50, EE_HI = 0x57, DPCD_EE_LO = 0x480, DPCD_EE_HI = 0x48F, IOA_PROTO = 9;
   var BUS = { read: 1, rawwrite: 1, write: 1, batchwrite: 1 };
   var T = {
     ee: ['DP AUX 模式不能直接存取 EEPROM（slave 0x{s}）：EEPROM 只能透過 T-CON 控制。這一筆沒有送出。',
@@ -67,7 +74,21 @@
     noAutoSteal: ['{x} 在另一個頁面使用中，這一頁不自動搶（要拿過來按「接手」）。', '{x} is in use on another page; this page does not grab it automatically (press Take over to get it).', '{x} 在另一个页面使用中，这一页不自动抢（要拿过来按「接手」）。'],
     simulBusyHint: ['要在這一頁同時用另一種，把「連線方式」切成 {x} 再按連線。', 'To use the other type on this page at the same time, set Connection to {x} and press Connect.', '要在这一页同时用另一种，把「连接方式」切成 {x} 再按连接。'],
     tconBusy: ['另一種連線正在對 T-CON 跑一串操作，這一筆排隊等太久沒有送出；等它做完再試一次。', 'The other connection is running a sequence on the T-CON; this request waited too long and was not sent. Try again when it finishes.', '另一种连接正在对 T-CON 跑一串操作，这一笔排队等太久没有送出；等它做完再试一次。'],
-    eeOff: ['DP AUX 模式不能直接讀寫 EEPROM（只能透過 T-CON）', 'Not available in DP AUX mode (EEPROM only through the T-CON)', 'DP AUX 模式不能直接读写 EEPROM（只能通过 T-CON）']
+    eeOff: ['DP AUX 模式不能直接讀寫 EEPROM（只能透過 T-CON）', 'Not available in DP AUX mode (EEPROM only through the T-CON)', 'DP AUX 模式不能直接读写 EEPROM（只能通过 T-CON）'],
+    /* v1.2（bridge 1.20.0／proto 9） */
+    eeWrite: ['DP AUX 模式只能讀 EEPROM（I2C over AUX），不能寫（slave 0x{s}）。這一筆沒有送出。',
+              'DP AUX mode can only READ the EEPROM (I2C over AUX), not write it (slave 0x{s}). Nothing was sent.',
+              'DP AUX 模式只能读 EEPROM（I2C over AUX），不能写（slave 0x{s}）。这一笔没有送出。'],
+    eeOld: ['這個 I2C and AUX Bridge（{have}）在 DP AUX 模式不能讀 EEPROM（slave 0x{s}）。下載 1.20.0 以上就能用 I2C over AUX 讀。這一筆沒有送出。',
+            'This I2C and AUX Bridge ({have}) cannot read the EEPROM in DP AUX mode (slave 0x{s}). Download 1.20.0 or later to read it over I2C over AUX. Nothing was sent.',
+            '这个 I2C and AUX Bridge（{have}）在 DP AUX 模式不能读 EEPROM（slave 0x{s}）。下载 1.20.0 以上就能用 I2C over AUX 读。这一笔没有送出。'],
+    eeAwid: ['DP AUX 讀 EEPROM：offset 要 1 或 2 byte（slave 0x{s}）。這一筆沒有送出。',
+             'DP AUX EEPROM read: the offset must be 1 or 2 bytes (slave 0x{s}). Nothing was sent.',
+             'DP AUX 读 EEPROM：offset 要 1 或 2 byte（slave 0x{s}）。这一笔没有送出。'],
+    eeRO: ['DP AUX：EEPROM 只能讀（I2C over AUX），寫入鈕停用', 'DP AUX: EEPROM is read-only (I2C over AUX); writing is disabled', 'DP AUX：EEPROM 只能读（I2C over AUX），写入钮停用'],
+    bnInit: ['DP AUX 已連線，但 T-CON 初始化沒成功（顯示卡 {card}：DPCD 寫入失敗）。讀取會改走 I2C over AUX；要寫入 T-CON，請關掉 I2C and AUX Bridge 黑視窗，在 i2c-aux-bridge.exe 按右鍵 →「以系統管理員身分執行」，再按連線。',
+             'DP AUX is connected but the T-CON init did not succeed ({card} graphics: DPCD writes fail). Reads go over I2C over AUX; to write the T-CON, close the I2C and AUX Bridge window, right-click i2c-aux-bridge.exe → "Run as administrator", then press Connect again.',
+             'DP AUX 已连接，但 T-CON 初始化没成功（显卡 {card}：DPCD 写入失败）。读取会改走 I2C over AUX；要写入 T-CON，请关掉 I2C and AUX Bridge 黑窗口，在 i2c-aux-bridge.exe 按右键 →「以管理员身份运行」，再按连接。']
   };
   function langIdx() {
     var l = (g.document && g.document.documentElement && g.document.documentElement.lang) || 'zh-TW';
@@ -82,10 +103,19 @@
   function hex2(n) { return ('0' + ((n | 0) & 0xFF).toString(16).toUpperCase()).slice(-2); }
   function allowed(slave) { return SLAVES.indexOf(slave | 0) >= 0; }
   function awidFor(slave) { return slave === 0x3E ? 2 : (slave === 0x7C ? 1 : 0); }
-  function check(msg) {
+  function eeReadOk(proto) { return (proto | 0) >= IOA_PROTO; }
+  function check(msg, proto, have) {
     if (!msg || !BUS[msg.type]) return null;
     var s = msg.slave | 0;
-    if (s >= EE_LO && s <= EE_HI) return { code: 'ee', slave: s, msg: text('ee', { s: hex2(s) }) };
+    if (s >= EE_LO && s <= EE_HI) {
+      if (msg.type === 'read') {
+        if (!eeReadOk(proto)) return { code: 'eeOld', slave: s, msg: text('eeOld', { s: hex2(s), have: have || '?' }) };
+        var ea = (msg.awid == null) ? 2 : (msg.awid | 0);
+        if (ea !== 1 && ea !== 2) return { code: 'eeAwid', slave: s, msg: text('eeAwid', { s: hex2(s) }) };
+        return null;
+      }
+      return { code: 'ee', slave: s, msg: text(eeReadOk(proto) ? 'eeWrite' : 'ee', { s: hex2(s) }) };
+    }
     if (!allowed(s)) return { code: 'notTcon', slave: s, msg: text('notTcon', { s: hex2(s) }) };
     var want = awidFor(s), aw = (msg.awid == null) ? 2 : (msg.awid | 0);
     if (msg.type !== 'write' && want && aw !== want) return { code: 'awid', slave: s, msg: text('awid', { s: hex2(s), w: want }) };
@@ -97,7 +127,7 @@
     return (addr + n - 1 < DPCD_EE_LO) || (addr > DPCD_EE_HI);
   }
   g.TconAux = {
-    VERSION: '1.1', MODE: 4, NEED_PROTO: 7, SIMUL_PROTO: 8,
+    VERSION: '1.2', MODE: 4, NEED_PROTO: 7, SIMUL_PROTO: 8, IOA_PROTO: IOA_PROTO, eeReadOk: eeReadOk,
     SLAVES: SLAVES.slice(), EE_LO: EE_LO, EE_HI: EE_HI, DPCD_EE_LO: DPCD_EE_LO, DPCD_EE_HI: DPCD_EE_HI,
     allowed: allowed, awidFor: awidFor, check: check, text: text, dpcdWriteOk: dpcdWriteOk
   };

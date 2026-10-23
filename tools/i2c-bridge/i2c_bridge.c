@@ -1651,6 +1651,7 @@ static int aux_try_dir(const char* dirIn){
     g_aux.GetPsr         =(PFN_AUX_Psr)            GetProcAddress(h,"Get_PSR_State");
     g_aux.SetPsr         =(PFN_AUX_Psr)            GetProcAddress(h,"Set_PSR_State");
     g_aux.DpcdRead       =(PFN_AUX_Dpcd)           GetProcAddress(h,"DPCD_Read");
+    g_aux.IoaRead        =(PFN_AUX_Ioa)            GetProcAddress(h,"IOA_Read");   /* 1.20.1: AMD reads */
     g_aux.DpcdWrite      =(PFN_AUX_Dpcd)           GetProcAddress(h,"DPCD_Write");
     g_aux.I2cRead        =(PFN_AUX_I2c)            GetProcAddress(h,"I2C_Read");
     g_aux.I2cWrite       =(PFN_AUX_I2c)            GetProcAddress(h,"I2C_Write");
@@ -1779,7 +1780,7 @@ static int aux_open(int cardReq, int monReq, int projReq, int psrOff, int tconIn
         for(m=m0;m<=m1;m++){
             unsigned char c=(unsigned char)cards[ci], mo=(unsigned char)m, pj=(unsigned char)g_auxProj;
             unsigned char r = g_aux.Initial(&c,&mo,&pj);
-            if(r==0){ g_auxCard=cards[ci]; g_auxMon=m; g_auxOpen=1;
+            if(r==0){ g_auxCard=cards[ci]; g_auxMon=m; g_auxOpen=1; g_aux.card=cards[ci];
                 logline("  aux     : Initial(card=%s, monitor=%d, projectIc=%d) = OK", dgh_aux_card_name((unsigned)cards[ci]), m, g_auxProj);
                 break; }
         }
@@ -2187,8 +2188,10 @@ static FT_STATUS i2c_read_ex(uint32_t slave, uint32_t addr, uint32_t awid, uint3
         g_lastUs = (now_ms() - t0) * 1000.0;
         if(!ok) lasterr_set("%s", e);
         if(!g_ioQuiet || !ok)
-        logline("  i2c_read: slave=0x%02X addr=0x%X awid=%u len=%u mode=AUX -> %s, %u bytes, %.0f us%s%s",
-                slave, addr, awid, len, ok?"ok":"FAILED", got?*got:0, g_lastUs, ok?"":"  ", ok?"":e);
+        logline("  i2c_read: slave=0x%02X addr=0x%X awid=%u len=%u mode=AUX path=%s -> %s, %u bytes, %.0f us%s%s",
+                slave, addr, awid, len,
+                (slave==0x3Eu||slave==0x7Cu)?(g_aux.lastPath==DGH_AUX_PATH_IOA?"i2c-over-aux":"dpcd-window"):"i2c-over-aux",
+                ok?"ok":"FAILED", got?*got:0, g_lastUs, ok?"":"  ", ok?"":e);
         return ok ? 0 : 0xFFFFFFF4u;
     }
     /* 🔴 DLL_I2C_BCB.dll 優先：一次讀完，不分段（DLL_I2C_BCB 那套 Python UI 的標準操作就是一次 4096）。 */
@@ -2255,8 +2258,8 @@ static FT_STATUS i2c_write_ex(uint32_t slave, uint32_t addr, uint32_t awid, cons
         }
         g_lastUs = (now_ms() - t0) * 1000.0;
         if(!ok){
-            if(!g_auxAdmin && g_auxCard==(int)DGH_AUX_CARD_INTEL && strstr(e,"AUX ")==e)
-                lasterr_set("%s. Intel graphics need administrator rights for AUX writes: close i2c-aux-bridge.exe and start it with right-click -> Run as administrator.", e);
+            if(!g_auxAdmin && strstr(e,"AUX ")==e)
+                lasterr_set("%s. i2c-aux-bridge.exe is not running as administrator; AUX writes (DPCD) usually need it on newer computers (%s graphics): close it and start it with right-click -> Run as administrator.", e, dgh_aux_card_name((unsigned)g_auxCard));
             else if(g_auxPsrOn==1 && strstr(e,"AUX ")==e)
                 lasterr_set("%s. PSR (panel self refresh) is ON; AUX writes need it OFF -- reconnect with PSR off.", e);
             else lasterr_set("%s", e);
@@ -3057,6 +3060,9 @@ static void handle_command_one(int idx, const char* json){
         if(dgh_mode==DGH_MODE_AUX){
             int aok;
             (void)hz;   /* 🔴 1.19.0：不再呼叫 i2c_open() 讓出治具 —— 治具由另一條路各自持有 */
+            {   long rp = dgh_json_int(json,"regpath",0);
+                g_aux.regPath = (rp==1)?DGH_AUX_PATH_IOA:(rp==2)?DGH_AUX_PATH_DPCD:DGH_AUX_PATH_AUTO;
+                logline("  open    : AUX register path for 3E/7C reads = %s", dgh_aux_path_name(g_aux.regPath)); }
             aok = aux_open((int)dgh_json_int(json,"card",-1), (int)dgh_json_int(json,"monitor",-1),
                            (int)dgh_json_int(json,"projic",1), (int)dgh_json_int(json,"psroff",1),
                            (int)dgh_json_int(json,"tconinit",1));
@@ -3064,12 +3070,12 @@ static void handle_command_one(int idx, const char* json){
             if(aok)
                 snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"open\",\"ok\":true,\"channels\":1,"
                     "\"aux\":true,\"card\":\"%s\",\"monitor\":%d,\"projic\":%d,\"admin\":%s,"
-                    "\"psrSupported\":%s,\"psrOn\":%s,\"psrTurnedOff\":%s,\"tconInit\":%s}",
+                    "\"psrSupported\":%s,\"psrOn\":%s,\"psrTurnedOff\":%s,\"tconInit\":%s,\"regPath\":\"%s\",\"eeRead\":true}",
                     id, dgh_aux_card_name((unsigned)g_auxCard), g_auxMon, g_auxProj,
                     g_auxAdmin==1?"true":(g_auxAdmin==0?"false":"null"),
                     g_auxPsrSup==1?"true":(g_auxPsrSup==0?"false":"null"),
                     g_auxPsrOn==1?"true":(g_auxPsrOn==0?"false":"null"),
-                    g_auxPsrWeOff?"true":"false", g_auxInitDone?"true":"false");
+                    g_auxPsrWeOff?"true":"false", g_auxInitDone?"true":"false", dgh_aux_path_name(g_aux.regPath));
             else
                 snprintf(rep,sizeof(rep),"{\"type\":\"result\",\"id\":%ld,\"cmd\":\"open\",\"ok\":false,\"aux\":true,"
                     "\"auxDll\":%s,\"err\":\"%s\"}", id, g_auxOk?"true":"false", g_auxOpenErr);

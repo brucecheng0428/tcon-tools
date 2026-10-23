@@ -172,7 +172,7 @@ int main(void){
     G("1. hello：proto 8、simul:true、兩條路各自的狀態");
     int J=ws_open(hello,sizeof(hello));
     CHECK(J>=0,"治具分頁 WebSocket 連得上"); if(J<0){ printf("%d/%d\n",total-fails,total); return 1; }
-    CHECKS(hello,"\"proto\":8","proto 8");
+    CHECKS(hello,"\"proto\":9","proto 9（1.20.0）");
     CHECKS(hello,"\"simul\":true","simul:true（新網頁靠它判斷可以同時用）");
     CHECKS(hello,"\"jigBusy\":false","jigBusy:false"); CHECKS(hello,"\"auxBusy\":false","auxBusy:false");
     int A=ws_open(hello,sizeof(hello));

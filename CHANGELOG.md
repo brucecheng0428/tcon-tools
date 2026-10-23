@@ -2,6 +2,24 @@
 
 ---
 
+## I2C 讀寫測試 (i2c) v1.38.0 — 2026-10-23 ｜ MINOR ｜ DP AUX：3E／7C 讀取走 I2C over AUX（同一份 T-CON 辨認）、EEPROM 0x50 經 I2C over AUX 可讀（寫照舊擋）、AMD 走 IOA_Read ＋ I2C and AUX Bridge 1.21.0（proto 9）；I2C 路徑不變
+
+判定依據：`docs/VERSIONING.md` R3「使用者真的多能做一件事 → MINOR」：DP AUX 模式多了讀 EEPROM、AUX 認得出 T-CON。I2C 治具路徑不變。
+
+### 需求（Bruce 2026-10-23）
+
+「誰跟你說過 AUX 的改進要暫停的？I2C 用到沒問題以後，就要接著用 AUX 啊，要不然進度又停掉。」（原始需求見 v1.37.0／v1.37.1 兩條：AUX 已連線卻認不出 T-CON、讀 3E 讀不到、IOA 讀 0x50 用不了。）
+
+### 改了什麼（只在 AUX 專用路徑）
+
+- **bridge 1.21.0**：內容＝1.20.0＋1.20.1 的 AUX 改進，重新發佈在 1.19.0 回復之後（版號只增不減）。
+  - 3E／7C 讀取先走 I2C over AUX（同一個 7-bit slave，先寫 offset 再讀），沒 ACK 才退回 DPCD 視窗；寫入路徑不變。
+  - EEPROM 0x50–0x57 讀取經 I2C over AUX 放行（offset 1／2 byte），寫入一律擋。
+  - AMD 顯示卡改走 `IOA_Read`（DLL 的 AMD `I2C_Read` 是空函式，只回成功不讀資料）。
+  - 下載包 `data/i2c-aux-bridge-v1.21.0.zip`（四支 DLL 原樣）。
+- **i2c.html v1.38.0／common/i2c-aux.js 1.2**：DP AUX 模式 EEPROM 分段鈕開放（只能讀、寫入鈕停用、寫 EEPROM 在拉低 WP 前就擋）；T-CON 初始化失敗時不分顯示卡都提示。全部在 `i2ctXport === 'aux'` 的分支裡。
+- **I2C 共用程式碼不動**：`common/i2c-mbus.js`、`common/tcon-detect.js` 與 a6a3d85 逐行相同（git diff 0 行）；bridge `i2c_bridge.c` 對 a6a3d85 的 7 段差異全在 aux_try_dir、aux_open、`dgh_mode==DGH_MODE_AUX` 分支與 AUX open 回覆。
+
 ## I2C 讀寫測試 (i2c) v1.37.2 — 2026-10-23 ｜ PATCH ｜ I2C 路徑回到 v1.36.0（82d94be）：撤回 v1.37.0／v1.37.1 的 DP AUX 改動與 bridge 1.20.x；ROM 類型不再影響共用連線與辨認（i2c-mbus 1.2.2）
 
 判定依據：`docs/VERSIONING.md` R2「修正、沒有新功能 → PATCH」：撤回；版號只增不減，所以內容等同 v1.36.0 但版號往前進。

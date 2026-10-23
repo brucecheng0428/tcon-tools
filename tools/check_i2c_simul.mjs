@@ -109,7 +109,7 @@ try {
     await X.page.selectOption('#in-xport', 'aux'); await sleep(300);
     check('🔴 AUX 分頁也連上（治具分頁持有中）', await link(X.page));
     check('AUX 分頁沒有顯示「在另一個頁面」', await X.page.evaluate(() => i2ctChannelBusy === false && !/另一個頁面/.test(document.getElementById('linktext').textContent)));
-    check('bridge 回報 proto 8', await X.page.evaluate(() => i2ctHelperProto) === 8);
+    check('bridge 回報 proto 9（1.20.0；8 是 1.19.0）', await X.page.evaluate(() => i2ctHelperProto) === 9);
     const r1 = await rd(J.page, 0x68, 2, 0, 3);
     check('治具分頁照常讀（沒被 AUX 踢掉）', okR(r1), JSON.stringify(r1).slice(0, 120));
     const r2 = await rd(X.page, 0x3E, 2, 0x0059, 1);

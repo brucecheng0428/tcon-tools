@@ -301,8 +301,36 @@
  *   - **proto 8**：hello／pong 帶 `simul:true`、`jigBusy`／`auxBusy`／`jigLocked`／`auxLocked`（pong 另帶 `path`）。
  *     舊欄位 `busy`／`locked`／`owner` 意義不變（busy／locked ＝ 治具那條路）。
  *   🔴 全部是模擬測試（test/test_server_simul.c），**未在 Windows 實機驗證**。 */
-#define I2C_BRIDGE_VERSION "1.19.0"
-#define I2C_BRIDGE_PROTO   8
+/* ═══ 1.20.0（2026-10-23）══════════════════════════════════════════════════
+ *   Bruce 2026-10-23 原話：「DP AUX 的連線是顯示『已連線』，可是卻辨認不出 TCON」「靠 AUX 應該也要可以讀取
+ *   EEPROM 的資料，也就是靠 I2C over AUX（簡稱 IOA）的方式去讀 0x50 的內容」「我讀 3E 也讀不到任何內容」
+ *   「I2C 的方式不是可以辨別不同的 Tcon 嗎？…AUX 應該也可以去讀 3E 的位置，這樣子就可以用同樣方式去辨別」
+ *   - 實機（AMD 顯示卡、非系統管理員）：DPCD 讀取正常、**DPCD 寫入全部失敗** ⇒ 3E／7C 走的 DPCD 視窗
+ *     （先寫 0x430／0x431 再讀 0x435／0x434）讀不到，辨認全落空；I2C over AUX（7D）有回應。
+ *   - 3E／7C **讀取**改成先走 I2C over AUX（同一個 7-bit slave，先寫 offset 再讀，MOT 關），
+ *     沒 ACK 才退回 DPCD 視窗（open `regpath` 0＝auto 預設、1＝只走 IOA、2＝只走 DPCD 視窗）。寫入路徑不變。
+ *   - EEPROM 0x50–0x57 **讀取**經 I2C over AUX 放行（offset 1 或 2 byte）；**寫入照舊一律擋**。
+ *   - DPCD 寫入失敗的提示不再只限 Intel：非系統管理員一律提示。open 回覆多 `regPath`、`eeRead:true`。
+ *   - **proto 9**（I2C_BRIDGE_PROTO_AUX_IOA）：網頁據此決定 AUX 模式能不能讀 EEPROM。
+ */
+/* ═══ 1.20.1（2026-10-23）══════════════════════════════════════════════════
+ *   Bruce 2026-10-23 15:42（換上 1.20.0 後）：「測試還是有問題」。
+ *   - 實機（AMD）：1.20.0 走 I2C over AUX 讀 3E／7C／7D／0x50 都「成功」，但內容是記憶體殘值
+ *     （0x50 讀到 "7.26.20.1616"、3E:000C 讀到 ".COM"）。反組譯 DLL_AUX_VC.dll：AMD 的 I2C_Read
+ *     是空函式（mov al,1; ret），不讀任何東西；原廠 AUX 工具在 AMD 走 IOA_Read。
+ *   - AMD 改走 IOA_Read（ST_IOA：+0 slave 7-bit、+1 offset bytes、+2 u16 位址、+0x0F 每次讀幾 byte，
+ *     由反組譯確認 IOA_Read 只讀這四個欄位）。Intel／NVIDIA 不變。wire format 不變 ⇒ proto 維持 9。
+ */
+/* ═══ 1.21.0（2026-10-23）══════════════════════════════════════════════════
+ *   Bruce 2026-10-23：「誰跟你說過 AUX 的改進要暫停的？I2C 用到沒問題以後，就要接著用 AUX 啊」
+ *   - 內容＝1.20.0＋1.20.1 的 DP AUX 改進（3E／7C 讀取走 I2C over AUX、EEPROM 0x50 經 IOA 可讀、AMD 走 IOA_Read），
+ *     重新發佈在 1.19.0 回復之後；版號只增不減 ⇒ 1.21.0。
+ *   - 🔴 治具（I2C）路徑與 1.19.0 逐行相同：git diff 只落在 dgh_mode==DGH_MODE_AUX 分支、aux_* 函式與 i2c_bridge_aux.h。
+ */
+#define I2C_BRIDGE_VERSION "1.21.0"
+#define I2C_BRIDGE_PROTO   9
+/* 🔴 AUX 模式 3E／7C 走 I2C over AUX、EEPROM 可讀（寫仍擋）需要的 proto 下限。 */
+#define I2C_BRIDGE_PROTO_AUX_IOA 9
 /* 🔴 I2C 治具與 DP AUX 同時使用（兩條路各自持有、T-CON 排隊）需要的 proto 下限。 */
 #define I2C_BRIDGE_PROTO_SIMUL 8
 /* 🔴 DP AUX（open mode 4、dpcdread／dpcdwrite／psr）需要的 proto 下限。 */
