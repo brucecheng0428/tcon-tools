@@ -39,9 +39,13 @@
     ee: ['DP AUX 模式不能直接存取 EEPROM（slave 0x{s}）：EEPROM 只能透過 T-CON 控制。這一筆沒有送出。',
          'DP AUX mode cannot access the EEPROM directly (slave 0x{s}): the EEPROM may only be reached through the T-CON. Nothing was sent.',
          'DP AUX 模式不能直接存取 EEPROM（slave 0x{s}）：EEPROM 只能通过 T-CON 控制。这一笔没有送出。'],
-    notTcon: ['DP AUX 模式目前只開放 0x3E（DPCD 視窗）與 EEPROM 0x50–0x57 唯讀；0x7C、0x7D、0x7E 要經 M-Bus，客戶板不一定接通，已暫停。slave 0x{s} 這一筆沒有送出。',
-              'DP AUX mode currently allows only 0x3E (DPCD window) and read-only EEPROM 0x50–0x57; 0x7C, 0x7D and 0x7E need the M-Bus, which a customer board may not connect, so they are paused. Slave 0x{s}: nothing was sent.',
-              'DP AUX 模式目前只开放 0x3E（DPCD 窗口）与 EEPROM 0x50–0x57 只读；0x7C、0x7D、0x7E 要经 M-Bus，客户板不一定接通，已暂停。slave 0x{s} 这一笔没有送出。'],
+    notTcon: ['DP AUX 模式只開放：0x3E 讀寫（DPCD 視窗）、0x7C 唯讀（DPCD 431→434）、EEPROM 0x50–0x57 唯讀。0x7D、0x7E 要經 M-Bus（I2C over AUX），客戶板 M-Bus 與 C-Bus 不一定相連，所以擋下。slave 0x{s} 這一筆沒有送出。',
+              'DP AUX mode allows only: 0x3E read/write (DPCD window), 0x7C read-only (DPCD 431→434), EEPROM 0x50–0x57 read-only. 0x7D and 0x7E need the M-Bus (I2C over AUX); a customer board may not connect M-Bus to C-Bus, so they are blocked. Slave 0x{s}: nothing was sent.',
+              'DP AUX 模式只开放：0x3E 读写（DPCD 窗口）、0x7C 只读（DPCD 431→434）、EEPROM 0x50–0x57 只读。0x7D、0x7E 要经 M-Bus（I2C over AUX），客户板 M-Bus 与 C-Bus 不一定相连，所以挡下。slave 0x{s} 这一笔没有送出。'],
+    w7c: ['DP AUX 模式 0x7C 只能讀（DPCD 431→434，原廠 IdentifyChipId 讀法）；寫入在原廠流程要先初始化 T-CON，AUX 不開放。這一筆沒有送出。',
+          'DP AUX mode: 0x7C is read-only (DPCD 431→434, the vendor IdentifyChipId method); a write needs the vendor T-CON initialisation, so it is not offered over AUX. Nothing was sent.',
+          'DP AUX 模式 0x7C 只能读（DPCD 431→434，原厂 IdentifyChipId 读法）；写入在原厂流程要先初始化 T-CON，AUX 不开放。这一笔没有送出。'],
+    auxScope: ['AUX：3E 讀寫 · 7C 唯讀 · EEPROM 唯讀；7D／7E 不開放（要經 M-Bus）', 'AUX: 3E read/write · 7C read-only · EEPROM read-only; 7D / 7E off (need the M-Bus)', 'AUX：3E 读写 · 7C 只读 · EEPROM 只读；7D／7E 不开放（要经 M-Bus）'],
     ckManual: ['AUX 模式需手動選擇 TCON', 'AUX mode: select the TCON manually', 'AUX 模式需手动选择 TCON'],
     ckManualTip: ['AUX 認不出這顆 T-CON，請手動選擇 TCON。AUX 只走 DPCD 視窗（3E、7C、43C），不經 M-Bus；需要更多資訊請改用 I2C 治具再按 Check T-CON。',
                   'AUX could not identify this T-CON: select the TCON manually. AUX uses only the DPCD window (3E, 7C, 43C), never the M-Bus; for more, connect with the I2C jig and press Check T-CON.',
@@ -119,6 +123,9 @@
   function hex2(n) { return ('0' + ((n | 0) & 0xFF).toString(16).toUpperCase()).slice(-2); }
   function allowed(slave) { return SLAVES.indexOf(slave | 0) >= 0; }
   function awidFor(slave) { return slave === 0x3E ? 2 : (slave === 0x7C ? 1 : 0); }
+  /* 1.6（Bruce 2026-10-23「可以」）：0x7C 唯讀，由網頁用 DPCD 431＝位址 → 讀 434（原廠 IdentifyChipId，Tcon81008.cs:173–190），
+     不初始化、不 MbusConnect、不送 IOA；bridge 的 read 指令不送 7C（check() 照擋） */
+  function readDpcd(slave) { return (slave | 0) === 0x7C; }
   function eeReadOk(proto) { return (proto | 0) >= IOA_PROTO; }
   function check(msg, proto, have) {
     if (!msg || !BUS[msg.type]) return null;
@@ -132,6 +139,7 @@
       }
       return { code: 'ee', slave: s, msg: text(eeReadOk(proto) ? 'eeWrite' : 'ee', { s: hex2(s) }) };
     }
+    if (s === 0x7C && msg.type !== 'read') return { code: 'w7c', slave: s, msg: text('w7c') };   /* 1.6：7C 只能讀（走 DPCD，見 readDpcd） */
     if (!allowed(s)) return { code: 'notTcon', slave: s, msg: text('notTcon', { s: hex2(s) }) };
     var want = awidFor(s), aw = (msg.awid == null) ? 2 : (msg.awid | 0);
     if (msg.type !== 'write' && want && aw !== want) return { code: 'awid', slave: s, msg: text('awid', { s: hex2(s), w: want }) };
@@ -143,9 +151,9 @@
     return (addr + n - 1 < DPCD_EE_LO) || (addr > DPCD_EE_HI);
   }
   g.TconAux = {
-    VERSION: '1.5', MODE: 4, NEED_PROTO: 7, SIMUL_PROTO: 8, IOA_PROTO: IOA_PROTO, eeReadOk: eeReadOk,
+    VERSION: '1.6', MODE: 4, NEED_PROTO: 7, SIMUL_PROTO: 8, IOA_PROTO: IOA_PROTO, eeReadOk: eeReadOk,
     SLAVES: SLAVES.slice(), EE_LO: EE_LO, EE_HI: EE_HI, DPCD_EE_LO: DPCD_EE_LO, DPCD_EE_HI: DPCD_EE_HI,
-    allowed: allowed, awidFor: awidFor, check: check, text: text, dpcdWriteOk: dpcdWriteOk
+    allowed: allowed, readDpcd: readDpcd, awidFor: awidFor, check: check, text: text, dpcdWriteOk: dpcdWriteOk
   };
   if (typeof module === 'object' && module.exports) module.exports = g.TconAux;
 })(typeof window !== 'undefined' ? window : globalThis);

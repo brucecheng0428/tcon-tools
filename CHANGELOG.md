@@ -2,6 +2,20 @@
 
 ---
 
+## I2C 讀寫測試 (i2c) v1.39.1 — 2026-10-23 ｜ PATCH ｜ DP AUX 一般暫存器頁可讀 0x7C（DPCD 431→434，不送 I2C over AUX）；7C 寫入、7D、7E 照擋並註明原因；I2C 路徑不變
+
+判定依據：`docs/VERSIONING.md` R2：放寬一個已有功能的限制，不是新功能。
+
+### 需求（Bruce 2026-10-23）
+
+「可以」——同意 AUX 模式的一般暫存器頁開放讀 7C：只讀、用 IdentifyChipId 的方法、不初始化、不 MbusConnect、不送任何 IOA。7C 寫入、7D、7E 照擋，頁面註明原因。
+
+### 改了什麼
+
+- **i2c.html v1.39.1**：AUX 模式讀 0x7C 走 `i2ctAuxReadDpcd7C`：每個 byte `dpcdwrite 0x431＝位址` → `dpcdread 0x434`，不經 bridge 的 read 指令。slave 下拉的 0x7C 改成可選，連線資訊多一行三語「AUX：3E 讀寫 · 7C 唯讀 · EEPROM 唯讀；7D／7E 不開放（要經 M-Bus）」。
+- **common/i2c-aux.js 1.6**：新增 `readDpcd`。寫 0x7C 改擋成專屬的三語原因（`w7c`）；0x7D／0x7E 的擋下訊息說明要經 M-Bus。
+- I2C 治具路徑、common/tcon-detect.js、check_tcon_detect_single、bridge 都不動。
+
 ## I2C 讀寫測試 (i2c) v1.39.0 — 2026-10-23 ｜ MINOR ｜ DP AUX Check T-CON 恢復，只走 DPCD 視窗（3E、7C、43C），0 筆 I2C over AUX；E503 只判「E503」不分版本；I2C 路徑不變
 
 判定依據：`docs/VERSIONING.md` R3「使用者真的多能做一件事 → MINOR」：AUX 模式又能自動認 T-CON（v1.38.1 止血時停用）。

@@ -258,6 +258,25 @@ try {
     const after = await page.evaluate((n) => window.__msgs.slice(n), n0);
     check('E503 板：0 筆寫入、沒有 7D／7E、bridge 的 read 只有 3E', !after.some(m => ['rawwrite', 'write', 'batchwrite'].includes(m.t)) && after.filter(m => m.t === 'read').every(m => m.s === 0x3E), JSON.stringify(after.slice(0, 8)));
     check('E503 板：讀了 DPCD 43C', after.some(m => m.t === 'dpcdread' && m.a === 0x43C));
+    /* v1.39.1：一般暫存器頁讀 7C（DPCD 431→434，只讀）；7C 寫、7D、7E 擋 */
+    const m0 = await page.evaluate(() => window.__msgs.length);
+    const g95 = await page.evaluate(() => i2ctDoRead(0x7C, 1, 0x95, 1, false));
+    const g98 = await page.evaluate(() => i2ctDoRead(0x7C, 1, 0x98, 1, false));
+    check('v1.39.1：AUX 讀 7C:95＝24、7C:98＝00', g95.ok && g95.bytes[0] === 0x24 && g98.ok && g98.bytes[0] === 0x00, JSON.stringify([g95.bytes, g98.bytes]));
+    const m1 = await page.evaluate((n) => window.__msgs.slice(n), m0);
+    check('v1.39.1：讀 7C 只送 dpcdwrite 0x431＋dpcdread 0x434，沒有 bridge read／rawwrite', m1.length === 4 && m1.every(m => (m.t === 'dpcdwrite' && m.a === 0x431) || (m.t === 'dpcdread' && m.a === 0x434)), JSON.stringify(m1));
+    const w7 = await page.evaluate(() => i2ctDoWrite(0x7C, 1, 0x0F, [0x80]));
+    check('v1.39.1：AUX 寫 7C 擋下（三語原因：只能讀）', w7 && w7.ok === false && /0x7C 只能讀/.test(w7.err || ''), JSON.stringify(w7).slice(0, 160));
+    const r7d = await page.evaluate(() => i2ctDoRead(0x7D, 2, 0x007D, 1, true).then(r => r, e => ({ ok: false, err: String(e.message) })));
+    check('v1.39.1：AUX 讀 7D 擋下（原因：要經 M-Bus）', r7d && r7d.ok === false && /M-Bus/.test(r7d.err || ''), JSON.stringify(r7d).slice(0, 160));
+    const w7e = await page.evaluate(() => i2ctDoWrite(0x7E, 1, 0xAB, [0xCD]));
+    check('v1.39.1：AUX 寫 7E 擋下', w7e && w7e.ok === false && /M-Bus/.test(w7e.err || ''), JSON.stringify(w7e).slice(0, 160));
+    const m2 = await page.evaluate((n) => window.__msgs.slice(n), m0);
+    check('v1.39.1：7C 寫、7D、7E 一筆都沒送出', m2.length === 4, JSON.stringify(m2));
+    const opt = await page.evaluate(() => ({ c: document.querySelector('#in-slave-sel option[value="0x7C"]').disabled, d: document.querySelector('#in-slave-sel option[value="0x7D"]').disabled }));
+    check('v1.39.1：slave 下拉 0x7C 可選、0x7D 停用', !opt.c && opt.d, JSON.stringify(opt));
+    const ci = await page.$eval('#conn-info', e => e.textContent);
+    check('v1.39.1：連線資訊註明 AUX 範圍（7C 唯讀、7D／7E 不開放）', /7C 唯讀/.test(ci) && /7D／7E 不開放/.test(ci), ci.slice(0, 200));
     check('沒有 JS 錯誤', errs.length === 0, errs.join(' | ').slice(0, 300));
     await ctx.close();
   }
@@ -277,7 +296,7 @@ try {
     const bn3 = await page.$eval('#topbanner', e => e.textContent).catch(() => '');
     check('認不出 ⇒ 橫幅請手動選擇 TCON（三語文案）', /手動選擇 TCON/.test(bn3) && /DPCD/.test(bn3), bn3.slice(0, 160));
     const r3 = await page.evaluate(() => i2ctDoRead(0x7C, 1, 0x95, 1, true).then(r => r, e => ({ ok: false, err: String(e.message) })));
-    check('v1.38.1：AUX 讀 7C 在網頁端擋下', r3 && r3.ok === false && /0x3E/.test(r3.err || ''), JSON.stringify(r3).slice(0, 160));
+    check('v1.39.1：AUX 讀 7C 走 DPCD；DPCD 失敗 ⇒ 回錯誤、不改走 bridge read', r3 && r3.ok === false && /DPCD/.test(r3.err || '') && !(await page.evaluate(() => window.__msgs.some(m => m.t === 'read' && m.s === 0x7C))), JSON.stringify(r3).slice(0, 160));
     const rd = await page.evaluate(() => i2ctDoRead(0x50, 1, 0, 8, true));
     check('IOA 讀 EEPROM 0x50 照常', rd && rd.ok !== false && (rd.bytes || rd.data).length === 8, JSON.stringify(rd).slice(0, 100));
     check('沒有 JS 錯誤', errs.length === 0, errs.join(' | ').slice(0, 300));

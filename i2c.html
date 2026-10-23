@@ -30,7 +30,7 @@
           出來」。那個前提**早就不成立**：bridge 的靜態檔服務拒絕子資料夾、而且自 v1.7.0
           起預設關閉 —— 詳細依據與行號寫在 body 末端那兩個 <script> 的上面。）
      ═══════════════════════════════════════════════════════════════════════ -->
-<script src="common/version.js?v=20261023aux1390"></script>
+<script src="common/version.js?v=20261023aux1391"></script>
 <script src="common/i2c-bridge.js?v=20261023ib103"></script>
 <style>
   * { box-sizing: border-box; }
@@ -1670,7 +1670,7 @@
         頁首那四條宣告是逐字抄過來的，來源行號寫在各自上面。 -->
 <script src="common/i18n.js?v=20261023sim1360"></script>
 <script src="common/i2c-mbus.js?v=20261023mb122"></script>
-<script src="common/i2c-aux.js?v=20261023ax150"></script>
+<script src="common/i2c-aux.js?v=20261023ax160"></script>
 <script src="common/tcon-detect.js?v=20261023td130"></script>
 <script src="common/common.js?v=20261008i2c1341"></script>
 <script src="common/i2c-spiflash.js?v=20261022en01"></script>
@@ -3772,6 +3772,7 @@ function i2ctPathOf(r){
       耗時紀錄是他拿來比較速度的資料（Bruce 2026-09-19「永遠都沒辦法比對」），
       自動驗證每次塞兩筆進去會把那張表洗掉，等於我們的內部行為佔用他的畫面。 */
 async function i2ctDoRead(slave, awid, base, len, quiet){
+  if (i2ctXport === 'aux' && TconAux.readDpcd(slave)) return i2ctAuxReadDpcd7C(awid, base, len, quiet);   /* v1.39.1：AUX 7C 唯讀走 DPCD */
   var plan = i2ctPlanRead(base, len, awid, slave);
   var all = [];
   /* 🔴 v1.26.0：EEPROM 超過容量 ⇒ 一則都不送，直接報錯（不靜默截斷）。 */
@@ -3865,6 +3866,30 @@ async function i2ctDoRead(slave, awid, base, len, quiet){
   if (!quiet) i2ctNoteTime({ k: 'i2c.kindRead' }, all.length, ms, i2ctLastPath || { k: 'i2c.pathNormal' });
   return { ok: true, bytes: all, err: null, ms: ms, devUs: devUs, segs: plan.length };
 }
+/* v1.39.1（只在 DP AUX，Bruce 2026-10-23「可以」）：一般暫存器頁讀 0x7C ＝ 原廠 IdentifyChipId 的讀法（Tcon81008.cs:173–190）：
+   每個 byte DPCD 寫 0x431＝位址 → DPCD 讀 0x434。不初始化、不 MbusConnect、不送 I2C over AUX。寫入不開放（TconAux.check 擋）。 */
+async function i2ctAuxReadDpcd7C(awid, base, len, quiet){
+  if (awid !== 1) { var ea = TconAux.text('awid', { s: '7C', w: 1 }); i2ctLog('✕ ' + ea, 'e'); return { ok: false, bytes: [], err: ea }; }
+  if (base < 0 || base + len > 0x100) { var eb = 'DP AUX: 0x7C offset 0x00–0xFF'; i2ctLog('✕ ' + eb, 'e'); return { ok: false, bytes: [], err: eb }; }
+  var all = [], t0 = i2ctNow();
+  i2ctAbort = false;
+  for (var k = 0; k < len; k++) {
+    if (i2ctAbort) { i2ctProgress = null; i2ctRenderProgress(); return { ok: false, bytes: all, err: i2ctT('i2c.errAbortedRead', { got: all.length, want: len }), aborted: true }; }
+    if (len > 16 && (k % 16) === 0) { i2ctProgress = { done: k, total: len, t0: t0 }; i2ctRenderProgress(); }
+    var o = (base + k) & 0xFF, w, d;
+    try { w = await i2ctSend({ type: 'dpcdwrite', addr: 0x431, data: [o] }); } catch (e) { w = { ok: false, err: e.message }; }
+    if (!w || w.ok === false) { i2ctProgress = null; i2ctRenderProgress(); var e1 = 'DPCD W 0x431 = ' + i2ctHex(o) + ' failed' + (w && w.err ? i2ctColon() + w.err : ''); i2ctLog('✕ ' + e1, 'e'); return { ok: false, bytes: all, err: e1 }; }
+    try { d = await i2ctSend({ type: 'dpcdread', addr: 0x434, len: 1 }); } catch (e) { d = { ok: false, err: e.message }; }
+    if (!d || d.ok === false || !d.data || !d.data.length) { i2ctProgress = null; i2ctRenderProgress(); var e2 = 'DPCD R 0x434 failed' + (d && d.err ? i2ctColon() + d.err : ''); i2ctLog('✕ ' + e2, 'e'); return { ok: false, bytes: all, err: e2 }; }
+    all.push(d.data[0] & 0xFF);
+  }
+  i2ctProgress = null; i2ctRenderProgress();
+  var ms = i2ctNow() - t0;
+  i2ctLog('R  slave 0x7C · offset 1B ' + i2ctAddrText(base, 1) + ' ×' + len + '  →  ' + i2ctBytesText(all)
+        + '   [' + ms.toFixed(1) + ' ms' + i2ctItemSep() + 'DPCD 0x431→0x434]', 'r');
+  return { ok: true, bytes: all, err: null, ms: ms, devUs: 0, segs: len };
+}
+
 /* 進度列 ＋ 中止鈕（長讀取與整批寫入共用這一支）
    🔴 v1.21.0：多了 `label`（讀取／寫入）與 `batchId`。
       `batchId` 非 null ⇒ 這是 bridge 端在跑的整批寫入，中止**必須把訊息送過去**
@@ -9419,6 +9444,7 @@ function i2ctConnInfoRender(ck, ckOk, err){
     parts.push(esc(TconAux.text('info', { card: ai.card, mon: ai.monitor })).replace(esc(ai.card), '<b>' + esc(ai.card) + '</b>'));
     if (ai.admin != null) parts.push(esc(TconAux.text(ai.admin ? 'adminOk' : 'adminNo')));
     if (ai.psrSupported) parts.push(esc(TconAux.text(ai.psrTurnedOff ? 'psrOff' : (ai.psrOn ? 'psrOn' : 'psrOffNat'))));
+    parts.push(esc(TconAux.text('auxScope')));   /* v1.39.1：AUX 能做什麼一眼看到（三語） */
     if (ck) parts.push(T('i2c.connTcon', { name: '<b>' + esc(ckOk ? (i2ctCkDispName(ck, false) || '?') : T('i2c.connTconBad')) + '</b>' }));
   } else if (i2ctLinked) {
     var k = i2ctOpenClockKHz || i2ctClockKHz();
@@ -9442,7 +9468,7 @@ function i2ctXportText(){
 }
 /* v1.37.0：AUX 模式能不能讀 EEPROM ＝ 這支 bridge 是 1.20.0（proto 9）以上。版本還不知道（還沒連過）⇒ 先停用，連上後重算。 */
 function i2ctAuxEeReadable(){ return TconAux.eeReadOk(i2ctHelperProto); }
-function i2ctAuxSlaveOk(v){ return TconAux.allowed(v) || (i2ctAuxEeReadable() && v >= TconAux.EE_LO && v <= TconAux.EE_HI); }
+function i2ctAuxSlaveOk(v){ return TconAux.allowed(v) || TconAux.readDpcd(v) || (i2ctAuxEeReadable() && v >= TconAux.EE_LO && v <= TconAux.EE_HI); }   /* v1.39.1：7C 唯讀 */
 /* v1.37.0：AUX 模式 EEPROM 只能讀 ⇒ 寫入類按鈕停用（slave 在 0x50–0x57 時） */
 function i2ctAuxEeRO(){
   if (i2ctXport !== 'aux') return false;
