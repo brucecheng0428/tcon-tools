@@ -2,6 +2,25 @@
 
 ---
 
+## I2C / AUX 讀寫測試 (i2c) v1.44.1 — 2026-10-24 ｜ PATCH ｜ DPCD／IOA 工具：手寫 script 讀 0x50 不再丟錯；「讀取面板 EDID」遇到失敗就停；全 00 與清單讀不到 EDID 的說明
+
+判定依據：`docs/VERSIONING.md` §1 第 2 列：修 bug ⇒ PATCH。輸出（Dump、檔名、檔案內容）在成功的情況下不變，不掛 ⚠ 輸出變更。
+
+### 起因（Bruce 2026-10-24：不等 Windows 機重灌，改用其他方法驗證 v1.44.0 的 EDID 快捷）
+
+改用「回放」：假 I2C and AUX Bridge 的回覆照 `tools/i2c-bridge/i2c_bridge.c`（1.23.0）`ioaread`／`i2craw` 那段原樣組，sink 用真實面板 EDID 檔（128／256／384 byte）與 10/23 實機紀錄（E503 板 raw 連線 IOA 讀 0x50 回 ACK＋全 00），照頁面操作走「AUX → DPCD／IOA 工具 → 列出螢幕 → 連線（不初始化）→ 讀取面板 EDID → 依序執行 → Dump → 另存 EDID」。成功路徑全部逐 byte 一致；找到下面三個問題。
+
+### 修了什麼（common/aux-dpcd.js v1.3）
+
+1. 🔴 **手寫 script 在 AMD 讀 0x50 會丟 JS 錯誤**：v1.44.0 只要 IOA 讀 slave 0x50 就往 `S.edid` 塞資料，但 `S.edid` 只有按過 EDID 快捷才建立 ⇒ 沒按過快捷時，`40 00 50 00 00 ／ 10 00 50 07`（v1.42.0 實機跑過的那份）停在「Cannot set properties of undefined」。改成只有 EDID 快捷執行時才收集。
+2. **EDID 快捷遇到失敗不停**：Intel／NVIDIA 的 offset 寫入被 bridge 擋下後，頁面照樣再送 8 筆 I2C over AUX 讀取（沒設 offset 的讀取，讀回也不收）；AMD 的 IOA 讀 NACK 也照樣往下送。改成 EDID 執行中任一筆失敗就停，訊息寫 block 0／1 拿到幾 byte＋bridge 的錯誤；NACK 在 log 只記一次。
+3. **全 00 沒有說明**：AMD 對沒有回應 0x50 的螢幕也回「成功＋00」（10/23 實機）。讀回 128 byte 全 00 時，除了「不是 EDID」，再說明：這台多半沒有在 0x50 提供 EDID；RAD TCON 板的 EDID 若放在外接 I2C EEPROM（RM8100X IOA app note 第 2 章），要先做 R1「Enable IOA I2C R/W」才讀得到，這個快捷照第 1 章不送初始化。另外「列出螢幕」本來就用同一個 IOA 讀 0x50（bridge `auxlist`）；清單顯示這台讀不到 EDID 時，按快捷就先提醒。三語。
+
+### 驗證
+
+- `tools/check_i2c_aux.mjs` 新增 E2d（手寫 script 讀 0x50、全 00＋三語、IOA 讀失敗就停、NACK 不重複），E2c 的 Intel 項改成驗「被擋後不再送讀取」。
+- 回放（真實 EDID）結果與規範對照見完成回報；真實 EDID 檔不放進 repo。
+
 ## I2C / AUX 讀寫測試 (i2c) v1.44.0 — 2026-10-24 ｜ MINOR ｜ DPCD／IOA 工具：script「讀取面板 EDID」快捷、讀回進「讀寫流程」16×16 Dump、另存 EDID（含 checksum）
 
 判定依據：`docs/VERSIONING.md` R2：新功能。

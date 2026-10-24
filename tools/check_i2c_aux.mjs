@@ -73,6 +73,9 @@ const FAKE = (opt) => {
         return reply(ws, r); }
       if (m.type === 'i2craw' || m.type === 'ioaread') {
         if (m.type === 'i2craw' && m.dir === 'w' && m.addr >= 0x50 && m.addr <= 0x57) { Object.assign(r, { ok: false, blocked: true, err: 'I2C over AUX write to 0x' + m.addr.toString(16).toUpperCase() + ' (EEPROM range 0x50-0x57) is blocked. Nothing was written.' }); return reply(ws, r); }
+        /* v1.44.1：bridge 1.23.0 IOA_Read 失敗的回覆（i2c_bridge.c ioaread：ok:false,"NACK / failed",data:[]）；E503 板 raw 連線實機＝ACK＋全 00 */
+        if (m.type === 'ioaread' && m.slave === 0x50 && opt.ioaFailAt != null && m.start >= opt.ioaFailAt) { window.__ioa50 = (window.__ioa50 || []).concat([[m.obytes, m.start, m.len]]); Object.assign(r, { ok: false, err: 'NACK / failed', data: [] }); return reply(ws, r); }
+        if (m.type === 'ioaread' && m.slave === 0x50 && opt.ioaZero) { window.__ioa50 = (window.__ioa50 || []).concat([[m.obytes, m.start, m.len]]); r.data = new Array(m.len || 1).fill(0); return reply(ws, r); }
         if (m.type === 'ioaread' && m.slave === 0x50 && opt.edid) { window.__ioa50 = (window.__ioa50 || []).concat([[m.obytes, m.start, m.len]]); r.data = opt.edid.slice(m.start, m.start + (m.len || 1)); return reply(ws, r); }
         if (m.type === 'i2craw' && m.dir === 'r' && /AMD/.test(opt.card || '')) Object.assign(r, { ok: false, amd: true, err: 'AMD stub' });
         else if (m.type === 'i2craw' && m.dir === 'w') Object.assign(r, { ok: true });
@@ -590,10 +593,66 @@ try {
     await page.click('#dp-run'); await sleep(600);
     const m2 = await page.$eval('#dp-msg', x => x.textContent);
     const lg = await page.$eval('#dp-log', x => x.textContent);
-    check('Intel：執行 ⇒ 第一筆被擋（log 有 blocked）、停下、訊息同上', /blocked/.test(lg) && /INTEL 顯示卡/.test(m2), m2.slice(0, 120));
+    const raw = await page.evaluate(() => window.__msgs.filter(m => m.t === 'i2craw').length);
+    check('Intel：執行 ⇒ 第一筆被擋（log 有 blocked）、停下（v1.44.1：之後不再送 8 筆讀取）、訊息同上', /blocked/.test(lg) && /INTEL 顯示卡/.test(m2) && raw === 1, m2.slice(0, 120) + ' i2craw ' + raw);
     if (SHOTS) await page.screenshot({ path: SHOTS + '/edid_intel.png', fullPage: false });
     check('沒有 JS 錯誤', errs.length === 0, errs.join(' | ').slice(0, 300));
     await ctx.close();
+  }
+
+  console.log('E2d. 讀取面板 EDID 回放驗證補強（v1.44.1）：手寫 script 讀 0x50、全 00（E503 板 raw 實況）、IOA 讀失敗就停');
+  {
+    const conn = async (opt) => {
+      const o = await open(Object.assign({ proto: 10, card: 'AMD', windows: [] }, opt));
+      await o.page.click('#xport-seg [data-x="aux"]'); await sleep(150); await o.page.click('#aux-tabs [data-tab="tool"]'); await sleep(150);
+      await o.page.click('#dp-list'); await waitFor(o.page, () => document.querySelectorAll('input[name="dp-sel"]').length === 1);
+      await o.page.click('#dpcd-panel tr[data-i="0"] td:nth-child(3)'); await o.page.click('#dp-conn'); await waitFor(o.page, () => i2ctAuxIsRaw()); await sleep(150);
+      await o.page.evaluate(() => { window.__cf = []; window.confirm = (m) => { window.__cf.push(m); return true; }; });
+      return o;
+    };
+    const e = new Array(256).fill(0); [0x00,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0x00].forEach((v, i) => e[i] = v); e[8] = 0x09; e[9] = 0xE5; e[10] = 0x21; e[11] = 0x0B; let sm = 0; for (let i = 0; i < 127; i++) sm += e[i]; e[127] = (256 - (sm & 0xFF)) & 0xFF;
+    {
+      /* v1.44.0 bug：沒按過 EDID 快捷、手寫 script 在 AMD 讀 0x50（v1.42.0 實機跑過的那份）⇒ 丟「Cannot set properties of undefined」 */
+      const { ctx, page, errs } = await conn({ displays: [{ card: 1, cardName: 'AMD', monitor: 1, dpcdRev: 0x11, oui: '000000', devId: '', edid: null, win: null }], edid: e });
+      await page.$eval('#dp-script', x => { x.value = '90 00 00 00\n40 00 50 00 00\n10 00 50 07\n'; });
+      await page.click('#dp-run'); await waitFor(page, () => !AuxDpcd.state().running, null, 6000); await sleep(200);
+      const m = await page.$eval('#dp-msg', x => x.textContent), lg = await page.$eval('#dp-log', x => x.textContent);
+      check('手寫 script 讀 0x50（AMD）⇒ 正常完成、log 有讀回值、不丟 JS 錯誤（v1.44.0 會停在 Cannot set properties of undefined）', /完成/.test(m) && !/undefined|Cannot/.test(m + lg) && /00 FF FF FF FF FF FF 00/.test(lg), m);
+      check('沒有 JS 錯誤', errs.length === 0, errs.join(' | ').slice(0, 300));
+      await ctx.close();
+    }
+    {
+      /* E503 板 raw 連線實機：IOA 讀 0x50 ACK＋全 00；列出螢幕時 EDID 也讀不到（edid:null） */
+      const { ctx, page, errs } = await conn({ displays: [{ card: 1, cardName: 'AMD', monitor: 1, dpcdRev: 0x11, oui: '000000', devId: '', edid: null, win: null, tcon43c: [0xE5, 0x03] }], ioaZero: true });
+      await page.click('#dp-edid'); await sleep(100);
+      const f = await page.$eval('#dp-msg', x => x.textContent);
+      check('清單讀不到這台的 EDID ⇒ 按快捷時先提醒（同樣讀法、多半全 00）', /讀不到這台的 EDID|沒有讀到 EDID/.test(f) && /全 00/.test(f), f);
+      await page.click('#dp-run'); await waitFor(page, () => /不是 EDID/.test(document.getElementById('dp-msg').textContent), null, 6000);
+      const m = await page.$eval('#dp-msg', x => x.textContent);
+      check('讀回全 00 ⇒「不是 EDID」＋說明（沒回應 0x50 也回成功＋00、EEPROM 型要 app note 第 2 章 R1）', /讀回的不是 EDID/.test(m) && /讀回全 00/.test(m) && /第 2 章/.test(m) && /R1/.test(m), m);
+      check('全 00 ⇒ 只讀 block 0（8 筆）、另存 EDID 停用', (await page.evaluate(() => window.__ioa50.length)) === 8 && await page.$eval('#dp-edid-save', x => x.disabled));
+      await page.evaluate(() => { document.documentElement.lang = 'en'; });
+      await page.click('#dp-edid'); await page.click('#dp-run'); await waitFor(page, () => /not an EDID/.test(document.getElementById('dp-msg').textContent), null, 6000);
+      check('英文：All 00 說明', /All 00/.test(await page.$eval('#dp-msg', x => x.textContent)));
+      await page.evaluate(() => { document.documentElement.lang = 'zh-CN'; });
+      await page.click('#dp-edid'); await page.click('#dp-run'); await waitFor(page, () => /不是 EDID/.test(document.getElementById('dp-msg').textContent) && !AuxDpcd.state().running, null, 6000);
+      check('簡中：读回全 00 說明', /读回全 00/.test(await page.$eval('#dp-msg', x => x.textContent)));
+      check('沒有 JS 錯誤', errs.length === 0, errs.join(' | ').slice(0, 300));
+      await ctx.close();
+    }
+    {
+      /* IOA 讀第 3 筆起失敗 ⇒ 停，不再送後面的讀取；訊息寫拿到幾 byte＋bridge 錯誤 */
+      const { ctx, page, errs } = await conn({ displays: [{ card: 1, cardName: 'AMD', monitor: 1, dpcdRev: 0x11, oui: '000000', devId: '', edid: { mfg: 'BOE', prod: '0B21', name: '' }, win: null }], edid: e, ioaFailAt: 0x20 });
+      await page.click('#dp-edid'); await sleep(80);
+      check('清單讀得到 EDID ⇒ 按快捷不多提醒', !/讀不到這台/.test(await page.$eval('#dp-msg', x => x.textContent)));
+      await page.click('#dp-run'); await waitFor(page, () => !AuxDpcd.state().running && /沒讀完整/.test(document.getElementById('dp-msg').textContent), null, 6000); await sleep(300);
+      const m = await page.$eval('#dp-msg', x => x.textContent);
+      check('IOA 讀失敗 ⇒ 第一筆失敗就停（共 3 筆）、訊息「32／128」＋NACK、另存停用', (await page.evaluate(() => window.__ioa50.length)) === 3 && /32／128/.test(m) && /NACK/.test(m) && await page.$eval('#dp-edid-save', x => x.disabled), m + ' ioa ' + (await page.evaluate(() => window.__ioa50.length)));
+      const nl = await page.evaluate(() => AuxDpcd.state().log.filter(l => /NACK/.test(String(l.a || ''))).length);
+      check('NACK 在 log 只記一次（不重複）', nl === 1, String(nl));
+      check('沒有 JS 錯誤', errs.length === 0, errs.join(' | ').slice(0, 300));
+      await ctx.close();
+    }
   }
 
   console.log('E3. DP AUX：3E／7C 讀不到 ⇒ 認不出（不錯判 E503）、序列同 I2C、log 有 bridge 的錯誤；IOA 讀 EEPROM 照常');

@@ -14,7 +14,8 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 (function (g) {
   'use strict';
-  var VERSION = '1.2';   /* 1.2（Bruce 2026-10-24）：script「讀取面板 EDID」快捷＋讀回進 Dump＋另存 EDID */
+  var VERSION = '1.3';   /* 1.3（2026-10-24 回放驗證）：EDID 收集只在 EDID 快捷執行時做（手寫 script 讀 0x50 不再丟錯）；EDID 執行遇到失敗就停；全 00／清單讀不到 EDID 的說明
+                            1.2（Bruce 2026-10-24）：script「讀取面板 EDID」快捷＋讀回進 Dump＋另存 EDID */
   var EDID_MARK = '// EDID';   /* 1.1（Bruce 2026-10-24）：第一步沒連線前，第二步「依序執行」停用＋提示；第一步完成套綠框 */
   var T = {
     tabFlow: ['讀寫流程', 'Read/write flow', '读写流程'],
@@ -67,6 +68,10 @@
     edidCksBad: ['checksum 不對（{c}），還是要存嗎？', 'Checksum is wrong ({c}). Save anyway?', 'checksum 不对（{c}），还是要存吗？'],
     edidSaved: ['已存 {f}', 'Saved {f}', '已存 {f}'],
     edidSrc: ['EDID（DPCD／IOA 工具 · slave 0x50）', 'EDID (DPCD / IOA tool · slave 0x50)', 'EDID（DPCD／IOA 工具 · slave 0x50）'],
+    /* v1.3：回放驗證補的說明（實機：E503 板 raw 連線 IOA 讀 0x50 回 ACK＋全 00；列出螢幕也讀不到它的 EDID） */
+    edidZero: ['讀回全 00：AMD 對沒有回應 0x50 的螢幕也回「成功＋00」，所以這台多半沒有在 0x50 提供 EDID。RAD TCON 板的 EDID 若放在外接 I2C EEPROM（RM8100X IOA app note 第 2 章），要先做 R1「Enable IOA I2C R/W」（DPCD 寫入）才讀得到；這個快捷照第 1 章，不送初始化', 'All 00: on AMD a display that does not answer 0x50 still returns "OK + 00", so this display most likely does not serve an EDID at 0x50. If the RAD TCON board keeps its EDID in an external I2C EEPROM (RM8100X IOA app note chapter 2), R1 "Enable IOA I2C R/W" (DPCD writes) is needed first; this shortcut follows chapter 1 and sends no initialisation', '读回全 00：AMD 对没有响应 0x50 的屏幕也回「成功＋00」，所以这台多半没有在 0x50 提供 EDID。RAD TCON 板的 EDID 若放在外接 I2C EEPROM（RM8100X IOA app note 第 2 章），要先做 R1「Enable IOA I2C R/W」（DPCD 写入）才读得到；这个快捷照第 1 章，不送初始化'],
+    edidListNone: ['注意：「列出螢幕」時已用同樣的讀法（IOA 讀 0x50）讀過這台，沒有讀到 EDID，執行多半會讀到全 00', 'Note: "List displays" already tried the same read (IOA read of 0x50) on this display and got no EDID; running it will most likely return all 00', '注意：「列出屏幕」时已用同样的读法（IOA 读 0x50）读过这台，没有读到 EDID，执行多半会读到全 00'],
+    edidShort1: ['EDID block 1 沒讀完整（{n}／128 byte），沒有放進 Dump', 'EDID block 1 incomplete ({n} / 128 bytes); nothing was placed in the dump', 'EDID block 1 没读完整（{n}／128 byte），没有放进 Dump'],
     cksOk: ['正確', 'OK', '正确'], cksBad: ['錯誤', 'wrong', '错误'],
     needConn: ['請先在第一步選螢幕並連線', 'Pick a display in step 1 and connect first', '请先在第一步选屏幕并连接'],
     stepDone: ['已完成', 'Done', '已完成'],
@@ -401,7 +406,7 @@
       if (S.abort) { S.running = false; render(); msg(t('stopped', { n: k })); return; }
       if (k >= pl.steps.length) { S.running = false; render(); msg(t('done', { n: p.list.length, ms: Date.now() - t0 })); if (S.edidRun) edidAfter(); return; }
       var s = pl.steps[k++], a = s.src, pr = $('dp-prog'); if (pr) pr.textContent = k + ' / ' + pl.steps.length;
-      return exec(s, a).then(step, function (e) { addLog('', String(e && e.message || e), true); S.running = false; render(); msg(String(e && e.message || e), true); if (S.edidRun) edidFail(); });
+      return exec(s, a).then(step, function (e) { var em = String(e && e.message || e); if (!(e && e.logged)) addLog('', em, true); S.running = false; render(); msg(em, true); if (S.edidRun) edidFail(em); });
     };
     step();
   }
@@ -411,14 +416,17 @@
     addLog('0x ' + a.src, 'SYS I2C RD(MOT = ' + (a.mot ? 1 : 0) + ') ' + s.n + ' bytes from [0x' + h2(s.slave) + '] (I2C over AUX' + (s.obytes ? ', AMD IOA_Read offset 0x' + s.start.toString(16).toUpperCase() : ', AMD IOA_Read') + ')');
     return H.send({ type: 'ioaread', slave: s.slave, obytes: s.obytes, start: s.start, len: s.n }).then(function (r) { if (r.ok) addLog('0x 00 ' + hexs(r.data), 'ACK + 0x' + (r.data || []).map(h2).join(''), false, true); else addLog('', 'NACK' + (r.err ? '（' + r.err + '）' : ''), true); return r; });
   }
+  /* v1.3：EDID 快捷執行中任一筆失敗（Intel／NVIDIA 的 offset 寫入被 bridge 擋、IOA 讀 NACK）就停，不再送後面的讀取；log 已寫過 NACK，不重複 */
+  function edidErr(r) { var e = new Error('NACK' + (r && r.err ? '（' + r.err + '）' : '')); e.logged = true; return e; }
   function exec(s, a) {
     if (s.kind === 'sl') return sleep(a.ms);
     if (s.kind === 'dr') { addLog('0x ' + a.src, 'SYS DPCD RD ' + a.n + ' bytes from [0x' + ('0000' + a.addr.toString(16).toUpperCase()).slice(-5) + ']', false, false, [{ addr: a.addr, lbl: 'DPCD' }]);
       return H.send({ type: 'dpcdread', addr: a.addr, len: a.n }).then(function (r) { if (r.ok) addLog('0x 00 ' + hexs(r.data), 'ACK + 0x' + (r.data || []).map(h2).join(''), false, true, bytesL(a.addr, r.data)); else addLog('', 'NACK' + (r.err ? '（' + r.err + '）' : ''), true); }); }
     if (s.kind === 'dw') { addLog('0x ' + a.src, 'SYS DPCD WR ' + a.n + ' bytes to [0x' + ('0000' + a.addr.toString(16).toUpperCase()).slice(-5) + '] + 0x' + a.data.map(h2).join(''), false, false, bytesL(a.addr, a.data));
       return H.send({ type: 'dpcdwrite', addr: a.addr, data: a.data }).then(function (r) { addLog(r.ok ? '0x 00' : '', r.ok ? 'ACK' : ('NACK' + (r.err ? '（' + r.err + '）' : '')), !r.ok, r.ok); }); }
-    if (s.kind === 'ioaread' && s.slave === 0x50) {
-      return execRaw(s, a).then(function (r) { if (r && r.ok) (r.data || []).forEach(function (v, k) { S.edid[s.start + k] = v & 0xFF; }); });
+    /* v1.3：只在 EDID 快捷執行時收集（手寫 script 讀 0x50 時 S.edid 不存在 ⇒ v1.44.0 會丟「Cannot set properties of undefined」） */
+    if (s.kind === 'ioaread' && s.slave === 0x50 && S.edidRun) {
+      return execRaw(s, a).then(function (r) { if (!(r && r.ok)) throw edidErr(r); (r.data || []).forEach(function (v, k) { S.edid[s.start + k] = v & 0xFF; }); });
     }
     if (s.kind === 'ioaread') {
       if (s.pre) addLog('0x ' + s.pre.src, 'SYS I2C WR(MOT = ' + (s.pre.mot ? 1 : 0) + ') ' + s.pre.n + ' bytes to [0x' + h2(s.slave) + '] + 0x' + s.pre.data.map(h2).join('') + ' (I2C over AUX)');
@@ -427,9 +435,9 @@
     }
     if (a.ioa) {
       if (a.w) { addLog('0x ' + a.src, 'SYS I2C WR(MOT = ' + (a.mot ? 1 : 0) + ') ' + a.n + ' bytes to [0x' + h2(a.addr) + '] + 0x' + a.data.map(h2).join('') + ' (I2C over AUX)');
-        return H.send({ type: 'i2craw', dir: 'w', addr: a.addr, data: a.data, mot: a.mot ? 1 : 0 }).then(function (r) { if (r.ok && a.addr === 0x50 && a.n === 1) S.edidPtr = a.data[0]; addLog(r.ok ? '0x 00' : '', r.ok ? 'ACK' : ('NACK' + (r.err ? '（' + r.err + '）' : '')), !r.ok, r.ok); }); }
+        return H.send({ type: 'i2craw', dir: 'w', addr: a.addr, data: a.data, mot: a.mot ? 1 : 0 }).then(function (r) { if (r.ok && S.edidRun && a.addr === 0x50 && a.n === 1) S.edidPtr = a.data[0]; addLog(r.ok ? '0x 00' : '', r.ok ? 'ACK' : ('NACK' + (r.err ? '（' + r.err + '）' : '')), !r.ok, r.ok); if (!r.ok && S.edidRun) throw edidErr(r); }); }
       addLog('0x ' + a.src, 'SYS I2C RD(MOT = ' + (a.mot ? 1 : 0) + ') ' + a.n + ' bytes from [0x' + h2(a.addr) + '] (I2C over AUX)');
-      return H.send({ type: 'i2craw', dir: 'r', addr: a.addr, len: a.n, mot: a.mot ? 1 : 0 }).then(function (r) { if (r.ok && a.addr === 0x50 && S.edidPtr != null) { (r.data || []).forEach(function (v, k) { S.edid[S.edidPtr + k] = v & 0xFF; }); S.edidPtr += (r.data || []).length; } if (r.ok) addLog('0x 00 ' + hexs(r.data), 'ACK + 0x' + (r.data || []).map(h2).join(''), false, true); else addLog('', 'NACK' + (r.err ? '（' + r.err + '）' : ''), true); });
+      return H.send({ type: 'i2craw', dir: 'r', addr: a.addr, len: a.n, mot: a.mot ? 1 : 0 }).then(function (r) { if (r.ok && S.edidRun && a.addr === 0x50 && S.edidPtr != null) { (r.data || []).forEach(function (v, k) { S.edid[S.edidPtr + k] = v & 0xFF; }); S.edidPtr += (r.data || []).length; } if (r.ok) addLog('0x 00 ' + hexs(r.data), 'ACK + 0x' + (r.data || []).map(h2).join(''), false, true); else addLog('', 'NACK' + (r.err ? '（' + r.err + '）' : ''), true); if (!r.ok && S.edidRun) throw edidErr(r); });
     }
     return Promise.resolve();
   }
@@ -447,10 +455,16 @@
     S.edid = []; S.edidPtr = null; S.edidBytes = null;
     var c = cardName();
     if (c && !/AMD/.test(c)) msg(t('edidCard', { c: c }), true);
+    else if (S.target && S.target.edid === null) msg(t('edidFilled') + '｜' + t('edidListNone'), true);   /* v1.3：auxlist 用同一個 IOA 讀 0x50 讀不到 */
     else msg(t('edidFilled'));
     var b = $('dp-edid-save'); if (b) b.disabled = true;
   }
-  function edidFail() { var c = cardName(); if (c && !/AMD/.test(c)) msg(t('edidCard', { c: c }), true); }
+  /* v1.3：失敗就停 ⇒ 說清楚停在哪（block 0 拿到幾 byte／block 1）＋bridge 的錯誤 */
+  function edidFail(em) {
+    var c = cardName(); if (c && !/AMD/.test(c)) { msg(t('edidCard', { c: c }), true); return; }
+    var b = S.edid || [], n0 = 0, n1 = 0, i; for (i = 0; i < 128; i++) if (b[i] != null) n0++; for (i = 128; i < 256; i++) if (b[i] != null) n1++;
+    msg((n0 < 128 ? t('edidShort', { n: n0 }) : t('edidShort1', { n: n1 })) + (em ? '：' + em : ''), true);
+  }
   function edidId(b) {
     var mfg = (b[8] << 8) | b[9], prod = b[10] | (b[11] << 8);
     var s = String.fromCharCode(64 + ((mfg >> 10) & 31), 64 + ((mfg >> 5) & 31), 64 + (mfg & 31));
@@ -461,7 +475,9 @@
     var b = S.edid || [], n0 = 0; for (var i = 0; i < 128; i++) if (b[i] != null) n0++;
     if (n0 < 128) { var cn = cardName(); msg((cn && !/AMD/.test(cn)) ? t('edidCard', { c: cn }) : t('edidShort', { n: n0 }), true); return; }
     var hdr = b.slice(0, 8);
-    if (hdr.map(h2).join(' ') !== '00 FF FF FF FF FF FF 00') { msg(t('edidBadHdr', { h: hdr.map(h2).join(' ') }), true); return; }
+    if (hdr.map(h2).join(' ') !== '00 FF FF FF FF FF FF 00') {
+      var z = true; for (var q = 0; q < 128; q++) if (b[q] !== 0) { z = false; break; }
+      msg(t('edidBadHdr', { h: hdr.map(h2).join(' ') }) + (z ? '｜' + t('edidZero') : ''), true); return; }
     var ext = b[126];
     var has1 = true; for (var j = 128; j < 256; j++) if (b[j] == null) { has1 = false; break; }
     if (ext >= 1 && !has1) {
